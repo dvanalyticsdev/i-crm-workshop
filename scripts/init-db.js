@@ -2,7 +2,7 @@ require("dotenv").config();
 const { MongoClient } = require("mongodb");
 
 const MONGODB_URI = process.env.MONGODB_URI;
-const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || "dv_workshop_site";
+const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || "i-crm-workshop";
 const MONGODB_STATE_COLLECTION = process.env.MONGODB_STATE_COLLECTION || "app_state";
 
 if (!MONGODB_URI) {

@@ -3,7 +3,7 @@ const { MongoClient } = require("mongodb");
 
 const OLD_URI = process.env.OLD_MONGODB_URI;
 const NEW_URI = process.env.NEW_MONGODB_URI;
-const DB_NAME = process.env.MONGODB_DB_NAME || "dv_workshop_site";
+const DB_NAME = process.env.MONGODB_DB_NAME || "i-crm-workshop";
 const COLLECTIONS = [
   "app_state",
   "user_sessions",

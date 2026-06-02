@@ -10,7 +10,7 @@ const PORT = Number(process.env.PORT || 3000);
 const ROOT_DIR = __dirname;
 
 const MONGODB_URI = process.env.MONGODB_URI;
-const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || "dv_workshop_site";
+const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || "i-crm-workshop";
 const MONGODB_STATE_COLLECTION = process.env.MONGODB_STATE_COLLECTION || "app_state";
 const MONGODB_SESSION_COLLECTION = process.env.MONGODB_SESSION_COLLECTION || "user_sessions";
 const MONGODB_PREFERENCE_COLLECTION = process.env.MONGODB_PREFERENCE_COLLECTION || "user_preferences";
