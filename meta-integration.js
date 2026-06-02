@@ -1,5 +1,5 @@
 import { registerPageCleanup } from "./page-runtime.js";
-import { bootstrapLocalState, getSession, getCounselors, startStatePolling } from "./state-sync.js";
+import { bootstrapLocalState, getSession, getCounselors, saveCounselors, startStatePolling } from "./state-sync.js";
 
 await bootstrapLocalState();
 
@@ -29,6 +29,8 @@ const saveConfigMessage        = document.getElementById("saveConfigMessage");
 const rrIndexDisplay           = document.getElementById("rrIndexDisplay");
 const rrNextCounselor          = document.getElementById("rrNextCounselor");
 const rrCounselorCount         = document.getElementById("rrCounselorCount");
+const rrCounselorList          = document.getElementById("rrCounselorList");
+const rrRosterMessage          = document.getElementById("rrRosterMessage");
 const resetRrBtn               = document.getElementById("resetRrBtn");
 const rrMessage                = document.getElementById("rrMessage");
 const refreshLogsBtn           = document.getElementById("refreshLogsBtn");
@@ -42,6 +44,7 @@ let allLogs = [];
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function showMessage(el, text, isError = false) {
+  if (!el) return;
   el.textContent = text;
   el.style.color = isError ? "var(--danger, #ef4444)" : "var(--success, #22c55e)";
   if (text) {
@@ -76,6 +79,10 @@ function generateToken(length = 32) {
 function buildWebhookUrl() {
   const origin = window.location.origin;
   return `${origin}/api/meta/webhook`;
+}
+
+function isCounselorInMetaRotation(counselor) {
+  return counselor?.roundRobinEnabled !== false && !counselor?.disabled;
 }
 
 // ── Config load / render ──────────────────────────────────────────────────────
@@ -143,7 +150,7 @@ function applyConfig(config) {
 }
 
 function updateRRDisplay(rrIdx) {
-  const counselors = getCounselors().filter((c) => !c.disabled);
+  const counselors = getCounselors().filter(isCounselorInMetaRotation);
   if (rrCounselorCount) rrCounselorCount.textContent = counselors.length;
   if (!counselors.length) {
     rrNextCounselor.textContent = "No counselors";
@@ -154,6 +161,69 @@ function updateRRDisplay(rrIdx) {
 }
 
 // ── Form IDs list ─────────────────────────────────────────────────────────────
+
+function renderRoundRobinCounselors() {
+  if (!rrCounselorList) return;
+
+  const counselors = getCounselors();
+  if (!counselors.length) {
+    rrCounselorList.innerHTML = '<p class="rr-roster-empty">No counselors found yet. Add counselors in Counselor Management.</p>';
+    return;
+  }
+
+  rrCounselorList.innerHTML = counselors.map((counselor) => {
+    const checked = isCounselorInMetaRotation(counselor);
+    const status = checked ? "In rotation" : "Paused";
+    return `
+      <div class="rr-roster-row">
+        <div class="rr-roster-person">
+          <strong>${escapeHtml(counselor.name || "Unnamed Counselor")}</strong>
+          <span>${escapeHtml(counselor.email || "No email")}</span>
+        </div>
+        <div class="rr-roster-control">
+          <span class="rr-roster-status">${status}</span>
+          <label class="switch" aria-label="Toggle ${escapeHtml(counselor.name || "counselor")} in Meta round-robin">
+            <input type="checkbox" class="rr-counselor-toggle" data-counselor-id="${escapeHtml(counselor.id || counselor.email || "")}" ${checked ? "checked" : ""} ${session.role === "admin" ? "" : "disabled"} />
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  rrCounselorList.querySelectorAll(".rr-counselor-toggle").forEach((toggle) => {
+    toggle.addEventListener("change", () => {
+      const counselorId = toggle.getAttribute("data-counselor-id");
+      void updateCounselorRoundRobinStatus(counselorId, toggle.checked);
+    });
+  });
+}
+
+async function updateCounselorRoundRobinStatus(counselorId, enabled) {
+  if (session.role !== "admin") return;
+
+  const counselors = getCounselors();
+  const nextCounselors = counselors.map((counselor) => {
+    const id = String(counselor.id || counselor.email || "");
+    if (id !== String(counselorId || "")) return counselor;
+    return {
+      ...counselor,
+      roundRobinEnabled: enabled
+    };
+  });
+
+  showMessage(rrRosterMessage, "Saving counselor rotation...");
+  const result = await saveCounselors(nextCounselors);
+  if (!result || result.ok === false) {
+    showMessage(rrRosterMessage, result?.message || "Failed to update counselor rotation.", true);
+    renderRoundRobinCounselors();
+    return;
+  }
+
+  renderRoundRobinCounselors();
+  updateRRDisplay(Number(rrIndexDisplay.textContent) || 0);
+  showMessage(rrRosterMessage, "Counselor rotation updated.");
+}
 
 function renderFormIds(ids) {
   formIdsList.innerHTML = "";
@@ -349,13 +419,15 @@ webhookUrlInput.value = buildWebhookUrl();
 
 const config = await loadConfig();
 applyConfig(config);
+renderRoundRobinCounselors();
 await loadLogs();
 
-const stopPolling = startStatePolling(15000, () => {
+const stopPolling = startStatePolling(() => {
   // Refresh RR display if counselor list changes.
   const rrIdx = Number(rrIndexDisplay.textContent) || 0;
   updateRRDisplay(rrIdx);
-});
+  renderRoundRobinCounselors();
+}, 15000);
 
 registerPageCleanup(() => {
   stopPolling?.();

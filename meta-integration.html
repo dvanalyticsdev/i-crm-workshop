@@ -203,6 +203,34 @@
     .rr-kpi__label { font-size: 0.75rem; opacity: 0.6; font-weight: 500; }
     .rr-kpi__value { font-size: 1.4rem; font-weight: 800; }
     .rr-kpi__sub   { font-size: 0.75rem; opacity: 0.55; }
+    .rr-roster {
+      border: 1.5px solid var(--border, #e5e7eb);
+      border-radius: 12px;
+      overflow: hidden;
+      margin-bottom: 1rem;
+    }
+    .rr-roster-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.85rem 1rem;
+      background: var(--surface, #fff);
+      border-bottom: 1px solid var(--border, #e5e7eb);
+    }
+    .rr-roster-row:last-child { border-bottom: 0; }
+    [data-theme="dark"] .rr-roster-row { background: rgba(255,255,255,0.025); }
+    .rr-roster-person { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+    .rr-roster-person strong { font-size: 0.92rem; }
+    .rr-roster-person span { font-size: 0.78rem; opacity: 0.58; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rr-roster-control { display: flex; align-items: center; gap: 0.7rem; flex-shrink: 0; }
+    .rr-roster-status { font-size: 0.76rem; font-weight: 700; opacity: 0.68; }
+    .rr-roster-empty { margin: 0; padding: 1rem; font-size: 0.85rem; opacity: 0.58; }
+    .rr-roster-message { display: inline-block; min-height: 1.2em; font-size: 0.85rem; margin-bottom: 0.75rem; }
+    @media (max-width: 560px) {
+      .rr-roster-row { align-items: flex-start; flex-direction: column; }
+      .rr-roster-control { width: 100%; justify-content: space-between; }
+    }
 
     /* ── Note callout ── */
     .note-callout {
@@ -536,6 +564,13 @@
               <span class="rr-kpi__sub">in rotation</span>
             </div>
           </div>
+
+          <div class="meta-section-title" style="margin-bottom:.75rem;">
+            <h3>Counselor Rotation</h3>
+            <p>Switch counselors on or off for Meta lead round-robin assignment.</p>
+          </div>
+          <span id="rrRosterMessage" class="rr-roster-message"></span>
+          <div id="rrCounselorList" class="rr-roster"></div>
 
           <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;">
             <button type="button" class="btn-secondary" id="resetRrBtn">Reset Meta Lead Count</button>

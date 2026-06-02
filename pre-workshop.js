@@ -1795,6 +1795,12 @@ function closeActivityStatusModal() {
 
 let notesLeadId = null;
 
+function canEditLeadNotes(lead) {
+  if (!isCounselorSession()) return false;
+  const owner = String(lead?.counselor || "").trim().toLowerCase();
+  return owner === getCounselorIdentity();
+}
+
 function openNotesModal(leadId) {
   notesLeadId = leadId;
   const allLeads = getAllLeads();
@@ -1804,6 +1810,7 @@ function openNotesModal(leadId) {
   }
 
   const notes = Array.isArray(lead.leadNotes) ? lead.leadNotes : [];
+  const canEditNotes = canEditLeadNotes(lead);
   const notesListSection = document.getElementById("notesListSection");
   if (notesListSection) {
     notesListSection.innerHTML = notes.length
@@ -1811,9 +1818,9 @@ function openNotesModal(leadId) {
         <div class="note-item">
           <span class="note-text">${note.text}</span>
           <span class="note-meta">${note.by || ""}${note.by && note.at ? " \u2013 " : ""}${note.at || ""}</span>
-          <button type="button" class="btn-ghost btn-delete-note" data-note-index="${idx}" style="font-size:0.75rem;padding:2px 6px;">Delete</button>
+          ${canEditNotes ? `<button type="button" class="btn-ghost btn-delete-note" data-note-index="${idx}" style="font-size:0.75rem;padding:2px 6px;">Delete</button>` : ""}
         </div>`).join("")
-      : "<p class=\"block-help\">No notes yet. Add one below.</p>";
+      : `<p class="block-help">${canEditNotes ? "No notes yet. Add one below." : "No notes yet."}</p>`;
 
     notesListSection.querySelectorAll(".btn-delete-note").forEach((btn) => {
       btn.onclick = () => {
@@ -1826,6 +1833,16 @@ function openNotesModal(leadId) {
   const newNoteInput = document.getElementById("newNoteInput");
   if (newNoteInput) {
     newNoteInput.value = "";
+  }
+
+  const noteInputRow = newNoteInput?.closest(".modal-row");
+  if (noteInputRow) {
+    noteInputRow.classList.toggle("hidden", !canEditNotes);
+  }
+
+  const saveNoteBtn = document.getElementById("saveNoteBtn");
+  if (saveNoteBtn) {
+    saveNoteBtn.classList.toggle("hidden", !canEditNotes);
   }
 
   const notesModal = document.getElementById("notesModal");
@@ -1852,6 +1869,10 @@ async function saveNote() {
   const allLeads = getAllLeads();
   const index = allLeads.findIndex((item) => String(item.id) === String(notesLeadId));
   if (index === -1) {
+    return;
+  }
+  if (!canEditLeadNotes(allLeads[index])) {
+    showToast("Only the assigned counselor can edit notes.", true);
     return;
   }
 
@@ -1881,6 +1902,10 @@ async function deleteNote(leadId, noteIndex) {
   const allLeads = getAllLeads();
   const index = allLeads.findIndex((item) => String(item.id) === String(leadId));
   if (index === -1) {
+    return;
+  }
+  if (!canEditLeadNotes(allLeads[index])) {
+    showToast("Only the assigned counselor can delete notes.", true);
     return;
   }
 

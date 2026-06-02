@@ -351,6 +351,10 @@ function normalizeMetaLabel(value) {
     .trim();
 }
 
+function isCounselorInMetaRotation(counselor) {
+  return counselor?.roundRobinEnabled !== false && !counselor?.disabled;
+}
+
 async function fetchMetaLeadDetails(leadgenId, pageAccessToken) {
   // `page_id` is supplied by the webhook payload, not the lead details endpoint.
   const fields = "field_data,created_time,form_id,ad_id,ad_name,adset_name,campaign_name";
@@ -359,10 +363,40 @@ async function fetchMetaLeadDetails(leadgenId, pageAccessToken) {
     `?fields=${fields}&access_token=${encodeURIComponent(pageAccessToken)}`;
   // native fetch available in Node 18+; fall back to https for older runtimes
   if (typeof fetch === "function") {
-    const resp = await fetch(graphUrl);
-    const json = await resp.json();
-    if (!resp.ok || json.error) throw new Error(json?.error?.message || `Meta API ${resp.status}`);
-    return json;
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+      try {
+        const resp = await fetch(graphUrl, { signal: controller.signal });
+        const text = await resp.text();
+        let json = null;
+        try {
+          json = text ? JSON.parse(text) : null;
+        } catch {
+          json = null;
+        }
+
+        if (!resp.ok || json?.error) {
+          const metaMessage = json?.error?.message || text || `Meta API ${resp.status}`;
+          throw new Error(`Meta API ${resp.status}: ${metaMessage}`);
+        }
+
+        return json;
+      } catch (err) {
+        const cause = err?.cause?.code || err?.cause?.message || err?.code || err?.message || "unknown error";
+        lastError = new Error(`Meta lead details request failed${attempt > 1 ? " after retry" : ""}: ${cause}`);
+        if (attempt < 2) {
+          await new Promise((resolve) => setTimeout(resolve, 750));
+        }
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    }
+
+    throw lastError || new Error("Meta lead details request failed.");
   }
   // https fallback
   return new Promise((resolve, reject) => {
@@ -489,7 +523,7 @@ async function processMetaWebhookPayload(req, body) {
 
 async function assignCounselorRoundRobin(stateDoc) {
   const counselors = (Array.isArray(stateDoc.counselors) ? stateDoc.counselors : [])
-    .filter((c) => !c.disabled);
+    .filter(isCounselorInMetaRotation);
   if (!counselors.length) return "Unassigned";
   // Atomically increment so concurrent webhook calls never collide.
   const result = await metaConfigCollection.findOneAndUpdate(
