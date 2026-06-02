@@ -561,7 +561,7 @@ function buildMetaLead(fieldData, meta, counselorName, nextId) {
 
   const knownKeys = new Set(["full_name", "name", "first_name", "last_name", "email", "email_address", "phone_number", "phone", "mobile_phone", "mobile", "workshop", "workshop_name", "workshop_title", "workshop_topic", "course", "course_name", "program"]);
   const extraEntries = Object.entries(fields).filter(([k]) => !knownKeys.has(k) && fields[k]);
-  const extraNoteText = extraEntries.map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`).join("; ");
+  const metaExtraFields = Object.fromEntries(extraEntries);
 
   return {
     id: nextId,
@@ -577,6 +577,7 @@ function buildMetaLead(fieldData, meta, counselorName, nextId) {
     metaAdName: String(meta.adName || ""),
     metaAdsetName: String(meta.adsetName || ""),
     metaCampaignName: String(meta.campaignName || ""),
+    metaExtraFields,
     createdAt: new Date().toISOString().slice(0, 10),
     dialed: "",
     callStatus: "",
@@ -593,9 +594,7 @@ function buildMetaLead(fieldData, meta, counselorName, nextId) {
     workshopActivityHistory: [],
     admissionActivityHistory: [],
     whatsappGroupStatus: "",
-    leadNotes: extraNoteText
-      ? [{ text: `Meta form data: ${extraNoteText}`, createdAt: new Date().toISOString() }]
-      : [],
+    leadNotes: [],
     importSourceFiles: ["Meta Lead Ads"],
     importSourceSheets: []
   };
