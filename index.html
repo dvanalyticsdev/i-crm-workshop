@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DV Workshop Lead Platform | Login</title>
+  <link rel="icon" type="image/png" href="Logos/DV-Logo.png" />
+  <script src="theme-bootstrap.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="auth-body">
+  <main class="auth-shell">
+    <section class="card auth-card">
+      <div class="auth-toolbar">
+        <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">
+          <span class="theme-toggle__stack" aria-hidden="true">
+            <span class="theme-toggle__icon theme-toggle__icon--sun" aria-hidden="true">
+              <svg viewBox="0 0 24 24" role="presentation" focusable="false">
+                <circle cx="12" cy="12" r="4.5"></circle>
+                <path d="M12 1.8v2.4M12 19.8v2.4M4.2 4.2l1.7 1.7M18.1 18.1l1.7 1.7M1.8 12h2.4M19.8 12h2.4M4.2 19.8l1.7-1.7M18.1 5.9l1.7-1.7"></path>
+              </svg>
+            </span>
+            <span class="theme-toggle__icon theme-toggle__icon--moon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" role="presentation" focusable="false">
+                <path d="M20.2 14.7A8.2 8.2 0 0 1 9.3 3.8a8.5 8.5 0 1 0 10.9 10.9Z"></path>
+              </svg>
+            </span>
+          </span>
+          <span class="theme-toggle__label" data-theme-label>Light</span>
+        </button>
+      </div>
+
+      <div class="brand-wrap">
+        <div class="icrm-hero-wrap">
+          <div class="icrm-ambient" aria-hidden="true"></div>
+          <div class="icrm-particles" aria-hidden="true">
+            <span class="icrm-particle"></span>
+            <span class="icrm-particle"></span>
+            <span class="icrm-particle"></span>
+            <span class="icrm-particle"></span>
+            <span class="icrm-particle"></span>
+            <span class="icrm-particle"></span>
+            <span class="icrm-particle"></span>
+            <span class="icrm-particle"></span>
+            <span class="icrm-particle"></span>
+            <span class="icrm-particle"></span>
+            <span class="icrm-particle"></span>
+            <span class="icrm-particle"></span>
+          </div>
+          <div class="icrm-logo-wrap icrm-logo--brand">
+            <div class="icrm-text-wrap">
+              <span class="icrm-logo-text">i-CRM</span>
+            </div>
+            <div class="icrm-dv-badge">
+              <span class="icrm-dv-by">by</span>
+              <img src="Logos/DV-Logo.png" alt="DV Analytics" class="icrm-dv-img" />
+            </div>
+          </div>
+        </div>
+        <p class="subtitle">Workshop Lead Management Platform</p>
+      </div>
+      <header class="auth-header">
+        <h1>Welcome Back</h1>
+        <p>Sign in to access workshop leads and analytics.</p>
+      </header>
+
+      <div class="role-switch" role="tablist" aria-label="Login role selector">
+        <button type="button" class="role-btn active" data-role="admin">Admin Login</button>
+        <button type="button" class="role-btn" data-role="counselor">Counselor Login</button>
+        <button type="button" class="role-btn" data-role="marketing">Marketing Login</button>
+      </div>
+
+      <form id="loginForm" class="auth-form">
+        <input type="hidden" id="selectedRole" value="admin" />
+
+        <label for="email">Admin ID / Counselor Email</label>
+        <input id="email" name="email" type="text" placeholder="Enter admin ID or counselor email" required />
+
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" placeholder="Enter password" required />
+
+        <button type="submit" class="btn-primary">Continue</button>
+      </form>
+
+      <p id="loginMessage" class="message" aria-live="polite"></p>
+    </section>
+  </main>
+
+  <script type="module" src="login.js"></script>
+</body>
+</html>

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Monitoring | Counselor Performance</title>
+  <link rel="icon" type="image/png" href="Logos/DV-Logo.png" />
+  <script src="theme-bootstrap.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body class="dashboard-body">
+  <div class="layout-root">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="icrm-logo-wrap">
+          <div class="icrm-text-wrap">
+            <span class="icrm-logo-text">i-CRM</span>
+          </div>
+          <div class="icrm-dv-badge">
+            <span class="icrm-dv-by">by</span>
+            <img src="Logos/DV-Logo.png" alt="DV Analytics" class="icrm-dv-img" />
+          </div>
+        </div>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="dashboard.html" class="sidebar-link">Dashboard</a>
+        <a href="pre-workshop.html" class="sidebar-link">Workshop Calling</a>
+        <a href="post-workshop.html" class="sidebar-link">Admission Calling</a>
+        <a href="task-tracker.html" class="sidebar-link" data-counselor-only="true">Task Tracker</a>
+        <a href="lost-leads.html" class="sidebar-link">Lost Leads</a>
+        <a href="monitoring.html" class="sidebar-link">Monitoring</a>
+      </nav>
+      <div class="sidebar-bottom-links" style="display:flex;flex-direction:column;gap:0;">
+        <a href="counselor-management.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Counselor Management</a>
+        <a href="meta-integration.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Meta Integration</a>
+      </div>
+    </aside>
+
+    <div class="main-content">
+      <header class="topbar">
+        <div class="topbar-title">
+          <h1>Monitoring Dashboard</h1>
+          <p>Analyze counselor performance, lead engagement activity, and conversion movement.</p>
+        </div>
+        <div class="topbar-profile">
+          <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">
+            <span class="theme-toggle__stack" aria-hidden="true">
+              <span class="theme-toggle__icon theme-toggle__icon--sun" aria-hidden="true">
+                <svg viewBox="0 0 24 24" role="presentation" focusable="false">
+                  <circle cx="12" cy="12" r="4.5"></circle>
+                  <path d="M12 1.8v2.4M12 19.8v2.4M4.2 4.2l1.7 1.7M18.1 18.1l1.7 1.7M1.8 12h2.4M19.8 12h2.4M4.2 19.8l1.7-1.7M18.1 5.9l1.7-1.7"></path>
+                </svg>
+              </span>
+              <span class="theme-toggle__icon theme-toggle__icon--moon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" role="presentation" focusable="false">
+                  <path d="M20.2 14.7A8.2 8.2 0 0 1 9.3 3.8a8.5 8.5 0 1 0 10.9 10.9Z"></path>
+                </svg>
+              </span>
+            </span>
+            <span class="theme-toggle__label" data-theme-label>Light</span>
+          </button>
+          <span class="role-tag" data-role-tag></span>
+          <button data-logout class="btn-ghost" type="button">Log out</button>
+        </div>
+      </header>
+
+      <section class="card filter-bar">
+        <div class="filter-row">
+          <div class="filter-item">
+            <label for="monitoringTimelineSelect">Timeline</label>
+            <select id="monitoringTimelineSelect">
+              <option value="overall">Overall</option>
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="week" selected>Week</option>
+              <option value="custom">Custom Range</option>
+            </select>
+          </div>
+          <div class="filter-item hidden" id="monitoringStartDateWrap">
+            <label for="monitoringStartDate">Start Date</label>
+            <input id="monitoringStartDate" type="date" />
+          </div>
+          <div class="filter-item hidden" id="monitoringEndDateWrap">
+            <label for="monitoringEndDate">End Date</label>
+            <input id="monitoringEndDate" type="date" />
+          </div>
+          <div class="filter-item filter-item-cta">
+            <label>&nbsp;</label>
+            <div class="filter-actions">
+              <button id="resetMonitoringTimeline" class="btn-ghost" type="button">Reset</button>
+              <button id="exportMonitoringBtn" class="btn-primary" type="button" data-admin-only="true">Export Excel</button>
+            </div>
+          </div>
+        </div>
+        <p id="monitoringExportMessage" class="message" aria-live="polite"></p>
+      </section>
+
+      <section class="kpi-grid" id="monitoringKpiSection"></section>
+
+      <section class="card table-card monitoring-panel">
+        <div class="card-head">
+          <h3>Workshop Calling Monitoring</h3>
+          <p>Counselor activity and workshop-stage lead engagement summary.</p>
+        </div>
+        <div id="preMonitoringTable"></div>
+      </section>
+
+      <section class="card table-card monitoring-panel">
+        <div class="card-head">
+          <h3>Admission Calling Monitoring</h3>
+          <p>Counselor admission-stage follow-up and conversion activity summary.</p>
+        </div>
+        <div id="postMonitoringTable"></div>
+      </section>
+    </div>
+  </div>
+
+  <script type="module" src="monitoring.js"></script>
+  <script type="module" src="layouts.js"></script>
+</body>
+</html>

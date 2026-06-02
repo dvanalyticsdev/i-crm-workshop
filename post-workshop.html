@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admission Calling Lead Management</title>
+  <link rel="icon" type="image/png" href="Logos/DV-Logo.png" />
+  <script src="theme-bootstrap.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="dashboard-body">
+  <div class="layout-root">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="icrm-logo-wrap">
+          <div class="icrm-text-wrap">
+            <span class="icrm-logo-text">i-CRM</span>
+          </div>
+          <div class="icrm-dv-badge">
+            <span class="icrm-dv-by">by</span>
+            <img src="Logos/DV-Logo.png" alt="DV Analytics" class="icrm-dv-img" />
+          </div>
+        </div>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="dashboard.html" class="sidebar-link">Dashboard</a>
+        <a href="pre-workshop.html" class="sidebar-link">Workshop Calling</a>
+        <a href="post-workshop.html" class="sidebar-link">Admission Calling</a>
+        <a href="task-tracker.html" class="sidebar-link" data-counselor-only="true">Task Tracker</a>
+        <a href="lost-leads.html" class="sidebar-link">Lost Leads</a>
+        <a href="monitoring.html" class="sidebar-link">Monitoring</a>
+      </nav>
+      <div class="sidebar-bottom-links" style="display:flex;flex-direction:column;gap:0;">
+        <a href="counselor-management.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Counselor Management</a>
+        <a href="meta-integration.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Meta Integration</a>
+      </div>
+    </aside>
+    <div class="main-content">
+      <header class="topbar">
+        <div class="topbar-title">
+          <h1>Admission Calling Lead Management</h1>
+          <p>Track follow-ups and course conversion after workshop engagement.</p>
+        </div>
+        <div class="topbar-profile">
+          <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">
+            <span class="theme-toggle__stack" aria-hidden="true">
+              <span class="theme-toggle__icon theme-toggle__icon--sun" aria-hidden="true">
+                <svg viewBox="0 0 24 24" role="presentation" focusable="false">
+                  <circle cx="12" cy="12" r="4.5"></circle>
+                  <path d="M12 1.8v2.4M12 19.8v2.4M4.2 4.2l1.7 1.7M18.1 18.1l1.7 1.7M1.8 12h2.4M19.8 12h2.4M4.2 19.8l1.7-1.7M18.1 5.9l1.7-1.7"></path>
+                </svg>
+              </span>
+              <span class="theme-toggle__icon theme-toggle__icon--moon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" role="presentation" focusable="false">
+                  <path d="M20.2 14.7A8.2 8.2 0 0 1 9.3 3.8a8.5 8.5 0 1 0 10.9 10.9Z"></path>
+                </svg>
+              </span>
+            </span>
+            <span class="theme-toggle__label" data-theme-label>Light</span>
+          </button>
+          <span class="role-tag" data-role-tag></span>
+          <button data-logout class="btn-ghost" type="button">Log out</button>
+        </div>
+      </header>
+
+      <section class="kpi-grid" id="postKpiSection"></section>
+      <section class="card filter-bar" id="postFilterBar"></section>
+      <p id="postActivityMessage" class="message" aria-live="polite"></p>
+      <section class="card table-card" id="postLeadTableSection"></section>
+
+      <div id="postActivityModal" class="modal hidden">
+        <div class="modal-content card">
+          <h3 id="postActivityModalTitle">Update Admission Calling Activity</h3>
+          <form id="postActivityForm">
+            <div class="modal-row">
+              <label for="modalPostDialed">Dialed</label>
+              <select id="modalPostDialed">
+                <option value="">Select</option>
+                <option value="Yes">Yes</option>
+                <option value="No">No</option>
+              </select>
+            </div>
+            <div class="modal-row">
+              <label for="modalCoursePitched">Course Pitched</label>
+              <select id="modalCoursePitched">
+                <option value="">Select</option>
+                <option value="No">No</option>
+                <option value="APIDA">APIDA</option>
+                <option value="APIDS">APIDS</option>
+                <option value="Advanced AI/ML">Advanced AI/ML</option>
+                <option value="Gen AI">Gen AI</option>
+              </select>
+            </div>
+            <div class="modal-row">
+              <label for="modalCourseStatus">Course Status</label>
+              <select id="modalCourseStatus">
+                <option value="">Select</option>
+                <option value="Interested">Interested</option>
+                <option value="Not Interested">Not Interested</option>
+              </select>
+            </div>
+            <div class="modal-row">
+              <label for="modalAdmissionStatus">Admission</label>
+              <select id="modalAdmissionStatus">
+                <option value="">Select</option>
+                <option value="In-Converstion">In-Converstion</option>
+                <option value="Enrolled">Enrolled</option>
+                <option value="Won">Won</option>
+              </select>
+            </div>
+            <div class="modal-row">
+              <label for="modalPostCallStatus">Call Status</label>
+              <select id="modalPostCallStatus">
+                <option value="">Select</option>
+                <option value="Connected">Connected</option>
+                <option value="CBL">CBL</option>
+                <option value="DNP">DNP</option>
+                <option value="CNC">CNC</option>
+              </select>
+            </div>
+            <div class="modal-row">
+              <label for="modalWorkshopJoiningStatus">Workshop Joining Status</label>
+              <select id="modalWorkshopJoiningStatus">
+                <option value="">Select</option>
+                <option value="Joined">Joined</option>
+                <option value="Not Joined">Not Joined</option>
+              </select>
+            </div>
+            <div class="modal-actions">
+              <button type="submit" id="savePostActivityBtn" class="btn-primary">Save</button>
+              <button type="button" id="closePostModalBtn" class="btn-ghost">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div id="taskModal" class="modal hidden">
+        <div class="modal-content card">
+          <h3 id="taskModalTitle">Create Task</h3>
+          <form id="taskForm">
+            <input type="hidden" id="taskLeadId" />
+            <input type="hidden" id="taskCategory" />
+            <div class="modal-row">
+              <label for="taskLeadName">Lead</label>
+              <input id="taskLeadName" type="text" disabled />
+            </div>
+            <div class="modal-row">
+              <label for="taskLeadPhone">Phone Number</label>
+              <input id="taskLeadPhone" type="text" disabled />
+            </div>
+            <div class="modal-row">
+              <label for="taskCounselor">Counselor</label>
+              <input id="taskCounselor" type="text" disabled />
+            </div>
+            <div class="modal-row">
+              <label for="taskTitle">Task Title</label>
+              <input id="taskTitle" type="text" required />
+            </div>
+            <div class="modal-row">
+              <label for="taskNotes">Notes</label>
+              <textarea id="taskNotes" rows="4" placeholder="Optional notes"></textarea>
+            </div>
+            <div class="modal-row">
+              <label for="taskDueDate">Due Date</label>
+              <input id="taskDueDate" type="date" required />
+            </div>
+            <p id="taskMessage" class="message" aria-live="polite"></p>
+            <div class="modal-actions">
+              <button type="submit" class="btn-primary">Create Task</button>
+              <button type="button" id="closeTaskModalBtn" class="btn-ghost">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div id="notesModal" class="modal hidden">
+      <div class="modal-content card">
+        <h3>Lead Notes</h3>
+        <div id="notesListSection"></div>
+        <div class="modal-row">
+          <label for="newNoteInput">Add Note</label>
+          <textarea id="newNoteInput" rows="3" placeholder="Enter note..."></textarea>
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="saveNoteBtn" class="btn-primary">Save Note</button>
+          <button type="button" id="closeNotesModalBtn" class="btn-ghost">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="post-workshop.js"></script>
+  <script type="module" src="layouts.js"></script>
+</body>
+</html>
