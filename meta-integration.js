@@ -115,7 +115,7 @@ function applyConfig(config) {
   enabledToggle.checked = !!config.enabled;
   verifyTokenInput.value = config.verifyToken || "";
   pageIdInput.value      = config.pageId || "";
-  webhookUrlInput.value  = config.webhookUrl || buildWebhookUrl();
+  webhookUrlInput.value  = buildWebhookUrl();
 
   // Credential status chips
   if (config.appSecretSet) {

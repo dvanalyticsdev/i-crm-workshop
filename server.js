@@ -282,7 +282,6 @@ async function getMetaConfig() {
     verifyToken: "",
     appSecret: "",
     pageAccessToken: "",
-    webhookUrl: "",
     pageId: "",
     formIds: [],
     roundRobinIndex: 0
@@ -639,7 +638,6 @@ app.get("/api/meta/config", async (req, res) => {
     return res.json({
       enabled:          config.enabled ?? false,
       verifyToken:      config.verifyToken || "",
-      webhookUrl:       config.webhookUrl || "",
       appSecretSet:     !!(config.appSecret),
       pageAccessTokenSet: !!(config.pageAccessToken),
       pageId:           config.pageId || "",
@@ -665,7 +663,6 @@ app.put("/api/meta/config", async (req, res) => {
 
     if (typeof body.enabled === "boolean") patch.enabled = body.enabled;
     if (typeof body.verifyToken === "string") patch.verifyToken = String(body.verifyToken).trim();
-    if (typeof body.webhookUrl === "string") patch.webhookUrl = String(body.webhookUrl).trim();
     // Only update secrets when explicitly provided (non-empty string).
     if (typeof body.appSecret === "string" && body.appSecret.trim()) {
       patch.appSecret = String(body.appSecret).trim();
@@ -690,7 +687,6 @@ app.put("/api/meta/config", async (req, res) => {
       ok: true,
       enabled:            updated.enabled ?? false,
       verifyToken:        updated.verifyToken || "",
-      webhookUrl:         updated.webhookUrl || "",
       appSecretSet:       !!(updated.appSecret),
       pageAccessTokenSet: !!(updated.pageAccessToken),
       pageId:             updated.pageId || "",
