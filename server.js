@@ -127,7 +127,6 @@ function isTransientMongoError(error) {
 }
 
 async function resetMongoConnection() {
-  const clientToClose = mongoClient;
   mongoClient = null;
   mongoInitPromise = null;
   stateCollection = null;
@@ -135,14 +134,6 @@ async function resetMongoConnection() {
   preferenceCollection = null;
   metaConfigCollection = null;
   metaLogsCollection = null;
-
-  if (clientToClose) {
-    try {
-      await clientToClose.close();
-    } catch {
-      // Ignore close failures during reconnect attempts.
-    }
-  }
 }
 
 async function withMongoRetry(operation, { retries = 1, label = "MongoDB operation" } = {}) {
@@ -333,8 +324,8 @@ async function initMongo() {
         // Generous socket timeout for high-latency or slow-network writes.
         socketTimeoutMS: 45000,
         maxIdleTimeMS: 30000,
-        retryReads: true,
-        retryWrites: true
+        retryReads: false,
+        retryWrites: false
       });
       await mongoClient.connect();
       const db = mongoClient.db(MONGODB_DB_NAME);
