@@ -70,9 +70,11 @@ let sessionCollection;
 let preferenceCollection;
 let metaConfigCollection;
 let metaLogsCollection;
+let mongoClient;
 let mongoInitPromise;
 let cachedStateDoc    = null;
 let cachedStateDocAt  = 0;
+let metaLogWriteCount = 0;
 // Re-read from Mongo after 5 s so stale serverless instances pick up writes
 // from other instances sooner. Shorter TTL reduces the window in which a
 // concurrent GET can return stale data after a PUT on a different instance.
@@ -83,6 +85,67 @@ const STATE_CACHE_TTL_MS = 5000;
 // within a minute without hammering the DB.
 const SESSION_CACHE_TTL_MS = 60000;
 const sessionCache = new Map(); // token → { session, cachedAt }
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientMongoError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  const name = String(error?.name || "").toLowerCase();
+
+  return name === "mongodbnetworkerror" ||
+    name === "mongoserverselectionerror" ||
+    message.includes("server selection timed out") ||
+    message.includes("connect timed out") ||
+    message.includes("secureconnect") ||
+    message.includes("socket") ||
+    message.includes("connection") ||
+    message.includes("econnreset") ||
+    message.includes("etimedout");
+}
+
+async function resetMongoConnection() {
+  const clientToClose = mongoClient;
+  mongoClient = null;
+  mongoInitPromise = null;
+  stateCollection = null;
+  sessionCollection = null;
+  preferenceCollection = null;
+  metaConfigCollection = null;
+  metaLogsCollection = null;
+
+  if (clientToClose) {
+    try {
+      await clientToClose.close();
+    } catch {
+      // Ignore close failures during reconnect attempts.
+    }
+  }
+}
+
+async function withMongoRetry(operation, { retries = 1, label = "MongoDB operation" } = {}) {
+  let lastError = null;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      await initMongo();
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt >= retries || !isTransientMongoError(error)) {
+        break;
+      }
+
+      await resetMongoConnection();
+      await wait(250 * (attempt + 1));
+    }
+  }
+
+  const err = new Error(`${label} failed: ${lastError?.message || "unknown error"}`);
+  err.cause = lastError;
+  throw err;
+}
 
 function getCachedSession(token) {
   const entry = sessionCache.get(token);
@@ -237,20 +300,23 @@ async function initMongo() {
 
   if (!mongoInitPromise) {
     mongoInitPromise = (async () => {
-      const client = new MongoClient(MONGODB_URI, {
+      mongoClient = new MongoClient(MONGODB_URI, {
         // Larger pool so concurrent serverless invocations don't queue waiting
-        // for a connection.  minPoolSize keeps a couple of connections warm so
-        // cold-start latency is lower on the first request after idle time.
+        // for a connection. In serverless, avoid forcing warm connections
+        // because they can create intermittent TLS/connect stalls.
         maxPoolSize: 10,
-        minPoolSize: 2,
+        minPoolSize: 0,
         // Fail fast on cold starts rather than hanging for 30 s.
         serverSelectionTimeoutMS: 8000,
         connectTimeoutMS: 8000,
         // Generous socket timeout for high-latency or slow-network writes.
-        socketTimeoutMS: 45000
+        socketTimeoutMS: 45000,
+        maxIdleTimeMS: 30000,
+        retryReads: true,
+        retryWrites: true
       });
-      await client.connect();
-      const db = client.db(MONGODB_DB_NAME);
+      await mongoClient.connect();
+      const db = mongoClient.db(MONGODB_DB_NAME);
       stateCollection      = db.collection(MONGODB_STATE_COLLECTION);
       sessionCollection    = db.collection(MONGODB_SESSION_COLLECTION);
       preferenceCollection = db.collection(MONGODB_PREFERENCE_COLLECTION);
@@ -266,7 +332,10 @@ async function initMongo() {
         { receivedAt: -1 },
         { background: true }
       ).catch(() => undefined);
-    })();
+    })().catch(async (error) => {
+      await resetMongoConnection();
+      throw error;
+    });
   }
 
   await mongoInitPromise;
@@ -275,7 +344,10 @@ async function initMongo() {
 // ─── Meta Integration Helpers ───────────────────────────────────────────────
 
 async function getMetaConfig() {
-  const doc = await metaConfigCollection.findOne({ _id: META_CONFIG_DOC_ID });
+  const doc = await withMongoRetry(
+    () => metaConfigCollection.findOne({ _id: META_CONFIG_DOC_ID }),
+    { retries: 1, label: "Load Meta config" }
+  );
   return doc || {
     _id: META_CONFIG_DOC_ID,
     enabled: false,
@@ -290,19 +362,38 @@ async function getMetaConfig() {
 
 async function saveMetaLog(entry) {
   const log = { ...entry, receivedAt: new Date().toISOString() };
-  await metaLogsCollection.insertOne(log);
-  // Prune oldest entries beyond the cap to keep collection small.
-  const count = await metaLogsCollection.countDocuments();
-  if (count > MAX_META_LOGS) {
-    const excess = count - MAX_META_LOGS;
-    const oldest = await metaLogsCollection
-      .find({}, { projection: { _id: 1 } })
-      .sort({ receivedAt: 1 })
-      .limit(excess)
-      .toArray();
-    if (oldest.length) {
-      await metaLogsCollection.deleteMany({ _id: { $in: oldest.map((d) => d._id) } });
+
+  try {
+    await withMongoRetry(
+      () => metaLogsCollection.insertOne(log),
+      { retries: 1, label: "Write Meta webhook log" }
+    );
+    metaLogWriteCount += 1;
+
+    // Prune only occasionally so each webhook event does not trigger extra
+    // count/sort/delete traffic against MongoDB.
+    if (metaLogWriteCount % 25 !== 0) {
+      return;
     }
+
+    await withMongoRetry(async () => {
+      const count = await metaLogsCollection.countDocuments();
+      if (count <= MAX_META_LOGS) {
+        return;
+      }
+
+      const excess = count - MAX_META_LOGS;
+      const oldest = await metaLogsCollection
+        .find({}, { projection: { _id: 1 } })
+        .sort({ receivedAt: 1 })
+        .limit(excess)
+        .toArray();
+      if (oldest.length) {
+        await metaLogsCollection.deleteMany({ _id: { $in: oldest.map((doc) => doc._id) } });
+      }
+    }, { retries: 1, label: "Prune Meta webhook logs" });
+  } catch (error) {
+    console.error("Meta log write skipped:", error.message);
   }
 }
 
@@ -386,10 +477,12 @@ async function fetchMetaLeadDetails(leadgenId, pageAccessToken) {
 
         return json;
       } catch (err) {
-        const cause = err?.cause?.code || err?.cause?.message || err?.code || err?.message || "unknown error";
+        const cause = err?.name === "AbortError"
+          ? "request timed out after 12s"
+          : err?.cause?.code || err?.cause?.message || err?.code || err?.message || "unknown error";
         lastError = new Error(`Meta lead details request failed${attempt > 1 ? " after retry" : ""}: ${cause}`);
         if (attempt < 2) {
-          await new Promise((resolve) => setTimeout(resolve, 750));
+          await wait(750);
         }
       } finally {
         clearTimeout(timeoutId);
@@ -416,7 +509,6 @@ async function fetchMetaLeadDetails(leadgenId, pageAccessToken) {
 }
 
 async function processMetaWebhookPayload(req, body) {
-  await initMongo();
   const config = await getMetaConfig();
 
   // Verify HMAC-SHA256 signature to confirm the request is from Meta.
@@ -494,14 +586,17 @@ async function processMetaWebhookPayload(req, body) {
       );
 
       const now = new Date().toISOString();
-      await stateCollection.updateOne(
-        { _id: STATE_DOC_ID },
-        {
-          $push: { leads: newLead },
-          $set:  { updatedAt: now },
-          $setOnInsert: { counselors: [], allocation: [], tasks: [], createdAt: now }
-        },
-        { upsert: true }
+      await withMongoRetry(
+        () => stateCollection.updateOne(
+          { _id: STATE_DOC_ID },
+          {
+            $push: { leads: newLead },
+            $set:  { updatedAt: now },
+            $setOnInsert: { counselors: [], allocation: [], tasks: [], createdAt: now }
+          },
+          { upsert: true }
+        ),
+        { retries: 1, label: "Create Meta lead" }
       );
       // Invalidate cache so the next read hits MongoDB.
       cachedStateDoc   = null;
@@ -526,10 +621,13 @@ async function assignCounselorRoundRobin(stateDoc) {
     .filter(isCounselorInMetaRotation);
   if (!counselors.length) return "Unassigned";
   // Atomically increment so concurrent webhook calls never collide.
-  const result = await metaConfigCollection.findOneAndUpdate(
-    { _id: META_CONFIG_DOC_ID },
-    { $inc: { roundRobinIndex: 1 } },
-    { returnDocument: "after", upsert: true }
+  const result = await withMongoRetry(
+    () => metaConfigCollection.findOneAndUpdate(
+      { _id: META_CONFIG_DOC_ID },
+      { $inc: { roundRobinIndex: 1 } },
+      { returnDocument: "after", upsert: true }
+    ),
+    { retries: 1, label: "Advance Meta round robin" }
   );
   const newIdx = Number(result.roundRobinIndex) || 1;
   const idx = ((newIdx - 1) % counselors.length + counselors.length) % counselors.length;
@@ -824,7 +922,10 @@ async function getStateDoc() {
     return cachedStateDoc;
   }
 
-  const existing = await stateCollection.findOne({ _id: STATE_DOC_ID });
+  const existing = await withMongoRetry(
+    () => stateCollection.findOne({ _id: STATE_DOC_ID }),
+    { retries: 1, label: "Load state document" }
+  );
   if (existing) {
     return cacheStateDoc(existing);
   }
@@ -839,7 +940,10 @@ async function getStateDoc() {
     updatedAt: new Date().toISOString()
   });
 
-  await stateCollection.insertOne(initial);
+  await withMongoRetry(
+    () => stateCollection.insertOne(initial),
+    { retries: 1, label: "Create initial state document" }
+  );
   return initial;
 }
 
