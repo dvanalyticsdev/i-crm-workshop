@@ -50,6 +50,23 @@ app.get("/api/ping", (_req, res) => {
   res.end('{"ok":true}');
 });
 
+app.get("/api/warm", async (_req, res) => {
+  try {
+    await initMongo();
+    // Touch a tiny read so the Mongo path is exercised without the heavier
+    // /api/state payload work.
+    await metaConfigCollection.findOne(
+      { _id: META_CONFIG_DOC_ID },
+      { projection: { _id: 1 } }
+    ).catch(() => undefined);
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Cache-Control", "no-store");
+    res.end('{"ok":true}');
+  } catch (error) {
+    res.status(500).json({ ok: false, message: "Warmup failed", details: error.message });
+  }
+});
+
 app.get("/favicon.ico", (_req, res) => {
   res.status(204).end();
 });

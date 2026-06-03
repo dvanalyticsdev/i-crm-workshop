@@ -27,6 +27,7 @@ const MAX_PUT_RETRIES = 3;
 // Timeout for state mutation PUT requests. Longer than the read timeout to
 // accommodate high-latency connections and larger JSON bodies.
 const PUT_TIMEOUT_MS = 20000;
+const HIDDEN_TAB_WARM_INTERVAL_MS = 45000;
 const stateSubscribers = new Set();
 
 function notifyStateSubscribers() {
@@ -76,6 +77,17 @@ async function fetchJson(url, options = {}, timeoutMs = 10000) {
   const isJson = contentType.includes("application/json");
   const payload = isJson ? await response.json() : null;
   return { response, payload };
+}
+
+async function warmBackend() {
+  const { response } = await fetchJson("/api/warm", {
+    method: "GET",
+    headers: { Accept: "application/json" }
+  }, 10000);
+
+  if (!response.ok) {
+    throw new Error(`Warm request failed with HTTP ${response.status}`);
+  }
 }
 
 function setCurrentState(snapshot) {
@@ -453,6 +465,7 @@ export function startStatePolling(onRefresh, intervalMs = 15000) {
   let pollTimer = null;
   let activePoll = false;
   let destroyed = false;
+  let lastWarmAt = 0;
 
   async function doPoll() {
     if (destroyed || activePoll) {
@@ -497,6 +510,9 @@ export function startStatePolling(onRefresh, intervalMs = 15000) {
     pollTimer = setTimeout(() => {
       if (document.visibilityState !== "hidden") {
         void doPoll();
+      } else if (Date.now() - lastWarmAt >= HIDDEN_TAB_WARM_INTERVAL_MS) {
+        lastWarmAt = Date.now();
+        void warmBackend().catch(() => undefined);
       }
       schedulePoll();
     }, intervalMs);
