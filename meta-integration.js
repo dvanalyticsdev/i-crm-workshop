@@ -38,6 +38,9 @@ const refreshLogsBtn           = document.getElementById("refreshLogsBtn");
 const clearLogsBtn             = document.getElementById("clearLogsBtn");
 const logsTableBody            = document.getElementById("logsTableBody");
 const logTypeFilter            = document.getElementById("logTypeFilter");
+const logSummarySuccess        = document.getElementById("logSummarySuccess");
+const logSummaryIgnored        = document.getElementById("logSummaryIgnored");
+const logSummaryError          = document.getElementById("logSummaryError");
 
 // Raw log data (used for client-side filtering).
 let allLogs = [];
@@ -297,10 +300,26 @@ async function loadLogs() {
     const res = await fetch(apiUrl("/api/meta/logs?limit=50"), { credentials: "same-origin" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     allLogs = await res.json();
+    renderLogSummary(allLogs);
     renderLogs(allLogs);
   } catch (err) {
+    renderLogSummary([]);
     logsTableBody.innerHTML = `<tr><td colspan="5" class="log-empty" style="color:var(--danger)">Failed to load logs: ${escapeHtml(err.message)}</td></tr>`;
   }
+}
+
+function renderLogSummary(logs) {
+  const counts = logs.reduce((acc, log) => {
+    const type = String(log?.type || "").trim().toLowerCase();
+    if (type === "success" || type === "ignored" || type === "error") {
+      acc[type] += 1;
+    }
+    return acc;
+  }, { success: 0, ignored: 0, error: 0 });
+
+  if (logSummarySuccess) logSummarySuccess.textContent = String(counts.success);
+  if (logSummaryIgnored) logSummaryIgnored.textContent = String(counts.ignored);
+  if (logSummaryError) logSummaryError.textContent = String(counts.error);
 }
 
 function renderLogs(logs) {
@@ -339,6 +358,8 @@ async function clearLogs() {
       credentials: "same-origin"
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    allLogs = [];
+    renderLogSummary(allLogs);
     renderLogs([]);
   } catch (err) {
     showMessage(rrMessage, `Failed to clear logs: ${err.message}`, true);

@@ -245,6 +245,35 @@
       display: flex; align-items: center; justify-content: space-between;
       gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem;
     }
+    .log-summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    @media (max-width: 640px) { .log-summary { grid-template-columns: 1fr; } }
+    .log-summary-card {
+      padding: 0.85rem 1rem;
+      border-radius: 10px;
+      border: 1.5px solid var(--border, #e5e7eb);
+      background: var(--surface-alt, #f8fafc);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+    [data-theme="dark"] .log-summary-card { background: rgba(255,255,255,0.04); }
+    .log-summary-card__label { font-size: 0.76rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.62; }
+    .log-summary-card__value { font-size: 1.35rem; font-weight: 800; line-height: 1; }
+    .log-summary-card--success { border-color: #bbf7d0; }
+    .log-summary-card--ignored { border-color: #fde68a; }
+    .log-summary-card--error { border-color: #fecaca; }
+    .log-summary-card--success .log-summary-card__value { color: #15803d; }
+    .log-summary-card--ignored .log-summary-card__value { color: #b45309; }
+    .log-summary-card--error .log-summary-card__value { color: #b91c1c; }
+    [data-theme="dark"] .log-summary-card--success .log-summary-card__value { color: #4ade80; }
+    [data-theme="dark"] .log-summary-card--ignored .log-summary-card__value { color: #fcd34d; }
+    [data-theme="dark"] .log-summary-card--error .log-summary-card__value { color: #f87171; }
     .log-filter-group { display: flex; align-items: center; gap: 0.5rem; }
     .log-filter-group select { font-size: 0.82rem; padding: 0.35rem 0.6rem; }
     .log-table-wrap { overflow-x: auto; max-height: 440px; overflow-y: auto; border: 1px solid var(--border, #e5e7eb); border-radius: 8px; }
@@ -600,6 +629,21 @@
             <div style="display:flex;gap:.5rem;">
               <button type="button" class="btn-secondary" id="refreshLogsBtn" style="font-size:.82rem;padding:.4rem .8rem;">↻ Refresh</button>
               <button type="button" class="btn-danger" id="clearLogsBtn" style="font-size:.82rem;padding:.4rem .8rem;">Clear All</button>
+            </div>
+          </div>
+
+          <div class="log-summary">
+            <div class="log-summary-card log-summary-card--success">
+              <span class="log-summary-card__label">Success</span>
+              <span class="log-summary-card__value" id="logSummarySuccess">0</span>
+            </div>
+            <div class="log-summary-card log-summary-card--ignored">
+              <span class="log-summary-card__label">Ignored</span>
+              <span class="log-summary-card__value" id="logSummaryIgnored">0</span>
+            </div>
+            <div class="log-summary-card log-summary-card--error">
+              <span class="log-summary-card__label">Error</span>
+              <span class="log-summary-card__value" id="logSummaryError">0</span>
             </div>
           </div>
 

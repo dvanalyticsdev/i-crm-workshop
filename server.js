@@ -23,6 +23,8 @@ const MAX_META_LOGS = 200;
 const SESSION_COOKIE_NAME = "dvWorkshopSession";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const FORWARDED_WEBHOOK_HEADER = "x-dv-webhook-forwarded";
+const META_LEAD_FETCH_TIMEOUT_MS = 20000;
+const META_LEAD_FETCH_MAX_ATTEMPTS = 3;
 
 const ADMIN_USER = {
   id: "dvanalytics@W@2010",
@@ -475,9 +477,9 @@ async function fetchMetaLeadDetails(leadgenId, pageAccessToken) {
   if (typeof fetch === "function") {
     let lastError = null;
 
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
+    for (let attempt = 1; attempt <= META_LEAD_FETCH_MAX_ATTEMPTS; attempt += 1) {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      const timeoutId = setTimeout(() => controller.abort(), META_LEAD_FETCH_TIMEOUT_MS);
 
       try {
         const resp = await fetch(graphUrl, { signal: controller.signal });
@@ -497,11 +499,11 @@ async function fetchMetaLeadDetails(leadgenId, pageAccessToken) {
         return json;
       } catch (err) {
         const cause = err?.name === "AbortError"
-          ? "request timed out after 12s"
+          ? `request timed out after ${Math.round(META_LEAD_FETCH_TIMEOUT_MS / 1000)}s`
           : err?.cause?.code || err?.cause?.message || err?.code || err?.message || "unknown error";
         lastError = new Error(`Meta lead details request failed${attempt > 1 ? " after retry" : ""}: ${cause}`);
-        if (attempt < 2) {
-          await wait(750);
+        if (attempt < META_LEAD_FETCH_MAX_ATTEMPTS) {
+          await wait(750 * attempt);
         }
       } finally {
         clearTimeout(timeoutId);
