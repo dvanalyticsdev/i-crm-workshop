@@ -1,4 +1,5 @@
 import { registerPageCleanup } from "./page-runtime.js";
+import { apiUrl } from "./api-client.js";
 import {
   bootstrapLocalState,
   getAllocation as getStoredAllocation,
@@ -88,7 +89,7 @@ async function verifyAssignedCounselorsOnBackend(importedRecords) {
     return { ok: true };
   }
 
-  const { response, json } = await fetchJsonWithTimeout("/api/state", {
+  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/state"), {
     method: "GET",
     headers: { Accept: "application/json" }
   }, 4000);
@@ -442,7 +443,7 @@ async function deleteWholeLeadDataset() {
     return;
   }
 
-  const { response, json } = await fetchJsonWithTimeout("/api/state/reset", {
+  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/state/reset"), {
     method: "PUT",
     headers: {
       "Content-Type": "application/json"
@@ -555,7 +556,7 @@ async function getCounselorNamesForAllocation() {
   }
 
   try {
-    const { response, json } = await fetchJsonWithTimeout("/api/state", {
+    const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/state"), {
       method: "GET",
       headers: { Accept: "application/json" }
     }, 4000);
@@ -630,7 +631,7 @@ function syncAllocationWithCounselors() {
 
 async function fetchCounselorNamesFromApi() {
   try {
-    const response = await fetch("/api/state", {
+    const response = await fetch(apiUrl("/api/state"), {
       method: "GET",
       headers: {
         Accept: "application/json"

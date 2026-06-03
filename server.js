@@ -16,11 +16,13 @@ const MONGODB_SESSION_COLLECTION = process.env.MONGODB_SESSION_COLLECTION || "us
 const MONGODB_PREFERENCE_COLLECTION = process.env.MONGODB_PREFERENCE_COLLECTION || "user_preferences";
 const MONGODB_META_CONFIG_COLLECTION = process.env.MONGODB_META_CONFIG_COLLECTION || "meta_config";
 const MONGODB_META_LOGS_COLLECTION = process.env.MONGODB_META_LOGS_COLLECTION || "meta_logs";
+const META_WEBHOOK_FORWARD_URL = String(process.env.META_WEBHOOK_FORWARD_URL || "").trim();
 const STATE_DOC_ID = "global";
 const META_CONFIG_DOC_ID = "meta_integration";
 const MAX_META_LOGS = 200;
 const SESSION_COOKIE_NAME = "dvWorkshopSession";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const FORWARDED_WEBHOOK_HEADER = "x-dv-webhook-forwarded";
 
 const ADMIN_USER = {
   id: "dvanalytics@W@2010",
@@ -616,6 +618,48 @@ async function processMetaWebhookPayload(req, body) {
   }
 }
 
+function shouldForwardMetaWebhook(req) {
+  return !!META_WEBHOOK_FORWARD_URL && String(req.headers?.[FORWARDED_WEBHOOK_HEADER] || "") !== "1";
+}
+
+async function forwardMetaWebhook(req, fallbackBody) {
+  if (!META_WEBHOOK_FORWARD_URL) {
+    throw new Error("META_WEBHOOK_FORWARD_URL is not configured.");
+  }
+
+  const rawBody = req.rawBody;
+  const body = rawBody && rawBody.length
+    ? rawBody
+    : Buffer.from(JSON.stringify(fallbackBody || {}), "utf8");
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const response = await fetch(META_WEBHOOK_FORWARD_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": req.headers["content-type"] || "application/json",
+        "X-Hub-Signature-256": req.headers["x-hub-signature-256"] || "",
+        [FORWARDED_WEBHOOK_HEADER]: "1"
+      },
+      body,
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`forward target returned ${response.status}${text ? `: ${text}` : ""}`);
+    }
+  } catch (error) {
+    const reason = error?.name === "AbortError"
+      ? "forward request timed out after 10s"
+      : error?.message || "unknown forward error";
+    throw new Error(reason);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 async function assignCounselorRoundRobin(stateDoc) {
   const counselors = (Array.isArray(stateDoc.counselors) ? stateDoc.counselors : [])
     .filter(isCounselorInMetaRotation);
@@ -730,7 +774,23 @@ app.post("/api/meta/webhook", async (req, res) => {
   res.status(200).json({ ok: true });
 
   try {
-    await processMetaWebhookPayload(req, req.body || {});
+    const body = req.body || {};
+
+    if (shouldForwardMetaWebhook(req)) {
+      try {
+        await forwardMetaWebhook(req, body);
+        return;
+      } catch (forwardErr) {
+        try {
+          await saveMetaLog({
+            type: "error",
+            message: `Webhook forward failed: ${forwardErr.message}. Falling back to local processing.`
+          });
+        } catch {}
+      }
+    }
+
+    await processMetaWebhookPayload(req, body);
   } catch (err) {
     // Errors here are internal; Meta already got 200 OK.
     try { await saveMetaLog({ type: "error", message: `Webhook processing error: ${err.message}` }); } catch {}
@@ -745,9 +805,27 @@ app.use((err, req, res, next) => {
         res.status(200).json({ ok: true });
       }
 
-      processMetaWebhookPayload(req, parsed).catch(async (metaErr) => {
-        try { await saveMetaLog({ type: "error", message: `Webhook processing error: ${metaErr.message}` }); } catch {}
-      });
+      (async () => {
+        try {
+          if (shouldForwardMetaWebhook(req)) {
+            try {
+              await forwardMetaWebhook(req, parsed);
+              return;
+            } catch (forwardErr) {
+              try {
+                await saveMetaLog({
+                  type: "error",
+                  message: `Webhook forward failed: ${forwardErr.message}. Falling back to local processing.`
+                });
+              } catch {}
+            }
+          }
+
+          await processMetaWebhookPayload(req, parsed);
+        } catch (metaErr) {
+          try { await saveMetaLog({ type: "error", message: `Webhook processing error: ${metaErr.message}` }); } catch {}
+        }
+      })();
       return;
     }
   }
@@ -1398,11 +1476,11 @@ async function start() {
   });
 }
 
-if (process.env.VERCEL) {
-  module.exports = app;
-} else {
+if (require.main === module) {
   start().catch((error) => {
     console.error("Server startup failed:", error.message);
     process.exit(1);
   });
 }
+
+module.exports = app;

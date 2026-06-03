@@ -1,3 +1,5 @@
+import { apiUrl } from "./api-client.js";
+
 const EMPTY_STATE = {
   leads: [],
   counselors: [],
@@ -69,7 +71,7 @@ function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
 }
 
 async function fetchJson(url, options = {}, timeoutMs = 10000) {
-  const response = await fetchWithTimeout(url, options, timeoutMs);
+  const response = await fetchWithTimeout(apiUrl(url), options, timeoutMs);
   const contentType = response.headers.get("content-type") || "";
   const isJson = contentType.includes("application/json");
   const payload = isJson ? await response.json() : null;

@@ -1,3 +1,5 @@
+import { apiUrl } from "./api-client.js";
+
 /**
  * ping-monitor.js
  *
@@ -70,7 +72,7 @@ async function measurePing() {
   try {
     const controller = new AbortController();
     const timeoutId  = setTimeout(() => controller.abort(), PING_REQUEST_TIMEOUT_MS);
-    const response   = await fetch("/api/ping", {
+    const response   = await fetch(apiUrl("/api/ping"), {
       method:      "GET",
       credentials: "same-origin",
       cache:       "no-store",

@@ -1,5 +1,6 @@
 import { registerPageCleanup } from "./page-runtime.js";
 import { bootstrapLocalState, getSession, getCounselors, saveCounselors, startStatePolling } from "./state-sync.js";
+import { apiUrl } from "./api-client.js";
 
 await bootstrapLocalState();
 
@@ -77,8 +78,7 @@ function generateToken(length = 32) {
 }
 
 function buildWebhookUrl() {
-  const origin = window.location.origin;
-  return `${origin}/api/meta/webhook`;
+  return apiUrl("/api/meta/webhook");
 }
 
 function isCounselorInMetaRotation(counselor) {
@@ -89,7 +89,7 @@ function isCounselorInMetaRotation(counselor) {
 
 async function loadConfig() {
   try {
-    const res = await fetch("/api/meta/config", { credentials: "same-origin" });
+    const res = await fetch(apiUrl("/api/meta/config"), { credentials: "same-origin" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (err) {
@@ -267,7 +267,7 @@ async function saveConfig() {
   if (pat) payload.pageAccessToken = pat;
 
   try {
-    const res = await fetch("/api/meta/config", {
+    const res = await fetch(apiUrl("/api/meta/config"), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
@@ -294,7 +294,7 @@ async function saveConfig() {
 async function loadLogs() {
   logsTableBody.innerHTML = '<tr><td colspan="5" class="log-empty">Loading…</td></tr>';
   try {
-    const res = await fetch("/api/meta/logs?limit=50", { credentials: "same-origin" });
+    const res = await fetch(apiUrl("/api/meta/logs?limit=50"), { credentials: "same-origin" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     allLogs = await res.json();
     renderLogs(allLogs);
@@ -334,7 +334,7 @@ async function clearLogs() {
   if (!window.confirm("Clear all webhook logs? This cannot be undone.")) return;
   clearLogsBtn.disabled = true;
   try {
-    const res = await fetch("/api/meta/logs", {
+    const res = await fetch(apiUrl("/api/meta/logs"), {
       method: "DELETE",
       credentials: "same-origin"
     });
@@ -354,7 +354,7 @@ async function resetRoundRobin() {
   resetRrBtn.disabled = true;
   showMessage(rrMessage, "Resetting…");
   try {
-    const res = await fetch("/api/meta/rr-state/reset", {
+    const res = await fetch(apiUrl("/api/meta/rr-state/reset"), {
       method: "POST",
       credentials: "same-origin"
     });
