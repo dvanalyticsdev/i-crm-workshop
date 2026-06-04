@@ -274,6 +274,44 @@
     [data-theme="dark"] .log-summary-card--success .log-summary-card__value { color: #4ade80; }
     [data-theme="dark"] .log-summary-card--ignored .log-summary-card__value { color: #fcd34d; }
     [data-theme="dark"] .log-summary-card--error .log-summary-card__value { color: #f87171; }
+    .retry-panel {
+      margin-bottom: 1rem;
+      border: 1.5px solid #fecaca;
+      border-radius: 12px;
+      background: #fff5f5;
+      overflow: hidden;
+    }
+    [data-theme="dark"] .retry-panel {
+      background: rgba(127, 29, 29, 0.14);
+      border-color: #7f1d1d;
+    }
+    .retry-panel__header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.9rem 1rem;
+      border-bottom: 1px solid rgba(185, 28, 28, 0.12);
+    }
+    .retry-panel__title { font-size: 0.84rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: #b91c1c; }
+    .retry-panel__count { font-size: 0.82rem; font-weight: 700; opacity: 0.75; }
+    .retry-panel__empty { padding: 1rem; font-size: 0.84rem; opacity: 0.7; }
+    .retry-table-wrap { overflow-x: auto; }
+    .retry-table { width: 100%; border-collapse: collapse; font-size: 0.81rem; }
+    .retry-table th,
+    .retry-table td { padding: 0.7rem 0.9rem; text-align: left; border-bottom: 1px solid var(--border, #e5e7eb); vertical-align: top; }
+    .retry-table tr:last-child td { border-bottom: none; }
+    .retry-table th { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.68; }
+    .retry-badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      background: #fee2e2;
+      color: #991b1b;
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+    [data-theme="dark"] .retry-badge { background: #7f1d1d; color: #fca5a5; }
     .log-filter-group { display: flex; align-items: center; gap: 0.5rem; }
     .log-filter-group select { font-size: 0.82rem; padding: 0.35rem 0.6rem; }
     .log-table-wrap { overflow-x: auto; max-height: 440px; overflow-y: auto; border: 1px solid var(--border, #e5e7eb); border-radius: 8px; }
@@ -644,6 +682,16 @@
             <div class="log-summary-card log-summary-card--error">
               <span class="log-summary-card__label">Error</span>
               <span class="log-summary-card__value" id="logSummaryError">0</span>
+            </div>
+          </div>
+
+          <div class="retry-panel">
+            <div class="retry-panel__header">
+              <span class="retry-panel__title">Pending Errors / Retry Queue</span>
+              <span class="retry-panel__count" id="retryQueueCount">0 active</span>
+            </div>
+            <div class="retry-table-wrap" id="retryQueueWrap">
+              <div class="retry-panel__empty">Loading pending errors…</div>
             </div>
           </div>
 

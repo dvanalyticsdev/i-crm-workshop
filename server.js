@@ -1164,6 +1164,38 @@ app.get("/api/meta/logs", async (req, res) => {
   }
 });
 
+app.get("/api/meta/retry-jobs", async (req, res) => {
+  try {
+    await initMongo();
+    const activeSession = await getSessionFromRequest(req);
+    if (!activeSession || !["admin", "marketing"].includes(activeSession.session.role)) {
+      return res.status(403).json({ message: "Access required." });
+    }
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const jobs = await metaRetryCollection
+      .find({}, {
+        projection: {
+          _id: 0,
+          leadgenId: 1,
+          formId: 1,
+          pageId: 1,
+          reason: 1,
+          lastError: 1,
+          attempts: 1,
+          nextAttemptAt: 1,
+          createdAt: 1,
+          updatedAt: 1
+        }
+      })
+      .sort({ nextAttemptAt: 1, createdAt: 1 })
+      .limit(limit)
+      .toArray();
+    return res.json({ jobs });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to fetch retry jobs.", details: err.message });
+  }
+});
+
 // Clear webhook logs (admin only).
 app.delete("/api/meta/logs", async (req, res) => {
   try {

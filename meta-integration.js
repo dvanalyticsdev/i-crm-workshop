@@ -41,10 +41,13 @@ const logTypeFilter            = document.getElementById("logTypeFilter");
 const logSummarySuccess        = document.getElementById("logSummarySuccess");
 const logSummaryIgnored        = document.getElementById("logSummaryIgnored");
 const logSummaryError          = document.getElementById("logSummaryError");
+const retryQueueCount          = document.getElementById("retryQueueCount");
+const retryQueueWrap           = document.getElementById("retryQueueWrap");
 
 // Raw log data (used for client-side filtering).
 let allLogs = [];
 let logSummary = { success: 0, ignored: 0, error: 0 };
+let retryJobs = [];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -298,17 +301,27 @@ async function saveConfig() {
 async function loadLogs() {
   logsTableBody.innerHTML = '<tr><td colspan="5" class="log-empty">Loading…</td></tr>';
   try {
-    const res = await fetch(apiUrl("/api/meta/logs?limit=50"), { credentials: "same-origin" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const payload = await res.json();
+    const [logsRes, retryRes] = await Promise.all([
+      fetch(apiUrl("/api/meta/logs?limit=50"), { credentials: "same-origin" }),
+      fetch(apiUrl("/api/meta/retry-jobs?limit=50"), { credentials: "same-origin" })
+    ]);
+    if (!logsRes.ok) throw new Error(`HTTP ${logsRes.status}`);
+    if (!retryRes.ok) throw new Error(`HTTP ${retryRes.status}`);
+
+    const payload = await logsRes.json();
+    const retryPayload = await retryRes.json();
     allLogs = Array.isArray(payload?.logs) ? payload.logs : [];
     logSummary = normalizeLogSummary(payload?.summary);
+    retryJobs = Array.isArray(retryPayload?.jobs) ? retryPayload.jobs : [];
     renderLogSummary(logSummary);
+    renderRetryQueue(retryJobs);
     renderLogs(allLogs);
   } catch (err) {
     allLogs = [];
     logSummary = normalizeLogSummary();
+    retryJobs = [];
     renderLogSummary(logSummary);
+    renderRetryQueue(retryJobs, err.message);
     logsTableBody.innerHTML = `<tr><td colspan="5" class="log-empty" style="color:var(--danger)">Failed to load logs: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
@@ -326,6 +339,51 @@ function renderLogSummary(summary) {
   if (logSummarySuccess) logSummarySuccess.textContent = String(counts.success);
   if (logSummaryIgnored) logSummaryIgnored.textContent = String(counts.ignored);
   if (logSummaryError) logSummaryError.textContent = String(counts.error);
+}
+
+function renderRetryQueue(jobs, errorMessage = "") {
+  if (retryQueueCount) {
+    retryQueueCount.textContent = `${jobs.length} active`;
+  }
+
+  if (!retryQueueWrap) {
+    return;
+  }
+
+  if (errorMessage) {
+    retryQueueWrap.innerHTML = `<div class="retry-panel__empty" style="color:var(--danger)">Failed to load pending errors: ${escapeHtml(errorMessage)}</div>`;
+    return;
+  }
+
+  if (!jobs.length) {
+    retryQueueWrap.innerHTML = '<div class="retry-panel__empty">No pending errors. When a failed lead is retried successfully, it disappears from this list and shows up in Success logs.</div>';
+    return;
+  }
+
+  retryQueueWrap.innerHTML = `
+    <table class="retry-table">
+      <thead>
+        <tr>
+          <th>Lead ID</th>
+          <th>Status</th>
+          <th>Attempts</th>
+          <th>Next Retry</th>
+          <th>Last Error</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${jobs.map((job) => `
+          <tr>
+            <td>${escapeHtml(job.leadgenId || "—")}</td>
+            <td><span class="retry-badge">Pending Retry</span></td>
+            <td>${escapeHtml(String(job.attempts || 0))}</td>
+            <td>${escapeHtml(formatTime(job.nextAttemptAt))}</td>
+            <td>${escapeHtml(job.lastError || job.reason || "—")}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
 }
 
 function renderLogs(logs) {
@@ -366,7 +424,9 @@ async function clearLogs() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     allLogs = [];
     logSummary = normalizeLogSummary();
+    retryJobs = [];
     renderLogSummary(logSummary);
+    renderRetryQueue(retryJobs);
     renderLogs([]);
   } catch (err) {
     showMessage(rrMessage, `Failed to clear logs: ${err.message}`, true);
