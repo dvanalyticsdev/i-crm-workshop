@@ -374,7 +374,7 @@ async function getMetaConfig() {
     () => metaConfigCollection.findOne({ _id: META_CONFIG_DOC_ID }),
     { retries: 1, label: "Load Meta config" }
   );
-  return doc || {
+  const baseConfig = doc || {
     _id: META_CONFIG_DOC_ID,
     enabled: false,
     verifyToken: "",
@@ -384,16 +384,52 @@ async function getMetaConfig() {
     formIds: [],
     roundRobinIndex: 0
   };
+
+  return {
+    ...baseConfig,
+    logSummary: {
+      success: Number(baseConfig.logSummary?.success) || 0,
+      ignored: Number(baseConfig.logSummary?.ignored) || 0,
+      error: Number(baseConfig.logSummary?.error) || 0
+    }
+  };
 }
 
 async function saveMetaLog(entry) {
   const log = { ...entry, receivedAt: new Date().toISOString() };
+  const type = String(entry?.type || "").trim().toLowerCase();
+  const shouldTrackCount = type === "success" || type === "ignored" || type === "error";
 
   try {
     await withMongoRetry(
       () => metaLogsCollection.insertOne(log),
       { retries: 1, label: "Write Meta webhook log" }
     );
+
+    if (shouldTrackCount) {
+      await withMongoRetry(
+        () => metaConfigCollection.updateOne(
+          { _id: META_CONFIG_DOC_ID },
+          {
+            $inc: { [`logSummary.${type}`]: 1 },
+            $set: { updatedAt: new Date().toISOString() },
+            $setOnInsert: {
+              enabled: false,
+              verifyToken: "",
+              appSecret: "",
+              pageAccessToken: "",
+              pageId: "",
+              formIds: [],
+              roundRobinIndex: 0,
+              createdAt: new Date().toISOString()
+            }
+          },
+          { upsert: true }
+        ),
+        { retries: 1, label: "Update Meta webhook log summary" }
+      );
+    }
+
     metaLogWriteCount += 1;
 
     // Prune only occasionally so each webhook event does not trigger extra
@@ -1034,7 +1070,12 @@ app.get("/api/meta/config", async (req, res) => {
       pageAccessTokenSet: !!(config.pageAccessToken),
       pageId:           config.pageId || "",
       formIds:          Array.isArray(config.formIds) ? config.formIds : [],
-      roundRobinIndex:  config.roundRobinIndex ?? 0
+      roundRobinIndex:  config.roundRobinIndex ?? 0,
+      logSummary: {
+        success: Number(config.logSummary?.success) || 0,
+        ignored: Number(config.logSummary?.ignored) || 0,
+        error: Number(config.logSummary?.error) || 0
+      }
     });
   } catch (err) {
     return res.status(500).json({ message: "Failed to fetch Meta config.", details: err.message });
@@ -1083,7 +1124,12 @@ app.put("/api/meta/config", async (req, res) => {
       pageAccessTokenSet: !!(updated.pageAccessToken),
       pageId:             updated.pageId || "",
       formIds:            Array.isArray(updated.formIds) ? updated.formIds : [],
-      roundRobinIndex:    updated.roundRobinIndex ?? 0
+      roundRobinIndex:    updated.roundRobinIndex ?? 0,
+      logSummary: {
+        success: Number(updated.logSummary?.success) || 0,
+        ignored: Number(updated.logSummary?.ignored) || 0,
+        error: Number(updated.logSummary?.error) || 0
+      }
     });
   } catch (err) {
     return res.status(500).json({ message: "Failed to save Meta config.", details: err.message });
@@ -1104,7 +1150,15 @@ app.get("/api/meta/logs", async (req, res) => {
       .sort({ receivedAt: -1 })
       .limit(limit)
       .toArray();
-    return res.json(logs);
+    const config = await getMetaConfig();
+    return res.json({
+      logs,
+      summary: {
+        success: Number(config.logSummary?.success) || 0,
+        ignored: Number(config.logSummary?.ignored) || 0,
+        error: Number(config.logSummary?.error) || 0
+      }
+    });
   } catch (err) {
     return res.status(500).json({ message: "Failed to fetch logs.", details: err.message });
   }
@@ -1119,6 +1173,26 @@ app.delete("/api/meta/logs", async (req, res) => {
       return res.status(403).json({ message: "Admin access required." });
     }
     await metaLogsCollection.deleteMany({});
+    await metaConfigCollection.updateOne(
+      { _id: META_CONFIG_DOC_ID },
+      {
+        $set: {
+          logSummary: { success: 0, ignored: 0, error: 0 },
+          updatedAt: new Date().toISOString()
+        },
+        $setOnInsert: {
+          enabled: false,
+          verifyToken: "",
+          appSecret: "",
+          pageAccessToken: "",
+          pageId: "",
+          formIds: [],
+          roundRobinIndex: 0,
+          createdAt: new Date().toISOString()
+        }
+      },
+      { upsert: true }
+    );
     return res.json({ ok: true });
   } catch (err) {
     return res.status(500).json({ message: "Failed to clear logs.", details: err.message });

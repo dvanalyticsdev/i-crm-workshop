@@ -5,23 +5,22 @@ import { apiUrl } from "./api-client.js";
  *
  * Measures round-trip latency to /api/ping every PING_INTERVAL_MS.
  * - Renders a colour-coded pill in every topbar-profile header.
- * - When latency exceeds HIGH_PING_THRESHOLD_MS it overlays the UI with a
- *   blocking card so counsellors cannot submit actions that would likely fail
- *   or arrive out of order due to network instability.
- * - Once GOOD_STREAK_TO_UNBLOCK consecutive readings fall back below the
- *   threshold the overlay is automatically dismissed.
+ * - Keeps latency informational in the top bar so brief server or routing
+ *   spikes do not incorrectly block users on stable connections.
+ * - Shows a blocking overlay only after repeated failed pings or a confirmed
+ *   browser offline event, which is a much stronger signal of an actual drop.
  */
 
 const PING_INTERVAL_MS        = 8000;   // measure every 8 s (was 5 s — reduced to cut background requests)
-const HIGH_PING_THRESHOLD_MS  = 300;    // ms — block above this
+const WARN_PING_THRESHOLD_MS  = 300;    // ms — informational only
 const PING_REQUEST_TIMEOUT_MS = 8000;   // abort if server doesn't respond in 8 s
-// Require this many back-to-back good readings before unblocking, so a brief
-// dip does not prematurely dismiss the overlay on a still-flaky connection.
+const CONSECUTIVE_FAILURES_TO_BLOCK = 2;
 const GOOD_STREAK_TO_UNBLOCK  = 2;
 
 let pingTimer     = null;
 let blocked       = false;
 let goodStreak    = 0;
+let failedStreak  = 0;
 
 // ─── DOM helpers ──────────────────────────────────────────────────────────────
 
@@ -65,9 +64,19 @@ function setBlockedState(nextBlocked) {
 // ─── Measurement ──────────────────────────────────────────────────────────────
 
 async function measurePing() {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    failedStreak = CONSECUTIVE_FAILURES_TO_BLOCK;
+    goodStreak = 0;
+    setPillState(null, "bad");
+    setBlockedState(true);
+    setOverlayPing(null);
+    return;
+  }
+
   const start = performance.now();
   let ping  = null;
   let state = "idle";
+  let requestFailed = false;
 
   try {
     const controller = new AbortController();
@@ -83,26 +92,28 @@ async function measurePing() {
 
     if (response.ok) {
       ping  = Math.round(performance.now() - start);
-      state = ping < 150
-        ? "good"
-        : ping < HIGH_PING_THRESHOLD_MS
-          ? "warn"
-          : "bad";
+      state = ping < WARN_PING_THRESHOLD_MS ? "good" : "warn";
     } else {
       state = "bad";
+      requestFailed = true;
     }
   } catch (_err) {
     // Network failure or abort — treat as worst-case latency.
     state = "bad";
+    requestFailed = true;
   }
 
   setPillState(ping, state);
 
-  if (state === "bad") {
+  if (requestFailed) {
+    failedStreak++;
     goodStreak = 0;
-    setBlockedState(true);
-    setOverlayPing(ping);
+    if (failedStreak >= CONSECUTIVE_FAILURES_TO_BLOCK) {
+      setBlockedState(true);
+      setOverlayPing(ping);
+    }
   } else {
+    failedStreak = 0;
     goodStreak++;
     if (goodStreak >= GOOD_STREAK_TO_UNBLOCK) {
       setBlockedState(false);
@@ -133,7 +144,7 @@ function buildOverlayEl() {
   overlay.className = "ping-overlay hidden";
   overlay.setAttribute("role", "alertdialog");
   overlay.setAttribute("aria-modal", "true");
-  overlay.setAttribute("aria-label", "High network latency — actions are paused");
+  overlay.setAttribute("aria-label", "Network connection lost — actions are paused");
   overlay.innerHTML = `
     <div class="ping-overlay__card">
       <div class="ping-overlay__icon" aria-hidden="true">
@@ -144,10 +155,10 @@ function buildOverlayEl() {
           <line x1="12" y1="17" x2="12.01" y2="17"/>
         </svg>
       </div>
-      <h3 class="ping-overlay__title">High Network Latency Detected</h3>
+      <h3 class="ping-overlay__title">Network Connection Lost</h3>
       <p class="ping-overlay__desc">
-        Please wait for your connection to stabilize.<br>
-        Actions are temporarily paused to prevent data loss.
+        We couldn't reach the server reliably.<br>
+        Actions are temporarily paused until the connection recovers.
       </p>
       <div class="ping-overlay__meter">
         <span class="ping-pill__dot ping-pill__dot--bad" aria-hidden="true"></span>
@@ -219,11 +230,27 @@ export function startPingMonitor() {
     }
   }
 
+  function handleOnline() {
+    void measurePing();
+  }
+
+  function handleOffline() {
+    failedStreak = CONSECUTIVE_FAILURES_TO_BLOCK;
+    goodStreak = 0;
+    setPillState(null, "bad");
+    setBlockedState(true);
+    setOverlayPing(null);
+  }
+
   document.addEventListener("visibilitychange", handleVisibility);
+  window.addEventListener("online", handleOnline);
+  window.addEventListener("offline", handleOffline);
 
   return () => {
     clearInterval(pingTimer);
     document.removeEventListener("visibilitychange", handleVisibility);
+    window.removeEventListener("online", handleOnline);
+    window.removeEventListener("offline", handleOffline);
   };
 }
 

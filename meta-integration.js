@@ -44,6 +44,7 @@ const logSummaryError          = document.getElementById("logSummaryError");
 
 // Raw log data (used for client-side filtering).
 let allLogs = [];
+let logSummary = { success: 0, ignored: 0, error: 0 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -299,24 +300,29 @@ async function loadLogs() {
   try {
     const res = await fetch(apiUrl("/api/meta/logs?limit=50"), { credentials: "same-origin" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    allLogs = await res.json();
-    renderLogSummary(allLogs);
+    const payload = await res.json();
+    allLogs = Array.isArray(payload?.logs) ? payload.logs : [];
+    logSummary = normalizeLogSummary(payload?.summary);
+    renderLogSummary(logSummary);
     renderLogs(allLogs);
   } catch (err) {
-    renderLogSummary([]);
+    allLogs = [];
+    logSummary = normalizeLogSummary();
+    renderLogSummary(logSummary);
     logsTableBody.innerHTML = `<tr><td colspan="5" class="log-empty" style="color:var(--danger)">Failed to load logs: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
-function renderLogSummary(logs) {
-  const counts = logs.reduce((acc, log) => {
-    const type = String(log?.type || "").trim().toLowerCase();
-    if (type === "success" || type === "ignored" || type === "error") {
-      acc[type] += 1;
-    }
-    return acc;
-  }, { success: 0, ignored: 0, error: 0 });
+function normalizeLogSummary(summary = {}) {
+  return {
+    success: Number(summary?.success) || 0,
+    ignored: Number(summary?.ignored) || 0,
+    error: Number(summary?.error) || 0
+  };
+}
 
+function renderLogSummary(summary) {
+  const counts = normalizeLogSummary(summary);
   if (logSummarySuccess) logSummarySuccess.textContent = String(counts.success);
   if (logSummaryIgnored) logSummaryIgnored.textContent = String(counts.ignored);
   if (logSummaryError) logSummaryError.textContent = String(counts.error);
@@ -359,7 +365,8 @@ async function clearLogs() {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     allLogs = [];
-    renderLogSummary(allLogs);
+    logSummary = normalizeLogSummary();
+    renderLogSummary(logSummary);
     renderLogs([]);
   } catch (err) {
     showMessage(rrMessage, `Failed to clear logs: ${err.message}`, true);
