@@ -17,7 +17,7 @@ let lastSuccessfulMutationAt = 0;
 let lastStateETag = null; // tracks the ETag returned by the last GET /api/state
 // How long (ms) after a confirmed server write to suppress polling so a stale
 // serverless-instance cache cannot revert a lead that was just updated.
-const MUTATION_POLL_COOLDOWN_MS = 20000;
+const MUTATION_POLL_COOLDOWN_MS = 8000;
 // Monotonically increasing counter — incremented each time an optimistic update
 // is applied. Used to prevent an older PUT's server response from overwriting
 // a newer optimistic state that was applied while the PUT was in flight.
@@ -531,8 +531,25 @@ export function startStatePolling(onRefresh, intervalMs = 15000) {
     });
   }
 
+  function handleReconnect() {
+    if (destroyed || typeof document === "undefined" || document.visibilityState === "hidden") {
+      return;
+    }
+
+    clearTimeout(pollTimer);
+    doPoll().finally(() => {
+      if (!destroyed) {
+        schedulePoll();
+      }
+    });
+  }
+
   if (typeof document !== "undefined") {
     document.addEventListener("visibilitychange", handleVisibilityChange);
+  }
+  if (typeof window !== "undefined") {
+    window.addEventListener("online", handleReconnect);
+    window.addEventListener("dv:network-recovered", handleReconnect);
   }
 
   schedulePoll();
@@ -543,6 +560,10 @@ export function startStatePolling(onRefresh, intervalMs = 15000) {
     clearTimeout(pollTimer);
     if (typeof document !== "undefined") {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+    }
+    if (typeof window !== "undefined") {
+      window.removeEventListener("online", handleReconnect);
+      window.removeEventListener("dv:network-recovered", handleReconnect);
     }
   };
 }

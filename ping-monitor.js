@@ -22,6 +22,14 @@ let blocked       = false;
 let goodStreak    = 0;
 let failedStreak  = 0;
 
+function emitConnectivityEvent(name, detail = {}) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(new CustomEvent(name, { detail }));
+}
+
 // ─── DOM helpers ──────────────────────────────────────────────────────────────
 
 function getPillEl()    { return document.getElementById("dvPingPill");    }
@@ -70,6 +78,7 @@ async function measurePing() {
     setPillState(null, "bad");
     setBlockedState(true);
     setOverlayPing(null);
+    emitConnectivityEvent("dv:network-lost", { reason: "offline" });
     return;
   }
 
@@ -77,6 +86,8 @@ async function measurePing() {
   let ping  = null;
   let state = "idle";
   let requestFailed = false;
+  const wasBlocked = blocked;
+  const hadFailures = failedStreak > 0;
 
   try {
     const controller = new AbortController();
@@ -108,9 +119,11 @@ async function measurePing() {
   if (requestFailed) {
     failedStreak++;
     goodStreak = 0;
+    emitConnectivityEvent("dv:network-degraded", { failedStreak });
     if (failedStreak >= CONSECUTIVE_FAILURES_TO_BLOCK) {
       setBlockedState(true);
       setOverlayPing(ping);
+      emitConnectivityEvent("dv:network-lost", { reason: "ping-failed", failedStreak });
     }
   } else {
     failedStreak = 0;
@@ -120,6 +133,10 @@ async function measurePing() {
     } else {
       // Still accumulating the required streak — keep overlay if already shown.
       if (blocked) setOverlayPing(ping);
+    }
+
+    if (hadFailures || wasBlocked) {
+      emitConnectivityEvent("dv:network-recovered", { ping, wasBlocked });
     }
   }
 }
@@ -240,6 +257,7 @@ export function startPingMonitor() {
     setPillState(null, "bad");
     setBlockedState(true);
     setOverlayPing(null);
+    emitConnectivityEvent("dv:network-lost", { reason: "offline-event" });
   }
 
   document.addEventListener("visibilitychange", handleVisibility);
