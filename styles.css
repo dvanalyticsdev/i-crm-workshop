@@ -896,12 +896,16 @@ textarea:focus {
 
 /* Filters + table */
 .filter-bar {
+  position: relative;
+  z-index: 20;
   padding: var(--space-3);
+  overflow: visible;
 }
 
 .filter-section {
   display: grid;
   gap: var(--space-2);
+  overflow: visible;
 }
 
 .filter-section + .filter-section {
@@ -923,6 +927,7 @@ textarea:focus {
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: var(--space-2);
   align-items: end;
+  overflow: visible;
 }
 
 .filter-row label {
@@ -932,11 +937,13 @@ textarea:focus {
 }
 
 .filter-item {
+  position: relative;
   display: grid;
   gap: 6px;
   min-width: 0;
   justify-items: center;
   text-align: center;
+  overflow: visible;
 }
 
 .filter-item select,
@@ -957,58 +964,88 @@ textarea:focus {
 .multi-filter {
   position: relative;
   width: 100%;
+  overflow: visible;
+}
+
+.multi-filter--open {
+  z-index: 80;
 }
 
 .multi-filter-trigger {
-  min-height: 42px;
+  position: relative;
+  min-height: 46px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  justify-content: center;
   text-align: center;
   font: inherit;
   color: var(--text);
-  background: var(--surface-muted);
+  background: var(--input-bg);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 0.7rem 0.95rem;
+  border-radius: var(--radius-sm);
+  padding: 11px 40px 11px 12px;
+  transition: border-color var(--ease), box-shadow var(--ease), background var(--ease), color var(--ease);
 }
 
-.multi-filter-trigger span:first-child {
+.multi-filter-trigger:focus,
+.multi-filter-trigger[aria-expanded="true"],
+.multi-filter--open .multi-filter-trigger {
+  border-color: var(--primary);
+  box-shadow: var(--input-shadow);
+}
+
+.multi-filter--open .multi-filter-trigger {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.multi-filter-trigger__text {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  line-height: 1.25;
+  word-break: break-word;
 }
 
 .multi-filter-caret {
-  flex: 0 0 auto;
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
   color: var(--text-muted);
-  font-size: 0.76rem;
+  font-size: 0.8rem;
+  pointer-events: none;
 }
 
 .multi-filter-menu {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% - 1px);
   left: 0;
   right: 0;
-  z-index: 60;
-  max-height: 220px;
+  z-index: 90;
+  max-height: 260px;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 0;
   border: 1px solid var(--border-strong);
-  border-radius: 0 0 10px 10px;
+  border-top: 0;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
   background: var(--surface-elevated);
   box-shadow: var(--shadow-md);
 }
 
 .multi-filter-option {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
   width: 100%;
-  padding: 6px 10px;
+  min-height: 40px;
+  padding: 8px 12px;
   color: var(--text);
   cursor: pointer;
-  text-align: center;
+  text-align: left;
   line-height: 1.2;
 }
 
@@ -1017,17 +1054,23 @@ textarea:focus {
 }
 
 .multi-filter-option input {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--primary);
+  flex: 0 0 auto;
 }
 
 .multi-filter-option span {
   display: block;
+  flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  text-align: left;
+  line-height: 1.35;
+  word-break: break-word;
 }
 
 .multi-filter-option--selected {
@@ -1035,11 +1078,24 @@ textarea:focus {
   color: var(--text);
 }
 
+.multi-filter-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+}
+
+.multi-filter-meta .selected-count {
+  margin-top: 0;
+}
+
 .multi-filter-empty {
-  padding: 8px;
+  padding: 10px 12px;
   color: var(--text-muted);
   font-size: 0.85rem;
-  text-align: center;
+  text-align: left;
 }
 
 .filter-item-cta {
@@ -1057,6 +1113,11 @@ textarea:focus {
 
 .table-scroll {
   overflow-x: auto;
+}
+
+.table-card {
+  position: relative;
+  z-index: 1;
 }
 
 table {

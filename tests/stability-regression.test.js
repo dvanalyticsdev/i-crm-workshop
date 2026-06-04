@@ -80,8 +80,10 @@ test("workshop and admission filters support multiple selected values", () => {
   assert.match(postWorkshop, /renderMultiSelectControl/);
   assert.match(preWorkshop, /data-filter-id="\$\{id\}"/);
   assert.match(postWorkshop, /data-filter-id="\$\{id\}"/);
-  assert.match(preWorkshop, /value="\$\{EMPTY_FILTER_VALUE\}"/);
-  assert.match(postWorkshop, /value="\$\{EMPTY_FILTER_VALUE\}"/);
+  assert.match(preWorkshop, /SELECT_ALL_FILTER_VALUE/);
+  assert.match(postWorkshop, /SELECT_ALL_FILTER_VALUE/);
+  assert.match(preWorkshop, /Selected: \$\{selectedCount\}/);
+  assert.match(postWorkshop, /Selected: \$\{selectedCount\}/);
   assert.match(styles, /\.multi-filter-menu/);
   assert.doesNotMatch(preWorkshop, /<select[^>]+multiple/);
   assert.doesNotMatch(postWorkshop, /<select[^>]+multiple/);

@@ -40,12 +40,13 @@ const isAdmin = session?.role === "admin";
 const canCreateTasks = session?.role === "counselor";
 
 const EMPTY_FILTER_VALUE = "Select";
+const SELECT_ALL_FILTER_VALUE = "__SELECT_ALL__";
 
 function getSelectedFilterValues(value) {
   const rawValues = Array.isArray(value) ? value : [value];
   return rawValues
     .map((item) => String(item || "").trim())
-    .filter((item) => item && item !== EMPTY_FILTER_VALUE && item !== "All");
+    .filter((item) => item && item !== EMPTY_FILTER_VALUE && item !== SELECT_ALL_FILTER_VALUE && item !== "All");
 }
 
 function isSelectedFilterValue(value) {
@@ -65,9 +66,12 @@ function getFilterSummary(value) {
 }
 
 function renderMultiSelectControl({ id, label, options, value, itemClass = "", itemAttrs = "" }) {
+  const uniqueOptions = [...new Set(options.map((option) => String(option || "").trim()).filter(Boolean))];
   const selected = new Set(getSelectedFilterValues(value));
-  const optionHtml = options.length
-    ? options.map((option) => {
+  const selectedCount = selected.size;
+  const allSelected = uniqueOptions.length > 0 && uniqueOptions.every((option) => selected.has(option));
+  const optionHtml = uniqueOptions.length
+    ? uniqueOptions.map((option) => {
         const escapedOption = escapeHtml(option);
         const checked = selected.has(String(option)) ? " checked" : "";
         const selectedClass = checked ? " multi-filter-option--selected" : "";
@@ -79,22 +83,25 @@ function renderMultiSelectControl({ id, label, options, value, itemClass = "", i
         `;
       }).join("")
     : `<div class="multi-filter-empty">No options</div>`;
-  const selectOptionClass = selected.size ? "" : " multi-filter-option--selected";
+  const selectAllClass = allSelected ? " multi-filter-option--selected" : "";
 
   return `
     <div class="filter-item${itemClass}" ${itemAttrs}>
       <label for="${id}Button">${label}</label>
       <div class="multi-filter" data-filter-id="${id}">
         <button id="${id}Button" class="multi-filter-trigger" type="button" aria-expanded="false">
-          <span>${escapeHtml(getFilterSummary(value))}</span>
-          <span class="multi-filter-caret">v</span>
+          <span class="multi-filter-trigger__text">${escapeHtml(getFilterSummary(value))}</span>
+          <span class="multi-filter-caret" aria-hidden="true">&#9662;</span>
         </button>
         <div class="multi-filter-menu hidden">
-          <label class="multi-filter-option multi-filter-clear${selectOptionClass}">
-            <input type="checkbox" value="${EMPTY_FILTER_VALUE}" ${selected.size ? "" : "checked"} />
-            <span>${EMPTY_FILTER_VALUE}</span>
+          <label class="multi-filter-option multi-filter-select-all${selectAllClass}">
+            <input type="checkbox" value="${SELECT_ALL_FILTER_VALUE}" ${allSelected ? "checked" : ""} />
+            <span>Select All</span>
           </label>
           ${optionHtml}
+          <div class="multi-filter-meta">
+            <span class="selected-count">Selected: ${selectedCount}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -113,7 +120,11 @@ function bindMultiFilter(filterId, filterKey) {
     document.querySelectorAll(".multi-filter-menu").forEach((item) => {
       if (item !== menu) item.classList.add("hidden");
     });
+    document.querySelectorAll(".multi-filter").forEach((item) => {
+      if (item !== root) item.classList.remove("multi-filter--open");
+    });
     menu.classList.toggle("hidden");
+    root.classList.toggle("multi-filter--open", !menu.classList.contains("hidden"));
     button.setAttribute("aria-expanded", String(!menu.classList.contains("hidden")));
   };
 
@@ -123,15 +134,19 @@ function bindMultiFilter(filterId, filterKey) {
 
   menu.querySelectorAll("input[type='checkbox']").forEach((checkbox) => {
     checkbox.onchange = () => {
-      if (checkbox.value === EMPTY_FILTER_VALUE && checkbox.checked) {
-        filter[filterKey] = EMPTY_FILTER_VALUE;
+      const optionValues = Array.from(menu.querySelectorAll("input[type='checkbox']"))
+        .map((input) => input.value)
+        .filter((inputValue) => inputValue !== SELECT_ALL_FILTER_VALUE);
+
+      if (checkbox.value === SELECT_ALL_FILTER_VALUE) {
+        filter[filterKey] = checkbox.checked ? optionValues : EMPTY_FILTER_VALUE;
         persistFilterState();
         renderAll();
         return;
       }
 
       const values = Array.from(menu.querySelectorAll("input[type='checkbox']:checked"))
-        .filter((input) => input.value !== EMPTY_FILTER_VALUE)
+        .filter((input) => input.value !== SELECT_ALL_FILTER_VALUE)
         .map((input) => input.value);
       filter[filterKey] = values.length ? values : EMPTY_FILTER_VALUE;
       persistFilterState();
@@ -145,6 +160,7 @@ function bindMultiFilterOutsideClick() {
   window.__dvMultiFilterCloseBound = true;
   document.addEventListener("click", () => {
     document.querySelectorAll(".multi-filter-menu").forEach((menu) => menu.classList.add("hidden"));
+    document.querySelectorAll(".multi-filter").forEach((root) => root.classList.remove("multi-filter--open"));
     document.querySelectorAll(".multi-filter-trigger").forEach((button) => {
       button.setAttribute("aria-expanded", "false");
     });
