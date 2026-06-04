@@ -965,7 +965,13 @@ textarea:focus {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  text-align: left;
+  text-align: center;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.7rem 0.95rem;
 }
 
 .multi-filter-trigger span:first-child {
@@ -989,22 +995,21 @@ textarea:focus {
   z-index: 60;
   max-height: 220px;
   overflow-y: auto;
-  padding: 8px;
+  padding: 0;
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
+  border-radius: 0 0 10px 10px;
   background: var(--surface-elevated);
   box-shadow: var(--shadow-md);
 }
 
 .multi-filter-option {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 6px;
-  border-radius: 8px;
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
   color: var(--text);
   cursor: pointer;
-  text-align: left;
+  text-align: center;
+  line-height: 1.2;
 }
 
 .multi-filter-option:hover {
@@ -1012,14 +1017,22 @@ textarea:focus {
 }
 
 .multi-filter-option input {
-  width: 16px;
-  height: 16px;
-  flex: 0 0 auto;
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .multi-filter-option span {
+  display: block;
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.multi-filter-option--selected {
+  background: color-mix(in srgb, var(--accent) 58%, var(--surface-elevated));
+  color: var(--text);
 }
 
 .multi-filter-empty {

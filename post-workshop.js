@@ -70,14 +70,16 @@ function renderMultiSelectControl({ id, label, options, value, itemClass = "", i
     ? options.map((option) => {
         const escapedOption = escapeHtml(option);
         const checked = selected.has(String(option)) ? " checked" : "";
+        const selectedClass = checked ? " multi-filter-option--selected" : "";
         return `
-          <label class="multi-filter-option">
+          <label class="multi-filter-option${selectedClass}">
             <input type="checkbox" value="${escapedOption}"${checked} />
             <span>${escapedOption}</span>
           </label>
         `;
       }).join("")
     : `<div class="multi-filter-empty">No options</div>`;
+  const selectOptionClass = selected.size ? "" : " multi-filter-option--selected";
 
   return `
     <div class="filter-item${itemClass}" ${itemAttrs}>
@@ -88,7 +90,7 @@ function renderMultiSelectControl({ id, label, options, value, itemClass = "", i
           <span class="multi-filter-caret">v</span>
         </button>
         <div class="multi-filter-menu hidden">
-          <label class="multi-filter-option multi-filter-clear">
+          <label class="multi-filter-option multi-filter-clear${selectOptionClass}">
             <input type="checkbox" value="${EMPTY_FILTER_VALUE}" ${selected.size ? "" : "checked"} />
             <span>${EMPTY_FILTER_VALUE}</span>
           </label>
