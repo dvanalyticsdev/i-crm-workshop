@@ -35,27 +35,29 @@ async function requestJson(path, options = {}) {
   };
 }
 
-export function updateLeadActivity(leadId, { stage, updates, allowWithoutWorkshopActivity = false }) {
+export function updateLeadActivity(leadId, { stage, updates, leadEmail = "", allowWithoutWorkshopActivity = false }) {
   return requestJson(`/api/leads/${encodeURIComponent(leadId)}/activity`, {
     method: "POST",
     body: JSON.stringify({
       stage,
       updates,
+      leadEmail,
       allowWithoutWorkshopActivity
     })
   });
 }
 
-export function addLeadNote(leadId, text) {
+export function addLeadNote(leadId, text, leadEmail = "") {
   return requestJson(`/api/leads/${encodeURIComponent(leadId)}/notes`, {
     method: "POST",
-    body: JSON.stringify({ text })
+    body: JSON.stringify({ text, leadEmail })
   });
 }
 
-export function deleteLeadNote(leadId, noteIndex) {
+export function deleteLeadNote(leadId, noteIndex, leadEmail = "") {
+  const leadEmailQuery = leadEmail ? `?leadEmail=${encodeURIComponent(leadEmail)}` : "";
   return requestJson(
-    `/api/leads/${encodeURIComponent(leadId)}/notes/${encodeURIComponent(noteIndex)}`,
+    `/api/leads/${encodeURIComponent(leadId)}/notes/${encodeURIComponent(noteIndex)}${leadEmailQuery}`,
     { method: "DELETE" }
   );
 }

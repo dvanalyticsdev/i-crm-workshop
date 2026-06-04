@@ -72,11 +72,19 @@ test("task service uses atomic task endpoints", () => {
 test("workshop and admission filters support multiple selected values", () => {
   const preWorkshop = read("pre-workshop.js");
   const postWorkshop = read("post-workshop.js");
+  const styles = read("styles.css");
 
   assert.match(preWorkshop, /function getSelectedFilterValues/);
   assert.match(postWorkshop, /function getSelectedFilterValues/);
-  assert.match(preWorkshop, /<select id="workshopSelect" multiple/);
-  assert.match(postWorkshop, /<select id="postWorkshopSelect" multiple/);
+  assert.match(preWorkshop, /renderMultiSelectControl/);
+  assert.match(postWorkshop, /renderMultiSelectControl/);
+  assert.match(preWorkshop, /data-filter-id="\$\{id\}"/);
+  assert.match(postWorkshop, /data-filter-id="\$\{id\}"/);
+  assert.match(preWorkshop, /value="\$\{EMPTY_FILTER_VALUE\}"/);
+  assert.match(postWorkshop, /value="\$\{EMPTY_FILTER_VALUE\}"/);
+  assert.match(styles, /\.multi-filter-menu/);
+  assert.doesNotMatch(preWorkshop, /<select[^>]+multiple/);
+  assert.doesNotMatch(postWorkshop, /<select[^>]+multiple/);
   assert.match(preWorkshop, /filterIncludesValue\(filter\.workshop, lead\.workshop\)/);
   assert.match(postWorkshop, /filterIncludesValue\(filter\.courseStatus, lead\.courseStatus\)/);
 });
@@ -84,9 +92,13 @@ test("workshop and admission filters support multiple selected values", () => {
 test("lead action buttons escape lead ids before binding click handlers", () => {
   const preWorkshop = read("pre-workshop.js");
   const postWorkshop = read("post-workshop.js");
+  const leadService = read("lead-service.js");
 
   assert.match(preWorkshop, /const leadId = escapeHtml\(lead\.id\)/);
   assert.match(postWorkshop, /const leadId = escapeHtml\(lead\.id\)/);
+  assert.match(preWorkshop, /data-lead-email="\$\{leadEmail\}"/);
+  assert.match(postWorkshop, /data-lead-email="\$\{leadEmail\}"/);
+  assert.match(leadService, /leadEmail/);
   assert.doesNotMatch(preWorkshop, /data-lead-id="\$\{lead\.id\}"/);
   assert.doesNotMatch(postWorkshop, /data-lead-id="\$\{lead\.id\}"/);
   assert.match(preWorkshop, /Could not open this lead/);

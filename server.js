@@ -1357,6 +1357,24 @@ function findLeadById(state, leadId) {
   ) || null;
 }
 
+function findLeadByIdentity(state, leadId, leadEmail = "") {
+  const leads = Array.isArray(state?.leads) ? state.leads : [];
+  const candidates = new Set(getLeadIdCandidates(leadId).map((value) => String(value)));
+  const email = String(leadEmail || "").trim().toLowerCase();
+
+  if (email) {
+    const match = leads.find(
+      (lead) => candidates.has(String(lead?.id)) &&
+        String(lead?.email || "").trim().toLowerCase() === email
+    );
+    if (match) {
+      return match;
+    }
+  }
+
+  return leads.find((lead) => candidates.has(String(lead?.id))) || null;
+}
+
 function getSessionCounselorName(state, session) {
   if (session?.role !== "counselor") {
     return "";
@@ -1442,14 +1460,23 @@ function canMutateTask(session, state, task) {
   return !!counselorName && (leadCounselor === counselorName || taskCounselor === counselorName);
 }
 
-function buildLeadSetPatch(leadId, updates = {}) {
+function buildLeadArrayFilter(leadId, leadEmail = "") {
+  const filter = { "lead.id": { $in: getLeadIdCandidates(leadId) } };
+  const email = String(leadEmail || "").trim().toLowerCase();
+  if (email) {
+    filter["lead.email"] = email;
+  }
+  return filter;
+}
+
+function buildLeadSetPatch(leadId, updates = {}, leadEmail = "") {
   const setPatch = { updatedAt: new Date().toISOString() };
   Object.entries(updates).forEach(([field, value]) => {
     setPatch[`leads.$[lead].${field}`] = value;
   });
   return {
     update: { $set: setPatch },
-    options: { arrayFilters: [{ "lead.id": { $in: getLeadIdCandidates(leadId) } }] }
+    options: { arrayFilters: [buildLeadArrayFilter(leadId, leadEmail)] }
   };
 }
 
@@ -1668,10 +1695,11 @@ app.post("/api/leads/:leadId/activity", async (req, res) => {
     if (!session) return;
 
     const leadId = req.params.leadId;
+    const leadEmail = String(req.body?.leadEmail || "").trim().toLowerCase();
     const stage = String(req.body?.stage || "").trim().toLowerCase();
     const updates = req.body?.updates || {};
     const state = await getStateDoc();
-    const lead = findLeadById(state, leadId);
+    const lead = findLeadByIdentity(state, leadId, leadEmail);
 
     if (!lead) {
       return res.status(404).json({ message: "Lead not found." });
@@ -1743,7 +1771,7 @@ app.post("/api/leads/:leadId/activity", async (req, res) => {
     const { update, options } = buildLeadSetPatch(leadId, {
       ...patch,
       [config.countField]: nextCount
-    });
+    }, leadEmail);
     update.$push = {
       [`leads.$[lead].${config.historyField}`]: event
     };
@@ -1759,7 +1787,7 @@ app.post("/api/leads/:leadId/activity", async (req, res) => {
     }
 
     const nextState = await refreshStateAfterAtomicUpdate();
-    const updatedLead = findLeadById(nextState, leadId);
+    const updatedLead = findLeadByIdentity(nextState, leadId, leadEmail);
     res.setHeader("ETag", buildStateEtag(nextState));
     return res.json({ ok: true, lead: updatedLead, state: buildStateResponse(nextState) });
   } catch (error) {
@@ -1773,13 +1801,14 @@ app.post("/api/leads/:leadId/notes", async (req, res) => {
     if (!session) return;
 
     const leadId = req.params.leadId;
+    const leadEmail = String(req.body?.leadEmail || "").trim().toLowerCase();
     const text = String(req.body?.text || "").trim();
     if (!text) {
       return res.status(400).json({ message: "Note text is required." });
     }
 
     const state = await getStateDoc();
-    const lead = findLeadById(state, leadId);
+    const lead = findLeadByIdentity(state, leadId, leadEmail);
     if (!lead) {
       return res.status(404).json({ message: "Lead not found." });
     }
@@ -1798,7 +1827,7 @@ app.post("/api/leads/:leadId/notes", async (req, res) => {
         $push: { "leads.$[lead].leadNotes": note },
         $set: { updatedAt: new Date().toISOString() }
       },
-      { arrayFilters: [{ "lead.id": { $in: getLeadIdCandidates(leadId) } }] }
+      { arrayFilters: [buildLeadArrayFilter(leadId, leadEmail)] }
     );
 
     if (!result.modifiedCount) {
@@ -1806,7 +1835,7 @@ app.post("/api/leads/:leadId/notes", async (req, res) => {
     }
 
     const nextState = await refreshStateAfterAtomicUpdate();
-    const updatedLead = findLeadById(nextState, leadId);
+    const updatedLead = findLeadByIdentity(nextState, leadId, leadEmail);
     res.setHeader("ETag", buildStateEtag(nextState));
     return res.json({ ok: true, lead: updatedLead, state: buildStateResponse(nextState) });
   } catch (error) {
@@ -1820,9 +1849,10 @@ app.delete("/api/leads/:leadId/notes/:noteIndex", async (req, res) => {
     if (!session) return;
 
     const leadId = req.params.leadId;
+    const leadEmail = String(req.query?.leadEmail || "").trim().toLowerCase();
     const noteIndex = Number(req.params.noteIndex);
     const state = await getStateDoc();
-    const lead = findLeadById(state, leadId);
+    const lead = findLeadByIdentity(state, leadId, leadEmail);
     if (!lead) {
       return res.status(404).json({ message: "Lead not found." });
     }
@@ -1836,14 +1866,14 @@ app.delete("/api/leads/:leadId/notes/:noteIndex", async (req, res) => {
     }
 
     const nextNotes = notes.filter((_, index) => index !== noteIndex);
-    const { update, options } = buildLeadSetPatch(leadId, { leadNotes: nextNotes });
+    const { update, options } = buildLeadSetPatch(leadId, { leadNotes: nextNotes }, leadEmail);
     const result = await stateCollection.updateOne({ _id: STATE_DOC_ID }, update, options);
     if (!result.modifiedCount) {
       return res.status(409).json({ message: "Lead changed before the note could be deleted. Please reload and retry." });
     }
 
     const nextState = await refreshStateAfterAtomicUpdate();
-    const updatedLead = findLeadById(nextState, leadId);
+    const updatedLead = findLeadByIdentity(nextState, leadId, leadEmail);
     res.setHeader("ETag", buildStateEtag(nextState));
     return res.json({ ok: true, lead: updatedLead, state: buildStateResponse(nextState) });
   } catch (error) {

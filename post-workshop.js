@@ -57,22 +57,96 @@ function filterIncludesValue(filterValue, value) {
   return !selected.length || selected.includes(String(value || "").trim());
 }
 
-function renderMultiOptions(options) {
-  return options.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("");
+function getFilterSummary(value) {
+  const selected = getSelectedFilterValues(value);
+  if (!selected.length) return EMPTY_FILTER_VALUE;
+  if (selected.length <= 2) return selected.join(", ");
+  return `${selected.length} selected`;
 }
 
-function setMultiSelectValue(selectId, value) {
+function renderMultiSelectControl({ id, label, options, value, itemClass = "", itemAttrs = "" }) {
   const selected = new Set(getSelectedFilterValues(value));
-  const select = document.getElementById(selectId);
-  if (!select) return;
-  Array.from(select.options).forEach((option) => {
-    option.selected = selected.has(option.value);
+  const optionHtml = options.length
+    ? options.map((option) => {
+        const escapedOption = escapeHtml(option);
+        const checked = selected.has(String(option)) ? " checked" : "";
+        return `
+          <label class="multi-filter-option">
+            <input type="checkbox" value="${escapedOption}"${checked} />
+            <span>${escapedOption}</span>
+          </label>
+        `;
+      }).join("")
+    : `<div class="multi-filter-empty">No options</div>`;
+
+  return `
+    <div class="filter-item${itemClass}" ${itemAttrs}>
+      <label for="${id}Button">${label}</label>
+      <div class="multi-filter" data-filter-id="${id}">
+        <button id="${id}Button" class="multi-filter-trigger" type="button" aria-expanded="false">
+          <span>${escapeHtml(getFilterSummary(value))}</span>
+          <span class="multi-filter-caret">v</span>
+        </button>
+        <div class="multi-filter-menu hidden">
+          <label class="multi-filter-option multi-filter-clear">
+            <input type="checkbox" value="${EMPTY_FILTER_VALUE}" ${selected.size ? "" : "checked"} />
+            <span>${EMPTY_FILTER_VALUE}</span>
+          </label>
+          ${optionHtml}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function bindMultiFilter(filterId, filterKey) {
+  const root = document.querySelector(`[data-filter-id="${filterId}"]`);
+  if (!root) return;
+  const button = root.querySelector(".multi-filter-trigger");
+  const menu = root.querySelector(".multi-filter-menu");
+  if (!button || !menu) return;
+
+  button.onclick = (event) => {
+    event.stopPropagation();
+    document.querySelectorAll(".multi-filter-menu").forEach((item) => {
+      if (item !== menu) item.classList.add("hidden");
+    });
+    menu.classList.toggle("hidden");
+    button.setAttribute("aria-expanded", String(!menu.classList.contains("hidden")));
+  };
+
+  menu.onclick = (event) => {
+    event.stopPropagation();
+  };
+
+  menu.querySelectorAll("input[type='checkbox']").forEach((checkbox) => {
+    checkbox.onchange = () => {
+      if (checkbox.value === EMPTY_FILTER_VALUE && checkbox.checked) {
+        filter[filterKey] = EMPTY_FILTER_VALUE;
+        persistFilterState();
+        renderAll();
+        return;
+      }
+
+      const values = Array.from(menu.querySelectorAll("input[type='checkbox']:checked"))
+        .filter((input) => input.value !== EMPTY_FILTER_VALUE)
+        .map((input) => input.value);
+      filter[filterKey] = values.length ? values : EMPTY_FILTER_VALUE;
+      persistFilterState();
+      renderAll();
+    };
   });
 }
 
-function readMultiSelectValue(event) {
-  const values = Array.from(event.target.selectedOptions).map((option) => option.value);
-  return values.length ? values : EMPTY_FILTER_VALUE;
+function bindMultiFilterOutsideClick() {
+  if (window.__dvMultiFilterCloseBound) return;
+  window.__dvMultiFilterCloseBound = true;
+  document.addEventListener("click", () => {
+    document.querySelectorAll(".multi-filter-menu").forEach((menu) => menu.classList.add("hidden"));
+    document.querySelectorAll(".multi-filter-trigger").forEach((button) => {
+      button.setAttribute("aria-expanded", "false");
+    });
+  });
 }
 
 const DEFAULT_FILTER = {
@@ -123,6 +197,7 @@ if (isCounselorSession() && (!persistedFilter.timeline || persistedFilter.timeli
 }
 
 let modalLeadId = null;
+let modalLeadEmail = "";
 let modalMode = "edit";
 let selectedLeadIds = new Set();
 
@@ -437,37 +512,36 @@ function renderFilters(leads) {
     <div class="filter-section">
       <div class="filter-section-title">Workshop Calling</div>
       <div class="filter-row">
-        <div class="filter-item">
-          <label for="postWorkshopCallingDialedSelect">Dialed</label>
-          <select id="postWorkshopCallingDialedSelect" multiple size="4">
-            ${renderMultiOptions(workshopCallingDialedOptions)}
-          </select>
-        </div>
-        <div class="filter-item">
-          <label for="postWorkshopCallingCallStatusSelect">Call Status</label>
-          <select id="postWorkshopCallingCallStatusSelect" multiple size="4">
-            ${renderMultiOptions(workshopCallingCallStatusOptions)}
-          </select>
-        </div>
-        <div class="filter-item">
-          <label for="postWorkshopCallingWsStatusSelect">Workshop Status</label>
-          <select id="postWorkshopCallingWsStatusSelect" multiple size="4">
-            ${renderMultiOptions(workshopCallingWsStatusOptions)}
-          </select>
-        </div>
-        <div class="filter-item">
-          <label for="postWorkshopCallingWhatsappInviteSelect">WhatsApp Invite</label>
-          <select id="postWorkshopCallingWhatsappInviteSelect" multiple size="4">
-            ${renderMultiOptions(workshopCallingWhatsappInviteOptions)}
-          </select>
-        </div>
-        <div class="filter-item">
-          <label for="postWorkshopCallingWhatsappGroupStatusSelect">WhatsApp Group Status</label>
-          <select id="postWorkshopCallingWhatsappGroupStatusSelect" multiple size="3">
-            <option value="Joined">Joined</option>
-            <option value="Not Joined">Not Joined</option>
-          </select>
-        </div>
+        ${renderMultiSelectControl({
+          id: "postWorkshopCallingDialedSelect",
+          label: "Dialed",
+          options: workshopCallingDialedOptions,
+          value: filter.workshopCallingDialed
+        })}
+        ${renderMultiSelectControl({
+          id: "postWorkshopCallingCallStatusSelect",
+          label: "Call Status",
+          options: workshopCallingCallStatusOptions,
+          value: filter.workshopCallingCallStatus
+        })}
+        ${renderMultiSelectControl({
+          id: "postWorkshopCallingWsStatusSelect",
+          label: "Workshop Status",
+          options: workshopCallingWsStatusOptions,
+          value: filter.workshopCallingWsStatus
+        })}
+        ${renderMultiSelectControl({
+          id: "postWorkshopCallingWhatsappInviteSelect",
+          label: "WhatsApp Invite",
+          options: workshopCallingWhatsappInviteOptions,
+          value: filter.workshopCallingWhatsappInvite
+        })}
+        ${renderMultiSelectControl({
+          id: "postWorkshopCallingWhatsappGroupStatusSelect",
+          label: "WhatsApp Group Status",
+          options: ["Joined", "Not Joined"],
+          value: filter.workshopCallingWhatsappGroupStatus
+        })}
       </div>
     </div>
 
@@ -478,66 +552,62 @@ function renderFilters(leads) {
           <label for="postSearchLeadInput">Search Lead</label>
           <input id="postSearchLeadInput" type="text" placeholder="Name, email, phone, workshop, counselor" />
         </div>
-        <div class="filter-item${isAdmin ? "" : " hidden"}" data-admin-only="true">
-          <label for="postCounselorSelect">Counselor</label>
-          <select id="postCounselorSelect" multiple size="4">
-            ${renderMultiOptions(counselorOptions)}
-          </select>
-        </div>
-        <div class="filter-item">
-          <label for="postActivityStatusSelect">Untouched Leads</label>
-          <select id="postActivityStatusSelect" multiple size="3">
-            <option value="Untouched">Untouched Only</option>
-            <option value="Updated">Updated Only</option>
-          </select>
-        </div>
-        <div class="filter-item">
-          <label for="postWorkshopSelect">Workshop Name</label>
-          <select id="postWorkshopSelect" multiple size="4">
-            ${renderMultiOptions(workshops)}
-          </select>
-        </div>
-        <div class="filter-item">
-          <label for="postDialedSelect">Dialed</label>
-          <select id="postDialedSelect" multiple size="4">
-            ${renderMultiOptions(postDialedOptions)}
-          </select>
-        </div>
-        <div class="filter-item">
-          <label for="postCoursePitchedSelect">Course Pitched</label>
-          <select id="postCoursePitchedSelect" multiple size="4">
-            ${renderMultiOptions(coursePitchedOptions)}
-          </select>
-        </div>
-        <div class="filter-item">
-          <label for="postCourseStatusSelect">Course Status</label>
-          <select id="postCourseStatusSelect" multiple size="3">
-            <option value="Interested">Interested</option>
-            <option value="Not Interested">Not Interested</option>
-          </select>
-        </div>
-        <div class="filter-item">
-          <label for="postAdmissionStatusSelect">Admission</label>
-          <select id="postAdmissionStatusSelect" multiple size="4">
-            ${renderMultiOptions(admissionOptions)}
-          </select>
-        </div>
-        <div class="filter-item">
-          <label for="postCallStatusSelect">Call Status</label>
-          <select id="postCallStatusSelect" multiple size="4">
-            <option value="Connected">Connected</option>
-            <option value="CBL">CBL</option>
-            <option value="DNP">DNP</option>
-            <option value="CNC">CNC</option>
-          </select>
-        </div>
-        <div class="filter-item">
-          <label for="postWorkshopJoiningStatusSelect">Workshop Joining Status</label>
-          <select id="postWorkshopJoiningStatusSelect" multiple size="3">
-            <option value="Joined">Joined</option>
-            <option value="Not Joined">Not Joined</option>
-          </select>
-        </div>
+        ${renderMultiSelectControl({
+          id: "postCounselorSelect",
+          label: "Counselor",
+          options: counselorOptions,
+          value: filter.counselor,
+          itemClass: isAdmin ? "" : " hidden",
+          itemAttrs: 'data-admin-only="true"'
+        })}
+        ${renderMultiSelectControl({
+          id: "postActivityStatusSelect",
+          label: "Untouched Leads",
+          options: ["Untouched", "Updated"],
+          value: filter.activityStatus
+        })}
+        ${renderMultiSelectControl({
+          id: "postWorkshopSelect",
+          label: "Workshop Name",
+          options: workshops,
+          value: filter.workshop
+        })}
+        ${renderMultiSelectControl({
+          id: "postDialedSelect",
+          label: "Dialed",
+          options: postDialedOptions,
+          value: filter.postDialed
+        })}
+        ${renderMultiSelectControl({
+          id: "postCoursePitchedSelect",
+          label: "Course Pitched",
+          options: coursePitchedOptions,
+          value: filter.coursePitched
+        })}
+        ${renderMultiSelectControl({
+          id: "postCourseStatusSelect",
+          label: "Course Status",
+          options: ["Interested", "Not Interested"],
+          value: filter.courseStatus
+        })}
+        ${renderMultiSelectControl({
+          id: "postAdmissionStatusSelect",
+          label: "Admission",
+          options: admissionOptions,
+          value: filter.admissionStatus
+        })}
+        ${renderMultiSelectControl({
+          id: "postCallStatusSelect",
+          label: "Call Status",
+          options: ["Connected", "CBL", "DNP", "CNC"],
+          value: filter.postCallStatus
+        })}
+        ${renderMultiSelectControl({
+          id: "postWorkshopJoiningStatusSelect",
+          label: "Workshop Joining Status",
+          options: ["Joined", "Not Joined"],
+          value: filter.workshopJoiningStatus
+        })}
         <div class="filter-item filter-item-cta">
           <label>&nbsp;</label>
           <div class="filter-actions">
@@ -548,56 +618,27 @@ function renderFilters(leads) {
     </div>
   `;
 
-  setMultiSelectValue("postWorkshopCallingDialedSelect", filter.workshopCallingDialed);
-  setMultiSelectValue("postWorkshopCallingCallStatusSelect", filter.workshopCallingCallStatus);
-  setMultiSelectValue("postWorkshopCallingWsStatusSelect", filter.workshopCallingWsStatus);
-  setMultiSelectValue("postWorkshopCallingWhatsappInviteSelect", filter.workshopCallingWhatsappInvite);
-  setMultiSelectValue("postWorkshopCallingWhatsappGroupStatusSelect", filter.workshopCallingWhatsappGroupStatus);
+  bindMultiFilterOutsideClick();
+  bindMultiFilter("postWorkshopCallingDialedSelect", "workshopCallingDialed");
+  bindMultiFilter("postWorkshopCallingCallStatusSelect", "workshopCallingCallStatus");
+  bindMultiFilter("postWorkshopCallingWsStatusSelect", "workshopCallingWsStatus");
+  bindMultiFilter("postWorkshopCallingWhatsappInviteSelect", "workshopCallingWhatsappInvite");
+  bindMultiFilter("postWorkshopCallingWhatsappGroupStatusSelect", "workshopCallingWhatsappGroupStatus");
   document.getElementById("postTimelineSelect").value = filter.timeline;
   document.getElementById("postStartDateInput").value = filter.startDate;
   document.getElementById("postEndDateInput").value = filter.endDate;
   document.getElementById("postStartDateWrap").classList.toggle("hidden", filter.timeline !== "custom");
   document.getElementById("postEndDateWrap").classList.toggle("hidden", filter.timeline !== "custom");
   document.getElementById("postSearchLeadInput").value = filter.search;
-  setMultiSelectValue("postCounselorSelect", filter.counselor);
-  setMultiSelectValue("postActivityStatusSelect", filter.activityStatus);
-  setMultiSelectValue("postWorkshopSelect", filter.workshop);
-  setMultiSelectValue("postDialedSelect", filter.postDialed);
-  setMultiSelectValue("postCoursePitchedSelect", filter.coursePitched);
-  setMultiSelectValue("postCourseStatusSelect", filter.courseStatus);
-  setMultiSelectValue("postAdmissionStatusSelect", filter.admissionStatus);
-  setMultiSelectValue("postCallStatusSelect", filter.postCallStatus);
-  setMultiSelectValue("postWorkshopJoiningStatusSelect", filter.workshopJoiningStatus);
-
-  document.getElementById("postWorkshopCallingDialedSelect").onchange = (event) => {
-    filter.workshopCallingDialed = readMultiSelectValue(event);
-    persistFilterState();
-    renderAll();
-  };
-
-  document.getElementById("postWorkshopCallingCallStatusSelect").onchange = (event) => {
-    filter.workshopCallingCallStatus = readMultiSelectValue(event);
-    persistFilterState();
-    renderAll();
-  };
-
-  document.getElementById("postWorkshopCallingWsStatusSelect").onchange = (event) => {
-    filter.workshopCallingWsStatus = readMultiSelectValue(event);
-    persistFilterState();
-    renderAll();
-  };
-
-  document.getElementById("postWorkshopCallingWhatsappInviteSelect").onchange = (event) => {
-    filter.workshopCallingWhatsappInvite = readMultiSelectValue(event);
-    persistFilterState();
-    renderAll();
-  };
-
-  document.getElementById("postWorkshopCallingWhatsappGroupStatusSelect").onchange = (event) => {
-    filter.workshopCallingWhatsappGroupStatus = readMultiSelectValue(event);
-    persistFilterState();
-    renderAll();
-  };
+  bindMultiFilter("postCounselorSelect", "counselor");
+  bindMultiFilter("postActivityStatusSelect", "activityStatus");
+  bindMultiFilter("postWorkshopSelect", "workshop");
+  bindMultiFilter("postDialedSelect", "postDialed");
+  bindMultiFilter("postCoursePitchedSelect", "coursePitched");
+  bindMultiFilter("postCourseStatusSelect", "courseStatus");
+  bindMultiFilter("postAdmissionStatusSelect", "admissionStatus");
+  bindMultiFilter("postCallStatusSelect", "postCallStatus");
+  bindMultiFilter("postWorkshopJoiningStatusSelect", "workshopJoiningStatus");
 
   document.getElementById("postTimelineSelect").onchange = (event) => {
     filter.timeline = event.target.value;
@@ -629,60 +670,6 @@ function renderFilters(leads) {
 
   document.getElementById("postSearchLeadInput").oninput = (event) => {
     filter.search = event.target.value.trim();
-    persistFilterState();
-    renderAll();
-  };
-
-  document.getElementById("postCounselorSelect").onchange = (event) => {
-    filter.counselor = readMultiSelectValue(event);
-    persistFilterState();
-    renderAll();
-  };
-
-  document.getElementById("postActivityStatusSelect").onchange = (event) => {
-    filter.activityStatus = readMultiSelectValue(event);
-    persistFilterState();
-    renderAll();
-  };
-
-  document.getElementById("postWorkshopSelect").onchange = (event) => {
-    filter.workshop = readMultiSelectValue(event);
-    persistFilterState();
-    renderAll();
-  };
-
-  document.getElementById("postDialedSelect").onchange = (event) => {
-    filter.postDialed = readMultiSelectValue(event);
-    persistFilterState();
-    renderAll();
-  };
-
-  document.getElementById("postCoursePitchedSelect").onchange = (event) => {
-    filter.coursePitched = readMultiSelectValue(event);
-    persistFilterState();
-    renderAll();
-  };
-
-  document.getElementById("postCourseStatusSelect").onchange = (event) => {
-    filter.courseStatus = readMultiSelectValue(event);
-    persistFilterState();
-    renderAll();
-  };
-
-  document.getElementById("postAdmissionStatusSelect").onchange = (event) => {
-    filter.admissionStatus = readMultiSelectValue(event);
-    persistFilterState();
-    renderAll();
-  };
-
-  document.getElementById("postCallStatusSelect").onchange = (event) => {
-    filter.postCallStatus = readMultiSelectValue(event);
-    persistFilterState();
-    renderAll();
-  };
-
-  document.getElementById("postWorkshopJoiningStatusSelect").onchange = (event) => {
-    filter.workshopJoiningStatus = readMultiSelectValue(event);
     persistFilterState();
     renderAll();
   };
@@ -782,13 +769,15 @@ function renderActivityPanel(lead) {
   const hasActivity = Array.isArray(lead.admissionActivityHistory) && lead.admissionActivityHistory.length > 0;
   const noteCount = Array.isArray(lead.leadNotes) ? lead.leadNotes.length : 0;
   const leadId = escapeHtml(lead.id);
+  const leadEmail = escapeHtml(lead.email || "");
+  const leadAttrs = `data-lead-id="${leadId}" data-lead-email="${leadEmail}"`;
   return `
     <div class="activity-panel">
       <button class="btn-view-activity" type="button" data-lead-id="${leadId}" aria-label="View activity details" title="View activity details">👁</button>
-      <button class="btn-update-status${hasActivity ? " btn-update-status--active" : ""}" type="button" data-lead-id="${leadId}">Update</button>
-      <button class="btn-ghost btn-notes" type="button" data-lead-id="${leadId}">Notes${noteCount ? ` (${noteCount})` : ""}</button>
-      ${canCreateTasks ? `<button class="btn-ghost btn-task" type="button" data-lead-id="${leadId}">Task</button>` : ""}
-      ${isAdmin ? `<button class="btn-delete" type="button" data-lead-id="${leadId}">Delete</button>` : ""}
+      <button class="btn-update-status${hasActivity ? " btn-update-status--active" : ""}" type="button" ${leadAttrs}>Update</button>
+      <button class="btn-ghost btn-notes" type="button" ${leadAttrs}>Notes${noteCount ? ` (${noteCount})` : ""}</button>
+      ${canCreateTasks ? `<button class="btn-ghost btn-task" type="button" ${leadAttrs}>Task</button>` : ""}
+      ${isAdmin ? `<button class="btn-delete" type="button" ${leadAttrs}>Delete</button>` : ""}
     </div>
   `;
 }
@@ -883,14 +872,16 @@ function renderLeadTable(leads) {
   document.querySelectorAll(".btn-update-status").forEach((button) => {
     button.onclick = () => {
       const leadId = button.getAttribute("data-lead-id");
-      openPostActivityModal(leadId);
+      const leadEmail = button.getAttribute("data-lead-email");
+      openPostActivityModal(leadId, leadEmail);
     };
   });
 
   document.querySelectorAll(".btn-notes").forEach((button) => {
     button.onclick = () => {
       const leadId = button.getAttribute("data-lead-id");
-      openNotesModal(leadId);
+      const leadEmail = button.getAttribute("data-lead-email");
+      openNotesModal(leadId, leadEmail);
     };
   });
 
@@ -998,23 +989,46 @@ function populatePostActivityModal(lead) {
   document.getElementById("modalWorkshopJoiningStatus").value = lead.workshopJoiningStatus;
 }
 
-async function updatePostActivity(leadId, updates) {
+function findLeadByActionIdentity(leads, leadId, leadEmail = "") {
+  const normalizedId = String(leadId);
+  const normalizedEmail = String(leadEmail || "").trim().toLowerCase();
+  if (normalizedEmail) {
+    const exactLead = leads.find((lead) => (
+      String(lead.id) === normalizedId &&
+      String(lead.email || "").trim().toLowerCase() === normalizedEmail
+    ));
+    if (exactLead) return exactLead;
+  }
+
+  if (isCounselorSession()) {
+    const counselorIdentity = getCounselorIdentity();
+    const counselorLead = leads.find((lead) => (
+      String(lead.id) === normalizedId &&
+      String(lead.counselor || "").trim().toLowerCase() === counselorIdentity
+    ));
+    if (counselorLead) return counselorLead;
+  }
+
+  return leads.find((lead) => String(lead.id) === normalizedId);
+}
+
+async function updatePostActivity(leadId, updates, leadEmail = "") {
   const allLeads = getAllLeads();
-  const index = allLeads.findIndex((lead) => String(lead.id) === String(leadId));
-  if (index === -1) {
+  const lead = findLeadByActionIdentity(allLeads, leadId, leadEmail);
+  if (!lead) {
     return false;
   }
 
   if (isCounselorSession()) {
-    const owner = String(allLeads[index].counselor || "").trim().toLowerCase();
+    const owner = String(lead.counselor || "").trim().toLowerCase();
     if (owner !== getCounselorIdentity()) {
       return false;
     }
   }
 
-  const workshopActivityCount = Array.isArray(allLeads[index].workshopActivityHistory)
-    ? allLeads[index].workshopActivityHistory.length
-    : Number(allLeads[index].preActivityUpdates) || 0;
+  const workshopActivityCount = Array.isArray(lead.workshopActivityHistory)
+    ? lead.workshopActivityHistory.length
+    : Number(lead.preActivityUpdates) || 0;
   if (!workshopActivityCount) {
     const confirmed = window.confirm(
       "The lead has not been called for Workshop Calling. Do you still want to update the details?"
@@ -1029,6 +1043,7 @@ async function updatePostActivity(leadId, updates) {
     const result = await updateLeadActivityOnServer(leadId, {
       stage: "admission",
       updates,
+      leadEmail: leadEmail || lead.email || "",
       allowWithoutWorkshopActivity: true
     });
     if (result && result.ok === false) {
@@ -1212,10 +1227,11 @@ async function assignSelectedLeads(leads, counselorName) {
   return true;
 }
 
-function openPostActivityModal(leadId) {
+function openPostActivityModal(leadId, leadEmail = "") {
   modalLeadId = leadId;
+  modalLeadEmail = leadEmail || "";
   const allLeads = getAllLeads();
-  const lead = allLeads.find((item) => String(item.id) === String(leadId));
+  const lead = findLeadByActionIdentity(allLeads, leadId, leadEmail);
   if (!lead) {
     showToast("Could not open this lead. Please refresh and try again.", true);
     return;
@@ -1234,10 +1250,11 @@ function openPostActivityModal(leadId) {
   document.getElementById("postActivityModal").classList.remove("hidden");
 }
 
-function openPostActivityDetailsModal(leadId) {
+function openPostActivityDetailsModal(leadId, leadEmail = "") {
   modalLeadId = leadId;
+  modalLeadEmail = leadEmail || "";
   const allLeads = getAllLeads();
-  const lead = allLeads.find((item) => String(item.id) === String(leadId));
+  const lead = findLeadByActionIdentity(allLeads, leadId, leadEmail);
   if (!lead) {
     showToast("Could not open this lead. Please refresh and try again.", true);
     return;
@@ -1259,10 +1276,12 @@ function openPostActivityDetailsModal(leadId) {
 function closePostModal() {
   document.getElementById("postActivityModal").classList.add("hidden");
   modalLeadId = null;
+  modalLeadEmail = "";
   setPostActivityModalMode("edit");
 }
 
 let notesLeadId = null;
+let notesLeadEmail = "";
 
 function canEditLeadNotes(lead) {
   if (!isCounselorSession()) return false;
@@ -1270,10 +1289,11 @@ function canEditLeadNotes(lead) {
   return owner === getCounselorIdentity();
 }
 
-function openNotesModal(leadId) {
+function openNotesModal(leadId, leadEmail = "") {
   notesLeadId = leadId;
+  notesLeadEmail = leadEmail || "";
   const allLeads = getAllLeads();
-  const lead = allLeads.find((item) => String(item.id) === String(leadId));
+  const lead = findLeadByActionIdentity(allLeads, leadId, leadEmail);
   if (!lead) {
     return;
   }
@@ -1294,7 +1314,7 @@ function openNotesModal(leadId) {
     notesListSection.querySelectorAll(".btn-delete-note").forEach((btn) => {
       btn.onclick = () => {
         const idx = Number(btn.getAttribute("data-note-index"));
-        void deleteNote(leadId, idx);
+        void deleteNote(leadId, idx, leadEmail || lead.email || "");
       };
     });
   }
@@ -1326,6 +1346,7 @@ function closeNotesModal() {
     notesModal.classList.add("hidden");
   }
   notesLeadId = null;
+  notesLeadEmail = "";
 }
 
 async function saveNote() {
@@ -1336,41 +1357,41 @@ async function saveNote() {
   }
 
   const allLeads = getAllLeads();
-  const index = allLeads.findIndex((item) => String(item.id) === String(notesLeadId));
-  if (index === -1) {
+  const lead = findLeadByActionIdentity(allLeads, notesLeadId, notesLeadEmail);
+  if (!lead) {
     return;
   }
-  if (!canEditLeadNotes(allLeads[index])) {
+  if (!canEditLeadNotes(lead)) {
     showToast("Only the assigned counselor can edit notes.", true);
     return;
   }
 
-  const noteSaveResult = await addLeadNote(notesLeadId, text);
+  const noteSaveResult = await addLeadNote(notesLeadId, text, notesLeadEmail || lead.email || "");
   if (!noteSaveResult || noteSaveResult.ok === false) {
     showToast(noteSaveResult?.message || "Failed to save note. Please check your connection and try again.", true);
     return;
   }
-  openNotesModal(notesLeadId);
+  openNotesModal(notesLeadId, notesLeadEmail || lead.email || "");
   showToast("Note saved.", false);
 }
 
-async function deleteNote(leadId, noteIndex) {
+async function deleteNote(leadId, noteIndex, leadEmail = "") {
   const allLeads = getAllLeads();
-  const index = allLeads.findIndex((item) => String(item.id) === String(leadId));
-  if (index === -1) {
+  const lead = findLeadByActionIdentity(allLeads, leadId, leadEmail);
+  if (!lead) {
     return;
   }
-  if (!canEditLeadNotes(allLeads[index])) {
+  if (!canEditLeadNotes(lead)) {
     showToast("Only the assigned counselor can delete notes.", true);
     return;
   }
 
-  const noteDeleteResult = await deleteLeadNote(leadId, noteIndex);
+  const noteDeleteResult = await deleteLeadNote(leadId, noteIndex, leadEmail || lead.email || "");
   if (!noteDeleteResult || noteDeleteResult.ok === false) {
     showToast(noteDeleteResult?.message || "Failed to delete note. Please check your connection and try again.", true);
     return;
   }
-  openNotesModal(leadId);
+  openNotesModal(leadId, leadEmail || lead.email || "");
   showToast("Note deleted.", false);
 }
 
@@ -1482,7 +1503,7 @@ function initPostWorkshopPage() {
       postCallStatus: document.getElementById("modalPostCallStatus").value,
       workshopJoiningStatus: document.getElementById("modalWorkshopJoiningStatus").value,
       postStatusUpdated: true
-    });
+    }, modalLeadEmail);
 
     if (!saved) {
       return;

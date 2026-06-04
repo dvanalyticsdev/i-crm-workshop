@@ -353,22 +353,96 @@ function filterIncludesValue(filterValue, value) {
   return !selected.length || selected.includes(String(value || "").trim());
 }
 
-function renderMultiOptions(options) {
-  return options.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("");
+function getFilterSummary(value) {
+  const selected = getSelectedFilterValues(value);
+  if (!selected.length) return EMPTY_FILTER_VALUE;
+  if (selected.length <= 2) return selected.join(", ");
+  return `${selected.length} selected`;
 }
 
-function setMultiSelectValue(selectId, value) {
+function renderMultiSelectControl({ id, label, options, value, itemClass = "", itemAttrs = "" }) {
   const selected = new Set(getSelectedFilterValues(value));
-  const select = document.getElementById(selectId);
-  if (!select) return;
-  Array.from(select.options).forEach((option) => {
-    option.selected = selected.has(option.value);
+  const optionHtml = options.length
+    ? options.map((option) => {
+        const escapedOption = escapeHtml(option);
+        const checked = selected.has(String(option)) ? " checked" : "";
+        return `
+          <label class="multi-filter-option">
+            <input type="checkbox" value="${escapedOption}"${checked} />
+            <span>${escapedOption}</span>
+          </label>
+        `;
+      }).join("")
+    : `<div class="multi-filter-empty">No options</div>`;
+
+  return `
+    <div class="filter-item${itemClass}" ${itemAttrs}>
+      <label for="${id}Button">${label}</label>
+      <div class="multi-filter" data-filter-id="${id}">
+        <button id="${id}Button" class="multi-filter-trigger" type="button" aria-expanded="false">
+          <span>${escapeHtml(getFilterSummary(value))}</span>
+          <span class="multi-filter-caret">v</span>
+        </button>
+        <div class="multi-filter-menu hidden">
+          <label class="multi-filter-option multi-filter-clear">
+            <input type="checkbox" value="${EMPTY_FILTER_VALUE}" ${selected.size ? "" : "checked"} />
+            <span>${EMPTY_FILTER_VALUE}</span>
+          </label>
+          ${optionHtml}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function bindMultiFilter(filterId, filterKey) {
+  const root = document.querySelector(`[data-filter-id="${filterId}"]`);
+  if (!root) return;
+  const button = root.querySelector(".multi-filter-trigger");
+  const menu = root.querySelector(".multi-filter-menu");
+  if (!button || !menu) return;
+
+  button.onclick = (event) => {
+    event.stopPropagation();
+    document.querySelectorAll(".multi-filter-menu").forEach((item) => {
+      if (item !== menu) item.classList.add("hidden");
+    });
+    menu.classList.toggle("hidden");
+    button.setAttribute("aria-expanded", String(!menu.classList.contains("hidden")));
+  };
+
+  menu.onclick = (event) => {
+    event.stopPropagation();
+  };
+
+  menu.querySelectorAll("input[type='checkbox']").forEach((checkbox) => {
+    checkbox.onchange = () => {
+      if (checkbox.value === EMPTY_FILTER_VALUE && checkbox.checked) {
+        filter[filterKey] = EMPTY_FILTER_VALUE;
+        persistFilterState();
+        renderAll();
+        return;
+      }
+
+      const values = Array.from(menu.querySelectorAll("input[type='checkbox']:checked"))
+        .filter((input) => input.value !== EMPTY_FILTER_VALUE)
+        .map((input) => input.value);
+      filter[filterKey] = values.length ? values : EMPTY_FILTER_VALUE;
+      persistFilterState();
+      renderAll();
+    };
   });
 }
 
-function readMultiSelectValue(event) {
-  const values = Array.from(event.target.selectedOptions).map((option) => option.value);
-  return values.length ? values : EMPTY_FILTER_VALUE;
+function bindMultiFilterOutsideClick() {
+  if (window.__dvMultiFilterCloseBound) return;
+  window.__dvMultiFilterCloseBound = true;
+  document.addEventListener("click", () => {
+    document.querySelectorAll(".multi-filter-menu").forEach((menu) => menu.classList.add("hidden"));
+    document.querySelectorAll(".multi-filter-trigger").forEach((button) => {
+      button.setAttribute("aria-expanded", "false");
+    });
+  });
 }
 
 const DEFAULT_FILTER = {
@@ -400,6 +474,7 @@ if (isCounselorSession() && (!persistedFilter.timeline || persistedFilter.timeli
 const DEFAULT_ALLOCATION = [];
 
 let modalLeadId = null;
+let modalLeadEmail = "";
 let modalMode = "edit";
 let selectedLeadIds = new Set();
 
@@ -1461,63 +1536,63 @@ function renderFilters(leads) {
         <input id="searchLeadInput" type="text" placeholder="Name, email, phone, workshop, counselor" />
       </div>
 
-      <div class="filter-item${isAdmin ? "" : " hidden"}" data-admin-only="true">
-        <label for="counselorSelect">Counselor</label>
-        <select id="counselorSelect" multiple size="4">
-          ${renderMultiOptions(counselorOptions)}
-        </select>
-      </div>
+      ${renderMultiSelectControl({
+        id: "counselorSelect",
+        label: "Counselor",
+        options: counselorOptions,
+        value: filter.counselor,
+        itemClass: isAdmin ? "" : " hidden",
+        itemAttrs: 'data-admin-only="true"'
+      })}
 
-      <div class="filter-item">
-        <label for="activityStatusSelect">Untouched Leads</label>
-        <select id="activityStatusSelect" multiple size="3">
-          <option value="Untouched">Untouched Only</option>
-          <option value="Updated">Updated Only</option>
-        </select>
-      </div>
+      ${renderMultiSelectControl({
+        id: "activityStatusSelect",
+        label: "Untouched Leads",
+        options: ["Untouched", "Updated"],
+        value: filter.activityStatus
+      })}
 
-      <div class="filter-item">
-        <label for="workshopSelect">Workshop Name</label>
-        <select id="workshopSelect" multiple size="4">
-          ${renderMultiOptions(workshops)}
-        </select>
-      </div>
+      ${renderMultiSelectControl({
+        id: "workshopSelect",
+        label: "Workshop Name",
+        options: workshops,
+        value: filter.workshop
+      })}
 
-      <div class="filter-item">
-        <label for="dialedSelect">Dialed</label>
-        <select id="dialedSelect" multiple size="4">
-          ${renderMultiOptions(dialedOptions)}
-        </select>
-      </div>
+      ${renderMultiSelectControl({
+        id: "dialedSelect",
+        label: "Dialed",
+        options: dialedOptions,
+        value: filter.dialed
+      })}
 
-      <div class="filter-item">
-        <label for="callStatusSelect">Call Status</label>
-        <select id="callStatusSelect" multiple size="4">
-          ${renderMultiOptions(callStatusOptions)}
-        </select>
-      </div>
+      ${renderMultiSelectControl({
+        id: "callStatusSelect",
+        label: "Call Status",
+        options: callStatusOptions,
+        value: filter.callStatus
+      })}
 
-      <div class="filter-item">
-        <label for="wsStatusSelect">Workshop Status</label>
-        <select id="wsStatusSelect" multiple size="4">
-          ${renderMultiOptions(wsStatusOptions)}
-        </select>
-      </div>
+      ${renderMultiSelectControl({
+        id: "wsStatusSelect",
+        label: "Workshop Status",
+        options: wsStatusOptions,
+        value: filter.wsStatus
+      })}
 
-      <div class="filter-item">
-        <label for="whatsappInviteSelect">WhatsApp Invitation Sent</label>
-        <select id="whatsappInviteSelect" multiple size="4">
-          ${renderMultiOptions(whatsappInviteOptions)}
-        </select>
-      </div>
+      ${renderMultiSelectControl({
+        id: "whatsappInviteSelect",
+        label: "WhatsApp Invitation Sent",
+        options: whatsappInviteOptions,
+        value: filter.whatsappInvite
+      })}
 
-      <div class="filter-item">
-        <label for="whatsappGroupStatusSelect">WhatsApp Group Status</label>
-        <select id="whatsappGroupStatusSelect" multiple size="3">
-          <option value="Joined">Joined</option>
-          <option value="Not Joined">Not Joined</option>
-        </select>
-      </div>
+      ${renderMultiSelectControl({
+        id: "whatsappGroupStatusSelect",
+        label: "WhatsApp Group Status",
+        options: ["Joined", "Not Joined"],
+        value: filter.whatsappGroupStatus
+      })}
 
       <div class="filter-item filter-item-cta">
         <label>&nbsp;</label>
@@ -1532,14 +1607,15 @@ function renderFilters(leads) {
   document.getElementById("startDateInput").value = filter.startDate;
   document.getElementById("endDateInput").value = filter.endDate;
   document.getElementById("searchLeadInput").value = filter.search;
-  setMultiSelectValue("counselorSelect", filter.counselor);
-  setMultiSelectValue("activityStatusSelect", filter.activityStatus);
-  setMultiSelectValue("workshopSelect", filter.workshop);
-  setMultiSelectValue("dialedSelect", filter.dialed);
-  setMultiSelectValue("callStatusSelect", filter.callStatus);
-  setMultiSelectValue("wsStatusSelect", filter.wsStatus);
-  setMultiSelectValue("whatsappInviteSelect", filter.whatsappInvite);
-  setMultiSelectValue("whatsappGroupStatusSelect", filter.whatsappGroupStatus);
+  bindMultiFilterOutsideClick();
+  bindMultiFilter("counselorSelect", "counselor");
+  bindMultiFilter("activityStatusSelect", "activityStatus");
+  bindMultiFilter("workshopSelect", "workshop");
+  bindMultiFilter("dialedSelect", "dialed");
+  bindMultiFilter("callStatusSelect", "callStatus");
+  bindMultiFilter("wsStatusSelect", "wsStatus");
+  bindMultiFilter("whatsappInviteSelect", "whatsappInvite");
+  bindMultiFilter("whatsappGroupStatusSelect", "whatsappGroupStatus");
 
   document.getElementById("startDateWrap").classList.toggle("hidden", filter.timeline !== "custom");
   document.getElementById("endDateWrap").classList.toggle("hidden", filter.timeline !== "custom");
@@ -1570,55 +1646,6 @@ function renderFilters(leads) {
     renderAll();
   };
 
-  document.getElementById("counselorSelect").onchange = (event) => {
-    filter.counselor = readMultiSelectValue(event);
-    persistFilterState();
-    renderAll();
-  };
-
-  document.getElementById("activityStatusSelect").onchange = (event) => {
-    filter.activityStatus = readMultiSelectValue(event);
-    persistFilterState();
-    renderAll();
-  };
-
-  document.getElementById("workshopSelect").onchange = (event) => {
-    filter.workshop = readMultiSelectValue(event);
-    persistFilterState();
-    renderAll();
-  };
-
-  document.getElementById("dialedSelect").onchange = (event) => {
-    filter.dialed = readMultiSelectValue(event);
-    persistFilterState();
-    renderAll();
-  };
-
-  document.getElementById("callStatusSelect").onchange = (event) => {
-    filter.callStatus = readMultiSelectValue(event);
-    persistFilterState();
-    renderAll();
-  };
-
-  document.getElementById("wsStatusSelect").onchange = (event) => {
-    filter.wsStatus = readMultiSelectValue(event);
-    persistFilterState();
-    renderAll();
-  };
-
-  document.getElementById("whatsappInviteSelect").onchange = (event) => {
-    filter.whatsappInvite = readMultiSelectValue(event);
-    persistFilterState();
-    renderAll();
-  };
-
-  document.getElementById("whatsappGroupStatusSelect").onchange = (event) => {
-    filter.whatsappGroupStatus = readMultiSelectValue(event);
-    persistFilterState();
-    renderAll();
-  };
-
-
   if (deleteImportedFileBtn) {
     deleteImportedFileBtn.onclick = () => {
       if (!isAdmin) {
@@ -1639,13 +1666,15 @@ function renderActivityStatusPanel(lead) {
   const hasActivity = Array.isArray(lead.workshopActivityHistory) && lead.workshopActivityHistory.length > 0;
   const noteCount = Array.isArray(lead.leadNotes) ? lead.leadNotes.length : 0;
   const leadId = escapeHtml(lead.id);
+  const leadEmail = escapeHtml(lead.email || "");
+  const leadAttrs = `data-lead-id="${leadId}" data-lead-email="${leadEmail}"`;
   return `
     <div class="activity-panel">
       <button class="btn-view-activity" type="button" data-lead-id="${leadId}" aria-label="View activity details" title="View activity details">👁</button>
-      <button class="btn-update-status${hasActivity ? " btn-update-status--active" : ""}" type="button" data-lead-id="${leadId}">Update</button>
-      <button class="btn-ghost btn-notes" type="button" data-lead-id="${leadId}">Notes${noteCount ? ` (${noteCount})` : ""}</button>
-      ${canCreateTasks ? `<button class="btn-ghost btn-task" type="button" data-lead-id="${leadId}">Task</button>` : ""}
-      ${isAdmin ? `<button class="btn-delete" type="button" data-lead-id="${leadId}">Delete</button>` : ""}
+      <button class="btn-update-status${hasActivity ? " btn-update-status--active" : ""}" type="button" ${leadAttrs}>Update</button>
+      <button class="btn-ghost btn-notes" type="button" ${leadAttrs}>Notes${noteCount ? ` (${noteCount})` : ""}</button>
+      ${canCreateTasks ? `<button class="btn-ghost btn-task" type="button" ${leadAttrs}>Task</button>` : ""}
+      ${isAdmin ? `<button class="btn-delete" type="button" ${leadAttrs}>Delete</button>` : ""}
     </div>
   `;
 }
@@ -1740,14 +1769,16 @@ function renderLeadTable(leads) {
   document.querySelectorAll(".btn-update-status").forEach((button) => {
     button.onclick = () => {
       const leadId = button.getAttribute("data-lead-id");
-      openActivityStatusModal(leadId);
+      const leadEmail = button.getAttribute("data-lead-email");
+      openActivityStatusModal(leadId, leadEmail);
     };
   });
 
   document.querySelectorAll(".btn-notes").forEach((button) => {
     button.onclick = () => {
       const leadId = button.getAttribute("data-lead-id");
-      openNotesModal(leadId);
+      const leadEmail = button.getAttribute("data-lead-email");
+      openNotesModal(leadId, leadEmail);
     };
   });
 
@@ -1854,15 +1885,38 @@ function populateActivityModal(lead) {
   document.getElementById("modalWhatsappGroupStatus").value = lead.whatsappGroupStatus;
 }
 
-async function updateLeadActivity(leadId, updates) {
+function findLeadByActionIdentity(leads, leadId, leadEmail = "") {
+  const normalizedId = String(leadId);
+  const normalizedEmail = String(leadEmail || "").trim().toLowerCase();
+  if (normalizedEmail) {
+    const exactLead = leads.find((lead) => (
+      String(lead.id) === normalizedId &&
+      String(lead.email || "").trim().toLowerCase() === normalizedEmail
+    ));
+    if (exactLead) return exactLead;
+  }
+
+  if (isCounselorSession()) {
+    const counselorIdentity = getCounselorIdentity();
+    const counselorLead = leads.find((lead) => (
+      String(lead.id) === normalizedId &&
+      String(lead.counselor || "").trim().toLowerCase() === counselorIdentity
+    ));
+    if (counselorLead) return counselorLead;
+  }
+
+  return leads.find((lead) => String(lead.id) === normalizedId);
+}
+
+async function updateLeadActivity(leadId, updates, leadEmail = "") {
   const allLeads = getAllLeads();
-  const index = allLeads.findIndex((lead) => String(lead.id) === String(leadId));
-  if (index === -1) {
+  const lead = findLeadByActionIdentity(allLeads, leadId, leadEmail);
+  if (!lead) {
     return false;
   }
 
   if (isCounselorSession()) {
-    const owner = String(allLeads[index].counselor || "").trim().toLowerCase();
+    const owner = String(lead.counselor || "").trim().toLowerCase();
     if (owner !== getCounselorIdentity()) {
       return false;
     }
@@ -1871,7 +1925,8 @@ async function updateLeadActivity(leadId, updates) {
   try {
     const result = await updateLeadActivityOnServer(leadId, {
       stage: "workshop",
-      updates
+      updates,
+      leadEmail: leadEmail || lead.email || ""
     });
     if (result && result.ok === false) {
       showToast(result.message || "Failed to save activity. Please check your connection and try again.", true);
@@ -1887,10 +1942,11 @@ async function updateLeadActivity(leadId, updates) {
   }
 }
 
-function openActivityStatusModal(leadId) {
+function openActivityStatusModal(leadId, leadEmail = "") {
   modalLeadId = leadId;
+  modalLeadEmail = leadEmail || "";
   const allLeads = getAllLeads();
-  const lead = allLeads.find((item) => String(item.id) === String(leadId));
+  const lead = findLeadByActionIdentity(allLeads, leadId, leadEmail);
 
   if (!lead) {
     showToast("Could not open this lead. Please refresh and try again.", true);
@@ -1910,10 +1966,11 @@ function openActivityStatusModal(leadId) {
   document.getElementById("activityStatusModal").classList.remove("hidden");
 }
 
-function openActivityDetailsModal(leadId) {
+function openActivityDetailsModal(leadId, leadEmail = "") {
   modalLeadId = leadId;
+  modalLeadEmail = leadEmail || "";
   const allLeads = getAllLeads();
-  const lead = allLeads.find((item) => String(item.id) === String(leadId));
+  const lead = findLeadByActionIdentity(allLeads, leadId, leadEmail);
 
   if (!lead) {
     showToast("Could not open this lead. Please refresh and try again.", true);
@@ -1936,10 +1993,12 @@ function openActivityDetailsModal(leadId) {
 function closeActivityStatusModal() {
   document.getElementById("activityStatusModal").classList.add("hidden");
   modalLeadId = null;
+  modalLeadEmail = "";
   setActivityModalMode("edit");
 }
 
 let notesLeadId = null;
+let notesLeadEmail = "";
 
 function canEditLeadNotes(lead) {
   if (!isCounselorSession()) return false;
@@ -1947,10 +2006,11 @@ function canEditLeadNotes(lead) {
   return owner === getCounselorIdentity();
 }
 
-function openNotesModal(leadId) {
+function openNotesModal(leadId, leadEmail = "") {
   notesLeadId = leadId;
+  notesLeadEmail = leadEmail || "";
   const allLeads = getAllLeads();
-  const lead = allLeads.find((item) => String(item.id) === String(leadId));
+  const lead = findLeadByActionIdentity(allLeads, leadId, leadEmail);
   if (!lead) {
     return;
   }
@@ -1971,7 +2031,7 @@ function openNotesModal(leadId) {
     notesListSection.querySelectorAll(".btn-delete-note").forEach((btn) => {
       btn.onclick = () => {
         const idx = Number(btn.getAttribute("data-note-index"));
-        void deleteNote(leadId, idx);
+        void deleteNote(leadId, idx, leadEmail || lead.email || "");
       };
     });
   }
@@ -2003,6 +2063,7 @@ function closeNotesModal() {
     notesModal.classList.add("hidden");
   }
   notesLeadId = null;
+  notesLeadEmail = "";
 }
 
 async function saveNote() {
@@ -2013,41 +2074,41 @@ async function saveNote() {
   }
 
   const allLeads = getAllLeads();
-  const index = allLeads.findIndex((item) => String(item.id) === String(notesLeadId));
-  if (index === -1) {
+  const lead = findLeadByActionIdentity(allLeads, notesLeadId, notesLeadEmail);
+  if (!lead) {
     return;
   }
-  if (!canEditLeadNotes(allLeads[index])) {
+  if (!canEditLeadNotes(lead)) {
     showToast("Only the assigned counselor can edit notes.", true);
     return;
   }
 
-  const noteSaveResult = await addLeadNote(notesLeadId, text);
+  const noteSaveResult = await addLeadNote(notesLeadId, text, notesLeadEmail || lead.email || "");
   if (!noteSaveResult || noteSaveResult.ok === false) {
     showToast(noteSaveResult?.message || "Failed to save note. Please check your connection and try again.", true);
     return;
   }
-  openNotesModal(notesLeadId);
+  openNotesModal(notesLeadId, notesLeadEmail || lead.email || "");
   showToast("Note saved.", false);
 }
 
-async function deleteNote(leadId, noteIndex) {
+async function deleteNote(leadId, noteIndex, leadEmail = "") {
   const allLeads = getAllLeads();
-  const index = allLeads.findIndex((item) => String(item.id) === String(leadId));
-  if (index === -1) {
+  const lead = findLeadByActionIdentity(allLeads, leadId, leadEmail);
+  if (!lead) {
     return;
   }
-  if (!canEditLeadNotes(allLeads[index])) {
+  if (!canEditLeadNotes(lead)) {
     showToast("Only the assigned counselor can delete notes.", true);
     return;
   }
 
-  const noteDeleteResult = await deleteLeadNote(leadId, noteIndex);
+  const noteDeleteResult = await deleteLeadNote(leadId, noteIndex, leadEmail || lead.email || "");
   if (!noteDeleteResult || noteDeleteResult.ok === false) {
     showToast(noteDeleteResult?.message || "Failed to delete note. Please check your connection and try again.", true);
     return;
   }
-  openNotesModal(leadId);
+  openNotesModal(leadId, leadEmail || lead.email || "");
   showToast("Note deleted.", false);
 }
 
@@ -2154,7 +2215,7 @@ function initPreWorkshopPage() {
         wsStatus: document.getElementById("modalWsStatus").value,
         whatsappInvite: document.getElementById("modalWhatsappInvite").value,
         whatsappGroupStatus: document.getElementById("modalWhatsappGroupStatus").value
-      });
+      }, modalLeadEmail);
 
       closeActivityStatusModal();
       if (saved) {
