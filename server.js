@@ -16,6 +16,7 @@ const MONGODB_SESSION_COLLECTION = process.env.MONGODB_SESSION_COLLECTION || "us
 const MONGODB_PREFERENCE_COLLECTION = process.env.MONGODB_PREFERENCE_COLLECTION || "user_preferences";
 const MONGODB_META_CONFIG_COLLECTION = process.env.MONGODB_META_CONFIG_COLLECTION || "meta_config";
 const MONGODB_META_LOGS_COLLECTION = process.env.MONGODB_META_LOGS_COLLECTION || "meta_logs";
+const MONGODB_META_RETRY_COLLECTION = process.env.MONGODB_META_RETRY_COLLECTION || "meta_retry_jobs";
 const META_WEBHOOK_FORWARD_URL = String(process.env.META_WEBHOOK_FORWARD_URL || "").trim();
 const STATE_DOC_ID = "global";
 const META_CONFIG_DOC_ID = "meta_integration";
@@ -25,6 +26,7 @@ const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const FORWARDED_WEBHOOK_HEADER = "x-dv-webhook-forwarded";
 const META_LEAD_FETCH_TIMEOUT_MS = 20000;
 const META_LEAD_FETCH_MAX_ATTEMPTS = 3;
+const META_RETRY_JOB_MAX_ATTEMPTS = 10;
 
 const ADMIN_USER = {
   id: "dvanalytics@W@2010",
@@ -61,6 +63,7 @@ app.get("/api/warm", async (_req, res) => {
       { _id: META_CONFIG_DOC_ID },
       { projection: { _id: 1 } }
     ).catch(() => undefined);
+    await processPendingMetaRetryJobs({ limit: 3 }).catch(() => undefined);
     res.setHeader("Content-Type", "application/json");
     res.setHeader("Cache-Control", "no-store");
     res.end('{"ok":true}');
@@ -91,6 +94,7 @@ let sessionCollection;
 let preferenceCollection;
 let metaConfigCollection;
 let metaLogsCollection;
+let metaRetryCollection;
 let mongoClient;
 let mongoInitPromise;
 let cachedStateDoc    = null;
@@ -134,6 +138,7 @@ async function resetMongoConnection() {
   preferenceCollection = null;
   metaConfigCollection = null;
   metaLogsCollection = null;
+  metaRetryCollection = null;
 }
 
 async function withMongoRetry(operation, { retries = 1, label = "MongoDB operation" } = {}) {
@@ -334,6 +339,7 @@ async function initMongo() {
       preferenceCollection = db.collection(MONGODB_PREFERENCE_COLLECTION);
       metaConfigCollection = db.collection(MONGODB_META_CONFIG_COLLECTION);
       metaLogsCollection   = db.collection(MONGODB_META_LOGS_COLLECTION);
+      metaRetryCollection  = db.collection(MONGODB_META_RETRY_COLLECTION);
       // Ensure a fast index on the session token so every auth'd request
       // resolves in a single indexed lookup instead of a full collection scan.
       await sessionCollection.createIndex(
@@ -342,6 +348,14 @@ async function initMongo() {
       ).catch(() => undefined); // ignore if index already exists
       await metaLogsCollection.createIndex(
         { receivedAt: -1 },
+        { background: true }
+      ).catch(() => undefined);
+      await metaRetryCollection.createIndex(
+        { leadgenId: 1 },
+        { unique: true, background: true }
+      ).catch(() => undefined);
+      await metaRetryCollection.createIndex(
+        { nextAttemptAt: 1 },
         { background: true }
       ).catch(() => undefined);
     })().catch(async (error) => {
@@ -456,6 +470,45 @@ function normalizeMetaLabel(value) {
 
 function isCounselorInMetaRotation(counselor) {
   return counselor?.roundRobinEnabled !== false && !counselor?.disabled;
+}
+
+async function getMetaProcessingSnapshot() {
+  if (cachedStateDoc && Array.isArray(cachedStateDoc.counselors)) {
+    return {
+      counselors: Array.isArray(cachedStateDoc.counselors) ? cachedStateDoc.counselors : []
+    };
+  }
+
+  try {
+    const state = await withMongoRetry(
+      () => stateCollection.findOne(
+        { _id: STATE_DOC_ID },
+        { projection: { counselors: 1 } }
+      ),
+      { retries: 1, label: "Load Meta processing snapshot" }
+    );
+
+    if (state) {
+      if (cachedStateDoc) {
+        cachedStateDoc = {
+          ...cachedStateDoc,
+          counselors: Array.isArray(state.counselors) ? state.counselors : cachedStateDoc.counselors
+        };
+      }
+      return {
+        counselors: Array.isArray(state?.counselors) ? state.counselors : []
+      };
+    }
+  } catch (error) {
+    if (cachedStateDoc && Array.isArray(cachedStateDoc.counselors)) {
+      return {
+        counselors: cachedStateDoc.counselors
+      };
+    }
+    throw error;
+  }
+
+  return { counselors: [] };
 }
 
 async function fetchMetaLeadDetails(leadgenId, pageAccessToken) {
@@ -574,6 +627,13 @@ async function processMetaWebhookPayload(req, body) {
         if (!config.pageAccessToken) throw new Error("Page Access Token not configured.");
         metaLead = await fetchMetaLeadDetails(leadgenId, config.pageAccessToken);
       } catch (fetchErr) {
+        await enqueueMetaRetryJob({
+          leadgenId,
+          formId,
+          pageId,
+          reason: "fetch_lead_details",
+          lastError: fetchErr.message
+        }).catch(() => undefined);
         await saveMetaLog({ type: "error", message: `Failed to fetch lead details: ${fetchErr.message}`, leadgenId, formId });
         continue;
       }
@@ -755,6 +815,119 @@ function buildMetaLead(fieldData, meta, counselorName, nextId) {
 // ─── Meta API Routes ──────────────────────────────────────────────────────────
 
 // Webhook verification (GET) — called once by Meta when you register the webhook.
+async function assignCounselorRoundRobin(counselorSource) {
+  const sourceList = Array.isArray(counselorSource)
+    ? counselorSource
+    : Array.isArray(counselorSource?.counselors)
+      ? counselorSource.counselors
+      : [];
+  const counselors = sourceList.filter(isCounselorInMetaRotation);
+  if (!counselors.length) return "Unassigned";
+
+  const result = await withMongoRetry(
+    () => metaConfigCollection.findOneAndUpdate(
+      { _id: META_CONFIG_DOC_ID },
+      { $inc: { roundRobinIndex: 1 } },
+      { returnDocument: "after", upsert: true }
+    ),
+    { retries: 1, label: "Advance Meta round robin" }
+  );
+  const newIdx = Number(result?.roundRobinIndex) || 1;
+  const idx = ((newIdx - 1) % counselors.length + counselors.length) % counselors.length;
+  return counselors[idx].name;
+}
+
+async function processMetaWebhookPayload(req, body) {
+  const config = await getMetaConfig();
+
+  if (config.appSecret) {
+    const sig = req.headers["x-hub-signature-256"] || "";
+    const rawBuf = req.rawBody;
+    if (!rawBuf || !verifyWebhookSignature(rawBuf, sig, config.appSecret)) {
+      await saveMetaLog({ type: "error", message: "Signature verification failed", headers: { sig } });
+      return;
+    }
+  }
+
+  if (!body || body.object !== "page") {
+    await saveMetaLog({ type: "ignored", message: "Non-page event", object: body?.object });
+    return;
+  }
+
+  if (!config.enabled) {
+    await saveMetaLog({ type: "ignored", message: "Integration disabled", object: body?.object });
+    return;
+  }
+
+  const entries = Array.isArray(body.entry) ? body.entry : [];
+  for (const entry of entries) {
+    const changes = Array.isArray(entry.changes) ? entry.changes : [];
+    for (const change of changes) {
+      if (change.field !== "leadgen") continue;
+      const value = change.value || {};
+      const leadgenId = String(value.leadgen_id || "");
+      const formId = String(value.form_id || "");
+      const pageId = String(value.page_id || entry.id || "");
+
+      if (!leadgenId) {
+        await saveMetaLog({ type: "error", message: "Missing leadgen_id", raw: value });
+        continue;
+      }
+
+      if (config.pageId && pageId && pageId !== String(config.pageId)) {
+        await saveMetaLog({ type: "ignored", message: `Page ID mismatch: got ${pageId}`, leadgenId });
+        continue;
+      }
+
+      const allowedForms = Array.isArray(config.formIds) ? config.formIds.filter(Boolean) : [];
+      if (allowedForms.length && !allowedForms.includes(formId)) {
+        await saveMetaLog({ type: "ignored", message: `Form ID ${formId} not in allowed list`, leadgenId });
+        continue;
+      }
+
+      let metaLead = null;
+      try {
+        if (!config.pageAccessToken) throw new Error("Page Access Token not configured.");
+        metaLead = await fetchMetaLeadDetails(leadgenId, config.pageAccessToken);
+      } catch (fetchErr) {
+        await enqueueMetaRetryJob({
+          leadgenId,
+          formId,
+          pageId,
+          reason: "fetch_lead_details",
+          lastError: fetchErr.message
+        }).catch(() => undefined);
+        await saveMetaLog({
+          type: "error",
+          message: `Failed to fetch lead details: ${fetchErr.message}`,
+          leadgenId,
+          formId
+        });
+        continue;
+      }
+
+      try {
+        await processMetaLeadRecord({ leadgenId, formId, pageId, metaLead });
+      } catch (processErr) {
+        await enqueueMetaRetryJob({
+          leadgenId,
+          formId,
+          pageId,
+          reason: "process_meta_lead",
+          lastError: processErr.message,
+          metaLeadSnapshot: metaLead
+        }).catch(() => undefined);
+        await saveMetaLog({
+          type: "error",
+          message: `Webhook processing error: ${processErr.message}`,
+          leadgenId,
+          formId
+        });
+      }
+    }
+  }
+}
+
 app.get("/api/meta/webhook", async (req, res) => {
   try {
     await initMongo();
@@ -1491,6 +1664,191 @@ if (require.main === module) {
     console.error("Server startup failed:", error.message);
     process.exit(1);
   });
+}
+
+async function getNextMetaLeadId() {
+  const result = await withMongoRetry(
+    () => metaConfigCollection.findOneAndUpdate(
+      { _id: META_CONFIG_DOC_ID },
+      { $inc: { leadSequence: 1 } },
+      { returnDocument: "after", upsert: true }
+    ),
+    { retries: 1, label: "Advance Meta lead sequence" }
+  );
+
+  const nextId = Number(result?.leadSequence) || 0;
+  return nextId > 0 ? nextId : Date.now();
+}
+
+function getMetaRetryBackoffMs(attempts) {
+  if (attempts <= 1) return 60 * 1000;
+  if (attempts <= 3) return 3 * 60 * 1000;
+  if (attempts <= 6) return 10 * 60 * 1000;
+  return 30 * 60 * 1000;
+}
+
+async function enqueueMetaRetryJob({
+  leadgenId,
+  formId,
+  pageId,
+  reason,
+  lastError,
+  metaLeadSnapshot = null
+}) {
+  if (!leadgenId) {
+    return;
+  }
+
+  const now = new Date();
+  await withMongoRetry(
+    () => metaRetryCollection.updateOne(
+      { leadgenId: String(leadgenId) },
+      {
+        $set: {
+          formId: String(formId || ""),
+          pageId: String(pageId || ""),
+          reason: String(reason || "unknown"),
+          lastError: String(lastError || ""),
+          metaLeadSnapshot: metaLeadSnapshot || null,
+          updatedAt: now.toISOString(),
+          nextAttemptAt: new Date(now.getTime() + 60 * 1000).toISOString()
+        },
+        $setOnInsert: {
+          leadgenId: String(leadgenId),
+          attempts: 0,
+          createdAt: now.toISOString()
+        }
+      },
+      { upsert: true }
+    ),
+    { retries: 1, label: "Queue Meta retry job" }
+  );
+}
+
+async function insertMetaLeadIfNew(leadgenId, newLead) {
+  return withMongoRetry(
+    () => stateCollection.updateOne(
+      {
+        _id: STATE_DOC_ID,
+        "leads.metaLeadId": { $ne: String(leadgenId) }
+      },
+      {
+        $push: { leads: newLead },
+        $set:  { updatedAt: new Date().toISOString() },
+        $setOnInsert: { counselors: [], allocation: [], tasks: [], createdAt: new Date().toISOString() }
+      },
+      { upsert: true }
+    ),
+    { retries: 1, label: "Create Meta lead" }
+  );
+}
+
+async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retryJobId = null }) {
+  const snapshot = await getMetaProcessingSnapshot();
+  const counselorName = await assignCounselorRoundRobin(snapshot.counselors);
+  const nextId = await getNextMetaLeadId();
+  const newLead = buildMetaLead(
+    metaLead.field_data,
+    {
+      leadgenId,
+      formId,
+      adId: metaLead.ad_id,
+      adName: metaLead.ad_name,
+      adsetName: metaLead.adset_name,
+      campaignName: metaLead.campaign_name
+    },
+    counselorName,
+    nextId
+  );
+
+  const result = await insertMetaLeadIfNew(leadgenId, newLead);
+
+  cachedStateDoc   = null;
+  cachedStateDocAt = 0;
+
+  if (!result?.modifiedCount && !result?.upsertedCount) {
+    if (retryJobId) {
+      await withMongoRetry(
+        () => metaRetryCollection.deleteOne({ _id: retryJobId }),
+        { retries: 1, label: "Delete duplicate Meta retry job" }
+      );
+    }
+    await saveMetaLog({ type: "ignored", message: "Duplicate lead (already imported)", leadgenId });
+    return;
+  }
+
+  if (retryJobId) {
+    await withMongoRetry(
+      () => metaRetryCollection.deleteOne({ _id: retryJobId }),
+      { retries: 1, label: "Delete processed Meta retry job" }
+    );
+  }
+
+  await saveMetaLog({
+    type: "success",
+    message: `${retryJobId ? "Retried l" : "L"}ead created: ${newLead.name} → ${counselorName}`,
+    leadgenId,
+    formId,
+    leadId: nextId,
+    leadName: newLead.name,
+    counselor: counselorName,
+    campaignName: newLead.metaCampaignName
+  });
+}
+
+async function processPendingMetaRetryJobs({ limit = 3 } = {}) {
+  const nowIso = new Date().toISOString();
+  const jobs = await withMongoRetry(
+    () => metaRetryCollection
+      .find(
+        {
+          nextAttemptAt: { $lte: nowIso },
+          attempts: { $lt: META_RETRY_JOB_MAX_ATTEMPTS }
+        }
+      )
+      .sort({ nextAttemptAt: 1, createdAt: 1 })
+      .limit(limit)
+      .toArray(),
+    { retries: 1, label: "Load Meta retry jobs" }
+  );
+
+  if (!jobs.length) {
+    return;
+  }
+
+  const config = await getMetaConfig();
+  if (!config.enabled || !config.pageAccessToken) {
+    return;
+  }
+
+  for (const job of jobs) {
+    try {
+      const metaLead = job.metaLeadSnapshot || await fetchMetaLeadDetails(job.leadgenId, config.pageAccessToken);
+      await processMetaLeadRecord({
+        leadgenId: job.leadgenId,
+        formId: job.formId,
+        pageId: job.pageId,
+        metaLead,
+        retryJobId: job._id
+      });
+    } catch (error) {
+      const attempts = Number(job.attempts || 0) + 1;
+      await withMongoRetry(
+        () => metaRetryCollection.updateOne(
+          { _id: job._id },
+          {
+            $set: {
+              attempts,
+              lastError: String(error?.message || "unknown error"),
+              updatedAt: new Date().toISOString(),
+              nextAttemptAt: new Date(Date.now() + getMetaRetryBackoffMs(attempts)).toISOString()
+            }
+          }
+        ),
+        { retries: 1, label: "Update Meta retry job" }
+      ).catch(() => undefined);
+    }
+  }
 }
 
 module.exports = app;
