@@ -68,3 +68,27 @@ test("task service uses atomic task endpoints", () => {
   assert.doesNotMatch(taskService, /saveStoredTasks|saveTasks as saveStoredTasks/);
   assert.match(taskService, /requestJson\("\/api\/tasks"/);
 });
+
+test("workshop and admission filters support multiple selected values", () => {
+  const preWorkshop = read("pre-workshop.js");
+  const postWorkshop = read("post-workshop.js");
+
+  assert.match(preWorkshop, /function getSelectedFilterValues/);
+  assert.match(postWorkshop, /function getSelectedFilterValues/);
+  assert.match(preWorkshop, /<select id="workshopSelect" multiple/);
+  assert.match(postWorkshop, /<select id="postWorkshopSelect" multiple/);
+  assert.match(preWorkshop, /filterIncludesValue\(filter\.workshop, lead\.workshop\)/);
+  assert.match(postWorkshop, /filterIncludesValue\(filter\.courseStatus, lead\.courseStatus\)/);
+});
+
+test("lead action buttons escape lead ids before binding click handlers", () => {
+  const preWorkshop = read("pre-workshop.js");
+  const postWorkshop = read("post-workshop.js");
+
+  assert.match(preWorkshop, /const leadId = escapeHtml\(lead\.id\)/);
+  assert.match(postWorkshop, /const leadId = escapeHtml\(lead\.id\)/);
+  assert.doesNotMatch(preWorkshop, /data-lead-id="\$\{lead\.id\}"/);
+  assert.doesNotMatch(postWorkshop, /data-lead-id="\$\{lead\.id\}"/);
+  assert.match(preWorkshop, /Could not open this lead/);
+  assert.match(postWorkshop, /Could not open this lead/);
+});

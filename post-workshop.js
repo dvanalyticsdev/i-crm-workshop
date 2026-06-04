@@ -39,12 +39,40 @@ const session = getSession();
 const isAdmin = session?.role === "admin";
 const canCreateTasks = session?.role === "counselor";
 
-function isSelectedFilterValue(value) {
-  return value !== "Select";
+const EMPTY_FILTER_VALUE = "Select";
+
+function getSelectedFilterValues(value) {
+  const rawValues = Array.isArray(value) ? value : [value];
+  return rawValues
+    .map((item) => String(item || "").trim())
+    .filter((item) => item && item !== EMPTY_FILTER_VALUE && item !== "All");
 }
 
-function normalizeSelectedFilterValue(value) {
-  return value && value !== "All" ? value : "Select";
+function isSelectedFilterValue(value) {
+  return getSelectedFilterValues(value).length > 0;
+}
+
+function filterIncludesValue(filterValue, value) {
+  const selected = getSelectedFilterValues(filterValue);
+  return !selected.length || selected.includes(String(value || "").trim());
+}
+
+function renderMultiOptions(options) {
+  return options.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("");
+}
+
+function setMultiSelectValue(selectId, value) {
+  const selected = new Set(getSelectedFilterValues(value));
+  const select = document.getElementById(selectId);
+  if (!select) return;
+  Array.from(select.options).forEach((option) => {
+    option.selected = selected.has(option.value);
+  });
+}
+
+function readMultiSelectValue(event) {
+  const values = Array.from(event.target.selectedOptions).map((option) => option.value);
+  return values.length ? values : EMPTY_FILTER_VALUE;
 }
 
 const DEFAULT_FILTER = {
@@ -52,20 +80,20 @@ const DEFAULT_FILTER = {
   startDate: "",
   endDate: "",
   search: "",
-  workshop: "Select",
-  counselor: "Select",
-  activityStatus: "Select",
-  postDialed: "Select",
-  coursePitched: "Select",
-  admissionStatus: "Select",
-  courseStatus: "Select",
-  postCallStatus: "Select",
-  workshopJoiningStatus: "Select",
-  workshopCallingDialed: "Select",
-  workshopCallingCallStatus: "Select",
-  workshopCallingWsStatus: "Select",
-  workshopCallingWhatsappInvite: "Select",
-  workshopCallingWhatsappGroupStatus: "Select"
+  workshop: EMPTY_FILTER_VALUE,
+  counselor: EMPTY_FILTER_VALUE,
+  activityStatus: EMPTY_FILTER_VALUE,
+  postDialed: EMPTY_FILTER_VALUE,
+  coursePitched: EMPTY_FILTER_VALUE,
+  admissionStatus: EMPTY_FILTER_VALUE,
+  courseStatus: EMPTY_FILTER_VALUE,
+  postCallStatus: EMPTY_FILTER_VALUE,
+  workshopJoiningStatus: EMPTY_FILTER_VALUE,
+  workshopCallingDialed: EMPTY_FILTER_VALUE,
+  workshopCallingCallStatus: EMPTY_FILTER_VALUE,
+  workshopCallingWsStatus: EMPTY_FILTER_VALUE,
+  workshopCallingWhatsappInvite: EMPTY_FILTER_VALUE,
+  workshopCallingWhatsappGroupStatus: EMPTY_FILTER_VALUE
 };
 
 const FILTER_STORAGE_KEY = "dvWorkshopAdmissionCallingFilters";
@@ -411,36 +439,31 @@ function renderFilters(leads) {
       <div class="filter-row">
         <div class="filter-item">
           <label for="postWorkshopCallingDialedSelect">Dialed</label>
-          <select id="postWorkshopCallingDialedSelect">
-              <option value="Select">Select</option>
-            ${workshopCallingDialedOptions.map((value) => `<option value="${value}">${value}</option>`).join("")}
+          <select id="postWorkshopCallingDialedSelect" multiple size="4">
+            ${renderMultiOptions(workshopCallingDialedOptions)}
           </select>
         </div>
         <div class="filter-item">
           <label for="postWorkshopCallingCallStatusSelect">Call Status</label>
-          <select id="postWorkshopCallingCallStatusSelect">
-              <option value="Select">Select</option>
-            ${workshopCallingCallStatusOptions.map((value) => `<option value="${value}">${value}</option>`).join("")}
+          <select id="postWorkshopCallingCallStatusSelect" multiple size="4">
+            ${renderMultiOptions(workshopCallingCallStatusOptions)}
           </select>
         </div>
         <div class="filter-item">
           <label for="postWorkshopCallingWsStatusSelect">Workshop Status</label>
-          <select id="postWorkshopCallingWsStatusSelect">
-              <option value="Select">Select</option>
-            ${workshopCallingWsStatusOptions.map((value) => `<option value="${value}">${value}</option>`).join("")}
+          <select id="postWorkshopCallingWsStatusSelect" multiple size="4">
+            ${renderMultiOptions(workshopCallingWsStatusOptions)}
           </select>
         </div>
         <div class="filter-item">
           <label for="postWorkshopCallingWhatsappInviteSelect">WhatsApp Invite</label>
-          <select id="postWorkshopCallingWhatsappInviteSelect">
-              <option value="Select">Select</option>
-            ${workshopCallingWhatsappInviteOptions.map((value) => `<option value="${value}">${value}</option>`).join("")}
+          <select id="postWorkshopCallingWhatsappInviteSelect" multiple size="4">
+            ${renderMultiOptions(workshopCallingWhatsappInviteOptions)}
           </select>
         </div>
         <div class="filter-item">
           <label for="postWorkshopCallingWhatsappGroupStatusSelect">WhatsApp Group Status</label>
-          <select id="postWorkshopCallingWhatsappGroupStatusSelect">
-              <option value="Select">Select</option>
+          <select id="postWorkshopCallingWhatsappGroupStatusSelect" multiple size="3">
             <option value="Joined">Joined</option>
             <option value="Not Joined">Not Joined</option>
           </select>
@@ -457,59 +480,51 @@ function renderFilters(leads) {
         </div>
         <div class="filter-item${isAdmin ? "" : " hidden"}" data-admin-only="true">
           <label for="postCounselorSelect">Counselor</label>
-          <select id="postCounselorSelect">
-              <option value="Select">Select</option>
-            ${counselorOptions.map((value) => `<option value="${value}">${value}</option>`).join("")}
+          <select id="postCounselorSelect" multiple size="4">
+            ${renderMultiOptions(counselorOptions)}
           </select>
         </div>
         <div class="filter-item">
           <label for="postActivityStatusSelect">Untouched Leads</label>
-          <select id="postActivityStatusSelect">
-              <option value="Select">Select</option>
+          <select id="postActivityStatusSelect" multiple size="3">
             <option value="Untouched">Untouched Only</option>
             <option value="Updated">Updated Only</option>
           </select>
         </div>
         <div class="filter-item">
           <label for="postWorkshopSelect">Workshop Name</label>
-          <select id="postWorkshopSelect">
-              <option value="Select">Select</option>
-            ${workshops.map((value) => `<option value="${value}">${value}</option>`).join("")}
+          <select id="postWorkshopSelect" multiple size="4">
+            ${renderMultiOptions(workshops)}
           </select>
         </div>
         <div class="filter-item">
           <label for="postDialedSelect">Dialed</label>
-          <select id="postDialedSelect">
-              <option value="Select">Select</option>
-            ${postDialedOptions.map((value) => `<option value="${value}">${value}</option>`).join("")}
+          <select id="postDialedSelect" multiple size="4">
+            ${renderMultiOptions(postDialedOptions)}
           </select>
         </div>
         <div class="filter-item">
           <label for="postCoursePitchedSelect">Course Pitched</label>
-          <select id="postCoursePitchedSelect">
-              <option value="Select">Select</option>
-            ${coursePitchedOptions.map((value) => `<option value="${value}">${value}</option>`).join("")}
+          <select id="postCoursePitchedSelect" multiple size="4">
+            ${renderMultiOptions(coursePitchedOptions)}
           </select>
         </div>
         <div class="filter-item">
           <label for="postCourseStatusSelect">Course Status</label>
-          <select id="postCourseStatusSelect">
-              <option value="Select">Select</option>
+          <select id="postCourseStatusSelect" multiple size="3">
             <option value="Interested">Interested</option>
             <option value="Not Interested">Not Interested</option>
           </select>
         </div>
         <div class="filter-item">
           <label for="postAdmissionStatusSelect">Admission</label>
-          <select id="postAdmissionStatusSelect">
-              <option value="Select">Select</option>
-            ${admissionOptions.map((value) => `<option value="${value}">${value}</option>`).join("")}
+          <select id="postAdmissionStatusSelect" multiple size="4">
+            ${renderMultiOptions(admissionOptions)}
           </select>
         </div>
         <div class="filter-item">
           <label for="postCallStatusSelect">Call Status</label>
-          <select id="postCallStatusSelect">
-              <option value="Select">Select</option>
+          <select id="postCallStatusSelect" multiple size="4">
             <option value="Connected">Connected</option>
             <option value="CBL">CBL</option>
             <option value="DNP">DNP</option>
@@ -518,8 +533,7 @@ function renderFilters(leads) {
         </div>
         <div class="filter-item">
           <label for="postWorkshopJoiningStatusSelect">Workshop Joining Status</label>
-          <select id="postWorkshopJoiningStatusSelect">
-              <option value="Select">Select</option>
+          <select id="postWorkshopJoiningStatusSelect" multiple size="3">
             <option value="Joined">Joined</option>
             <option value="Not Joined">Not Joined</option>
           </select>
@@ -534,53 +548,53 @@ function renderFilters(leads) {
     </div>
   `;
 
-  document.getElementById("postWorkshopCallingDialedSelect").value = filter.workshopCallingDialed;
-  document.getElementById("postWorkshopCallingCallStatusSelect").value = filter.workshopCallingCallStatus;
-  document.getElementById("postWorkshopCallingWsStatusSelect").value = filter.workshopCallingWsStatus;
-  document.getElementById("postWorkshopCallingWhatsappInviteSelect").value = filter.workshopCallingWhatsappInvite;
-  document.getElementById("postWorkshopCallingWhatsappGroupStatusSelect").value = filter.workshopCallingWhatsappGroupStatus;
+  setMultiSelectValue("postWorkshopCallingDialedSelect", filter.workshopCallingDialed);
+  setMultiSelectValue("postWorkshopCallingCallStatusSelect", filter.workshopCallingCallStatus);
+  setMultiSelectValue("postWorkshopCallingWsStatusSelect", filter.workshopCallingWsStatus);
+  setMultiSelectValue("postWorkshopCallingWhatsappInviteSelect", filter.workshopCallingWhatsappInvite);
+  setMultiSelectValue("postWorkshopCallingWhatsappGroupStatusSelect", filter.workshopCallingWhatsappGroupStatus);
   document.getElementById("postTimelineSelect").value = filter.timeline;
   document.getElementById("postStartDateInput").value = filter.startDate;
   document.getElementById("postEndDateInput").value = filter.endDate;
   document.getElementById("postStartDateWrap").classList.toggle("hidden", filter.timeline !== "custom");
   document.getElementById("postEndDateWrap").classList.toggle("hidden", filter.timeline !== "custom");
   document.getElementById("postSearchLeadInput").value = filter.search;
-  document.getElementById("postCounselorSelect").value = filter.counselor;
-  document.getElementById("postActivityStatusSelect").value = filter.activityStatus;
-  document.getElementById("postWorkshopSelect").value = filter.workshop;
-  document.getElementById("postDialedSelect").value = filter.postDialed;
-  document.getElementById("postCoursePitchedSelect").value = filter.coursePitched;
-  document.getElementById("postCourseStatusSelect").value = filter.courseStatus;
-  document.getElementById("postAdmissionStatusSelect").value = filter.admissionStatus;
-  document.getElementById("postCallStatusSelect").value = filter.postCallStatus;
-  document.getElementById("postWorkshopJoiningStatusSelect").value = filter.workshopJoiningStatus;
+  setMultiSelectValue("postCounselorSelect", filter.counselor);
+  setMultiSelectValue("postActivityStatusSelect", filter.activityStatus);
+  setMultiSelectValue("postWorkshopSelect", filter.workshop);
+  setMultiSelectValue("postDialedSelect", filter.postDialed);
+  setMultiSelectValue("postCoursePitchedSelect", filter.coursePitched);
+  setMultiSelectValue("postCourseStatusSelect", filter.courseStatus);
+  setMultiSelectValue("postAdmissionStatusSelect", filter.admissionStatus);
+  setMultiSelectValue("postCallStatusSelect", filter.postCallStatus);
+  setMultiSelectValue("postWorkshopJoiningStatusSelect", filter.workshopJoiningStatus);
 
   document.getElementById("postWorkshopCallingDialedSelect").onchange = (event) => {
-    filter.workshopCallingDialed = event.target.value;
+    filter.workshopCallingDialed = readMultiSelectValue(event);
     persistFilterState();
     renderAll();
   };
 
   document.getElementById("postWorkshopCallingCallStatusSelect").onchange = (event) => {
-    filter.workshopCallingCallStatus = event.target.value;
+    filter.workshopCallingCallStatus = readMultiSelectValue(event);
     persistFilterState();
     renderAll();
   };
 
   document.getElementById("postWorkshopCallingWsStatusSelect").onchange = (event) => {
-    filter.workshopCallingWsStatus = event.target.value;
+    filter.workshopCallingWsStatus = readMultiSelectValue(event);
     persistFilterState();
     renderAll();
   };
 
   document.getElementById("postWorkshopCallingWhatsappInviteSelect").onchange = (event) => {
-    filter.workshopCallingWhatsappInvite = event.target.value;
+    filter.workshopCallingWhatsappInvite = readMultiSelectValue(event);
     persistFilterState();
     renderAll();
   };
 
   document.getElementById("postWorkshopCallingWhatsappGroupStatusSelect").onchange = (event) => {
-    filter.workshopCallingWhatsappGroupStatus = event.target.value;
+    filter.workshopCallingWhatsappGroupStatus = readMultiSelectValue(event);
     persistFilterState();
     renderAll();
   };
@@ -620,55 +634,55 @@ function renderFilters(leads) {
   };
 
   document.getElementById("postCounselorSelect").onchange = (event) => {
-    filter.counselor = event.target.value;
+    filter.counselor = readMultiSelectValue(event);
     persistFilterState();
     renderAll();
   };
 
   document.getElementById("postActivityStatusSelect").onchange = (event) => {
-    filter.activityStatus = event.target.value;
+    filter.activityStatus = readMultiSelectValue(event);
     persistFilterState();
     renderAll();
   };
 
   document.getElementById("postWorkshopSelect").onchange = (event) => {
-    filter.workshop = event.target.value;
+    filter.workshop = readMultiSelectValue(event);
     persistFilterState();
     renderAll();
   };
 
   document.getElementById("postDialedSelect").onchange = (event) => {
-    filter.postDialed = event.target.value;
+    filter.postDialed = readMultiSelectValue(event);
     persistFilterState();
     renderAll();
   };
 
   document.getElementById("postCoursePitchedSelect").onchange = (event) => {
-    filter.coursePitched = event.target.value;
+    filter.coursePitched = readMultiSelectValue(event);
     persistFilterState();
     renderAll();
   };
 
   document.getElementById("postCourseStatusSelect").onchange = (event) => {
-    filter.courseStatus = event.target.value;
+    filter.courseStatus = readMultiSelectValue(event);
     persistFilterState();
     renderAll();
   };
 
   document.getElementById("postAdmissionStatusSelect").onchange = (event) => {
-    filter.admissionStatus = event.target.value;
+    filter.admissionStatus = readMultiSelectValue(event);
     persistFilterState();
     renderAll();
   };
 
   document.getElementById("postCallStatusSelect").onchange = (event) => {
-    filter.postCallStatus = event.target.value;
+    filter.postCallStatus = readMultiSelectValue(event);
     persistFilterState();
     renderAll();
   };
 
   document.getElementById("postWorkshopJoiningStatusSelect").onchange = (event) => {
-    filter.workshopJoiningStatus = event.target.value;
+    filter.workshopJoiningStatus = readMultiSelectValue(event);
     persistFilterState();
     renderAll();
   };
@@ -701,63 +715,64 @@ function filterLeads(leads) {
   }
 
   if (isSelectedFilterValue(filter.workshop)) {
-    filtered = filtered.filter((lead) => lead.workshop === filter.workshop);
+    filtered = filtered.filter((lead) => filterIncludesValue(filter.workshop, lead.workshop));
   }
 
   if (isSelectedFilterValue(filter.counselor)) {
-    filtered = filtered.filter((lead) => String(lead.counselor || "").trim() === filter.counselor);
+    filtered = filtered.filter((lead) => filterIncludesValue(filter.counselor, lead.counselor));
   }
 
-  if (filter.activityStatus === "Untouched") {
+  const activityStatuses = getSelectedFilterValues(filter.activityStatus);
+  if (activityStatuses.length === 1 && activityStatuses.includes("Untouched")) {
     filtered = filtered.filter((lead) => isUntouchedLead(lead));
   }
 
-  if (filter.activityStatus === "Updated") {
+  if (activityStatuses.length === 1 && activityStatuses.includes("Updated")) {
     filtered = filtered.filter((lead) => !isUntouchedLead(lead));
   }
 
   if (isSelectedFilterValue(filter.workshopCallingDialed)) {
-    filtered = filtered.filter((lead) => lead.dialed === filter.workshopCallingDialed);
+    filtered = filtered.filter((lead) => filterIncludesValue(filter.workshopCallingDialed, lead.dialed));
   }
 
   if (isSelectedFilterValue(filter.workshopCallingCallStatus)) {
-    filtered = filtered.filter((lead) => lead.callStatus === filter.workshopCallingCallStatus);
+    filtered = filtered.filter((lead) => filterIncludesValue(filter.workshopCallingCallStatus, lead.callStatus));
   }
 
   if (isSelectedFilterValue(filter.workshopCallingWsStatus)) {
-    filtered = filtered.filter((lead) => lead.wsStatus === filter.workshopCallingWsStatus);
+    filtered = filtered.filter((lead) => filterIncludesValue(filter.workshopCallingWsStatus, lead.wsStatus));
   }
 
   if (isSelectedFilterValue(filter.workshopCallingWhatsappInvite)) {
-    filtered = filtered.filter((lead) => lead.whatsappInvite === filter.workshopCallingWhatsappInvite);
+    filtered = filtered.filter((lead) => filterIncludesValue(filter.workshopCallingWhatsappInvite, lead.whatsappInvite));
   }
 
   if (isSelectedFilterValue(filter.workshopCallingWhatsappGroupStatus)) {
-    filtered = filtered.filter((lead) => lead.whatsappGroupStatus === filter.workshopCallingWhatsappGroupStatus);
+    filtered = filtered.filter((lead) => filterIncludesValue(filter.workshopCallingWhatsappGroupStatus, lead.whatsappGroupStatus));
   }
 
   if (isSelectedFilterValue(filter.postDialed)) {
-    filtered = filtered.filter((lead) => lead.postDialed === filter.postDialed);
+    filtered = filtered.filter((lead) => filterIncludesValue(filter.postDialed, lead.postDialed));
   }
 
   if (isSelectedFilterValue(filter.coursePitched)) {
-    filtered = filtered.filter((lead) => lead.coursePitched === filter.coursePitched);
+    filtered = filtered.filter((lead) => filterIncludesValue(filter.coursePitched, lead.coursePitched));
   }
 
   if (isSelectedFilterValue(filter.courseStatus)) {
-    filtered = filtered.filter((lead) => lead.courseStatus === filter.courseStatus);
+    filtered = filtered.filter((lead) => filterIncludesValue(filter.courseStatus, lead.courseStatus));
   }
 
   if (isSelectedFilterValue(filter.admissionStatus)) {
-    filtered = filtered.filter((lead) => lead.admissionStatus === filter.admissionStatus);
+    filtered = filtered.filter((lead) => filterIncludesValue(filter.admissionStatus, lead.admissionStatus));
   }
 
   if (isSelectedFilterValue(filter.postCallStatus)) {
-    filtered = filtered.filter((lead) => lead.postCallStatus === filter.postCallStatus);
+    filtered = filtered.filter((lead) => filterIncludesValue(filter.postCallStatus, lead.postCallStatus));
   }
 
   if (isSelectedFilterValue(filter.workshopJoiningStatus)) {
-    filtered = filtered.filter((lead) => lead.workshopJoiningStatus === filter.workshopJoiningStatus);
+    filtered = filtered.filter((lead) => filterIncludesValue(filter.workshopJoiningStatus, lead.workshopJoiningStatus));
   }
 
   return filtered;
@@ -766,13 +781,14 @@ function filterLeads(leads) {
 function renderActivityPanel(lead) {
   const hasActivity = Array.isArray(lead.admissionActivityHistory) && lead.admissionActivityHistory.length > 0;
   const noteCount = Array.isArray(lead.leadNotes) ? lead.leadNotes.length : 0;
+  const leadId = escapeHtml(lead.id);
   return `
     <div class="activity-panel">
-      <button class="btn-view-activity" type="button" data-lead-id="${lead.id}" aria-label="View activity details" title="View activity details">👁</button>
-      <button class="btn-update-status${hasActivity ? " btn-update-status--active" : ""}" data-lead-id="${lead.id}">Update</button>
-      <button class="btn-ghost btn-notes" type="button" data-lead-id="${lead.id}">Notes${noteCount ? ` (${noteCount})` : ""}</button>
-      ${canCreateTasks ? `<button class="btn-ghost btn-task" type="button" data-lead-id="${lead.id}">Task</button>` : ""}
-      ${isAdmin ? `<button class="btn-delete" type="button" data-lead-id="${lead.id}">Delete</button>` : ""}
+      <button class="btn-view-activity" type="button" data-lead-id="${leadId}" aria-label="View activity details" title="View activity details">👁</button>
+      <button class="btn-update-status${hasActivity ? " btn-update-status--active" : ""}" type="button" data-lead-id="${leadId}">Update</button>
+      <button class="btn-ghost btn-notes" type="button" data-lead-id="${leadId}">Notes${noteCount ? ` (${noteCount})` : ""}</button>
+      ${canCreateTasks ? `<button class="btn-ghost btn-task" type="button" data-lead-id="${leadId}">Task</button>` : ""}
+      ${isAdmin ? `<button class="btn-delete" type="button" data-lead-id="${leadId}">Delete</button>` : ""}
     </div>
   `;
 }
@@ -838,7 +854,7 @@ function renderLeadTable(leads) {
       <tr>
         ${isAdmin ? `
         <td>
-          <input class="lead-select-checkbox" type="checkbox" data-lead-id="${lead.id}" ${isLeadSelected(lead.id) ? "checked" : ""} />
+          <input class="lead-select-checkbox" type="checkbox" data-lead-id="${escapeHtml(lead.id)}" ${isLeadSelected(lead.id) ? "checked" : ""} />
         </td>
         ` : ""}
         <td>${escapeHtml(lead.createdAt)}</td>
@@ -1201,12 +1217,14 @@ function openPostActivityModal(leadId) {
   const allLeads = getAllLeads();
   const lead = allLeads.find((item) => String(item.id) === String(leadId));
   if (!lead) {
+    showToast("Could not open this lead. Please refresh and try again.", true);
     return;
   }
 
   if (isCounselorSession()) {
     const owner = String(lead.counselor || "").trim().toLowerCase();
     if (owner !== getCounselorIdentity()) {
+      showToast("Only the assigned counselor can update this lead.", true);
       return;
     }
   }
@@ -1221,12 +1239,14 @@ function openPostActivityDetailsModal(leadId) {
   const allLeads = getAllLeads();
   const lead = allLeads.find((item) => String(item.id) === String(leadId));
   if (!lead) {
+    showToast("Could not open this lead. Please refresh and try again.", true);
     return;
   }
 
   if (isCounselorSession()) {
     const owner = String(lead.counselor || "").trim().toLowerCase();
     if (owner !== getCounselorIdentity()) {
+      showToast("Only the assigned counselor can view this lead.", true);
       return;
     }
   }

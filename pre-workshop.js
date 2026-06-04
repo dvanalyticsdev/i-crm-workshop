@@ -327,12 +327,48 @@ function isUntouchedLead(lead) {
   return getLeadActivityUpdateCount(lead) === 0;
 }
 
-function isSelectedFilterValue(value) {
-  return value !== "Select";
+const EMPTY_FILTER_VALUE = "Select";
+
+function getSelectedFilterValues(value) {
+  const rawValues = Array.isArray(value) ? value : [value];
+  return rawValues
+    .map((item) => String(item || "").trim())
+    .filter((item) => item && item !== EMPTY_FILTER_VALUE && item !== "All");
 }
 
-function normalizeSelectedFilterValue(value) {
-  return value && value !== "All" ? value : "Select";
+function isSelectedFilterValue(value) {
+  return getSelectedFilterValues(value).length > 0;
+}
+
+function normalizeSelectedFilterValue(value, options = null) {
+  const selected = getSelectedFilterValues(value);
+  const normalized = Array.isArray(options)
+    ? selected.filter((item) => options.includes(item))
+    : selected;
+  return normalized.length ? normalized : EMPTY_FILTER_VALUE;
+}
+
+function filterIncludesValue(filterValue, value) {
+  const selected = getSelectedFilterValues(filterValue);
+  return !selected.length || selected.includes(String(value || "").trim());
+}
+
+function renderMultiOptions(options) {
+  return options.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("");
+}
+
+function setMultiSelectValue(selectId, value) {
+  const selected = new Set(getSelectedFilterValues(value));
+  const select = document.getElementById(selectId);
+  if (!select) return;
+  Array.from(select.options).forEach((option) => {
+    option.selected = selected.has(option.value);
+  });
+}
+
+function readMultiSelectValue(event) {
+  const values = Array.from(event.target.selectedOptions).map((option) => option.value);
+  return values.length ? values : EMPTY_FILTER_VALUE;
 }
 
 const DEFAULT_FILTER = {
@@ -340,14 +376,14 @@ const DEFAULT_FILTER = {
   startDate: "",
   endDate: "",
   search: "",
-  counselor: "Select",
-  activityStatus: "Select",
-  workshop: "Select",
-  dialed: "Select",
-  callStatus: "Select",
-  wsStatus: "Select",
-  whatsappInvite: "Select",
-  whatsappGroupStatus: "Select"
+  counselor: EMPTY_FILTER_VALUE,
+  activityStatus: EMPTY_FILTER_VALUE,
+  workshop: EMPTY_FILTER_VALUE,
+  dialed: EMPTY_FILTER_VALUE,
+  callStatus: EMPTY_FILTER_VALUE,
+  wsStatus: EMPTY_FILTER_VALUE,
+  whatsappInvite: EMPTY_FILTER_VALUE,
+  whatsappGroupStatus: EMPTY_FILTER_VALUE
 };
 
 const FILTER_STORAGE_KEY = "dvWorkshopWorkshopCallingFilters";
@@ -402,21 +438,25 @@ function persistFilterState() {
 
 function normalizeFilterState(leads) {
   const workshops = getUniqueWorkshops(leads);
-  const validWorkshop = filter.workshop === "Select" || workshops.includes(filter.workshop);
+  const counselorOptions = getActiveCounselorNames();
+  const dialedOptions = getUniqueValues(leads, "dialed");
+  const callStatusOptions = getUniqueValues(leads, "callStatus");
+  const wsStatusOptions = getUniqueValues(leads, "wsStatus");
+  const whatsappInviteOptions = getUniqueValues(leads, "whatsappInvite");
 
   const nextFilter = {
     ...filter,
-    workshop: validWorkshop ? normalizeSelectedFilterValue(filter.workshop) : "Select",
-    counselor: normalizeSelectedFilterValue(filter.counselor),
-    activityStatus: normalizeSelectedFilterValue(filter.activityStatus),
-    dialed: normalizeSelectedFilterValue(filter.dialed),
-    callStatus: normalizeSelectedFilterValue(filter.callStatus),
-    wsStatus: normalizeSelectedFilterValue(filter.wsStatus),
-    whatsappInvite: normalizeSelectedFilterValue(filter.whatsappInvite),
-    whatsappGroupStatus: normalizeSelectedFilterValue(filter.whatsappGroupStatus)
+    workshop: normalizeSelectedFilterValue(filter.workshop, workshops),
+    counselor: normalizeSelectedFilterValue(filter.counselor, counselorOptions),
+    activityStatus: normalizeSelectedFilterValue(filter.activityStatus, ["Untouched", "Updated"]),
+    dialed: normalizeSelectedFilterValue(filter.dialed, dialedOptions),
+    callStatus: normalizeSelectedFilterValue(filter.callStatus, callStatusOptions),
+    wsStatus: normalizeSelectedFilterValue(filter.wsStatus, wsStatusOptions),
+    whatsappInvite: normalizeSelectedFilterValue(filter.whatsappInvite, whatsappInviteOptions),
+    whatsappGroupStatus: normalizeSelectedFilterValue(filter.whatsappGroupStatus, ["Joined", "Not Joined"])
   };
 
-  const changed = Object.keys(nextFilter).some((key) => nextFilter[key] !== filter[key]);
+  const changed = JSON.stringify(nextFilter) !== JSON.stringify(filter);
   if (changed) {
     filter = nextFilter;
     persistFilterState();
@@ -1322,39 +1362,40 @@ function filterLeads(leads) {
   }
 
   if (isSelectedFilterValue(filter.counselor)) {
-    filtered = filtered.filter((lead) => String(lead.counselor || "").trim() === filter.counselor);
+    filtered = filtered.filter((lead) => filterIncludesValue(filter.counselor, lead.counselor));
   }
 
-  if (filter.activityStatus === "Untouched") {
+  const activityStatuses = getSelectedFilterValues(filter.activityStatus);
+  if (activityStatuses.length === 1 && activityStatuses.includes("Untouched")) {
     filtered = filtered.filter((lead) => isUntouchedLead(lead));
   }
 
-  if (filter.activityStatus === "Updated") {
+  if (activityStatuses.length === 1 && activityStatuses.includes("Updated")) {
     filtered = filtered.filter((lead) => !isUntouchedLead(lead));
   }
 
   if (isSelectedFilterValue(filter.workshop)) {
-    filtered = filtered.filter((lead) => lead.workshop === filter.workshop);
+    filtered = filtered.filter((lead) => filterIncludesValue(filter.workshop, lead.workshop));
   }
 
   if (isSelectedFilterValue(filter.dialed)) {
-    filtered = filtered.filter((lead) => lead.dialed === filter.dialed);
+    filtered = filtered.filter((lead) => filterIncludesValue(filter.dialed, lead.dialed));
   }
 
   if (isSelectedFilterValue(filter.callStatus)) {
-    filtered = filtered.filter((lead) => lead.callStatus === filter.callStatus);
+    filtered = filtered.filter((lead) => filterIncludesValue(filter.callStatus, lead.callStatus));
   }
 
   if (isSelectedFilterValue(filter.wsStatus)) {
-    filtered = filtered.filter((lead) => lead.wsStatus === filter.wsStatus);
+    filtered = filtered.filter((lead) => filterIncludesValue(filter.wsStatus, lead.wsStatus));
   }
 
   if (isSelectedFilterValue(filter.whatsappInvite)) {
-    filtered = filtered.filter((lead) => lead.whatsappInvite === filter.whatsappInvite);
+    filtered = filtered.filter((lead) => filterIncludesValue(filter.whatsappInvite, lead.whatsappInvite));
   }
 
   if (isSelectedFilterValue(filter.whatsappGroupStatus)) {
-    filtered = filtered.filter((lead) => lead.whatsappGroupStatus === filter.whatsappGroupStatus);
+    filtered = filtered.filter((lead) => filterIncludesValue(filter.whatsappGroupStatus, lead.whatsappGroupStatus));
   }
 
   return filtered;
@@ -1422,16 +1463,14 @@ function renderFilters(leads) {
 
       <div class="filter-item${isAdmin ? "" : " hidden"}" data-admin-only="true">
         <label for="counselorSelect">Counselor</label>
-        <select id="counselorSelect">
-          <option value="Select">Select</option>
-          ${counselorOptions.map((value) => `<option value="${value}">${value}</option>`).join("")}
+        <select id="counselorSelect" multiple size="4">
+          ${renderMultiOptions(counselorOptions)}
         </select>
       </div>
 
       <div class="filter-item">
         <label for="activityStatusSelect">Untouched Leads</label>
-        <select id="activityStatusSelect">
-          <option value="Select">Select</option>
+        <select id="activityStatusSelect" multiple size="3">
           <option value="Untouched">Untouched Only</option>
           <option value="Updated">Updated Only</option>
         </select>
@@ -1439,48 +1478,42 @@ function renderFilters(leads) {
 
       <div class="filter-item">
         <label for="workshopSelect">Workshop Name</label>
-        <select id="workshopSelect">
-          <option value="Select">Select</option>
-          ${workshops.map((value) => `<option value="${value}">${value}</option>`).join("")}
+        <select id="workshopSelect" multiple size="4">
+          ${renderMultiOptions(workshops)}
         </select>
       </div>
 
       <div class="filter-item">
         <label for="dialedSelect">Dialed</label>
-        <select id="dialedSelect">
-          <option value="Select">Select</option>
-          ${dialedOptions.map((value) => `<option value="${value}">${value}</option>`).join("")}
+        <select id="dialedSelect" multiple size="4">
+          ${renderMultiOptions(dialedOptions)}
         </select>
       </div>
 
       <div class="filter-item">
         <label for="callStatusSelect">Call Status</label>
-        <select id="callStatusSelect">
-          <option value="Select">Select</option>
-          ${callStatusOptions.map((value) => `<option value="${value}">${value}</option>`).join("")}
+        <select id="callStatusSelect" multiple size="4">
+          ${renderMultiOptions(callStatusOptions)}
         </select>
       </div>
 
       <div class="filter-item">
         <label for="wsStatusSelect">Workshop Status</label>
-        <select id="wsStatusSelect">
-          <option value="Select">Select</option>
-          ${wsStatusOptions.map((value) => `<option value="${value}">${value}</option>`).join("")}
+        <select id="wsStatusSelect" multiple size="4">
+          ${renderMultiOptions(wsStatusOptions)}
         </select>
       </div>
 
       <div class="filter-item">
         <label for="whatsappInviteSelect">WhatsApp Invitation Sent</label>
-        <select id="whatsappInviteSelect">
-          <option value="Select">Select</option>
-          ${whatsappInviteOptions.map((value) => `<option value="${value}">${value}</option>`).join("")}
+        <select id="whatsappInviteSelect" multiple size="4">
+          ${renderMultiOptions(whatsappInviteOptions)}
         </select>
       </div>
 
       <div class="filter-item">
         <label for="whatsappGroupStatusSelect">WhatsApp Group Status</label>
-        <select id="whatsappGroupStatusSelect">
-          <option value="Select">Select</option>
+        <select id="whatsappGroupStatusSelect" multiple size="3">
           <option value="Joined">Joined</option>
           <option value="Not Joined">Not Joined</option>
         </select>
@@ -1499,15 +1532,14 @@ function renderFilters(leads) {
   document.getElementById("startDateInput").value = filter.startDate;
   document.getElementById("endDateInput").value = filter.endDate;
   document.getElementById("searchLeadInput").value = filter.search;
-  document.getElementById("counselorSelect").value = filter.counselor;
-  document.getElementById("activityStatusSelect").value = filter.activityStatus;
-  document.getElementById("workshopSelect").value = filter.workshop;
-  document.getElementById("dialedSelect").value = filter.dialed;
-  document.getElementById("callStatusSelect").value = filter.callStatus;
-  document.getElementById("wsStatusSelect").value = filter.wsStatus;
-  document.getElementById("whatsappInviteSelect").value = filter.whatsappInvite;
-
-  document.getElementById("whatsappGroupStatusSelect").value = filter.whatsappGroupStatus;
+  setMultiSelectValue("counselorSelect", filter.counselor);
+  setMultiSelectValue("activityStatusSelect", filter.activityStatus);
+  setMultiSelectValue("workshopSelect", filter.workshop);
+  setMultiSelectValue("dialedSelect", filter.dialed);
+  setMultiSelectValue("callStatusSelect", filter.callStatus);
+  setMultiSelectValue("wsStatusSelect", filter.wsStatus);
+  setMultiSelectValue("whatsappInviteSelect", filter.whatsappInvite);
+  setMultiSelectValue("whatsappGroupStatusSelect", filter.whatsappGroupStatus);
 
   document.getElementById("startDateWrap").classList.toggle("hidden", filter.timeline !== "custom");
   document.getElementById("endDateWrap").classList.toggle("hidden", filter.timeline !== "custom");
@@ -1539,49 +1571,49 @@ function renderFilters(leads) {
   };
 
   document.getElementById("counselorSelect").onchange = (event) => {
-    filter.counselor = event.target.value;
+    filter.counselor = readMultiSelectValue(event);
     persistFilterState();
     renderAll();
   };
 
   document.getElementById("activityStatusSelect").onchange = (event) => {
-    filter.activityStatus = event.target.value;
+    filter.activityStatus = readMultiSelectValue(event);
     persistFilterState();
     renderAll();
   };
 
   document.getElementById("workshopSelect").onchange = (event) => {
-    filter.workshop = event.target.value;
+    filter.workshop = readMultiSelectValue(event);
     persistFilterState();
     renderAll();
   };
 
   document.getElementById("dialedSelect").onchange = (event) => {
-    filter.dialed = event.target.value;
+    filter.dialed = readMultiSelectValue(event);
     persistFilterState();
     renderAll();
   };
 
   document.getElementById("callStatusSelect").onchange = (event) => {
-    filter.callStatus = event.target.value;
+    filter.callStatus = readMultiSelectValue(event);
     persistFilterState();
     renderAll();
   };
 
   document.getElementById("wsStatusSelect").onchange = (event) => {
-    filter.wsStatus = event.target.value;
+    filter.wsStatus = readMultiSelectValue(event);
     persistFilterState();
     renderAll();
   };
 
   document.getElementById("whatsappInviteSelect").onchange = (event) => {
-    filter.whatsappInvite = event.target.value;
+    filter.whatsappInvite = readMultiSelectValue(event);
     persistFilterState();
     renderAll();
   };
 
   document.getElementById("whatsappGroupStatusSelect").onchange = (event) => {
-    filter.whatsappGroupStatus = event.target.value;
+    filter.whatsappGroupStatus = readMultiSelectValue(event);
     persistFilterState();
     renderAll();
   };
@@ -1606,13 +1638,14 @@ function renderFilters(leads) {
 function renderActivityStatusPanel(lead) {
   const hasActivity = Array.isArray(lead.workshopActivityHistory) && lead.workshopActivityHistory.length > 0;
   const noteCount = Array.isArray(lead.leadNotes) ? lead.leadNotes.length : 0;
+  const leadId = escapeHtml(lead.id);
   return `
     <div class="activity-panel">
-      <button class="btn-view-activity" type="button" data-lead-id="${lead.id}" aria-label="View activity details" title="View activity details">👁</button>
-      <button class="btn-update-status${hasActivity ? " btn-update-status--active" : ""}" data-lead-id="${lead.id}">Update</button>
-      <button class="btn-ghost btn-notes" type="button" data-lead-id="${lead.id}">Notes${noteCount ? ` (${noteCount})` : ""}</button>
-      ${canCreateTasks ? `<button class="btn-ghost btn-task" type="button" data-lead-id="${lead.id}">Task</button>` : ""}
-      ${isAdmin ? `<button class="btn-delete" type="button" data-lead-id="${lead.id}">Delete</button>` : ""}
+      <button class="btn-view-activity" type="button" data-lead-id="${leadId}" aria-label="View activity details" title="View activity details">👁</button>
+      <button class="btn-update-status${hasActivity ? " btn-update-status--active" : ""}" type="button" data-lead-id="${leadId}">Update</button>
+      <button class="btn-ghost btn-notes" type="button" data-lead-id="${leadId}">Notes${noteCount ? ` (${noteCount})` : ""}</button>
+      ${canCreateTasks ? `<button class="btn-ghost btn-task" type="button" data-lead-id="${leadId}">Task</button>` : ""}
+      ${isAdmin ? `<button class="btn-delete" type="button" data-lead-id="${leadId}">Delete</button>` : ""}
     </div>
   `;
 }
@@ -1678,7 +1711,7 @@ function renderLeadTable(leads) {
       <tr>
         ${isAdmin ? `
         <td>
-          <input class="lead-select-checkbox" type="checkbox" data-lead-id="${lead.id}" ${isLeadSelected(lead.id) ? "checked" : ""} />
+          <input class="lead-select-checkbox" type="checkbox" data-lead-id="${escapeHtml(lead.id)}" ${isLeadSelected(lead.id) ? "checked" : ""} />
         </td>
         ` : ""}
         <td>${escapeHtml(lead.createdAt)}</td>
@@ -1860,12 +1893,14 @@ function openActivityStatusModal(leadId) {
   const lead = allLeads.find((item) => String(item.id) === String(leadId));
 
   if (!lead) {
+    showToast("Could not open this lead. Please refresh and try again.", true);
     return;
   }
 
   if (isCounselorSession()) {
     const owner = String(lead.counselor || "").trim().toLowerCase();
     if (owner !== getCounselorIdentity()) {
+      showToast("Only the assigned counselor can update this lead.", true);
       return;
     }
   }
@@ -1881,12 +1916,14 @@ function openActivityDetailsModal(leadId) {
   const lead = allLeads.find((item) => String(item.id) === String(leadId));
 
   if (!lead) {
+    showToast("Could not open this lead. Please refresh and try again.", true);
     return;
   }
 
   if (isCounselorSession()) {
     const owner = String(lead.counselor || "").trim().toLowerCase();
     if (owner !== getCounselorIdentity()) {
+      showToast("Only the assigned counselor can view this lead.", true);
       return;
     }
   }
