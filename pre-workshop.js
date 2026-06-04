@@ -341,7 +341,7 @@ function normalizeSelectedFilterValue(value) {
 }
 
 const DEFAULT_FILTER = {
-  timeline: "week",
+  timeline: isCounselorSession() ? "overall" : "week",
   startDate: "",
   endDate: "",
   search: "",
@@ -356,10 +356,15 @@ const DEFAULT_FILTER = {
 };
 
 const FILTER_STORAGE_KEY = "dvWorkshopWorkshopCallingFilters";
+const persistedFilter = await loadPersistedValue(FILTER_STORAGE_KEY, {});
 let filter = {
   ...DEFAULT_FILTER,
-  ...await loadPersistedValue(FILTER_STORAGE_KEY, {})
+  ...persistedFilter
 };
+
+if (isCounselorSession() && (!persistedFilter.timeline || persistedFilter.timeline === "week")) {
+  filter.timeline = "overall";
+}
 
 const DEFAULT_ALLOCATION = [];
 
@@ -1673,12 +1678,12 @@ function renderLeadTable(leads) {
           <input class="lead-select-checkbox" type="checkbox" data-lead-id="${lead.id}" ${isLeadSelected(lead.id) ? "checked" : ""} />
         </td>
         ` : ""}
-        <td>${lead.createdAt}</td>
-        <td>${lead.name}</td>
-        <td>${lead.phone || "-"}</td>
-        <td>${lead.email}</td>
-        <td>${lead.workshop}</td>
-        <td>${lead.counselor || "Unassigned"}</td>
+        <td>${escapeHtml(lead.createdAt)}</td>
+        <td>${escapeHtml(lead.name)}</td>
+        <td>${escapeHtml(lead.phone || "-")}</td>
+        <td>${escapeHtml(lead.email)}</td>
+        <td>${escapeHtml(lead.workshop)}</td>
+        <td>${escapeHtml(lead.counselor || "Unassigned")}</td>
         <td>${renderActivityStatusPanel(lead)}</td>
       </tr>
     `
@@ -1933,8 +1938,8 @@ function openNotesModal(leadId) {
     notesListSection.innerHTML = notes.length
       ? notes.map((note, idx) => `
         <div class="note-item">
-          <span class="note-text">${note.text}</span>
-          <span class="note-meta">${note.by || ""}${note.by && note.at ? " \u2013 " : ""}${note.at || ""}</span>
+          <span class="note-text">${escapeHtml(note.text)}</span>
+          <span class="note-meta">${escapeHtml(note.by || "")}${note.by && note.at ? " \u2013 " : ""}${escapeHtml(note.at || "")}</span>
           ${canEditNotes ? `<button type="button" class="btn-ghost btn-delete-note" data-note-index="${idx}" style="font-size:0.75rem;padding:2px 6px;">Delete</button>` : ""}
         </div>`).join("")
       : `<p class="block-help">${canEditNotes ? "No notes yet. Add one below." : "No notes yet."}</p>`;
