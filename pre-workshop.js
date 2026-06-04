@@ -210,6 +210,79 @@ function isLeadSelected(leadId) {
   return selectedLeadIds.has(String(leadId));
 }
 
+function clampSelectionCount(rawValue, maxCount) {
+  const parsed = Number.parseInt(String(rawValue || "").trim(), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 0;
+  }
+
+  return Math.min(parsed, maxCount);
+}
+
+function selectLeadBatch(leads, rawValue) {
+  const count = clampSelectionCount(rawValue, leads.length);
+  if (!count) {
+    return 0;
+  }
+
+  selectedLeadIds = new Set(getSelectableLeadIds(leads).slice(0, count));
+  return count;
+}
+
+function getAdminAssignmentOptions() {
+  return [...new Set(["Unassigned", ...getActiveCounselorNames()])];
+}
+
+async function assignSelectedLeads(leads, counselorName) {
+  const selectedIds = new Set([...selectedLeadIds].map((leadId) => String(leadId)));
+  if (!selectedIds.size) {
+    showToast("Select at least one lead to assign.", true);
+    return false;
+  }
+
+  const targetCounselor = String(counselorName || "").trim();
+  if (!targetCounselor) {
+    showToast("Select a counselor first.", true);
+    return false;
+  }
+
+  const scopedLeadIds = new Set(leads.map((lead) => String(lead.id)));
+  const applicableIds = new Set([...selectedIds].filter((leadId) => scopedLeadIds.has(leadId)));
+  if (!applicableIds.size) {
+    showToast("Selected leads are no longer available in the current list.", true);
+    return false;
+  }
+
+  const allLeads = getAllLeads();
+  let updatedCount = 0;
+  const updatedLeads = allLeads.map((lead) => {
+    if (!applicableIds.has(String(lead.id))) {
+      return lead;
+    }
+
+    updatedCount += 1;
+    return {
+      ...lead,
+      counselor: targetCounselor
+    };
+  });
+
+  if (!updatedCount) {
+    showToast("No leads were updated.", true);
+    return false;
+  }
+
+  const assignmentResult = await saveAllLeads(updatedLeads);
+  if (!assignmentResult || assignmentResult.ok === false) {
+    showToast("Failed to assign selected leads. Please check your connection and try again.", true);
+    return false;
+  }
+
+  setMessage(importMessage, `Assigned ${updatedCount} lead${updatedCount === 1 ? "" : "s"} to ${targetCounselor}.`, false);
+  showToast(`Assigned ${updatedCount} lead${updatedCount === 1 ? "" : "s"} to ${targetCounselor}.`, false);
+  return true;
+}
+
 function isCounselorSession() {
   return session?.role === "counselor";
 }
@@ -1540,6 +1613,7 @@ function renderLeadTable(leads) {
   syncSelectedLeadIds(leads);
   const selectedCount = isAdmin ? getSelectedLeadCount(leads) : 0;
   const allSelected = isAdmin && leads.length > 0 && selectedCount === leads.length;
+  const assignableCounselors = isAdmin ? getAdminAssignmentOptions() : [];
   const selectionColumn = isAdmin
     ? `
             <th class="selection-header">
@@ -1550,6 +1624,19 @@ function renderLeadTable(leads) {
               <div class="bulk-select-actions">
                 <span class="selected-count">Selected: ${selectedCount}</span>
                 <button id="preBulkDelete" class="btn-delete bulk-delete-btn" type="button" ${selectedCount ? "" : "disabled"}>Delete Selected</button>
+              </div>
+              <div class="bulk-admin-tools">
+                <div class="bulk-inline-group">
+                  <input id="preBulkCountInput" class="bulk-count-input" type="number" min="1" max="${leads.length || 1}" placeholder="Count" />
+                  <button id="preBulkCountApply" class="btn-ghost bulk-action-btn" type="button" ${leads.length ? "" : "disabled"}>Select Count</button>
+                </div>
+                <div class="bulk-inline-group">
+                  <select id="preBulkAssignCounselor" class="bulk-assign-select">
+                    <option value="">Assign to</option>
+                    ${assignableCounselors.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("")}
+                  </select>
+                  <button id="preBulkAssignBtn" class="btn-ghost bulk-action-btn" type="button" ${selectedCount ? "" : "disabled"}>Assign Selected</button>
+                </div>
               </div>
             </th>
     `
@@ -1651,9 +1738,38 @@ function renderLeadTable(leads) {
   const bulkDelete = document.getElementById("preBulkDelete");
   if (bulkDelete) {
     bulkDelete.onclick = () => {
-      if (deleteSelectedLeads(leads)) {
-        renderAll();
+      void deleteSelectedLeads(leads).then((deleted) => {
+        if (deleted) {
+          renderAll();
+        }
+      });
+    };
+  }
+
+  const bulkCountApply = document.getElementById("preBulkCountApply");
+  const bulkCountInput = document.getElementById("preBulkCountInput");
+  if (bulkCountApply && bulkCountInput) {
+    bulkCountApply.onclick = () => {
+      const selectedBatchCount = selectLeadBatch(leads, bulkCountInput.value);
+      if (!selectedBatchCount) {
+        showToast("Enter a valid lead count to select.", true);
+        return;
       }
+
+      renderAll();
+      showToast(`Selected ${selectedBatchCount} lead${selectedBatchCount === 1 ? "" : "s"}.`, false);
+    };
+  }
+
+  const bulkAssignBtn = document.getElementById("preBulkAssignBtn");
+  const bulkAssignCounselor = document.getElementById("preBulkAssignCounselor");
+  if (bulkAssignBtn && bulkAssignCounselor) {
+    bulkAssignBtn.onclick = () => {
+      void assignSelectedLeads(leads, bulkAssignCounselor.value).then((assigned) => {
+        if (assigned) {
+          renderAll();
+        }
+      });
     };
   }
 

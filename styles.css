@@ -1046,6 +1046,46 @@ th {
   flex-wrap: wrap;
 }
 
+.bulk-admin-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.bulk-inline-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.bulk-count-input,
+.bulk-assign-select {
+  min-height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.bulk-count-input {
+  width: 92px;
+  padding: 0 10px;
+  text-align: center;
+}
+
+.bulk-assign-select {
+  flex: 1 1 150px;
+  min-width: 150px;
+  padding: 0 10px;
+}
+
+.bulk-action-btn {
+  white-space: nowrap;
+}
+
 .bulk-delete-btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
