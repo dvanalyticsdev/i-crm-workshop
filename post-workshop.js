@@ -10,6 +10,12 @@ import {
   startStatePolling
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY } from "./task-service.js";
+import {
+  addLeadNote,
+  assignLeads as assignLeadsOnServer,
+  deleteLeadNote,
+  updateLeadActivity as updateLeadActivityOnServer
+} from "./lead-service.js";
 
 await bootstrapLocalState();
 
@@ -880,9 +886,9 @@ function renderLeadTable(leads) {
   });
 
   document.querySelectorAll(".btn-delete").forEach((button) => {
-    button.onclick = () => {
+    button.onclick = async () => {
       const leadId = button.getAttribute("data-lead-id");
-      if (leadId && deleteLead(leadId)) {
+      if (leadId && await deleteLead(leadId)) {
         clearSelectedLeadIds();
         renderAll();
       }
@@ -1003,30 +1009,14 @@ async function updatePostActivity(leadId, updates) {
     }
   }
 
-  const admissionHistory = Array.isArray(allLeads[index].admissionActivityHistory)
-    ? allLeads[index].admissionActivityHistory
-    : [];
-  const nextAdmissionHistory = [
-    ...admissionHistory,
-    {
-      at: new Date().toISOString(),
-      source: "Admission Calling",
-      updates
-    }
-  ];
-
-  allLeads[index] = {
-    ...allLeads[index],
-    ...updates,
-    admissionActivityHistory: nextAdmissionHistory,
-    postActivityUpdates: nextAdmissionHistory.length,
-    postStatusUpdated: true
-  };
-
   try {
-    const result = await saveAllLeads(allLeads);
+    const result = await updateLeadActivityOnServer(leadId, {
+      stage: "admission",
+      updates,
+      allowWithoutWorkshopActivity: true
+    });
     if (result && result.ok === false) {
-      showToast("Failed to save activity. Please check your connection and try again.", true);
+      showToast(result.message || "Failed to save activity. Please check your connection and try again.", true);
       return false;
     }
 
@@ -1077,8 +1067,9 @@ async function deleteSelectedLeads(leads) {
     return false;
   }
 
-  const remainingLeads = leads.filter((lead) => !selectedIds.includes(String(lead.id)));
-  const removedCount = leads.length - remainingLeads.length;
+  const allLeads = getAllLeads();
+  const remainingLeads = allLeads.filter((lead) => !selectedIds.includes(String(lead.id)));
+  const removedCount = allLeads.length - remainingLeads.length;
   if (!removedCount) {
     return false;
   }
@@ -1187,28 +1178,16 @@ async function assignSelectedLeads(leads, counselorName) {
     return false;
   }
 
-  const allLeads = getAllLeads();
-  let updatedCount = 0;
-  const updatedLeads = allLeads.map((lead) => {
-    if (!applicableIds.has(String(lead.id))) {
-      return lead;
-    }
-
-    updatedCount += 1;
-    return {
-      ...lead,
-      counselor: targetCounselor
-    };
-  });
+  const updatedCount = applicableIds.size;
 
   if (!updatedCount) {
     showToast("No leads were updated.", true);
     return false;
   }
 
-  const assignmentResult = await saveAllLeads(updatedLeads);
+  const assignmentResult = await assignLeadsOnServer([...applicableIds], targetCounselor);
   if (!assignmentResult || assignmentResult.ok === false) {
-    showToast("Failed to assign selected leads. Please check your connection and try again.", true);
+    showToast(assignmentResult?.message || "Failed to assign selected leads. Please check your connection and try again.", true);
     return false;
   }
 
@@ -1346,22 +1325,9 @@ async function saveNote() {
     return;
   }
 
-  const notes = Array.isArray(allLeads[index].leadNotes) ? allLeads[index].leadNotes : [];
-  allLeads[index] = {
-    ...allLeads[index],
-    leadNotes: [
-      ...notes,
-      {
-        text,
-        at: new Date().toISOString().slice(0, 10),
-        by: session?.name || "Unknown"
-      }
-    ]
-  };
-
-  const noteSaveResult = await saveAllLeads(allLeads);
+  const noteSaveResult = await addLeadNote(notesLeadId, text);
   if (!noteSaveResult || noteSaveResult.ok === false) {
-    showToast("Failed to save note. Please check your connection and try again.", true);
+    showToast(noteSaveResult?.message || "Failed to save note. Please check your connection and try again.", true);
     return;
   }
   openNotesModal(notesLeadId);
@@ -1379,15 +1345,9 @@ async function deleteNote(leadId, noteIndex) {
     return;
   }
 
-  const notes = Array.isArray(allLeads[index].leadNotes) ? allLeads[index].leadNotes : [];
-  allLeads[index] = {
-    ...allLeads[index],
-    leadNotes: notes.filter((_, idx) => idx !== noteIndex)
-  };
-
-  const noteDeleteResult = await saveAllLeads(allLeads);
+  const noteDeleteResult = await deleteLeadNote(leadId, noteIndex);
   if (!noteDeleteResult || noteDeleteResult.ok === false) {
-    showToast("Failed to delete note. Please check your connection and try again.", true);
+    showToast(noteDeleteResult?.message || "Failed to delete note. Please check your connection and try again.", true);
     return;
   }
   openNotesModal(leadId);

@@ -63,6 +63,15 @@ function setExportMessage(text, isError = true) {
   monitoringExportMessage.style.color = isError ? "var(--danger)" : "var(--success)";
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 function getScopedLeads(allLeads) {
   if (!isCounselorSession()) {
     return allLeads;
@@ -395,9 +404,9 @@ function renderPreMonitoringTable(container, rows) {
                   .map(
                     (row) => `
                     <tr>
-                      <td>${row.counselor}</td>
+                      <td>${escapeHtml(row.counselor)}</td>
                       <td>${row.activities}</td>
-                      <td>${row.workshops}</td>
+                      <td>${escapeHtml(row.workshops)}</td>
                       <td>${row.interested}</td>
                       <td>${row.notInterested}</td>
                       <td>${row.whatsappJoined}</td>
@@ -443,9 +452,9 @@ function renderPostMonitoringTable(container, rows) {
                   .map(
                     (row) => `
                     <tr>
-                      <td>${row.counselor}</td>
+                      <td>${escapeHtml(row.counselor)}</td>
                       <td>${row.activities}</td>
-                      <td>${row.workshops}</td>
+                      <td>${escapeHtml(row.workshops)}</td>
                       <td>${row.interested}</td>
                       <td>${row.notInterested}</td>
                       <td>${row.enrolled}</td>

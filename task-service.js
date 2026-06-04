@@ -1,4 +1,5 @@
-import { getTasks as getStoredTasks, saveTasks as saveStoredTasks } from "./state-sync.js";
+import { apiUrl } from "./api-client.js";
+import { acceptServerState, getTasks as getStoredTasks } from "./state-sync.js";
 
 export const TASK_CATEGORY = {
   workshop: "workshop",
@@ -51,19 +52,42 @@ export function getTaskCategoryLabel(category) {
   return CATEGORY_LABELS[category] || "Task";
 }
 
-export async function saveTasks(tasks) {
-  return saveStoredTasks(tasks.map((task) => normalizeTask(task)));
+async function requestJson(path, options = {}) {
+  const response = await fetch(apiUrl(path), {
+    credentials: "same-origin",
+    ...options,
+    headers: {
+      Accept: "application/json",
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.headers || {})
+    }
+  });
+  const contentType = response.headers.get("content-type") || "";
+  const payload = contentType.includes("application/json")
+    ? await response.json()
+    : null;
+
+  if (payload?.state) {
+    acceptServerState(payload.state, response.headers.get("etag"));
+  }
+
+  if (!response.ok) {
+    return { ok: false, message: payload?.message || "Task request failed." };
+  }
+
+  return { ok: true, ...payload };
 }
 
 export async function createTask(taskInput) {
-  const tasks = getTasks();
   const nextTask = normalizeTask(taskInput);
-  tasks.unshift(nextTask);
-  const result = await saveTasks(tasks);
+  const result = await requestJson("/api/tasks", {
+    method: "POST",
+    body: JSON.stringify(nextTask)
+  });
   if (!result || result.ok === false) {
     return { ok: false, message: result?.message || "Failed to save task." };
   }
-  return { ok: true, task: nextTask };
+  return { ok: true, task: result.task || nextTask };
 }
 
 export async function updateTask(taskId, updates) {
@@ -79,22 +103,20 @@ export async function updateTask(taskId, updates) {
     updatedAt: new Date().toISOString()
   });
 
-  tasks[index] = updatedTask;
-  const result = await saveTasks(tasks);
+  const result = await requestJson(`/api/tasks/${encodeURIComponent(taskId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(updatedTask)
+  });
   if (!result || result.ok === false) {
     return { ok: false, message: result?.message || "Failed to update task." };
   }
-  return { ok: true, task: updatedTask };
+  return { ok: true, task: result.task || updatedTask };
 }
 
 export async function deleteTask(taskId) {
-  const tasks = getTasks();
-  const nextTasks = tasks.filter((task) => String(task.id) !== String(taskId));
-  if (nextTasks.length === tasks.length) {
-    return { ok: false, message: "Task not found." };
-  }
-
-  const result = await saveTasks(nextTasks);
+  const result = await requestJson(`/api/tasks/${encodeURIComponent(taskId)}`, {
+    method: "DELETE"
+  });
   if (!result || result.ok === false) {
     return { ok: false, message: result?.message || "Failed to delete task." };
   }

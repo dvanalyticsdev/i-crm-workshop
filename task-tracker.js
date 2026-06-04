@@ -62,6 +62,15 @@ function formatDate(value) {
   });
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 function sortTasks(tasks) {
   return [...tasks].sort((left, right) => {
     const leftDate = left.dueDate ? new Date(left.dueDate).getTime() : Number.POSITIVE_INFINITY;
@@ -114,13 +123,13 @@ function renderTaskTable(tasks, emptyMessage) {
               (task) => `
                 <tr>
                   <td>
-                    <strong>${task.leadName || "-"}</strong>${task.leadPhone ? `<br /><span class="muted-text">${task.leadPhone}</span>` : ""}<br />
-                    <span class="muted-text">${task.category === TASK_CATEGORY.workshop ? getTaskCategoryLabel(TASK_CATEGORY.workshop) : getTaskCategoryLabel(TASK_CATEGORY.admission)}</span>
+                    <strong>${escapeHtml(task.leadName || "-")}</strong>${task.leadPhone ? `<br /><span class="muted-text">${escapeHtml(task.leadPhone)}</span>` : ""}<br />
+                    <span class="muted-text">${escapeHtml(task.category === TASK_CATEGORY.workshop ? getTaskCategoryLabel(TASK_CATEGORY.workshop) : getTaskCategoryLabel(TASK_CATEGORY.admission))}</span>
                   </td>
-                  <td>${task.leadCounselor || task.counselor || "Unassigned"}</td>
-                  <td>${task.title || "Follow up"}</td>
-                  <td>${task.notes || "-"}</td>
-                  <td>${formatDate(task.dueDate)}</td>
+                  <td>${escapeHtml(task.leadCounselor || task.counselor || "Unassigned")}</td>
+                  <td>${escapeHtml(task.title || "Follow up")}</td>
+                  <td>${escapeHtml(task.notes || "-")}</td>
+                  <td>${escapeHtml(formatDate(task.dueDate))}</td>
                   <td>
                     <div class="task-actions">
                       <button type="button" class="btn-primary task-complete-btn" data-task-id="${task.id}">Complete</button>

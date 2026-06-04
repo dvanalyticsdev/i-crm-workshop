@@ -40,6 +40,15 @@ function persistSearchQuery() {
   void savePersistedValue(SEARCH_STORAGE_KEY, searchQuery);
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 function getScopedLeads(allLeads) {
   if (!isCounselorSession()) {
     return allLeads;
@@ -172,13 +181,13 @@ function renderTable(lostLeads) {
       .map(
         (lead) => `
       <tr>
-        <td>${lead.createdAt}</td>
-        <td>${lead.name}</td>
-        <td>${lead.phone || "-"}</td>
-        <td>${lead.email}</td>
-        <td>${lead.workshop}</td>
-        <td>${lead.counselor || "Unassigned"}</td>
-        <td>${getLostSource(lead)}</td>
+        <td>${escapeHtml(lead.createdAt)}</td>
+        <td>${escapeHtml(lead.name)}</td>
+        <td>${escapeHtml(lead.phone || "-")}</td>
+        <td>${escapeHtml(lead.email)}</td>
+        <td>${escapeHtml(lead.workshop)}</td>
+        <td>${escapeHtml(lead.counselor || "Unassigned")}</td>
+        <td>${escapeHtml(getLostSource(lead))}</td>
         ${isAdmin ? `<td><button class="btn-ghost btn-restore-lead" type="button" data-lead-id="${lead.id}">Restore</button></td>` : ""}
       </tr>
     `

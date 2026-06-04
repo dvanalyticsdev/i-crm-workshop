@@ -32,6 +32,15 @@ function setMessage(text, isError = true) {
   counselorFormMessage.style.color = isError ? "var(--danger)" : "var(--success)";
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 function getCounselors() {
   return getStoredCounselors().map((item) => ({
     ...item,
@@ -205,10 +214,10 @@ function renderCounselorList() {
             .map(
               (counselor) => `
                 <tr>
-                  <td>${counselor.name}</td>
-                  <td>${counselor.email}</td>
-                  <td>${counselor.phone || "-"}</td>
-                  <td>${permissionText(counselor.permissions || DEFAULT_PERMISSIONS)}</td>
+                  <td>${escapeHtml(counselor.name)}</td>
+                  <td>${escapeHtml(counselor.email)}</td>
+                  <td>${escapeHtml(counselor.phone || "-")}</td>
+                  <td>${escapeHtml(permissionText(counselor.permissions || DEFAULT_PERMISSIONS))}</td>
                   <td>
                     <button
                       type="button"
@@ -386,8 +395,8 @@ function renderMarketingList() {
         <tbody>
           ${users.map((u) => `
             <tr>
-              <td>${u.name}</td>
-              <td>${u.email}</td>
+              <td>${escapeHtml(u.name)}</td>
+              <td>${escapeHtml(u.email)}</td>
               <td>
                 <button type="button" class="btn-ghost remove-marketing-btn" data-user-id="${u.id}">Remove</button>
               </td>

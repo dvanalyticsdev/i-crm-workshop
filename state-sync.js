@@ -125,6 +125,14 @@ export function replaceStateSnapshot(snapshot) {
   return setCurrentState(snapshot);
 }
 
+export function acceptServerState(snapshot, etag = null) {
+  if (etag) {
+    lastStateETag = etag;
+  }
+
+  return setCurrentState(snapshot);
+}
+
 export async function refreshState() {
   const headers = { Accept: "application/json" };
   // Send the ETag from the previous response so the server can return 304 when
@@ -370,7 +378,7 @@ export async function bootstrapLocalState() {
       const shouldRefreshState = !lastStateRefreshAt || (Date.now() - lastStateRefreshAt) > 1500;
 
       await Promise.all([
-        shouldRefreshState ? refreshState() : Promise.resolve(getStateSnapshot()),
+        shouldRefreshState ? refreshState().catch(() => getStateSnapshot()) : Promise.resolve(getStateSnapshot()),
         refreshSession().catch(() => null)
       ]);
     })().finally(() => {

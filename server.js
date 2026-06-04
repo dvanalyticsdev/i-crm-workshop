@@ -609,7 +609,7 @@ async function fetchMetaLeadDetails(leadgenId, pageAccessToken) {
   });
 }
 
-async function processMetaWebhookPayload(req, body) {
+async function processMetaWebhookPayloadLegacy(req, body) {
   const config = await getMetaConfig();
 
   // Verify HMAC-SHA256 signature to confirm the request is from Meta.
@@ -766,7 +766,7 @@ async function forwardMetaWebhook(req, fallbackBody) {
   }
 }
 
-async function assignCounselorRoundRobin(stateDoc) {
+async function assignCounselorRoundRobinLegacy(stateDoc) {
   const counselors = (Array.isArray(stateDoc.counselors) ? stateDoc.counselors : [])
     .filter(isCounselorInMetaRotation);
   if (!counselors.length) return "Unassigned";
@@ -1314,6 +1314,151 @@ async function getStateDoc() {
   return initial;
 }
 
+async function requireSession(req, res) {
+  const activeSession = await getSessionFromRequest(req);
+  if (!activeSession?.session?.role) {
+    res.status(401).json({ message: "No active session." });
+    return null;
+  }
+
+  return activeSession.session;
+}
+
+async function requireRole(req, res, roles) {
+  const session = await requireSession(req, res);
+  if (!session) {
+    return null;
+  }
+
+  const allowedRoles = Array.isArray(roles) ? roles : [roles];
+  if (!allowedRoles.includes(session.role)) {
+    res.status(403).json({ message: "Access required." });
+    return null;
+  }
+
+  return session;
+}
+
+function getLeadIdCandidates(leadId) {
+  const raw = String(leadId || "").trim();
+  const candidates = [raw];
+  const numeric = Number(raw);
+  if (raw && Number.isFinite(numeric)) {
+    candidates.push(numeric);
+  }
+
+  return [...new Set(candidates)];
+}
+
+function findLeadById(state, leadId) {
+  const candidates = new Set(getLeadIdCandidates(leadId).map((value) => String(value)));
+  return (Array.isArray(state?.leads) ? state.leads : []).find(
+    (lead) => candidates.has(String(lead?.id))
+  ) || null;
+}
+
+function getSessionCounselorName(state, session) {
+  if (session?.role !== "counselor") {
+    return "";
+  }
+
+  const sessionEmail = String(session?.email || "").trim().toLowerCase();
+  const sessionName = String(session?.name || "").trim();
+  const counselors = Array.isArray(state?.counselors) ? state.counselors : [];
+  const match = counselors.find(
+    (item) => String(item.email || "").trim().toLowerCase() === sessionEmail
+  );
+
+  return String(match?.name || sessionName || "").trim();
+}
+
+function canMutateLead(session, state, lead) {
+  if (session?.role === "admin") {
+    return true;
+  }
+
+  if (session?.role !== "counselor") {
+    return false;
+  }
+
+  const counselorName = getSessionCounselorName(state, session).toLowerCase();
+  const leadCounselor = String(lead?.counselor || "").trim().toLowerCase();
+  return !!counselorName && leadCounselor === counselorName;
+}
+
+function sanitizeLeadPatch(updates = {}, allowedFields = []) {
+  const patch = {};
+  allowedFields.forEach((field) => {
+    if (Object.prototype.hasOwnProperty.call(updates, field)) {
+      patch[field] = updates[field];
+    }
+  });
+  return patch;
+}
+
+function createTaskId() {
+  return `task-${crypto.randomUUID()}`;
+}
+
+function normalizeTaskDoc(task = {}) {
+  const createdAt = task.createdAt || new Date().toISOString();
+  const category = task.category === "admission" ? "admission" : "workshop";
+
+  return {
+    id: String(task.id || createTaskId()),
+    leadId: String(task.leadId || ""),
+    leadName: String(task.leadName || "").trim(),
+    leadPhone: String(task.leadPhone || "").trim(),
+    leadCounselor: String(task.leadCounselor || "").trim(),
+    counselor: String(task.counselor || "").trim(),
+    category,
+    title: String(task.title || "Follow up").trim(),
+    notes: String(task.notes || "").trim(),
+    dueDate: String(task.dueDate || "").trim(),
+    createdAt,
+    updatedAt: task.updatedAt || createdAt
+  };
+}
+
+function findTaskById(state, taskId) {
+  const id = String(taskId || "").trim();
+  return (Array.isArray(state?.tasks) ? state.tasks : []).find(
+    (task) => String(task?.id || "") === id
+  ) || null;
+}
+
+function canMutateTask(session, state, task) {
+  if (session?.role === "admin") {
+    return true;
+  }
+
+  if (session?.role !== "counselor") {
+    return false;
+  }
+
+  const counselorName = getSessionCounselorName(state, session).toLowerCase();
+  const leadCounselor = String(task?.leadCounselor || "").trim().toLowerCase();
+  const taskCounselor = String(task?.counselor || "").trim().toLowerCase();
+  return !!counselorName && (leadCounselor === counselorName || taskCounselor === counselorName);
+}
+
+function buildLeadSetPatch(leadId, updates = {}) {
+  const setPatch = { updatedAt: new Date().toISOString() };
+  Object.entries(updates).forEach(([field, value]) => {
+    setPatch[`leads.$[lead].${field}`] = value;
+  });
+  return {
+    update: { $set: setPatch },
+    options: { arrayFilters: [{ "lead.id": { $in: getLeadIdCandidates(leadId) } }] }
+  };
+}
+
+async function refreshStateAfterAtomicUpdate() {
+  cachedStateDoc = null;
+  cachedStateDocAt = 0;
+  return getStateDoc();
+}
+
 app.post("/api/auth/login", async (req, res) => {
   try {
     const role = String(req.body?.role || "").trim().toLowerCase();
@@ -1517,8 +1662,353 @@ app.put("/api/preferences/:scope", async (req, res) => {
   }
 });
 
+app.post("/api/leads/:leadId/activity", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "counselor"]);
+    if (!session) return;
+
+    const leadId = req.params.leadId;
+    const stage = String(req.body?.stage || "").trim().toLowerCase();
+    const updates = req.body?.updates || {};
+    const state = await getStateDoc();
+    const lead = findLeadById(state, leadId);
+
+    if (!lead) {
+      return res.status(404).json({ message: "Lead not found." });
+    }
+    if (!canMutateLead(session, state, lead)) {
+      return res.status(403).json({ message: "Only the assigned counselor can update this lead." });
+    }
+
+    const config = stage === "admission"
+      ? {
+          source: "Admission Calling",
+          historyField: "admissionActivityHistory",
+          countField: "postActivityUpdates",
+          allowedFields: [
+            "postDialed",
+            "coursePitched",
+            "courseStatus",
+            "admissionStatus",
+            "postCallStatus",
+            "workshopJoiningStatus",
+            "postStatusUpdated"
+          ]
+        }
+      : stage === "workshop"
+        ? {
+            source: "Workshop Calling",
+            historyField: "workshopActivityHistory",
+            countField: "preActivityUpdates",
+            allowedFields: [
+              "dialed",
+              "callStatus",
+              "wsStatus",
+              "whatsappInvite",
+              "whatsappGroupStatus"
+            ]
+          }
+        : null;
+
+    if (!config) {
+      return res.status(400).json({ message: "Activity stage must be workshop or admission." });
+    }
+
+    if (stage === "admission" && !req.body?.allowWithoutWorkshopActivity) {
+      const workshopActivityCount = Array.isArray(lead.workshopActivityHistory)
+        ? lead.workshopActivityHistory.length
+        : Number(lead.preActivityUpdates) || 0;
+      if (!workshopActivityCount) {
+        return res.status(409).json({ message: "Workshop activity has not been completed for this lead." });
+      }
+    }
+
+    const patch = sanitizeLeadPatch(updates, config.allowedFields);
+    if (!Object.keys(patch).length) {
+      return res.status(400).json({ message: "No valid activity fields provided." });
+    }
+
+    if (stage === "admission") {
+      patch.postStatusUpdated = true;
+    }
+
+    const history = Array.isArray(lead[config.historyField]) ? lead[config.historyField] : [];
+    const nextCount = history.length + 1;
+    const event = {
+      at: new Date().toISOString(),
+      source: config.source,
+      updates: patch,
+      by: session.name || session.email || session.role
+    };
+    const { update, options } = buildLeadSetPatch(leadId, {
+      ...patch,
+      [config.countField]: nextCount
+    });
+    update.$push = {
+      [`leads.$[lead].${config.historyField}`]: event
+    };
+
+    const result = await stateCollection.updateOne(
+      { _id: STATE_DOC_ID },
+      update,
+      options
+    );
+
+    if (!result.modifiedCount) {
+      return res.status(409).json({ message: "Lead changed before the activity could be saved. Please reload and retry." });
+    }
+
+    const nextState = await refreshStateAfterAtomicUpdate();
+    const updatedLead = findLeadById(nextState, leadId);
+    res.setHeader("ETag", buildStateEtag(nextState));
+    return res.json({ ok: true, lead: updatedLead, state: buildStateResponse(nextState) });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to update lead activity", details: error.message });
+  }
+});
+
+app.post("/api/leads/:leadId/notes", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "counselor"]);
+    if (!session) return;
+
+    const leadId = req.params.leadId;
+    const text = String(req.body?.text || "").trim();
+    if (!text) {
+      return res.status(400).json({ message: "Note text is required." });
+    }
+
+    const state = await getStateDoc();
+    const lead = findLeadById(state, leadId);
+    if (!lead) {
+      return res.status(404).json({ message: "Lead not found." });
+    }
+    if (!canMutateLead(session, state, lead)) {
+      return res.status(403).json({ message: "Only the assigned counselor can edit notes." });
+    }
+
+    const note = {
+      text,
+      at: new Date().toISOString().slice(0, 10),
+      by: session.name || "Unknown"
+    };
+    const result = await stateCollection.updateOne(
+      { _id: STATE_DOC_ID },
+      {
+        $push: { "leads.$[lead].leadNotes": note },
+        $set: { updatedAt: new Date().toISOString() }
+      },
+      { arrayFilters: [{ "lead.id": { $in: getLeadIdCandidates(leadId) } }] }
+    );
+
+    if (!result.modifiedCount) {
+      return res.status(409).json({ message: "Lead changed before the note could be saved. Please reload and retry." });
+    }
+
+    const nextState = await refreshStateAfterAtomicUpdate();
+    const updatedLead = findLeadById(nextState, leadId);
+    res.setHeader("ETag", buildStateEtag(nextState));
+    return res.json({ ok: true, lead: updatedLead, state: buildStateResponse(nextState) });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to save note", details: error.message });
+  }
+});
+
+app.delete("/api/leads/:leadId/notes/:noteIndex", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "counselor"]);
+    if (!session) return;
+
+    const leadId = req.params.leadId;
+    const noteIndex = Number(req.params.noteIndex);
+    const state = await getStateDoc();
+    const lead = findLeadById(state, leadId);
+    if (!lead) {
+      return res.status(404).json({ message: "Lead not found." });
+    }
+    if (!canMutateLead(session, state, lead)) {
+      return res.status(403).json({ message: "Only the assigned counselor can delete notes." });
+    }
+
+    const notes = Array.isArray(lead.leadNotes) ? lead.leadNotes : [];
+    if (!Number.isInteger(noteIndex) || noteIndex < 0 || noteIndex >= notes.length) {
+      return res.status(400).json({ message: "Valid note index is required." });
+    }
+
+    const nextNotes = notes.filter((_, index) => index !== noteIndex);
+    const { update, options } = buildLeadSetPatch(leadId, { leadNotes: nextNotes });
+    const result = await stateCollection.updateOne({ _id: STATE_DOC_ID }, update, options);
+    if (!result.modifiedCount) {
+      return res.status(409).json({ message: "Lead changed before the note could be deleted. Please reload and retry." });
+    }
+
+    const nextState = await refreshStateAfterAtomicUpdate();
+    const updatedLead = findLeadById(nextState, leadId);
+    res.setHeader("ETag", buildStateEtag(nextState));
+    return res.json({ ok: true, lead: updatedLead, state: buildStateResponse(nextState) });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to delete note", details: error.message });
+  }
+});
+
+app.patch("/api/leads/assignment", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, "admin");
+    if (!session) return;
+
+    const leadIds = Array.isArray(req.body?.leadIds) ? req.body.leadIds : [];
+    const counselor = String(req.body?.counselor || "").trim();
+    if (!leadIds.length || !counselor) {
+      return res.status(400).json({ message: "Lead IDs and counselor are required." });
+    }
+
+    const idCandidates = [...new Set(leadIds.flatMap((leadId) => getLeadIdCandidates(leadId)))];
+    const result = await stateCollection.updateOne(
+      { _id: STATE_DOC_ID },
+      {
+        $set: {
+          "leads.$[lead].counselor": counselor,
+          updatedAt: new Date().toISOString()
+        }
+      },
+      { arrayFilters: [{ "lead.id": { $in: idCandidates } }] }
+    );
+
+    if (!result.modifiedCount) {
+      return res.status(404).json({ message: "No matching leads were assigned." });
+    }
+
+    const nextState = await refreshStateAfterAtomicUpdate();
+    res.setHeader("ETag", buildStateEtag(nextState));
+    return res.json({ ok: true, updatedCount: leadIds.length, state: buildStateResponse(nextState) });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to assign leads", details: error.message });
+  }
+});
+
+app.post("/api/tasks", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "counselor"]);
+    if (!session) return;
+
+    const task = normalizeTaskDoc({
+      ...(req.body || {}),
+      counselor: req.body?.counselor || session.name || ""
+    });
+    const state = await getStateDoc();
+
+    if (session.role === "counselor" && !canMutateTask(session, state, task)) {
+      return res.status(403).json({ message: "Counselors can only create tasks assigned to themselves." });
+    }
+
+    const result = await stateCollection.updateOne(
+      { _id: STATE_DOC_ID },
+      {
+        $push: { tasks: { $each: [task], $position: 0 } },
+        $set: { updatedAt: new Date().toISOString() },
+        $setOnInsert: { leads: [], counselors: [], allocation: [], createdAt: new Date().toISOString() }
+      },
+      { upsert: true }
+    );
+
+    if (!result.modifiedCount && !result.upsertedCount) {
+      return res.status(409).json({ message: "Task could not be created. Please reload and retry." });
+    }
+
+    const nextState = await refreshStateAfterAtomicUpdate();
+    res.setHeader("ETag", buildStateEtag(nextState));
+    return res.json({ ok: true, task, state: buildStateResponse(nextState) });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to create task", details: error.message });
+  }
+});
+
+app.patch("/api/tasks/:taskId", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "counselor"]);
+    if (!session) return;
+
+    const taskId = String(req.params.taskId || "").trim();
+    const state = await getStateDoc();
+    const existingTask = findTaskById(state, taskId);
+    if (!existingTask) {
+      return res.status(404).json({ message: "Task not found." });
+    }
+    if (!canMutateTask(session, state, existingTask)) {
+      return res.status(403).json({ message: "You can only update your assigned tasks." });
+    }
+
+    const allowedFields = ["title", "notes", "dueDate"];
+    const updates = sanitizeLeadPatch(req.body || {}, allowedFields);
+    if (!Object.keys(updates).length) {
+      return res.status(400).json({ message: "No valid task fields provided." });
+    }
+    updates.updatedAt = new Date().toISOString();
+
+    const setPatch = { updatedAt: new Date().toISOString() };
+    Object.entries(updates).forEach(([field, value]) => {
+      setPatch[`tasks.$[task].${field}`] = value;
+    });
+
+    const result = await stateCollection.updateOne(
+      { _id: STATE_DOC_ID },
+      { $set: setPatch },
+      { arrayFilters: [{ "task.id": taskId }] }
+    );
+
+    if (!result.modifiedCount) {
+      return res.status(409).json({ message: "Task changed before it could be updated. Please reload and retry." });
+    }
+
+    const nextState = await refreshStateAfterAtomicUpdate();
+    const task = findTaskById(nextState, taskId);
+    res.setHeader("ETag", buildStateEtag(nextState));
+    return res.json({ ok: true, task, state: buildStateResponse(nextState) });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to update task", details: error.message });
+  }
+});
+
+app.delete("/api/tasks/:taskId", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "counselor"]);
+    if (!session) return;
+
+    const taskId = String(req.params.taskId || "").trim();
+    const state = await getStateDoc();
+    const existingTask = findTaskById(state, taskId);
+    if (!existingTask) {
+      return res.status(404).json({ message: "Task not found." });
+    }
+    if (!canMutateTask(session, state, existingTask)) {
+      return res.status(403).json({ message: "You can only remove your assigned tasks." });
+    }
+
+    const result = await stateCollection.updateOne(
+      { _id: STATE_DOC_ID },
+      {
+        $pull: { tasks: { id: taskId } },
+        $set: { updatedAt: new Date().toISOString() }
+      }
+    );
+
+    if (!result.modifiedCount) {
+      return res.status(409).json({ message: "Task changed before it could be removed. Please reload and retry." });
+    }
+
+    const nextState = await refreshStateAfterAtomicUpdate();
+    res.setHeader("ETag", buildStateEtag(nextState));
+    return res.json({ ok: true, state: buildStateResponse(nextState) });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to remove task", details: error.message });
+  }
+});
+
 app.get("/api/state", async (req, res) => {
   try {
+    const session = await requireSession(req, res);
+    if (!session) return;
+
     const state = await getStateDoc();
     // Use updatedAt as a cheap ETag so clients can send If-None-Match and get
     // a 304 Not Modified when nothing has changed — avoiding re-transferring
@@ -1537,9 +2027,19 @@ app.get("/api/state", async (req, res) => {
 
 app.put("/api/state", async (req, res) => {
   try {
+    const session = await requireRole(req, res, ["admin", "counselor"]);
+    if (!session) return;
+
     const sanitized = sanitizeState(req.body || {});
     if (!Object.keys(sanitized).length) {
       return res.status(400).json({ message: "No valid state fields provided." });
+    }
+
+    if (session.role === "counselor") {
+      const invalidFields = Object.keys(sanitized).filter((field) => field !== "tasks");
+      if (invalidFields.length) {
+        return res.status(403).json({ message: "Counselors can only update tasks through the shared state route." });
+      }
     }
 
     const currentState = await getStateDoc();
@@ -1581,8 +2081,11 @@ app.put("/api/state", async (req, res) => {
   }
 });
 
-app.put("/api/state/reset", async (_req, res) => {
+app.put("/api/state/reset", async (req, res) => {
   try {
+    const session = await requireRole(req, res, "admin");
+    if (!session) return;
+
     const now = new Date().toISOString();
     const resetFields = {
       leads: [],
@@ -1613,8 +2116,11 @@ app.put("/api/state/reset", async (_req, res) => {
   }
 });
 
-app.get("/api/leads", async (_req, res) => {
+app.get("/api/leads", async (req, res) => {
   try {
+    const session = await requireSession(req, res);
+    if (!session) return;
+
     const state = await getStateDoc();
     res.json(Array.isArray(state.leads) ? state.leads : []);
   } catch (error) {
@@ -1623,11 +2129,14 @@ app.get("/api/leads", async (_req, res) => {
 });
 
 app.put("/api/leads", async (req, res) => {
-  if (!Array.isArray(req.body)) {
-    return res.status(400).json({ message: "Leads payload must be an array." });
-  }
-
   try {
+    const session = await requireRole(req, res, ["admin", "counselor"]);
+    if (!session) return;
+
+    if (!Array.isArray(req.body)) {
+      return res.status(400).json({ message: "Leads payload must be an array." });
+    }
+
     const currentState = await getStateDoc();
     const nextState = cacheStateDoc({
       ...currentState,
@@ -1657,8 +2166,11 @@ app.put("/api/leads", async (req, res) => {
   }
 });
 
-app.get("/api/counselors", async (_req, res) => {
+app.get("/api/counselors", async (req, res) => {
   try {
+    const session = await requireSession(req, res);
+    if (!session) return;
+
     const state = await getStateDoc();
     res.json(Array.isArray(state.counselors) ? state.counselors : []);
   } catch (error) {
@@ -1667,11 +2179,14 @@ app.get("/api/counselors", async (_req, res) => {
 });
 
 app.put("/api/counselors", async (req, res) => {
-  if (!Array.isArray(req.body)) {
-    return res.status(400).json({ message: "Counselors payload must be an array." });
-  }
-
   try {
+    const session = await requireRole(req, res, "admin");
+    if (!session) return;
+
+    if (!Array.isArray(req.body)) {
+      return res.status(400).json({ message: "Counselors payload must be an array." });
+    }
+
     const currentState = await getStateDoc();
     const nextState = cacheStateDoc({
       ...currentState,
@@ -1700,8 +2215,11 @@ app.put("/api/counselors", async (req, res) => {
   }
 });
 
-app.get("/api/allocation", async (_req, res) => {
+app.get("/api/allocation", async (req, res) => {
   try {
+    const session = await requireSession(req, res);
+    if (!session) return;
+
     const state = await getStateDoc();
     res.json(Array.isArray(state.allocation) ? state.allocation : []);
   } catch (error) {
@@ -1710,11 +2228,14 @@ app.get("/api/allocation", async (_req, res) => {
 });
 
 app.put("/api/allocation", async (req, res) => {
-  if (!Array.isArray(req.body)) {
-    return res.status(400).json({ message: "Allocation payload must be an array." });
-  }
-
   try {
+    const session = await requireRole(req, res, "admin");
+    if (!session) return;
+
+    if (!Array.isArray(req.body)) {
+      return res.status(400).json({ message: "Allocation payload must be an array." });
+    }
+
     const currentState = await getStateDoc();
     const nextState = cacheStateDoc({
       ...currentState,
