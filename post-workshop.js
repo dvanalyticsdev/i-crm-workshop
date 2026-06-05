@@ -217,7 +217,7 @@ if (isCounselorSession() && (!persistedFilter.timeline || persistedFilter.timeli
 let modalLeadId = null;
 let modalLeadEmail = "";
 let modalMode = "edit";
-let selectedLeadIds = new Set();
+let selectedLeadKeys = new Set();
 
 const activityFields = ["modalPostDialed", "modalCoursePitched", "modalCourseStatus", "modalAdmissionStatus", "modalPostCallStatus", "modalWorkshopJoiningStatus"];
 
@@ -805,36 +805,40 @@ function renderLeadTable(leads) {
   const selectedCount = isAdmin ? getSelectedLeadCount(leads) : 0;
   const allSelected = isAdmin && leads.length > 0 && selectedCount === leads.length;
   const assignableCounselors = isAdmin ? getAdminAssignmentOptions(leads) : [];
-  const selectionColumn = isAdmin
+  const bulkToolbar = isAdmin
     ? `
-            <th class="selection-header">
-              <label class="bulk-select-control">
-                <input id="postBulkSelect" type="checkbox" ${allSelected ? "checked" : ""} />
-                <span>Select All</span>
-              </label>
-              <div class="bulk-select-actions">
-                <span class="selected-count">Selected: ${selectedCount}</span>
-                <button id="postBulkDelete" class="btn-delete bulk-delete-btn" type="button" ${selectedCount ? "" : "disabled"}>Delete Selected</button>
-              </div>
-              <div class="bulk-admin-tools">
-                <div class="bulk-inline-group">
-                  <input id="postBulkCountInput" class="bulk-count-input" type="number" min="1" max="${leads.length || 1}" placeholder="Count" />
-                  <button id="postBulkCountApply" class="btn-ghost bulk-action-btn" type="button" ${leads.length ? "" : "disabled"}>Select Count</button>
-                </div>
-                <div class="bulk-inline-group">
-                  <select id="postBulkAssignCounselor" class="bulk-assign-select">
-                    <option value="">Assign to</option>
-                    ${assignableCounselors.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("")}
-                  </select>
-                  <button id="postBulkAssignBtn" class="btn-ghost bulk-action-btn" type="button" ${selectedCount ? "" : "disabled"}>Assign Selected</button>
-                </div>
-              </div>
-            </th>
+      <div class="bulk-toolbar">
+        <label class="bulk-select-control">
+          <input id="postBulkSelect" type="checkbox" ${allSelected ? "checked" : ""} />
+          <span>Select All</span>
+        </label>
+        <div class="bulk-select-actions">
+          <span class="selected-count">Selected: ${selectedCount}</span>
+          <button id="postBulkDelete" class="btn-delete bulk-delete-btn" type="button" ${selectedCount ? "" : "disabled"}>Delete Selected</button>
+        </div>
+        <div class="bulk-admin-tools">
+          <div class="bulk-inline-group">
+            <input id="postBulkCountInput" class="bulk-count-input" type="number" min="1" max="${leads.length || 1}" placeholder="Count" />
+            <button id="postBulkCountApply" class="btn-ghost bulk-action-btn" type="button" ${leads.length ? "" : "disabled"}>Select Count</button>
+          </div>
+          <div class="bulk-inline-group">
+            <select id="postBulkAssignCounselor" class="bulk-assign-select">
+              <option value="">Assign to</option>
+              ${assignableCounselors.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("")}
+            </select>
+            <button id="postBulkAssignBtn" class="btn-ghost bulk-action-btn" type="button" ${selectedCount ? "" : "disabled"}>Assign Selected</button>
+          </div>
+        </div>
+      </div>
     `
+    : "";
+  const selectionColumn = isAdmin
+    ? `<th class="selection-header">Select</th>`
     : "";
   const tableColspan = isAdmin ? 8 : 7;
 
   let html = `
+    ${bulkToolbar}
     <div class="table-scroll">
       <table>
         <thead>
@@ -861,7 +865,7 @@ function renderLeadTable(leads) {
       <tr>
         ${isAdmin ? `
         <td>
-          <input class="lead-select-checkbox" type="checkbox" data-lead-id="${escapeHtml(lead.id)}" ${isLeadSelected(lead.id) ? "checked" : ""} />
+          <input class="lead-select-checkbox" type="checkbox" data-lead-key="${escapeHtml(buildLeadSelectionKey(lead))}" ${isLeadSelected(lead) ? "checked" : ""} />
         </td>
         ` : ""}
         <td>${escapeHtml(lead.createdAt)}</td>
@@ -968,9 +972,9 @@ function renderLeadTable(leads) {
 
   document.querySelectorAll(".lead-select-checkbox").forEach((checkbox) => {
     checkbox.onchange = (event) => {
-      const leadId = checkbox.getAttribute("data-lead-id");
-      if (leadId) {
-        toggleLeadSelection(leadId, event.target.checked);
+      const leadKey = checkbox.getAttribute("data-lead-key");
+      if (leadKey) {
+        toggleLeadSelection(leadKey, event.target.checked);
         renderAll();
       }
     };
@@ -1106,18 +1110,17 @@ async function deleteLead(leadId) {
 }
 
 async function deleteSelectedLeads(leads) {
-  const selectedIds = [...selectedLeadIds].map((leadId) => String(leadId));
-  if (!selectedIds.length) {
+  if (!selectedLeadKeys.size) {
     return false;
   }
 
-  const confirmed = window.confirm(`Delete ${selectedIds.length} selected lead${selectedIds.length === 1 ? "" : "s"}? This cannot be undone.`);
+  const confirmed = window.confirm(`Delete ${selectedLeadKeys.size} selected lead${selectedLeadKeys.size === 1 ? "" : "s"}? This cannot be undone.`);
   if (!confirmed) {
     return false;
   }
 
   const allLeads = getAllLeads();
-  const remainingLeads = allLeads.filter((lead) => !selectedIds.includes(String(lead.id)));
+  const remainingLeads = allLeads.filter((lead) => !selectedLeadKeys.has(buildLeadSelectionKey(lead)));
   const removedCount = allLeads.length - remainingLeads.length;
   if (!removedCount) {
     return false;
@@ -1134,19 +1137,34 @@ async function deleteSelectedLeads(leads) {
 }
 
 function clearSelectedLeadIds() {
-  selectedLeadIds = new Set();
+  selectedLeadKeys = new Set();
 }
 
-function getSelectableLeadIds(leads) {
-  return leads.map((lead) => String(lead.id));
+function buildLeadSelectionRef(lead) {
+  return {
+    id: String(lead?.id || "").trim(),
+    email: String(lead?.email || "").trim().toLowerCase(),
+    phone: String(lead?.phone || "").trim(),
+    workshop: String(lead?.workshop || "").trim(),
+    createdAt: String(lead?.createdAt || "").trim()
+  };
+}
+
+function buildLeadSelectionKey(lead) {
+  const ref = buildLeadSelectionRef(lead);
+  return [ref.id, ref.email, ref.phone, ref.workshop, ref.createdAt].join("::");
+}
+
+function getSelectableLeadKeys(leads) {
+  return leads.map((lead) => buildLeadSelectionKey(lead));
 }
 
 function getSelectedLeadCount(leads) {
-  const selectableIds = new Set(getSelectableLeadIds(leads));
+  const selectableKeys = new Set(getSelectableLeadKeys(leads));
   let count = 0;
 
-  selectedLeadIds.forEach((leadId) => {
-    if (selectableIds.has(String(leadId))) {
+  selectedLeadKeys.forEach((leadKey) => {
+    if (selectableKeys.has(String(leadKey))) {
       count += 1;
     }
   });
@@ -1155,26 +1173,26 @@ function getSelectedLeadCount(leads) {
 }
 
 function syncSelectedLeadIds(leads) {
-  const selectableIds = new Set(getSelectableLeadIds(leads));
-  selectedLeadIds = new Set([...selectedLeadIds].filter((leadId) => selectableIds.has(String(leadId))));
+  const selectableKeys = new Set(getSelectableLeadKeys(leads));
+  selectedLeadKeys = new Set([...selectedLeadKeys].filter((leadKey) => selectableKeys.has(String(leadKey))));
 }
 
-function toggleLeadSelection(leadId, isChecked) {
-  const next = new Set(selectedLeadIds);
+function toggleLeadSelection(leadKey, isChecked) {
+  const next = new Set(selectedLeadKeys);
   if (isChecked) {
-    next.add(String(leadId));
+    next.add(String(leadKey));
   } else {
-    next.delete(String(leadId));
+    next.delete(String(leadKey));
   }
-  selectedLeadIds = next;
+  selectedLeadKeys = next;
 }
 
 function toggleAllLeadsSelection(leads, isChecked) {
-  selectedLeadIds = isChecked ? new Set(getSelectableLeadIds(leads)) : new Set();
+  selectedLeadKeys = isChecked ? new Set(getSelectableLeadKeys(leads)) : new Set();
 }
 
-function isLeadSelected(leadId) {
-  return selectedLeadIds.has(String(leadId));
+function isLeadSelected(lead) {
+  return selectedLeadKeys.has(buildLeadSelectionKey(lead));
 }
 
 function clampSelectionCount(rawValue, maxCount) {
@@ -1192,7 +1210,7 @@ function selectLeadBatch(leads, rawValue) {
     return 0;
   }
 
-  selectedLeadIds = new Set(getSelectableLeadIds(leads).slice(0, count));
+  selectedLeadKeys = new Set(getSelectableLeadKeys(leads).slice(0, count));
   return count;
 }
 
@@ -1208,8 +1226,11 @@ function getAdminAssignmentOptions(leads) {
 }
 
 async function assignSelectedLeads(leads, counselorName) {
-  const selectedIds = new Set([...selectedLeadIds].map((leadId) => String(leadId)));
-  if (!selectedIds.size) {
+  const leadRefsByKey = new Map(leads.map((lead) => [buildLeadSelectionKey(lead), buildLeadSelectionRef(lead)]));
+  const applicableLeadRefs = [...selectedLeadKeys]
+    .map((leadKey) => leadRefsByKey.get(String(leadKey)))
+    .filter(Boolean);
+  if (!applicableLeadRefs.length) {
     showToast("Select at least one lead to assign.", true);
     return false;
   }
@@ -1220,21 +1241,14 @@ async function assignSelectedLeads(leads, counselorName) {
     return false;
   }
 
-  const scopedLeadIds = new Set(leads.map((lead) => String(lead.id)));
-  const applicableIds = new Set([...selectedIds].filter((leadId) => scopedLeadIds.has(leadId)));
-  if (!applicableIds.size) {
-    showToast("Selected leads are no longer available in the current list.", true);
-    return false;
-  }
-
-  const updatedCount = applicableIds.size;
+  const updatedCount = applicableLeadRefs.length;
 
   if (!updatedCount) {
     showToast("No leads were updated.", true);
     return false;
   }
 
-  const assignmentResult = await assignLeadsOnServer([...applicableIds], targetCounselor);
+  const assignmentResult = await assignLeadsOnServer(applicableLeadRefs, targetCounselor);
   if (!assignmentResult || assignmentResult.ok === false) {
     showToast(assignmentResult?.message || "Failed to assign selected leads. Please check your connection and try again.", true);
     return false;

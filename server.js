@@ -1350,6 +1350,40 @@ function getLeadIdCandidates(leadId) {
   return [...new Set(candidates)];
 }
 
+function buildLeadIdentityMatchConditions(leadRefs) {
+  return leadRefs
+    .map((ref) => {
+      const id = String(ref?.id || "").trim();
+      if (!id) {
+        return null;
+      }
+
+      const condition = {
+        "lead.id": { $in: getLeadIdCandidates(id) }
+      };
+      const email = String(ref?.email || "").trim().toLowerCase();
+      const phone = String(ref?.phone || "").trim();
+      const workshop = String(ref?.workshop || "").trim();
+      const createdAt = String(ref?.createdAt || "").trim();
+
+      if (email) {
+        condition["lead.email"] = email;
+      }
+      if (phone) {
+        condition["lead.phone"] = phone;
+      }
+      if (workshop) {
+        condition["lead.workshop"] = workshop;
+      }
+      if (createdAt) {
+        condition["lead.createdAt"] = createdAt;
+      }
+
+      return condition;
+    })
+    .filter(Boolean);
+}
+
 function findLeadById(state, leadId) {
   const candidates = new Set(getLeadIdCandidates(leadId).map((value) => String(value)));
   return (Array.isArray(state?.leads) ? state.leads : []).find(
@@ -1886,13 +1920,17 @@ app.patch("/api/leads/assignment", async (req, res) => {
     const session = await requireRole(req, res, "admin");
     if (!session) return;
 
+    const leadRefs = Array.isArray(req.body?.leadRefs) ? req.body.leadRefs : [];
     const leadIds = Array.isArray(req.body?.leadIds) ? req.body.leadIds : [];
     const counselor = String(req.body?.counselor || "").trim();
-    if (!leadIds.length || !counselor) {
-      return res.status(400).json({ message: "Lead IDs and counselor are required." });
+    if ((!leadRefs.length && !leadIds.length) || !counselor) {
+      return res.status(400).json({ message: "Lead references and counselor are required." });
     }
 
-    const idCandidates = [...new Set(leadIds.flatMap((leadId) => getLeadIdCandidates(leadId)))];
+    const matchConditions = buildLeadIdentityMatchConditions(leadRefs);
+    const arrayFilters = matchConditions.length
+      ? [{ $or: matchConditions }]
+      : [{ "lead.id": { $in: [...new Set(leadIds.flatMap((leadId) => getLeadIdCandidates(leadId)))] } }];
     const result = await stateCollection.updateOne(
       { _id: STATE_DOC_ID },
       {
@@ -1901,7 +1939,7 @@ app.patch("/api/leads/assignment", async (req, res) => {
           updatedAt: new Date().toISOString()
         }
       },
-      { arrayFilters: [{ "lead.id": { $in: idCandidates } }] }
+      { arrayFilters }
     );
 
     if (!result.modifiedCount) {
@@ -1910,7 +1948,7 @@ app.patch("/api/leads/assignment", async (req, res) => {
 
     const nextState = await refreshStateAfterAtomicUpdate();
     res.setHeader("ETag", buildStateEtag(nextState));
-    return res.json({ ok: true, updatedCount: leadIds.length, state: buildStateResponse(nextState) });
+    return res.json({ ok: true, updatedCount: leadRefs.length || leadIds.length, state: buildStateResponse(nextState) });
   } catch (error) {
     return res.status(500).json({ message: "Failed to assign leads", details: error.message });
   }

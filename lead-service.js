@@ -62,9 +62,9 @@ export function deleteLeadNote(leadId, noteIndex, leadEmail = "") {
   );
 }
 
-export function assignLeads(leadIds, counselor) {
+export function assignLeads(leadRefs, counselor) {
   return requestJson("/api/leads/assignment", {
     method: "PATCH",
-    body: JSON.stringify({ leadIds, counselor })
+    body: JSON.stringify({ leadRefs, counselor })
   });
 }

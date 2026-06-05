@@ -41,6 +41,10 @@ const deleteLostLeadsBtn = document.getElementById("deleteLostLeadsBtn");
 const deleteImportedFileSelect = document.getElementById("deleteImportedFileSelect");
 const deleteImportedFileBtn = document.getElementById("deleteImportedFileBtn");
 const cleanupMessage = document.getElementById("cleanupMessage");
+const applyAllAssignmentSuggestionsBtn = document.getElementById("applyAllAssignmentSuggestionsBtn");
+const assignmentSuggestionSummary = document.getElementById("assignmentSuggestionSummary");
+const assignmentSuggestionList = document.getElementById("assignmentSuggestionList");
+const assignmentSuggestionMessage = document.getElementById("assignmentSuggestionMessage");
 const taskModal = document.getElementById("taskModal");
 const taskModalTitle = document.getElementById("taskModalTitle");
 const taskForm = document.getElementById("taskForm");
@@ -146,18 +150,17 @@ async function deleteLead(leadId) {
 }
 
 async function deleteSelectedLeads(leads) {
-  const selectedIds = [...selectedLeadIds].map((leadId) => String(leadId));
-  if (!selectedIds.length) {
+  if (!selectedLeadKeys.size) {
     return false;
   }
 
-  const confirmed = window.confirm(`Delete ${selectedIds.length} selected lead${selectedIds.length === 1 ? "" : "s"}? This cannot be undone.`);
+  const confirmed = window.confirm(`Delete ${selectedLeadKeys.size} selected lead${selectedLeadKeys.size === 1 ? "" : "s"}? This cannot be undone.`);
   if (!confirmed) {
     return false;
   }
 
   const allLeads = getAllLeads();
-  const remainingLeads = allLeads.filter((lead) => !selectedIds.includes(String(lead.id)));
+  const remainingLeads = allLeads.filter((lead) => !selectedLeadKeys.has(buildLeadSelectionKey(lead)));
   const removedCount = allLeads.length - remainingLeads.length;
   if (!removedCount) {
     return false;
@@ -174,19 +177,34 @@ async function deleteSelectedLeads(leads) {
 }
 
 function clearSelectedLeadIds() {
-  selectedLeadIds = new Set();
+  selectedLeadKeys = new Set();
 }
 
-function getSelectableLeadIds(leads) {
-  return leads.map((lead) => String(lead.id));
+function buildLeadSelectionRef(lead) {
+  return {
+    id: String(lead?.id || "").trim(),
+    email: String(lead?.email || "").trim().toLowerCase(),
+    phone: String(lead?.phone || "").trim(),
+    workshop: String(lead?.workshop || "").trim(),
+    createdAt: String(lead?.createdAt || "").trim()
+  };
+}
+
+function buildLeadSelectionKey(lead) {
+  const ref = buildLeadSelectionRef(lead);
+  return [ref.id, ref.email, ref.phone, ref.workshop, ref.createdAt].join("::");
+}
+
+function getSelectableLeadKeys(leads) {
+  return leads.map((lead) => buildLeadSelectionKey(lead));
 }
 
 function getSelectedLeadCount(leads) {
-  const selectableIds = new Set(getSelectableLeadIds(leads));
+  const selectableKeys = new Set(getSelectableLeadKeys(leads));
   let count = 0;
 
-  selectedLeadIds.forEach((leadId) => {
-    if (selectableIds.has(String(leadId))) {
+  selectedLeadKeys.forEach((leadKey) => {
+    if (selectableKeys.has(String(leadKey))) {
       count += 1;
     }
   });
@@ -195,26 +213,26 @@ function getSelectedLeadCount(leads) {
 }
 
 function syncSelectedLeadIds(leads) {
-  const selectableIds = new Set(getSelectableLeadIds(leads));
-  selectedLeadIds = new Set([...selectedLeadIds].filter((leadId) => selectableIds.has(String(leadId))));
+  const selectableKeys = new Set(getSelectableLeadKeys(leads));
+  selectedLeadKeys = new Set([...selectedLeadKeys].filter((leadKey) => selectableKeys.has(String(leadKey))));
 }
 
-function toggleLeadSelection(leadId, isChecked) {
-  const next = new Set(selectedLeadIds);
+function toggleLeadSelection(leadKey, isChecked) {
+  const next = new Set(selectedLeadKeys);
   if (isChecked) {
-    next.add(String(leadId));
+    next.add(String(leadKey));
   } else {
-    next.delete(String(leadId));
+    next.delete(String(leadKey));
   }
-  selectedLeadIds = next;
+  selectedLeadKeys = next;
 }
 
 function toggleAllLeadsSelection(leads, isChecked) {
-  selectedLeadIds = isChecked ? new Set(getSelectableLeadIds(leads)) : new Set();
+  selectedLeadKeys = isChecked ? new Set(getSelectableLeadKeys(leads)) : new Set();
 }
 
-function isLeadSelected(leadId) {
-  return selectedLeadIds.has(String(leadId));
+function isLeadSelected(lead) {
+  return selectedLeadKeys.has(buildLeadSelectionKey(lead));
 }
 
 function clampSelectionCount(rawValue, maxCount) {
@@ -232,7 +250,7 @@ function selectLeadBatch(leads, rawValue) {
     return 0;
   }
 
-  selectedLeadIds = new Set(getSelectableLeadIds(leads).slice(0, count));
+  selectedLeadKeys = new Set(getSelectableLeadKeys(leads).slice(0, count));
   return count;
 }
 
@@ -241,8 +259,11 @@ function getAdminAssignmentOptions() {
 }
 
 async function assignSelectedLeads(leads, counselorName) {
-  const selectedIds = new Set([...selectedLeadIds].map((leadId) => String(leadId)));
-  if (!selectedIds.size) {
+  const leadRefsByKey = new Map(leads.map((lead) => [buildLeadSelectionKey(lead), buildLeadSelectionRef(lead)]));
+  const applicableLeadRefs = [...selectedLeadKeys]
+    .map((leadKey) => leadRefsByKey.get(String(leadKey)))
+    .filter(Boolean);
+  if (!applicableLeadRefs.length) {
     showToast("Select at least one lead to assign.", true);
     return false;
   }
@@ -253,21 +274,14 @@ async function assignSelectedLeads(leads, counselorName) {
     return false;
   }
 
-  const scopedLeadIds = new Set(leads.map((lead) => String(lead.id)));
-  const applicableIds = new Set([...selectedIds].filter((leadId) => scopedLeadIds.has(leadId)));
-  if (!applicableIds.size) {
-    showToast("Selected leads are no longer available in the current list.", true);
-    return false;
-  }
-
-  const updatedCount = applicableIds.size;
+  const updatedCount = applicableLeadRefs.length;
 
   if (!updatedCount) {
     showToast("No leads were updated.", true);
     return false;
   }
 
-  const assignmentResult = await assignLeadsOnServer([...applicableIds], targetCounselor);
+  const assignmentResult = await assignLeadsOnServer(applicableLeadRefs, targetCounselor);
   if (!assignmentResult || assignmentResult.ok === false) {
     showToast(assignmentResult?.message || "Failed to assign selected leads. Please check your connection and try again.", true);
     return false;
@@ -494,7 +508,8 @@ const DEFAULT_ALLOCATION = [];
 let modalLeadId = null;
 let modalLeadEmail = "";
 let modalMode = "edit";
-let selectedLeadIds = new Set();
+let selectedLeadKeys = new Set();
+let lastAssignmentSuggestions = [];
 
 const activityFields = ["modalDialed", "modalCallStatus", "modalWsStatus", "modalWhatsappInvite", "modalWhatsappGroupStatus"];
 
@@ -1288,6 +1303,244 @@ async function handleLeadImport() {
   renderAll();
 }
 
+function getOverallLeadBalanceData(leads) {
+  const activeCounselors = getActiveCounselorNames().sort((left, right) => left.localeCompare(right));
+  const assignableLeads = leads.filter((lead) => !isLostLead(lead));
+
+  if (!assignableLeads.length || !activeCounselors.length) {
+    return {
+      activeCounselors,
+      assignableLeads,
+      currentCounts: new Map(),
+      targetCounts: new Map(),
+      suggestions: [],
+      totalLeads: assignableLeads.length,
+      totalSuggestedMoves: 0
+    };
+  }
+
+  const currentCounts = new Map(activeCounselors.map((name) => [name, 0]));
+  const externalCounts = new Map();
+
+  assignableLeads.forEach((lead) => {
+    const counselor = String(lead.counselor || "Unassigned").trim() || "Unassigned";
+    if (currentCounts.has(counselor)) {
+      currentCounts.set(counselor, currentCounts.get(counselor) + 1);
+      return;
+    }
+
+    externalCounts.set(counselor, (externalCounts.get(counselor) || 0) + 1);
+  });
+
+  const baseTarget = Math.floor(assignableLeads.length / activeCounselors.length);
+  const remainder = assignableLeads.length % activeCounselors.length;
+  const targetCounts = new Map();
+  const targetOrder = [...activeCounselors].sort((left, right) => {
+    const countDelta = (currentCounts.get(right) || 0) - (currentCounts.get(left) || 0);
+    return countDelta || left.localeCompare(right);
+  });
+
+  targetOrder.forEach((name, index) => {
+    targetCounts.set(name, baseTarget + (index < remainder ? 1 : 0));
+  });
+
+  const buildDonorQueue = (donorName) => assignableLeads
+    .filter((lead) => (
+      String(lead.counselor || "Unassigned").trim() === donorName &&
+      isUntouchedLead(lead)
+    ))
+    .sort((left, right) => {
+      return String(left.createdAt || "").localeCompare(String(right.createdAt || ""));
+    })
+    .map((lead) => buildLeadSelectionRef(lead));
+
+  const donorQueues = new Map();
+  const donors = [];
+  const unassignedCount = externalCounts.get("Unassigned") || 0;
+  if (unassignedCount > 0) {
+    donorQueues.set("Unassigned", buildDonorQueue("Unassigned"));
+    donors.push({ name: "Unassigned", available: unassignedCount, priority: 0 });
+  }
+
+  [...externalCounts.entries()]
+    .filter(([name]) => name !== "Unassigned")
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .forEach(([name, count]) => {
+      donorQueues.set(name, buildDonorQueue(name));
+      donors.push({ name, available: count, priority: 1 });
+    });
+
+  activeCounselors.forEach((name) => {
+    const surplus = (currentCounts.get(name) || 0) - (targetCounts.get(name) || 0);
+    if (surplus > 0) {
+      donorQueues.set(name, buildDonorQueue(name));
+      donors.push({ name, available: surplus, priority: 2 });
+    }
+  });
+
+  donors.sort((left, right) => left.priority - right.priority || right.available - left.available || left.name.localeCompare(right.name));
+
+  const receivers = activeCounselors
+    .map((name) => ({
+      name,
+      needed: (targetCounts.get(name) || 0) - (currentCounts.get(name) || 0)
+    }))
+    .filter((item) => item.needed > 0)
+    .sort((left, right) => right.needed - left.needed || left.name.localeCompare(right.name));
+
+  const suggestions = [];
+  receivers.forEach((receiver) => {
+    donors.forEach((donor) => {
+      if (!receiver.needed || !donor.available) {
+        return;
+      }
+
+      const moveCount = Math.min(receiver.needed, donor.available);
+      const leadRefs = (donorQueues.get(donor.name) || []).splice(0, moveCount);
+      if (!leadRefs.length) {
+        return;
+      }
+
+      suggestions.push({
+        from: donor.name,
+        to: receiver.name,
+        count: leadRefs.length,
+        leadRefs
+      });
+      donor.available -= leadRefs.length;
+      receiver.needed -= leadRefs.length;
+    });
+  });
+
+  const totalSuggestedMoves = suggestions.reduce((sum, suggestion) => sum + suggestion.count, 0);
+
+  return {
+    activeCounselors,
+    assignableLeads,
+    currentCounts,
+    targetCounts,
+    suggestions,
+    totalLeads: assignableLeads.length,
+    totalSuggestedMoves
+  };
+}
+
+function renderAssignmentSuggestionPanel(preWorkshopLeads) {
+  if (!assignmentSuggestionSummary || !assignmentSuggestionList) {
+    return;
+  }
+
+  const balanceData = getOverallLeadBalanceData(preWorkshopLeads);
+  lastAssignmentSuggestions = balanceData.suggestions;
+
+  if (applyAllAssignmentSuggestionsBtn) {
+    applyAllAssignmentSuggestionsBtn.disabled = !balanceData.suggestions.length;
+  }
+
+  if (!balanceData.activeCounselors.length) {
+    assignmentSuggestionSummary.innerHTML = `<p class="block-help">Add active counselors to generate balancing suggestions.</p>`;
+    assignmentSuggestionList.innerHTML = "";
+    return;
+  }
+
+  assignmentSuggestionSummary.innerHTML = `
+    <div class="suggestion-overview">
+      <article class="suggestion-overview-stat">
+        <span>Total Leads</span>
+        <strong>${balanceData.totalLeads}</strong>
+      </article>
+      <article class="suggestion-overview-stat">
+        <span>Total Counselors</span>
+        <strong>${balanceData.activeCounselors.length}</strong>
+      </article>
+      <article class="suggestion-overview-stat">
+        <span>Total Reassignments</span>
+        <strong>${balanceData.totalSuggestedMoves}</strong>
+      </article>
+    </div>
+    <div class="suggestion-summary-grid">
+      ${balanceData.activeCounselors.map((name) => `
+        <article class="suggestion-stat">
+          <span>${escapeHtml(name)}</span>
+          <strong>${balanceData.currentCounts.get(name) || 0}</strong>
+          <small>Target ${balanceData.targetCounts.get(name) || 0}</small>
+        </article>
+      `).join("")}
+    </div>
+  `;
+
+  if (!balanceData.totalLeads) {
+    assignmentSuggestionList.innerHTML = `<p class="block-help">No leads are available to rebalance.</p>`;
+    return;
+  }
+
+  if (!balanceData.suggestions.length) {
+    assignmentSuggestionList.innerHTML = `<p class="block-help">Overall counselor load is already perfectly balanced.</p>`;
+    return;
+  }
+
+  assignmentSuggestionList.innerHTML = balanceData.suggestions
+    .map((suggestion, index) => `
+      <article class="suggestion-item">
+        <div>
+          <h5>${suggestion.count} lead${suggestion.count === 1 ? "" : "s"}</h5>
+          <p>Move from ${escapeHtml(suggestion.from)} to ${escapeHtml(suggestion.to)}</p>
+        </div>
+        <button type="button" class="btn-ghost apply-suggestion-btn" data-suggestion-index="${index}">Apply</button>
+      </article>
+    `)
+    .join("");
+
+  document.querySelectorAll(".apply-suggestion-btn").forEach((button) => {
+    button.onclick = () => {
+      const suggestionIndex = Number(button.getAttribute("data-suggestion-index"));
+      void applyAssignmentSuggestionByIndex(suggestionIndex);
+    };
+  });
+}
+
+async function applyAssignmentSuggestionByIndex(index) {
+  const suggestion = lastAssignmentSuggestions[index];
+  if (!suggestion) {
+    return;
+  }
+
+  const result = await assignLeadsOnServer(suggestion.leadRefs, suggestion.to);
+  if (!result || result.ok === false) {
+    setMessage(assignmentSuggestionMessage, result?.message || "Failed to apply the assignment suggestion.", true);
+    showToast(result?.message || "Failed to apply the assignment suggestion.", true);
+    return;
+  }
+
+  setMessage(assignmentSuggestionMessage, `Moved ${suggestion.count} lead${suggestion.count === 1 ? "" : "s"} from ${suggestion.from} to ${suggestion.to}.`, false);
+  showToast(`Moved ${suggestion.count} lead${suggestion.count === 1 ? "" : "s"} to ${suggestion.to}.`, false);
+  renderAll();
+}
+
+async function applyAllAssignmentSuggestions() {
+  if (!lastAssignmentSuggestions.length) {
+    return;
+  }
+
+  let movedCount = 0;
+  const suggestions = [...lastAssignmentSuggestions];
+  for (const suggestion of suggestions) {
+    const result = await assignLeadsOnServer(suggestion.leadRefs, suggestion.to);
+    if (!result || result.ok === false) {
+      setMessage(assignmentSuggestionMessage, result?.message || "Stopped while applying assignment suggestions.", true);
+      showToast(result?.message || "Stopped while applying assignment suggestions.", true);
+      renderAll();
+      return;
+    }
+    movedCount += suggestion.count;
+  }
+
+  setMessage(assignmentSuggestionMessage, `Applied ${suggestions.length} suggestion${suggestions.length === 1 ? "" : "s"} and reassigned ${movedCount} lead${movedCount === 1 ? "" : "s"}.`, false);
+  showToast(`Reassigned ${movedCount} lead${movedCount === 1 ? "" : "s"} using smart suggestions.`, false);
+  renderAll();
+}
+
+
 function setupAdminPanel() {
   if (!adminImportPanel) {
     return;
@@ -1345,6 +1598,12 @@ function setupAdminPanel() {
 
   if (deleteLostLeadsBtn) {
     deleteLostLeadsBtn.addEventListener("click", deleteLostLeads);
+  }
+
+  if (applyAllAssignmentSuggestionsBtn) {
+    applyAllAssignmentSuggestionsBtn.onclick = () => {
+      void applyAllAssignmentSuggestions();
+    };
   }
 }
 
@@ -1702,36 +1961,40 @@ function renderLeadTable(leads) {
   const selectedCount = isAdmin ? getSelectedLeadCount(leads) : 0;
   const allSelected = isAdmin && leads.length > 0 && selectedCount === leads.length;
   const assignableCounselors = isAdmin ? getAdminAssignmentOptions() : [];
-  const selectionColumn = isAdmin
+  const bulkToolbar = isAdmin
     ? `
-            <th class="selection-header">
-              <label class="bulk-select-control">
-                <input id="preBulkSelect" type="checkbox" ${allSelected ? "checked" : ""} />
-                <span>Select All</span>
-              </label>
-              <div class="bulk-select-actions">
-                <span class="selected-count">Selected: ${selectedCount}</span>
-                <button id="preBulkDelete" class="btn-delete bulk-delete-btn" type="button" ${selectedCount ? "" : "disabled"}>Delete Selected</button>
-              </div>
-              <div class="bulk-admin-tools">
-                <div class="bulk-inline-group">
-                  <input id="preBulkCountInput" class="bulk-count-input" type="number" min="1" max="${leads.length || 1}" placeholder="Count" />
-                  <button id="preBulkCountApply" class="btn-ghost bulk-action-btn" type="button" ${leads.length ? "" : "disabled"}>Select Count</button>
-                </div>
-                <div class="bulk-inline-group">
-                  <select id="preBulkAssignCounselor" class="bulk-assign-select">
-                    <option value="">Assign to</option>
-                    ${assignableCounselors.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("")}
-                  </select>
-                  <button id="preBulkAssignBtn" class="btn-ghost bulk-action-btn" type="button" ${selectedCount ? "" : "disabled"}>Assign Selected</button>
-                </div>
-              </div>
-            </th>
+      <div class="bulk-toolbar">
+        <label class="bulk-select-control">
+          <input id="preBulkSelect" type="checkbox" ${allSelected ? "checked" : ""} />
+          <span>Select All</span>
+        </label>
+        <div class="bulk-select-actions">
+          <span class="selected-count">Selected: ${selectedCount}</span>
+          <button id="preBulkDelete" class="btn-delete bulk-delete-btn" type="button" ${selectedCount ? "" : "disabled"}>Delete Selected</button>
+        </div>
+        <div class="bulk-admin-tools">
+          <div class="bulk-inline-group">
+            <input id="preBulkCountInput" class="bulk-count-input" type="number" min="1" max="${leads.length || 1}" placeholder="Count" />
+            <button id="preBulkCountApply" class="btn-ghost bulk-action-btn" type="button" ${leads.length ? "" : "disabled"}>Select Count</button>
+          </div>
+          <div class="bulk-inline-group">
+            <select id="preBulkAssignCounselor" class="bulk-assign-select">
+              <option value="">Assign to</option>
+              ${assignableCounselors.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("")}
+            </select>
+            <button id="preBulkAssignBtn" class="btn-ghost bulk-action-btn" type="button" ${selectedCount ? "" : "disabled"}>Assign Selected</button>
+          </div>
+        </div>
+      </div>
     `
+    : "";
+  const selectionColumn = isAdmin
+    ? `<th class="selection-header">Select</th>`
     : "";
   const emptyColspan = isAdmin ? 8 : 7;
 
   let html = `
+    ${bulkToolbar}
     <div class="table-scroll">
       <table>
         <thead>
@@ -1758,7 +2021,7 @@ function renderLeadTable(leads) {
       <tr>
         ${isAdmin ? `
         <td>
-          <input class="lead-select-checkbox" type="checkbox" data-lead-id="${escapeHtml(lead.id)}" ${isLeadSelected(lead.id) ? "checked" : ""} />
+          <input class="lead-select-checkbox" type="checkbox" data-lead-key="${escapeHtml(buildLeadSelectionKey(lead))}" ${isLeadSelected(lead) ? "checked" : ""} />
         </td>
         ` : ""}
         <td>${escapeHtml(lead.createdAt)}</td>
@@ -1865,9 +2128,9 @@ function renderLeadTable(leads) {
 
   document.querySelectorAll(".lead-select-checkbox").forEach((checkbox) => {
     checkbox.onchange = (event) => {
-      const leadId = checkbox.getAttribute("data-lead-id");
-      if (leadId) {
-        toggleLeadSelection(leadId, event.target.checked);
+      const leadKey = checkbox.getAttribute("data-lead-key");
+      if (leadKey) {
+        toggleLeadSelection(leadKey, event.target.checked);
         renderAll();
       }
     };
@@ -2294,6 +2557,7 @@ function renderAll() {
   const preWorkshopLeads = getPreWorkshopLeads(scopedLeads);
   normalizeFilterState(preWorkshopLeads);
   const filteredLeads = filterLeads(preWorkshopLeads);
+  renderAssignmentSuggestionPanel(preWorkshopLeads);
 
   renderKpis(filteredLeads);
   const _focusedId = document.activeElement?.id;

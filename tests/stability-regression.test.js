@@ -56,6 +56,35 @@ test("bulk delete preserves leads outside the current filtered table", () => {
 
   assert.match(getFunctionBody(preWorkshop, "deleteSelectedLeads"), /const allLeads = getAllLeads\(\)/);
   assert.match(getFunctionBody(postWorkshop, "deleteSelectedLeads"), /const allLeads = getAllLeads\(\)/);
+  assert.match(preWorkshop, /buildLeadSelectionKey/);
+  assert.match(postWorkshop, /buildLeadSelectionKey/);
+});
+
+test("bulk assignment uses full lead identity references", () => {
+  const preWorkshop = read("pre-workshop.js");
+  const postWorkshop = read("post-workshop.js");
+  const leadService = read("lead-service.js");
+  const server = read("server.js");
+
+  assert.match(preWorkshop, /buildLeadSelectionRef/);
+  assert.match(postWorkshop, /buildLeadSelectionRef/);
+  assert.match(leadService, /JSON\.stringify\(\{ leadRefs, counselor \}\)/);
+  assert.match(server, /buildLeadIdentityMatchConditions/);
+  assert.match(server, /const leadRefs = Array\.isArray\(req\.body\?\.leadRefs\)/);
+});
+
+test("pre-workshop includes smart assignment suggestion panel", () => {
+  const preWorkshopHtml = read("pre-workshop.html");
+  const preWorkshop = read("pre-workshop.js");
+  const styles = read("styles.css");
+
+  assert.match(preWorkshopHtml, /applyAllAssignmentSuggestionsBtn/);
+  assert.match(preWorkshop, /function renderAssignmentSuggestionPanel/);
+  assert.match(preWorkshop, /function applyAllAssignmentSuggestions/);
+  assert.match(preWorkshop, /function getOverallLeadBalanceData/);
+  assert.match(preWorkshop, /Total Reassignments/);
+  assert.match(preWorkshop, /isUntouchedLead\(lead\)/);
+  assert.match(styles, /\.suggestion-overview/);
 });
 
 test("task service uses atomic task endpoints", () => {
