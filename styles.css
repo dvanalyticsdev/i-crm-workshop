@@ -254,8 +254,8 @@ a {
     rgba(139,92,246,.11) 42%,
     rgba(255,0,128,.06) 65%,
     transparent 75%);
-  animation: icrm-ambient 5s ease-in-out infinite;
   pointer-events: none;
+  display: none;
 }
 
 /* ── Floating particle field ── */
@@ -263,6 +263,7 @@ a {
   position: absolute;
   inset: 0;
   pointer-events: none;
+  display: none;
 }
 
 .icrm-particle {
@@ -321,9 +322,8 @@ a {
     rgba(255,255,255,0.24) 50%,
     transparent 80%
   );
-  animation: icrm-shimmer 5.5s ease-in-out infinite;
-  animation-delay: 1.2s;
   pointer-events: none;
+  display: none;
 }
 
 /* ── Main i-CRM text ── */
@@ -333,9 +333,11 @@ a {
   font-size: 1.55rem;
   font-weight: 900;
   letter-spacing: 0.16em;
-  animation:
-    icrm-color-cycle 7s ease-in-out infinite,
-    icrm-pulse       4s ease-in-out infinite;
+  background: linear-gradient(135deg, #ff7a18 0%, #f97316 36%, #1d4ed8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
   line-height: 1.1;
 }
 
