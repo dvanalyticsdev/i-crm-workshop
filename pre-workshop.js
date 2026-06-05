@@ -1303,125 +1303,443 @@ async function handleLeadImport() {
   renderAll();
 }
 
+function assignWorkshopExtraSlots(workshopConfigs, activeCounselors, counselorExtraTargets) {
+  const workshopCount = workshopConfigs.length;
+  const counselorCount = activeCounselors.length;
+  const source = 0;
+  const sink = 1 + workshopCount + counselorCount;
+  const graphSize = sink + 1;
+  const capacity = Array.from({ length: graphSize }, () => new Array(graphSize).fill(0));
+
+  workshopConfigs.forEach((config, workshopIndex) => {
+    const workshopNode = 1 + workshopIndex;
+    capacity[source][workshopNode] = config.remainingExtras;
+
+    activeCounselors.forEach((counselorName, counselorIndex) => {
+      const counselorNode = 1 + workshopCount + counselorIndex;
+      const touchedCount = config.touchedCounts.get(counselorName) || 0;
+      if (touchedCount <= config.baseTarget) {
+        capacity[workshopNode][counselorNode] = 1;
+      }
+    });
+  });
+
+  activeCounselors.forEach((counselorName, counselorIndex) => {
+    const counselorNode = 1 + workshopCount + counselorIndex;
+    capacity[counselorNode][sink] = counselorExtraTargets.get(counselorName) || 0;
+  });
+
+  const residual = capacity.map((row) => [...row]);
+  let maxFlow = 0;
+
+  while (true) {
+    const parent = new Array(graphSize).fill(-1);
+    parent[source] = source;
+    const queue = [source];
+
+    while (queue.length && parent[sink] === -1) {
+      const node = queue.shift();
+      for (let next = 0; next < graphSize; next += 1) {
+        if (parent[next] === -1 && residual[node][next] > 0) {
+          parent[next] = node;
+          queue.push(next);
+        }
+      }
+    }
+
+    if (parent[sink] === -1) {
+      break;
+    }
+
+    let flow = Number.POSITIVE_INFINITY;
+    for (let node = sink; node !== source; node = parent[node]) {
+      flow = Math.min(flow, residual[parent[node]][node]);
+    }
+
+    for (let node = sink; node !== source; node = parent[node]) {
+      residual[parent[node]][node] -= flow;
+      residual[node][parent[node]] += flow;
+    }
+
+    maxFlow += flow;
+  }
+
+  const requiredFlow = workshopConfigs.reduce((sum, config) => sum + config.remainingExtras, 0);
+  if (maxFlow !== requiredFlow) {
+    return null;
+  }
+
+  const optionalAssignments = new Map();
+  workshopConfigs.forEach((config, workshopIndex) => {
+    const optionalMap = new Map();
+    activeCounselors.forEach((counselorName, counselorIndex) => {
+      const workshopNode = 1 + workshopIndex;
+      const counselorNode = 1 + workshopCount + counselorIndex;
+      optionalMap.set(counselorName, capacity[workshopNode][counselorNode] - residual[workshopNode][counselorNode]);
+    });
+    optionalAssignments.set(config.workshopName, optionalMap);
+  });
+
+  return optionalAssignments;
+}
+
 function getOverallLeadBalanceData(leads) {
   const activeCounselors = getActiveCounselorNames().sort((left, right) => left.localeCompare(right));
   const assignableLeads = leads.filter((lead) => !isLostLead(lead));
+  const workshops = getUniqueWorkshops(assignableLeads).filter(Boolean).sort((left, right) => left.localeCompare(right));
 
   if (!assignableLeads.length || !activeCounselors.length) {
     return {
       activeCounselors,
       assignableLeads,
+      workshops,
       currentCounts: new Map(),
+      currentWorkshopCounts: new Map(),
       targetCounts: new Map(),
+      targetWorkshopCounts: new Map(),
       suggestions: [],
       totalLeads: assignableLeads.length,
-      totalSuggestedMoves: 0
+      totalSuggestedMoves: 0,
+      isFeasible: true,
+      issue: ""
     };
   }
 
   const currentCounts = new Map(activeCounselors.map((name) => [name, 0]));
-  const externalCounts = new Map();
+  const currentWorkshopCounts = new Map();
+  const touchedWorkshopCounts = new Map();
+  const externalTouchedWorkshopCounts = new Map();
+
+  workshops.forEach((workshopName) => {
+    currentWorkshopCounts.set(workshopName, new Map(activeCounselors.map((name) => [name, 0])));
+    touchedWorkshopCounts.set(workshopName, new Map(activeCounselors.map((name) => [name, 0])));
+    externalTouchedWorkshopCounts.set(workshopName, 0);
+  });
 
   assignableLeads.forEach((lead) => {
     const counselor = String(lead.counselor || "Unassigned").trim() || "Unassigned";
-    if (currentCounts.has(counselor)) {
-      currentCounts.set(counselor, currentCounts.get(counselor) + 1);
+    const workshopName = String(lead.workshop || "").trim();
+
+    if (!currentWorkshopCounts.has(workshopName)) {
       return;
     }
 
-    externalCounts.set(counselor, (externalCounts.get(counselor) || 0) + 1);
-  });
+    if (currentCounts.has(counselor)) {
+      currentCounts.set(counselor, currentCounts.get(counselor) + 1);
+      const workshopCountMap = currentWorkshopCounts.get(workshopName);
+      workshopCountMap.set(counselor, (workshopCountMap.get(counselor) || 0) + 1);
 
-  const baseTarget = Math.floor(assignableLeads.length / activeCounselors.length);
-  const remainder = assignableLeads.length % activeCounselors.length;
-  const targetCounts = new Map();
-  const targetOrder = [...activeCounselors].sort((left, right) => {
-    const countDelta = (currentCounts.get(right) || 0) - (currentCounts.get(left) || 0);
-    return countDelta || left.localeCompare(right);
-  });
-
-  targetOrder.forEach((name, index) => {
-    targetCounts.set(name, baseTarget + (index < remainder ? 1 : 0));
-  });
-
-  const buildDonorQueue = (donorName) => assignableLeads
-    .filter((lead) => (
-      String(lead.counselor || "Unassigned").trim() === donorName &&
-      isUntouchedLead(lead)
-    ))
-    .sort((left, right) => {
-      return String(left.createdAt || "").localeCompare(String(right.createdAt || ""));
-    })
-    .map((lead) => buildLeadSelectionRef(lead));
-
-  const donorQueues = new Map();
-  const donors = [];
-  const unassignedCount = externalCounts.get("Unassigned") || 0;
-  if (unassignedCount > 0) {
-    donorQueues.set("Unassigned", buildDonorQueue("Unassigned"));
-    donors.push({ name: "Unassigned", available: unassignedCount, priority: 0 });
-  }
-
-  [...externalCounts.entries()]
-    .filter(([name]) => name !== "Unassigned")
-    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
-    .forEach(([name, count]) => {
-      donorQueues.set(name, buildDonorQueue(name));
-      donors.push({ name, available: count, priority: 1 });
-    });
-
-  activeCounselors.forEach((name) => {
-    const surplus = (currentCounts.get(name) || 0) - (targetCounts.get(name) || 0);
-    if (surplus > 0) {
-      donorQueues.set(name, buildDonorQueue(name));
-      donors.push({ name, available: surplus, priority: 2 });
+      if (!isUntouchedLead(lead)) {
+        const touchedCountMap = touchedWorkshopCounts.get(workshopName);
+        touchedCountMap.set(counselor, (touchedCountMap.get(counselor) || 0) + 1);
+      }
+    } else if (!isUntouchedLead(lead)) {
+      externalTouchedWorkshopCounts.set(
+        workshopName,
+        (externalTouchedWorkshopCounts.get(workshopName) || 0) + 1
+      );
     }
   });
 
-  donors.sort((left, right) => left.priority - right.priority || right.available - left.available || left.name.localeCompare(right.name));
+  const targetCounts = new Map(activeCounselors.map((name) => [name, 0]));
+  const targetWorkshopCounts = new Map();
+  const workshopConfigs = [];
+  let totalWorkshopExtras = 0;
 
-  const receivers = activeCounselors
-    .map((name) => ({
-      name,
-      needed: (targetCounts.get(name) || 0) - (currentCounts.get(name) || 0)
-    }))
-    .filter((item) => item.needed > 0)
-    .sort((left, right) => right.needed - left.needed || left.name.localeCompare(right.name));
+  for (const workshopName of workshops) {
+    const workshopLeads = assignableLeads.filter((lead) => String(lead.workshop || "").trim() === workshopName);
+    const baseTarget = Math.floor(workshopLeads.length / activeCounselors.length);
+    const remainder = workshopLeads.length % activeCounselors.length;
+    const touchedCounts = touchedWorkshopCounts.get(workshopName) || new Map();
+    const externalTouchedCount = externalTouchedWorkshopCounts.get(workshopName) || 0;
+    const mandatoryExtras = new Map();
+    let mandatoryCount = 0;
+
+    if (externalTouchedCount > 0) {
+      return {
+        activeCounselors,
+        assignableLeads,
+        workshops,
+        currentCounts,
+        currentWorkshopCounts,
+        targetCounts,
+        targetWorkshopCounts,
+        suggestions: [],
+        totalLeads: assignableLeads.length,
+        totalSuggestedMoves: 0,
+        isFeasible: false,
+        issue: `${workshopName} has touched leads outside the active counselor team, so perfect balancing is not possible without moving touched records.`
+      };
+    }
+
+    for (const counselorName of activeCounselors) {
+      const touchedCount = touchedCounts.get(counselorName) || 0;
+      if (touchedCount > baseTarget + 1) {
+        return {
+          activeCounselors,
+          assignableLeads,
+          workshops,
+          currentCounts,
+          currentWorkshopCounts,
+          targetCounts,
+          targetWorkshopCounts,
+          suggestions: [],
+          totalLeads: assignableLeads.length,
+          totalSuggestedMoves: 0,
+          isFeasible: false,
+          issue: `${workshopName} cannot be balanced evenly because touched leads already exceed the per-counselor target.`
+        };
+      }
+
+      const requiredExtra = touchedCount > baseTarget ? 1 : 0;
+      mandatoryExtras.set(counselorName, requiredExtra);
+      mandatoryCount += requiredExtra;
+    }
+
+    if (mandatoryCount > remainder) {
+      return {
+        activeCounselors,
+        assignableLeads,
+        workshops,
+        currentCounts,
+        currentWorkshopCounts,
+        targetCounts,
+        targetWorkshopCounts,
+        suggestions: [],
+        totalLeads: assignableLeads.length,
+        totalSuggestedMoves: 0,
+        isFeasible: false,
+        issue: `${workshopName} cannot be balanced evenly because touched leads lock too many counselors above the base target.`
+      };
+    }
+
+    workshopConfigs.push({
+      workshopName,
+      workshopLeads,
+      baseTarget,
+      remainder,
+      touchedCounts,
+      mandatoryExtras,
+      remainingExtras: remainder - mandatoryCount
+    });
+    totalWorkshopExtras += remainder;
+  }
+
+  const extraBase = Math.floor(totalWorkshopExtras / activeCounselors.length);
+  const extraRemainder = totalWorkshopExtras % activeCounselors.length;
+  const counselorExtraTargets = new Map(activeCounselors.map((name) => [name, extraBase]));
+  const mandatoryExtraTotals = new Map(activeCounselors.map((name) => [name, 0]));
+
+  workshopConfigs.forEach((config) => {
+    activeCounselors.forEach((counselorName) => {
+      mandatoryExtraTotals.set(
+        counselorName,
+        (mandatoryExtraTotals.get(counselorName) || 0) + (config.mandatoryExtras.get(counselorName) || 0)
+      );
+    });
+  });
+
+  const counselorsNeedingExtra = activeCounselors.filter((name) => (mandatoryExtraTotals.get(name) || 0) > extraBase);
+  if (counselorsNeedingExtra.length > extraRemainder) {
+    return {
+      activeCounselors,
+      assignableLeads,
+      workshops,
+      currentCounts,
+      currentWorkshopCounts,
+      targetCounts,
+      targetWorkshopCounts,
+      suggestions: [],
+      totalLeads: assignableLeads.length,
+      totalSuggestedMoves: 0,
+      isFeasible: false,
+      issue: "Overall counselor totals cannot be equalized because touched leads already force too much imbalance."
+    };
+  }
+
+  counselorsNeedingExtra.forEach((name) => {
+    counselorExtraTargets.set(name, extraBase + 1);
+  });
+
+  let extraSlotsLeft = extraRemainder - counselorsNeedingExtra.length;
+  activeCounselors
+    .filter((name) => !counselorsNeedingExtra.includes(name))
+    .sort((left, right) => {
+      const fixedDelta = (mandatoryExtraTotals.get(right) || 0) - (mandatoryExtraTotals.get(left) || 0);
+      return fixedDelta || (currentCounts.get(right) || 0) - (currentCounts.get(left) || 0) || left.localeCompare(right);
+    })
+    .forEach((name) => {
+      if (extraSlotsLeft > 0) {
+        counselorExtraTargets.set(name, extraBase + 1);
+        extraSlotsLeft -= 1;
+      }
+    });
+
+  const optionalAssignments = assignWorkshopExtraSlots(workshopConfigs, activeCounselors, new Map(
+    activeCounselors.map((name) => [name, (counselorExtraTargets.get(name) || 0) - (mandatoryExtraTotals.get(name) || 0)])
+  ));
+
+  if (!optionalAssignments) {
+    return {
+      activeCounselors,
+      assignableLeads,
+      workshops,
+      currentCounts,
+      currentWorkshopCounts,
+      targetCounts,
+      targetWorkshopCounts,
+      suggestions: [],
+      totalLeads: assignableLeads.length,
+      totalSuggestedMoves: 0,
+      isFeasible: false,
+      issue: "Unable to find a rebalance plan that keeps workshop counts and overall totals equal while preserving touched leads."
+    };
+  }
+
+  workshopConfigs.forEach((config) => {
+    const workshopTargetMap = new Map();
+    activeCounselors.forEach((counselorName) => {
+      const targetCount = config.baseTarget
+        + (config.mandatoryExtras.get(counselorName) || 0)
+        + (optionalAssignments.get(config.workshopName)?.get(counselorName) || 0);
+      workshopTargetMap.set(counselorName, targetCount);
+      targetCounts.set(counselorName, (targetCounts.get(counselorName) || 0) + targetCount);
+    });
+    targetWorkshopCounts.set(config.workshopName, workshopTargetMap);
+  });
 
   const suggestions = [];
-  receivers.forEach((receiver) => {
-    donors.forEach((donor) => {
-      if (!receiver.needed || !donor.available) {
-        return;
+
+  workshops.forEach((workshopName) => {
+    const workshopLeads = assignableLeads.filter((lead) => String(lead.workshop || "").trim() === workshopName);
+    const currentWorkshopMap = currentWorkshopCounts.get(workshopName) || new Map();
+    const targetWorkshopMap = targetWorkshopCounts.get(workshopName) || new Map();
+    const donorQueues = new Map();
+    const donors = [];
+    const receivers = [];
+
+    activeCounselors.forEach((counselorName) => {
+      const currentCount = currentWorkshopMap.get(counselorName) || 0;
+      const targetCount = targetWorkshopMap.get(counselorName) || 0;
+      const untouchedLeads = workshopLeads
+        .filter((lead) => (
+          String(lead.counselor || "Unassigned").trim() === counselorName &&
+          isUntouchedLead(lead)
+        ))
+        .sort((left, right) => String(left.createdAt || "").localeCompare(String(right.createdAt || "")))
+        .map((lead) => buildLeadSelectionRef(lead));
+
+      if (currentCount > targetCount) {
+        const movableCount = Math.min(currentCount - targetCount, untouchedLeads.length);
+        if (movableCount < currentCount - targetCount) {
+          donorQueues.set(counselorName, untouchedLeads);
+        } else {
+          donorQueues.set(counselorName, untouchedLeads);
+        }
+        donors.push({ name: counselorName, available: movableCount });
       }
 
-      const moveCount = Math.min(receiver.needed, donor.available);
-      const leadRefs = (donorQueues.get(donor.name) || []).splice(0, moveCount);
-      if (!leadRefs.length) {
-        return;
+      if (targetCount > currentCount) {
+        receivers.push({ name: counselorName, needed: targetCount - currentCount });
       }
+    });
 
-      suggestions.push({
-        from: donor.name,
-        to: receiver.name,
-        count: leadRefs.length,
-        leadRefs
+    [...new Set(
+      workshopLeads
+        .map((lead) => String(lead.counselor || "Unassigned").trim() || "Unassigned")
+        .filter((counselorName) => counselorName && !activeCounselors.includes(counselorName))
+    )]
+      .forEach((counselorName) => {
+        const untouchedLeads = workshopLeads
+          .filter((lead) => (
+            (String(lead.counselor || "Unassigned").trim() || "Unassigned") === counselorName &&
+            isUntouchedLead(lead)
+          ))
+          .sort((left, right) => String(left.createdAt || "").localeCompare(String(right.createdAt || "")))
+          .map((lead) => buildLeadSelectionRef(lead));
+
+        if (untouchedLeads.length) {
+          donorQueues.set(counselorName, untouchedLeads);
+          donors.push({ name: counselorName, available: untouchedLeads.length });
+        }
       });
-      donor.available -= leadRefs.length;
-      receiver.needed -= leadRefs.length;
+
+    donors.sort((left, right) => right.available - left.available || left.name.localeCompare(right.name));
+    receivers.sort((left, right) => right.needed - left.needed || left.name.localeCompare(right.name));
+
+    receivers.forEach((receiver) => {
+      donors.forEach((donor) => {
+        if (!receiver.needed || !donor.available) {
+          return;
+        }
+
+        const moveCount = Math.min(receiver.needed, donor.available);
+        const leadRefs = (donorQueues.get(donor.name) || []).splice(0, moveCount);
+        if (!leadRefs.length) {
+          return;
+        }
+
+        suggestions.push({
+          workshopName,
+          from: donor.name,
+          to: receiver.name,
+          count: leadRefs.length,
+          leadRefs
+        });
+        donor.available -= leadRefs.length;
+        receiver.needed -= leadRefs.length;
+      });
     });
   });
 
   const totalSuggestedMoves = suggestions.reduce((sum, suggestion) => sum + suggestion.count, 0);
 
+  for (const workshopName of workshops) {
+    const currentWorkshopMap = currentWorkshopCounts.get(workshopName) || new Map();
+    const targetWorkshopMap = targetWorkshopCounts.get(workshopName) || new Map();
+
+    for (const counselorName of activeCounselors) {
+      const currentCount = currentWorkshopMap.get(counselorName) || 0;
+      const targetCount = targetWorkshopMap.get(counselorName) || 0;
+      if (currentCount > targetCount) {
+        const movableCount = assignableLeads.filter((lead) => (
+          String(lead.workshop || "").trim() === workshopName &&
+          String(lead.counselor || "Unassigned").trim() === counselorName &&
+          isUntouchedLead(lead)
+        )).length;
+        if (movableCount < currentCount - targetCount) {
+          return {
+            activeCounselors,
+            assignableLeads,
+            workshops,
+            currentCounts,
+            currentWorkshopCounts,
+            targetCounts,
+            targetWorkshopCounts,
+            suggestions: [],
+            totalLeads: assignableLeads.length,
+            totalSuggestedMoves: 0,
+            isFeasible: false,
+            issue: `${workshopName} cannot be fully balanced because there are not enough untouched leads available to move.`
+          };
+        }
+      }
+    }
+  }
+
   return {
     activeCounselors,
     assignableLeads,
+    workshops,
     currentCounts,
+    currentWorkshopCounts,
     targetCounts,
+    targetWorkshopCounts,
     suggestions,
     totalLeads: assignableLeads.length,
-    totalSuggestedMoves
+    totalSuggestedMoves,
+    isFeasible: true,
+    issue: ""
   };
 }
 
@@ -1474,6 +1792,11 @@ function renderAssignmentSuggestionPanel(preWorkshopLeads) {
     return;
   }
 
+  if (!balanceData.isFeasible) {
+    assignmentSuggestionList.innerHTML = `<p class="block-help">${escapeHtml(balanceData.issue || "Perfect balance is blocked by touched leads.")}</p>`;
+    return;
+  }
+
   if (!balanceData.suggestions.length) {
     assignmentSuggestionList.innerHTML = `<p class="block-help">Overall counselor load is already perfectly balanced.</p>`;
     return;
@@ -1484,7 +1807,7 @@ function renderAssignmentSuggestionPanel(preWorkshopLeads) {
       <article class="suggestion-item">
         <div>
           <h5>${suggestion.count} lead${suggestion.count === 1 ? "" : "s"}</h5>
-          <p>Move from ${escapeHtml(suggestion.from)} to ${escapeHtml(suggestion.to)}</p>
+          <p>${escapeHtml(suggestion.workshopName)}: ${escapeHtml(suggestion.from)} to ${escapeHtml(suggestion.to)}</p>
         </div>
         <button type="button" class="btn-ghost apply-suggestion-btn" data-suggestion-index="${index}">Apply</button>
       </article>

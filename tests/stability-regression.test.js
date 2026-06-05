@@ -84,6 +84,8 @@ test("pre-workshop includes smart assignment suggestion panel", () => {
   assert.match(preWorkshop, /function getOverallLeadBalanceData/);
   assert.match(preWorkshop, /Total Reassignments/);
   assert.match(preWorkshop, /isUntouchedLead\(lead\)/);
+  assert.match(preWorkshop, /externalTouchedWorkshopCounts/);
+  assert.match(preWorkshop, /suggestion\.workshopName/);
   assert.match(styles, /\.suggestion-overview/);
 });
 
