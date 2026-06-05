@@ -341,7 +341,8 @@ function isUntouchedLead(lead) {
   return getLeadActivityUpdateCount(lead) === 0;
 }
 
-const EMPTY_FILTER_VALUE = "Select";
+const EMPTY_FILTER_VALUE = "__EMPTY_FILTER__";
+const EMPTY_FILTER_LABEL = "Use Filter";
 const SELECT_ALL_FILTER_VALUE = "__SELECT_ALL__";
 
 function getSelectedFilterValues(value) {
@@ -370,9 +371,16 @@ function filterIncludesValue(filterValue, value) {
 
 function getFilterSummary(value) {
   const selected = getSelectedFilterValues(value);
-  if (!selected.length) return EMPTY_FILTER_VALUE;
+  if (!selected.length) return EMPTY_FILTER_LABEL;
   if (selected.length <= 2) return selected.join(", ");
   return `${selected.length} selected`;
+}
+
+function withSelectFilterOption(options) {
+  const normalizedOptions = Array.isArray(options)
+    ? options.map((option) => String(option || "").trim()).filter(Boolean)
+    : [];
+  return [...new Set(["Select", ...normalizedOptions])];
 }
 
 function renderMultiSelectControl({ id, label, options, value, itemClass = "", itemAttrs = "" }) {
@@ -494,6 +502,13 @@ const DEFAULT_FILTER = {
 
 const FILTER_STORAGE_KEY = "dvWorkshopWorkshopCallingFilters";
 const persistedFilter = await loadPersistedValue(FILTER_STORAGE_KEY, {});
+
+Object.keys(DEFAULT_FILTER).forEach((key) => {
+  if (persistedFilter[key] === "All" || persistedFilter[key] === "Select" || persistedFilter[key] === EMPTY_FILTER_LABEL) {
+    persistedFilter[key] = EMPTY_FILTER_VALUE;
+  }
+});
+
 let filter = {
   ...DEFAULT_FILTER,
   ...persistedFilter
@@ -557,11 +572,11 @@ function normalizeFilterState(leads) {
     workshop: normalizeSelectedFilterValue(filter.workshop, workshops),
     counselor: normalizeSelectedFilterValue(filter.counselor, counselorOptions),
     activityStatus: normalizeSelectedFilterValue(filter.activityStatus, ["Untouched", "Updated"]),
-    dialed: normalizeSelectedFilterValue(filter.dialed, dialedOptions),
-    callStatus: normalizeSelectedFilterValue(filter.callStatus, callStatusOptions),
-    wsStatus: normalizeSelectedFilterValue(filter.wsStatus, wsStatusOptions),
-    whatsappInvite: normalizeSelectedFilterValue(filter.whatsappInvite, whatsappInviteOptions),
-    whatsappGroupStatus: normalizeSelectedFilterValue(filter.whatsappGroupStatus, ["Joined", "Not Joined"])
+    dialed: normalizeSelectedFilterValue(filter.dialed, withSelectFilterOption(dialedOptions)),
+    callStatus: normalizeSelectedFilterValue(filter.callStatus, withSelectFilterOption(callStatusOptions)),
+    wsStatus: normalizeSelectedFilterValue(filter.wsStatus, withSelectFilterOption(wsStatusOptions)),
+    whatsappInvite: normalizeSelectedFilterValue(filter.whatsappInvite, withSelectFilterOption(whatsappInviteOptions)),
+    whatsappGroupStatus: normalizeSelectedFilterValue(filter.whatsappGroupStatus, withSelectFilterOption(["Joined", "Not Joined"]))
   };
 
   const changed = JSON.stringify(nextFilter) !== JSON.stringify(filter);
@@ -2162,35 +2177,35 @@ function renderFilters(leads) {
       ${renderMultiSelectControl({
         id: "dialedSelect",
         label: "Dialed",
-        options: dialedOptions,
+        options: withSelectFilterOption(dialedOptions),
         value: filter.dialed
       })}
 
       ${renderMultiSelectControl({
         id: "callStatusSelect",
         label: "Call Status",
-        options: callStatusOptions,
+        options: withSelectFilterOption(callStatusOptions),
         value: filter.callStatus
       })}
 
       ${renderMultiSelectControl({
         id: "wsStatusSelect",
         label: "Workshop Status",
-        options: wsStatusOptions,
+        options: withSelectFilterOption(wsStatusOptions),
         value: filter.wsStatus
       })}
 
       ${renderMultiSelectControl({
         id: "whatsappInviteSelect",
         label: "WhatsApp Invitation Sent",
-        options: whatsappInviteOptions,
+        options: withSelectFilterOption(whatsappInviteOptions),
         value: filter.whatsappInvite
       })}
 
       ${renderMultiSelectControl({
         id: "whatsappGroupStatusSelect",
         label: "WhatsApp Group Status",
-        options: ["Joined", "Not Joined"],
+        options: withSelectFilterOption(["Joined", "Not Joined"]),
         value: filter.whatsappGroupStatus
       })}
 
@@ -2737,13 +2752,9 @@ function openTaskModal(leadId) {
     return;
   }
 
-  const allLeads = getAllLeads();
-  const lead = allLeads.find((item) => String(item.id) === String(leadId));
+  const availableLeads = isCounselorSession() ? getScopedLeads(getAllLeads()) : getAllLeads();
+  const lead = availableLeads.find((item) => String(item.id) === String(leadId));
   if (!lead) {
-    return;
-  }
-
-  if (String(lead.counselor || "").trim().toLowerCase() !== getCounselorIdentity()) {
     return;
   }
 
@@ -2787,7 +2798,7 @@ async function handleTaskSubmit(event) {
     leadName: lead.name,
     leadPhone: lead.phone || "",
     leadCounselor: lead.counselor || "Unassigned",
-    counselor: session?.name || lead.counselor || "Unassigned",
+    counselor: lead.counselor || session?.name || "Unassigned",
     category: TASK_CATEGORY.workshop,
     title,
     notes: taskNotesInput.value.trim(),

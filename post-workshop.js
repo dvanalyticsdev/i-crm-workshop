@@ -39,7 +39,8 @@ const session = getSession();
 const isAdmin = session?.role === "admin";
 const canCreateTasks = session?.role === "counselor";
 
-const EMPTY_FILTER_VALUE = "Select";
+const EMPTY_FILTER_VALUE = "__EMPTY_FILTER__";
+const EMPTY_FILTER_LABEL = "Use Filter";
 const SELECT_ALL_FILTER_VALUE = "__SELECT_ALL__";
 
 function getSelectedFilterValues(value) {
@@ -60,9 +61,16 @@ function filterIncludesValue(filterValue, value) {
 
 function getFilterSummary(value) {
   const selected = getSelectedFilterValues(value);
-  if (!selected.length) return EMPTY_FILTER_VALUE;
+  if (!selected.length) return EMPTY_FILTER_LABEL;
   if (selected.length <= 2) return selected.join(", ");
   return `${selected.length} selected`;
+}
+
+function withSelectFilterOption(options) {
+  const normalizedOptions = Array.isArray(options)
+    ? options.map((option) => String(option || "").trim()).filter(Boolean)
+    : [];
+  return [...new Set(["Select", ...normalizedOptions])];
 }
 
 function renderMultiSelectControl({ id, label, options, value, itemClass = "", itemAttrs = "" }) {
@@ -200,8 +208,8 @@ if (persistedFilter.timeline === "daily") {
 }
 
 Object.keys(DEFAULT_FILTER).forEach((key) => {
-  if (persistedFilter[key] === "All") {
-    persistedFilter[key] = "Select";
+  if (persistedFilter[key] === "All" || persistedFilter[key] === "Select" || persistedFilter[key] === EMPTY_FILTER_LABEL) {
+    persistedFilter[key] = EMPTY_FILTER_VALUE;
   }
 });
 
@@ -533,31 +541,31 @@ function renderFilters(leads) {
         ${renderMultiSelectControl({
           id: "postWorkshopCallingDialedSelect",
           label: "Dialed",
-          options: workshopCallingDialedOptions,
+          options: withSelectFilterOption(workshopCallingDialedOptions),
           value: filter.workshopCallingDialed
         })}
         ${renderMultiSelectControl({
           id: "postWorkshopCallingCallStatusSelect",
           label: "Call Status",
-          options: workshopCallingCallStatusOptions,
+          options: withSelectFilterOption(workshopCallingCallStatusOptions),
           value: filter.workshopCallingCallStatus
         })}
         ${renderMultiSelectControl({
           id: "postWorkshopCallingWsStatusSelect",
           label: "Workshop Status",
-          options: workshopCallingWsStatusOptions,
+          options: withSelectFilterOption(workshopCallingWsStatusOptions),
           value: filter.workshopCallingWsStatus
         })}
         ${renderMultiSelectControl({
           id: "postWorkshopCallingWhatsappInviteSelect",
           label: "WhatsApp Invite",
-          options: workshopCallingWhatsappInviteOptions,
+          options: withSelectFilterOption(workshopCallingWhatsappInviteOptions),
           value: filter.workshopCallingWhatsappInvite
         })}
         ${renderMultiSelectControl({
           id: "postWorkshopCallingWhatsappGroupStatusSelect",
           label: "WhatsApp Group Status",
-          options: ["Joined", "Not Joined"],
+          options: withSelectFilterOption(["Joined", "Not Joined"]),
           value: filter.workshopCallingWhatsappGroupStatus
         })}
       </div>
@@ -593,37 +601,37 @@ function renderFilters(leads) {
         ${renderMultiSelectControl({
           id: "postDialedSelect",
           label: "Dialed",
-          options: postDialedOptions,
+          options: withSelectFilterOption(postDialedOptions),
           value: filter.postDialed
         })}
         ${renderMultiSelectControl({
           id: "postCoursePitchedSelect",
           label: "Course Pitched",
-          options: coursePitchedOptions,
+          options: withSelectFilterOption(coursePitchedOptions),
           value: filter.coursePitched
         })}
         ${renderMultiSelectControl({
           id: "postCourseStatusSelect",
           label: "Course Status",
-          options: ["Interested", "Not Interested"],
+          options: withSelectFilterOption(["Interested", "Not Interested"]),
           value: filter.courseStatus
         })}
         ${renderMultiSelectControl({
           id: "postAdmissionStatusSelect",
           label: "Admission",
-          options: admissionOptions,
+          options: withSelectFilterOption(admissionOptions),
           value: filter.admissionStatus
         })}
         ${renderMultiSelectControl({
           id: "postCallStatusSelect",
           label: "Call Status",
-          options: ["Connected", "CBL", "DNP", "CNC"],
+          options: withSelectFilterOption(["Connected", "CBL", "DNP", "CNC"]),
           value: filter.postCallStatus
         })}
         ${renderMultiSelectControl({
           id: "postWorkshopJoiningStatusSelect",
           label: "Workshop Joining Status",
-          options: ["Joined", "Not Joined"],
+          options: withSelectFilterOption(["Joined", "Not Joined"]),
           value: filter.workshopJoiningStatus
         })}
         <div class="filter-item filter-item-cta">
@@ -1448,13 +1456,9 @@ function openTaskModal(leadId) {
     return;
   }
 
-  const allLeads = getAllLeads();
-  const lead = allLeads.find((item) => String(item.id) === String(leadId));
+  const availableLeads = isCounselorSession() ? getScopedLeads(getAllLeads()) : getAllLeads();
+  const lead = availableLeads.find((item) => String(item.id) === String(leadId));
   if (!lead) {
-    return;
-  }
-
-  if (String(lead.counselor || "").trim().toLowerCase() !== getCounselorIdentity()) {
     return;
   }
 
@@ -1498,7 +1502,7 @@ async function handleTaskSubmit(event) {
     leadName: lead.name,
     leadPhone: lead.phone || "",
     leadCounselor: lead.counselor || "Unassigned",
-    counselor: session?.name || lead.counselor || "Unassigned",
+    counselor: lead.counselor || session?.name || "Unassigned",
     category: TASK_CATEGORY.admission,
     title,
     notes: taskNotesInput.value.trim(),
