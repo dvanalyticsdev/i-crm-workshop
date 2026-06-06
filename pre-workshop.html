@@ -124,6 +124,22 @@
 
         <div class="allocation-block">
           <div class="card-head">
+            <h4>Manual Backup & Recovery</h4>
+            <p>Download a full admin backup snapshot and restore the CRM to that exact saved state when needed.</p>
+          </div>
+          <div class="allocation-actions cleanup-actions">
+            <button id="exportBackupBtn" type="button" class="btn-ghost">Download Backup Snapshot</button>
+          </div>
+          <div class="cleanup-file-actions">
+            <input id="restoreBackupFile" class="cleanup-file-select" type="file" accept=".json,application/json" />
+            <button id="restoreBackupBtn" type="button" class="btn-ghost">Restore Backup Snapshot</button>
+          </div>
+          <p class="block-help">Restore fully replaces the stored CRM backup collections with the uploaded snapshot.</p>
+          <p id="backupMessage" class="message" aria-live="polite"></p>
+        </div>
+
+        <div class="allocation-block">
+          <div class="card-head">
             <h4>Smart Assignment Suggestions</h4>
             <p>Analyze total counselor load and rebalance all leads evenly across the team.</p>
           </div>

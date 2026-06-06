@@ -2,6 +2,7 @@ import { registerPageCleanup } from "./page-runtime.js";
 import { apiUrl } from "./api-client.js";
 import {
   bootstrapLocalState,
+  acceptServerState,
   getAllocation as getStoredAllocation,
   getCounselors as getStoredCounselors,
   getLeads as getStoredLeads,
@@ -41,6 +42,10 @@ const deleteLostLeadsBtn = document.getElementById("deleteLostLeadsBtn");
 const deleteImportedFileSelect = document.getElementById("deleteImportedFileSelect");
 const deleteImportedFileBtn = document.getElementById("deleteImportedFileBtn");
 const cleanupMessage = document.getElementById("cleanupMessage");
+const exportBackupBtn = document.getElementById("exportBackupBtn");
+const restoreBackupFile = document.getElementById("restoreBackupFile");
+const restoreBackupBtn = document.getElementById("restoreBackupBtn");
+const backupMessage = document.getElementById("backupMessage");
 const applyAllAssignmentSuggestionsBtn = document.getElementById("applyAllAssignmentSuggestionsBtn");
 const assignmentSuggestionSummary = document.getElementById("assignmentSuggestionSummary");
 const assignmentSuggestionList = document.getElementById("assignmentSuggestionList");
@@ -81,7 +86,12 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 4000) {
       signal: controller.signal
     });
 
-    return { response, json: response.ok ? await response.json() : null };
+    const contentType = response.headers.get("content-type") || "";
+    const json = contentType.includes("application/json")
+      ? await response.json().catch(() => null)
+      : null;
+
+    return { response, json };
   } finally {
     clearTimeout(timeoutId);
   }
@@ -832,6 +842,110 @@ async function deleteLostLeads() {
   }
 
   setMessage(cleanupMessage, `${removedCount} lost lead${removedCount === 1 ? "s" : "s"} deleted successfully.`, false);
+  renderAll();
+}
+
+function buildBackupDownloadName(payload) {
+  const stamp = String(payload?.exportedAt || new Date().toISOString())
+    .replace(/[:.]/g, "-")
+    .replace(/Z$/, "Z");
+  return `i-crm-backup-${stamp}.json`;
+}
+
+async function downloadManualBackup() {
+  if (!isAdmin) {
+    setMessage(backupMessage, "Only admin can export backups.", true);
+    return;
+  }
+
+  setMessage(backupMessage, "Preparing backup snapshot...", false);
+
+  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/admin/backup"), {
+    method: "GET",
+    headers: {
+      Accept: "application/json"
+    }
+  }, 30000);
+
+  if (!response.ok || !json) {
+    setMessage(backupMessage, json?.message || "Failed to export backup snapshot.", true);
+    return;
+  }
+
+  const fileName = response.headers.get("x-backup-filename") || buildBackupDownloadName(json);
+  const blob = new Blob([JSON.stringify(json, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+
+  setMessage(backupMessage, `Backup snapshot downloaded successfully as ${fileName}.`, false);
+}
+
+async function restoreManualBackup() {
+  if (!isAdmin) {
+    setMessage(backupMessage, "Only admin can restore backups.", true);
+    return;
+  }
+
+  const file = restoreBackupFile?.files?.[0];
+  if (!file) {
+    setMessage(backupMessage, "Select a backup .json file to restore.", true);
+    return;
+  }
+
+  let payload = null;
+  try {
+    payload = JSON.parse(await file.text());
+  } catch {
+    setMessage(backupMessage, "The selected backup file is not valid JSON.", true);
+    return;
+  }
+
+  const leadCount = Number(payload?.summary?.leads) || 0;
+  const confirmed = window.confirm(
+    `Restore backup from ${file.name}? This will replace the current CRM database state with the ${leadCount} lead snapshot in that file.`
+  );
+  if (!confirmed) {
+    return;
+  }
+
+  setMessage(backupMessage, "Restoring backup snapshot...", false);
+
+  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/admin/restore"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    },
+    body: JSON.stringify(payload)
+  }, 60000);
+
+  if (!response.ok || !json?.ok) {
+    setMessage(backupMessage, json?.message || "Failed to restore backup snapshot.", true);
+    return;
+  }
+
+  acceptServerState(json.state, response.headers.get("etag"));
+
+  const syncResult = await syncStateFromLocalAndVerify();
+  if (!syncResult.ok) {
+    setMessage(backupMessage, syncResult.message || "Backup restored, but backend verification failed afterward.", true);
+    return;
+  }
+
+  if (restoreBackupFile) {
+    restoreBackupFile.value = "";
+  }
+
+  const restoredLeadCount = Number(json?.restoredCounts?.leads) || 0;
+  const restoredTaskCount = Number(json?.restoredCounts?.tasks) || 0;
+  setMessage(backupMessage, `Backup restored successfully. ${restoredLeadCount} leads and ${restoredTaskCount} tasks are now active.`, false);
+  showToast("Backup restored successfully.", false);
   renderAll();
 }
 
@@ -2054,6 +2168,18 @@ function setupAdminPanel() {
 
   if (deleteLostLeadsBtn) {
     deleteLostLeadsBtn.addEventListener("click", deleteLostLeads);
+  }
+
+  if (exportBackupBtn) {
+    exportBackupBtn.onclick = () => {
+      void downloadManualBackup();
+    };
+  }
+
+  if (restoreBackupBtn) {
+    restoreBackupBtn.onclick = () => {
+      void restoreManualBackup();
+    };
   }
 
   if (applyAllAssignmentSuggestionsBtn) {

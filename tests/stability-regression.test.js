@@ -156,3 +156,22 @@ test("lead action buttons escape lead ids before binding click handlers", () => 
   assert.match(preWorkshop, /Could not open this lead/);
   assert.match(postWorkshop, /Could not open this lead/);
 });
+
+test("admin manual backup and restore controls exist on workshop management", () => {
+  const preWorkshopHtml = read("pre-workshop.html");
+  const preWorkshop = read("pre-workshop.js");
+  const server = read("server.js");
+
+  assert.match(preWorkshopHtml, /exportBackupBtn/);
+  assert.match(preWorkshopHtml, /restoreBackupFile/);
+  assert.match(preWorkshopHtml, /restoreBackupBtn/);
+  assert.match(preWorkshop, /function downloadManualBackup\(/);
+  assert.match(preWorkshop, /function restoreManualBackup\(/);
+  assert.match(preWorkshop, /apiUrl\("\/api\/admin\/backup"\)/);
+  assert.match(preWorkshop, /apiUrl\("\/api\/admin\/restore"\)/);
+  assert.match(server, /const BACKUP_FORMAT = "dv-crm-manual-backup"/);
+  assert.match(server, /app\.get\("\/api\/admin\/backup"/);
+  assert.match(server, /app\.post\("\/api\/admin\/restore"/);
+  assert.match(server, /buildBackupPayload\(/);
+  assert.match(server, /validateBackupPayload\(/);
+});

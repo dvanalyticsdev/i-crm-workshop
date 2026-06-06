@@ -20,6 +20,8 @@ const MONGODB_META_RETRY_COLLECTION = process.env.MONGODB_META_RETRY_COLLECTION 
 const META_WEBHOOK_FORWARD_URL = String(process.env.META_WEBHOOK_FORWARD_URL || "").trim();
 const STATE_DOC_ID = "global";
 const META_CONFIG_DOC_ID = "meta_integration";
+const BACKUP_FORMAT = "dv-crm-manual-backup";
+const BACKUP_VERSION = 1;
 const MAX_META_LOGS = 200;
 const SESSION_COOKIE_NAME = "dvWorkshopSession";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -79,7 +81,7 @@ app.get("/favicon.ico", (_req, res) => {
 // Compress all responses ≥ 1 KB — dramatically reduces /api/state payload size.
 app.use(compress({ threshold: 1024 }));
 app.use(express.json({
-  limit: "5mb",
+  limit: "25mb",
   verify: (req, _res, buf) => {
     // Capture raw body for Meta webhook signature verification.
     if (req.originalUrl && req.originalUrl.startsWith("/api/meta/webhook")) {
@@ -304,6 +306,127 @@ function buildStateResponse(state) {
 
 function buildStateEtag(state) {
   return `"${state?.updatedAt || "init"}"`.replace(/\s/g, "_");
+}
+
+function serializeBackupValue(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => serializeBackupValue(item));
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  if (value && typeof value?.toHexString === "function") {
+    return value.toHexString();
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, serializeBackupValue(item)])
+    );
+  }
+
+  return value;
+}
+
+function normalizeBackupDoc(doc = {}, fallbackId = null) {
+  const normalized = serializeBackupValue(doc);
+  if (fallbackId && !normalized?._id) {
+    normalized._id = fallbackId;
+  }
+  return normalized;
+}
+
+function normalizeBackupDocArray(docs = []) {
+  return (Array.isArray(docs) ? docs : []).map((doc) => normalizeBackupDoc(doc));
+}
+
+async function buildBackupPayload() {
+  const [state, preferences, metaConfig, metaLogs, metaRetryJobs] = await Promise.all([
+    getStateDoc(),
+    preferenceCollection.find({}).toArray(),
+    metaConfigCollection.findOne({ _id: META_CONFIG_DOC_ID }),
+    metaLogsCollection.find({}).sort({ receivedAt: 1 }).toArray(),
+    metaRetryCollection.find({}).sort({ createdAt: 1 }).toArray()
+  ]);
+
+  const stateDoc = normalizeStateDoc(state);
+  const payload = {
+    format: BACKUP_FORMAT,
+    version: BACKUP_VERSION,
+    exportedAt: new Date().toISOString(),
+    database: {
+      name: MONGODB_DB_NAME,
+      stateCollection: MONGODB_STATE_COLLECTION,
+      preferenceCollection: MONGODB_PREFERENCE_COLLECTION,
+      metaConfigCollection: MONGODB_META_CONFIG_COLLECTION,
+      metaLogsCollection: MONGODB_META_LOGS_COLLECTION,
+      metaRetryCollection: MONGODB_META_RETRY_COLLECTION
+    },
+    summary: {
+      leads: stateDoc.leads.length,
+      counselors: stateDoc.counselors.length,
+      marketingUsers: stateDoc.marketingUsers.length,
+      allocationRules: stateDoc.allocation.length,
+      tasks: stateDoc.tasks.length,
+      preferences: preferences.length,
+      metaLogs: metaLogs.length,
+      metaRetryJobs: metaRetryJobs.length
+    },
+    snapshot: {
+      state: stateDoc,
+      preferences: normalizeBackupDocArray(preferences),
+      metaConfig: metaConfig ? normalizeBackupDoc(metaConfig, META_CONFIG_DOC_ID) : null,
+      metaLogs: normalizeBackupDocArray(metaLogs),
+      metaRetryJobs: normalizeBackupDocArray(metaRetryJobs)
+    }
+  };
+
+  return payload;
+}
+
+function validateBackupPayload(payload = {}) {
+  if (!payload || payload.format !== BACKUP_FORMAT) {
+    return { ok: false, message: "Backup file format is not supported." };
+  }
+
+  if (Number(payload.version) !== BACKUP_VERSION) {
+    return { ok: false, message: "Backup file version is not supported." };
+  }
+
+  const snapshot = payload.snapshot;
+  if (!snapshot || typeof snapshot !== "object") {
+    return { ok: false, message: "Backup snapshot is missing." };
+  }
+
+  const state = snapshot.state;
+  if (!state || typeof state !== "object") {
+    return { ok: false, message: "Backup state is missing." };
+  }
+
+  const normalizedState = normalizeStateDoc({
+    ...state,
+    _id: STATE_DOC_ID
+  });
+
+  const preferences = normalizeBackupDocArray(snapshot.preferences);
+  const metaLogs = normalizeBackupDocArray(snapshot.metaLogs);
+  const metaRetryJobs = normalizeBackupDocArray(snapshot.metaRetryJobs);
+  const metaConfig = snapshot.metaConfig
+    ? normalizeBackupDoc(snapshot.metaConfig, META_CONFIG_DOC_ID)
+    : null;
+
+  return {
+    ok: true,
+    snapshot: {
+      state: normalizedState,
+      preferences,
+      metaConfig,
+      metaLogs,
+      metaRetryJobs
+    }
+  };
 }
 
 async function initMongo() {
@@ -1261,6 +1384,91 @@ app.post("/api/meta/rr-state/reset", async (req, res) => {
     return res.json({ ok: true, roundRobinIndex: 0 });
   } catch (err) {
     return res.status(500).json({ message: "Failed to reset round-robin.", details: err.message });
+  }
+});
+
+app.get("/api/admin/backup", async (req, res) => {
+  try {
+    await initMongo();
+    const session = await requireRole(req, res, "admin");
+    if (!session) return;
+
+    const payload = await buildBackupPayload();
+    const filename = `i-crm-backup-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("X-Backup-Filename", filename);
+    return res.json(payload);
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to export backup", details: error.message });
+  }
+});
+
+app.post("/api/admin/restore", async (req, res) => {
+  try {
+    await initMongo();
+    const session = await requireRole(req, res, "admin");
+    if (!session) return;
+
+    const validation = validateBackupPayload(req.body || {});
+    if (!validation.ok) {
+      return res.status(400).json({ message: validation.message });
+    }
+
+    const restoredAt = new Date().toISOString();
+    const snapshot = validation.snapshot;
+    snapshot.state.updatedAt = restoredAt;
+
+    await stateCollection.replaceOne(
+      { _id: STATE_DOC_ID },
+      snapshot.state,
+      { upsert: true }
+    );
+
+    await preferenceCollection.deleteMany({});
+    if (snapshot.preferences.length) {
+      await preferenceCollection.insertMany(snapshot.preferences, { ordered: true });
+    }
+
+    await metaConfigCollection.deleteMany({});
+    if (snapshot.metaConfig) {
+      await metaConfigCollection.insertOne(snapshot.metaConfig);
+    }
+
+    await metaLogsCollection.deleteMany({});
+    if (snapshot.metaLogs.length) {
+      await metaLogsCollection.insertMany(snapshot.metaLogs, { ordered: true });
+    }
+
+    await metaRetryCollection.deleteMany({});
+    if (snapshot.metaRetryJobs.length) {
+      await metaRetryCollection.insertMany(snapshot.metaRetryJobs, { ordered: true });
+    }
+
+    metaLogWriteCount = 0;
+    sessionCache.clear();
+    const nextState = cacheStateDoc(snapshot.state);
+    res.setHeader("ETag", buildStateEtag(nextState));
+
+    return res.json({
+      ok: true,
+      restoredAt,
+      restoredCounts: {
+        leads: nextState.leads.length,
+        counselors: nextState.counselors.length,
+        marketingUsers: nextState.marketingUsers.length,
+        allocationRules: nextState.allocation.length,
+        tasks: nextState.tasks.length,
+        preferences: snapshot.preferences.length,
+        metaLogs: snapshot.metaLogs.length,
+        metaRetryJobs: snapshot.metaRetryJobs.length
+      },
+      state: buildStateResponse(nextState)
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to restore backup", details: error.message });
   }
 });
 
