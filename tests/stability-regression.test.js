@@ -87,6 +87,21 @@ test("pre-workshop includes smart assignment suggestion panel", () => {
   assert.match(preWorkshop, /externalTouchedWorkshopCounts/);
   assert.match(preWorkshop, /suggestion\.workshopName/);
   assert.match(styles, /\.suggestion-overview/);
+  assert.match(preWorkshop, /validateBalancedSuggestionTargets/);
+  assert.match(preWorkshop, /validateSuggestionOutcome/);
+  assert.doesNotMatch(preWorkshop, /buildBestEffortBalanceData/);
+});
+
+test("lead imports reject duplicates instead of merging", () => {
+  const preWorkshop = read("pre-workshop.js");
+  const server = read("server.js");
+
+  assert.match(preWorkshop, /leadIndexByPhone/);
+  assert.match(preWorkshop, /Duplicate .* already exists/);
+  assert.doesNotMatch(getFunctionBody(preWorkshop, "handleLeadImport"), /mergeImportedLead\(/);
+  assert.match(server, /findLeadDuplicateViolation/);
+  assert.match(server, /findDuplicateLeadByEmailOrPhone/);
+  assert.match(server, /Duplicate lead rejected: \$\{duplicateViolation\.field\} already exists\./);
 });
 
 test("task service uses atomic task endpoints", () => {
@@ -120,6 +135,10 @@ test("workshop and admission filters support multiple selected values", () => {
   assert.doesNotMatch(postWorkshop, /<select[^>]+multiple/);
   assert.match(preWorkshop, /filterIncludesValue\(filter\.workshop, lead\.workshop\)/);
   assert.match(postWorkshop, /filterIncludesValue\(filter\.courseStatus, lead\.courseStatus\)/);
+  assert.match(preWorkshop, /BLANK_FILTER_VALUE/);
+  assert.match(postWorkshop, /BLANK_FILTER_VALUE/);
+  assert.match(preWorkshop, /item === BLANK_FILTER_VALUE \? normalizedValue === ""/);
+  assert.match(postWorkshop, /item === BLANK_FILTER_VALUE \? normalizedValue === ""/);
 });
 
 test("lead action buttons escape lead ids before binding click handlers", () => {

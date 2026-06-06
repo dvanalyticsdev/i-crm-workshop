@@ -341,9 +341,59 @@ function isUntouchedLead(lead) {
   return getLeadActivityUpdateCount(lead) === 0;
 }
 
+function validateBalancedSuggestionTargets(activeCounselors, targetCounts, totalLeads) {
+  if (!activeCounselors.length) {
+    return "";
+  }
+
+  const totals = activeCounselors.map((name) => Number(targetCounts.get(name) || 0));
+  const totalAssigned = totals.reduce((sum, value) => sum + value, 0);
+  if (totalAssigned !== totalLeads) {
+    return "Balanced target validation failed because the suggested totals do not match the total lead count.";
+  }
+
+  const minTarget = Math.min(...totals);
+  const maxTarget = Math.max(...totals);
+  if (maxTarget - minTarget > 1) {
+    return "Balanced target validation failed because the suggested counselor totals are not equal.";
+  }
+
+  return "";
+}
+
+function validateSuggestionOutcome({ activeCounselors, currentCounts, targetCounts, suggestions }) {
+  const projectedCounts = new Map(activeCounselors.map((name) => [name, Number(currentCounts.get(name) || 0)]));
+
+  (Array.isArray(suggestions) ? suggestions : []).forEach((suggestion) => {
+    const moveCount = Number(suggestion?.count || 0);
+    const from = String(suggestion?.from || "").trim();
+    const to = String(suggestion?.to || "").trim();
+
+    if (projectedCounts.has(from)) {
+      projectedCounts.set(from, projectedCounts.get(from) - moveCount);
+    }
+    if (projectedCounts.has(to)) {
+      projectedCounts.set(to, projectedCounts.get(to) + moveCount);
+    }
+  });
+
+  for (const counselorName of activeCounselors) {
+    if ((projectedCounts.get(counselorName) || 0) !== (targetCounts.get(counselorName) || 0)) {
+      return "Balanced target validation failed because the suggested moves do not reach equal counselor totals.";
+    }
+  }
+
+  return validateBalancedSuggestionTargets(
+    activeCounselors,
+    projectedCounts,
+    Array.from(projectedCounts.values()).reduce((sum, value) => sum + value, 0)
+  );
+}
+
 const EMPTY_FILTER_VALUE = "__EMPTY_FILTER__";
 const EMPTY_FILTER_LABEL = "Use Filter";
 const SELECT_ALL_FILTER_VALUE = "__SELECT_ALL__";
+const BLANK_FILTER_VALUE = "__BLANK_FILTER__";
 
 function getSelectedFilterValues(value) {
   const rawValues = Array.isArray(value) ? value : [value];
@@ -366,13 +416,22 @@ function normalizeSelectedFilterValue(value, options = null) {
 
 function filterIncludesValue(filterValue, value) {
   const selected = getSelectedFilterValues(filterValue);
-  return !selected.length || selected.includes(String(value || "").trim());
+  if (!selected.length) {
+    return true;
+  }
+
+  const normalizedValue = String(value || "").trim();
+  return selected.some((item) => (
+    item === BLANK_FILTER_VALUE ? normalizedValue === "" : item === normalizedValue
+  ));
 }
 
 function getFilterSummary(value) {
   const selected = getSelectedFilterValues(value);
   if (!selected.length) return EMPTY_FILTER_LABEL;
-  if (selected.length <= 2) return selected.join(", ");
+  if (selected.length <= 2) {
+    return selected.map((item) => (item === BLANK_FILTER_VALUE ? "Select" : item)).join(", ");
+  }
   return `${selected.length} selected`;
 }
 
@@ -380,7 +439,7 @@ function withSelectFilterOption(options) {
   const normalizedOptions = Array.isArray(options)
     ? options.map((option) => String(option || "").trim()).filter(Boolean)
     : [];
-  return [...new Set(["Select", ...normalizedOptions])];
+  return [...new Set([BLANK_FILTER_VALUE, ...normalizedOptions])];
 }
 
 function renderMultiSelectControl({ id, label, options, value, itemClass = "", itemAttrs = "" }) {
@@ -390,13 +449,16 @@ function renderMultiSelectControl({ id, label, options, value, itemClass = "", i
   const allSelected = uniqueOptions.length > 0 && uniqueOptions.every((option) => selected.has(option));
   const optionHtml = uniqueOptions.length
     ? uniqueOptions.map((option) => {
+        const isBlankOption = option === BLANK_FILTER_VALUE;
+        const optionLabel = isBlankOption ? "Select" : option;
         const escapedOption = escapeHtml(option);
+        const escapedLabel = escapeHtml(optionLabel);
         const checked = selected.has(String(option)) ? " checked" : "";
         const selectedClass = checked ? " multi-filter-option--selected" : "";
         return `
           <label class="multi-filter-option${selectedClass}">
             <input type="checkbox" value="${escapedOption}"${checked} />
-            <span>${escapedOption}</span>
+            <span>${escapedLabel}</span>
           </label>
         `;
       }).join("")
@@ -1232,14 +1294,22 @@ async function handleLeadImport() {
   }
 
   const nextLeads = getAllLeads();
-  const leadIndexByEmail = new Map(
-    nextLeads.map((lead, index) => [String(lead.email || "").toLowerCase(), index])
-  );
+  const leadIndexByEmail = new Map();
+  const leadIndexByPhone = new Map();
+  nextLeads.forEach((lead, index) => {
+    const email = String(lead.email || "").trim().toLowerCase();
+    const phone = String(lead.phone || "").trim();
+    if (email && !leadIndexByEmail.has(email)) {
+      leadIndexByEmail.set(email, index);
+    }
+    if (phone && !leadIndexByPhone.has(phone)) {
+      leadIndexByPhone.set(phone, index);
+    }
+  });
 
   const importedRecords = [];
   const failed = [];
   let createdCount = 0;
-  let updatedCount = 0;
   let nextId = Math.max(...nextLeads.map((lead) => Number(lead.id) || 0), 0) + 1;
 
   rows.forEach((row, idx) => {
@@ -1249,17 +1319,24 @@ async function handleLeadImport() {
       return;
     }
 
-    const existingIndex = leadIndexByEmail.get(lead.email);
-    if (existingIndex !== undefined) {
-      nextLeads[existingIndex] = mergeImportedLead(nextLeads[existingIndex], lead);
-      importedRecords.push({ index: existingIndex, lead: nextLeads[existingIndex] });
-      updatedCount += 1;
+    const duplicateReasons = [];
+    if (lead.email && leadIndexByEmail.has(lead.email)) {
+      duplicateReasons.push("email address");
+    }
+    if (lead.phone && leadIndexByPhone.has(lead.phone)) {
+      duplicateReasons.push("phone number");
+    }
+    if (duplicateReasons.length) {
+      failed.push(`Row ${idx + 2}: Duplicate ${duplicateReasons.join(" and ")} already exists.`);
       return;
     }
 
     nextLeads.push(lead);
     importedRecords.push({ index: nextLeads.length - 1, lead });
     leadIndexByEmail.set(lead.email, nextLeads.length - 1);
+    if (lead.phone) {
+      leadIndexByPhone.set(lead.phone, nextLeads.length - 1);
+    }
     createdCount += 1;
     nextId += 1;
   });
@@ -1303,9 +1380,6 @@ async function handleLeadImport() {
     const messageParts = [];
     if (createdCount) {
       messageParts.push(`created ${createdCount}`);
-    }
-    if (updatedCount) {
-      messageParts.push(`updated ${updatedCount}`);
     }
     if (recordsNeedingAssignment.length) {
       setMessage(importMessage, "Counselor Assigned Successfully.", false);
@@ -1623,6 +1697,24 @@ function getOverallLeadBalanceData(leads) {
     targetWorkshopCounts.set(config.workshopName, workshopTargetMap);
   });
 
+  const targetValidationIssue = validateBalancedSuggestionTargets(activeCounselors, targetCounts, assignableLeads.length);
+  if (targetValidationIssue) {
+    return {
+      activeCounselors,
+      assignableLeads,
+      workshops,
+      currentCounts,
+      currentWorkshopCounts,
+      targetCounts,
+      targetWorkshopCounts,
+      suggestions: [],
+      totalLeads: assignableLeads.length,
+      totalSuggestedMoves: 0,
+      isFeasible: false,
+      issue: targetValidationIssue
+    };
+  }
+
   const suggestions = [];
 
   workshops.forEach((workshopName) => {
@@ -1708,6 +1800,28 @@ function getOverallLeadBalanceData(leads) {
   });
 
   const totalSuggestedMoves = suggestions.reduce((sum, suggestion) => sum + suggestion.count, 0);
+  const outcomeValidationIssue = validateSuggestionOutcome({
+    activeCounselors,
+    currentCounts,
+    targetCounts,
+    suggestions
+  });
+  if (outcomeValidationIssue) {
+    return {
+      activeCounselors,
+      assignableLeads,
+      workshops,
+      currentCounts,
+      currentWorkshopCounts,
+      targetCounts,
+      targetWorkshopCounts,
+      suggestions: [],
+      totalLeads: assignableLeads.length,
+      totalSuggestedMoves: 0,
+      isFeasible: false,
+      issue: outcomeValidationIssue
+    };
+  }
 
   for (const workshopName of workshops) {
     const currentWorkshopMap = currentWorkshopCounts.get(workshopName) || new Map();
@@ -1807,17 +1921,21 @@ function renderAssignmentSuggestionPanel(preWorkshopLeads) {
     return;
   }
 
+  const issueNote = balanceData.issue
+    ? `<p class="block-help">${escapeHtml(balanceData.issue)}</p>`
+    : "";
+
   if (!balanceData.isFeasible) {
-    assignmentSuggestionList.innerHTML = `<p class="block-help">${escapeHtml(balanceData.issue || "Perfect balance is blocked by touched leads.")}</p>`;
+    assignmentSuggestionList.innerHTML = issueNote || `<p class="block-help">Perfect balance is blocked by touched leads.</p>`;
     return;
   }
 
   if (!balanceData.suggestions.length) {
-    assignmentSuggestionList.innerHTML = `<p class="block-help">Overall counselor load is already perfectly balanced.</p>`;
+    assignmentSuggestionList.innerHTML = issueNote || `<p class="block-help">Overall counselor load is already perfectly balanced.</p>`;
     return;
   }
 
-  assignmentSuggestionList.innerHTML = balanceData.suggestions
+  assignmentSuggestionList.innerHTML = issueNote + balanceData.suggestions
     .map((suggestion, index) => `
       <article class="suggestion-item">
         <div>

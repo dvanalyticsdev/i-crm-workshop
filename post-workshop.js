@@ -42,6 +42,7 @@ const canCreateTasks = session?.role === "counselor";
 const EMPTY_FILTER_VALUE = "__EMPTY_FILTER__";
 const EMPTY_FILTER_LABEL = "Use Filter";
 const SELECT_ALL_FILTER_VALUE = "__SELECT_ALL__";
+const BLANK_FILTER_VALUE = "__BLANK_FILTER__";
 
 function getSelectedFilterValues(value) {
   const rawValues = Array.isArray(value) ? value : [value];
@@ -56,13 +57,22 @@ function isSelectedFilterValue(value) {
 
 function filterIncludesValue(filterValue, value) {
   const selected = getSelectedFilterValues(filterValue);
-  return !selected.length || selected.includes(String(value || "").trim());
+  if (!selected.length) {
+    return true;
+  }
+
+  const normalizedValue = String(value || "").trim();
+  return selected.some((item) => (
+    item === BLANK_FILTER_VALUE ? normalizedValue === "" : item === normalizedValue
+  ));
 }
 
 function getFilterSummary(value) {
   const selected = getSelectedFilterValues(value);
   if (!selected.length) return EMPTY_FILTER_LABEL;
-  if (selected.length <= 2) return selected.join(", ");
+  if (selected.length <= 2) {
+    return selected.map((item) => (item === BLANK_FILTER_VALUE ? "Select" : item)).join(", ");
+  }
   return `${selected.length} selected`;
 }
 
@@ -70,7 +80,7 @@ function withSelectFilterOption(options) {
   const normalizedOptions = Array.isArray(options)
     ? options.map((option) => String(option || "").trim()).filter(Boolean)
     : [];
-  return [...new Set(["Select", ...normalizedOptions])];
+  return [...new Set([BLANK_FILTER_VALUE, ...normalizedOptions])];
 }
 
 function renderMultiSelectControl({ id, label, options, value, itemClass = "", itemAttrs = "" }) {
@@ -80,13 +90,16 @@ function renderMultiSelectControl({ id, label, options, value, itemClass = "", i
   const allSelected = uniqueOptions.length > 0 && uniqueOptions.every((option) => selected.has(option));
   const optionHtml = uniqueOptions.length
     ? uniqueOptions.map((option) => {
+        const isBlankOption = option === BLANK_FILTER_VALUE;
+        const optionLabel = isBlankOption ? "Select" : option;
         const escapedOption = escapeHtml(option);
+        const escapedLabel = escapeHtml(optionLabel);
         const checked = selected.has(String(option)) ? " checked" : "";
         const selectedClass = checked ? " multi-filter-option--selected" : "";
         return `
           <label class="multi-filter-option${selectedClass}">
             <input type="checkbox" value="${escapedOption}"${checked} />
-            <span>${escapedOption}</span>
+            <span>${escapedLabel}</span>
           </label>
         `;
       }).join("")

@@ -692,6 +692,20 @@ async function processMetaWebhookPayloadLegacy(req, body) {
         counselorName,
         nextId
       );
+      const duplicateLead = findDuplicateLeadByEmailOrPhone(leads, newLead);
+      if (duplicateLead) {
+        const duplicateField = normalizeLeadEmail(duplicateLead.email) === normalizeLeadEmail(newLead.email)
+          ? "email"
+          : "phone";
+        await saveMetaLog({
+          type: "ignored",
+          message: `Duplicate lead blocked by ${duplicateField} match`,
+          leadgenId,
+          formId,
+          leadId: duplicateLead.id
+        });
+        continue;
+      }
 
       const now = new Date().toISOString();
       await withMongoRetry(
@@ -1279,6 +1293,106 @@ function sanitizeState(payload = {}) {
   }
 
   return next;
+}
+
+function normalizeLeadContactValue(value) {
+  return String(value || "").trim();
+}
+
+function normalizeLeadEmail(value) {
+  return normalizeLeadContactValue(value).toLowerCase();
+}
+
+function buildLeadOwnerMap(leads, field) {
+  const owners = new Map();
+  (Array.isArray(leads) ? leads : []).forEach((lead) => {
+    const id = String(lead?.id || "").trim();
+    const value = field === "email"
+      ? normalizeLeadEmail(lead?.email)
+      : normalizeLeadContactValue(lead?.phone);
+    if (!id || !value) {
+      return;
+    }
+
+    if (!owners.has(value)) {
+      owners.set(value, new Set());
+    }
+    owners.get(value).add(id);
+  });
+  return owners;
+}
+
+function sameLeadOwnerSet(left, right) {
+  if (!(left instanceof Set) || !(right instanceof Set) || left.size !== right.size) {
+    return false;
+  }
+
+  for (const item of left) {
+    if (!right.has(item)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function findLeadDuplicateViolation(nextLeads, currentLeads = []) {
+  const currentById = new Map(
+    (Array.isArray(currentLeads) ? currentLeads : []).map((lead) => [String(lead?.id || "").trim(), lead])
+  );
+  const nextEmailOwners = buildLeadOwnerMap(nextLeads, "email");
+  const nextPhoneOwners = buildLeadOwnerMap(nextLeads, "phone");
+  const currentEmailOwners = buildLeadOwnerMap(currentLeads, "email");
+  const currentPhoneOwners = buildLeadOwnerMap(currentLeads, "phone");
+
+  for (const lead of Array.isArray(nextLeads) ? nextLeads : []) {
+    const id = String(lead?.id || "").trim();
+    if (!id) {
+      continue;
+    }
+
+    const previousLead = currentById.get(id) || null;
+    const email = normalizeLeadEmail(lead?.email);
+    const phone = normalizeLeadContactValue(lead?.phone);
+
+    if (email) {
+      const nextOwners = nextEmailOwners.get(email);
+      if (nextOwners && nextOwners.size > 1) {
+        const currentOwners = currentEmailOwners.get(email);
+        const isUnchangedLegacyDuplicate = previousLead
+          && normalizeLeadEmail(previousLead.email) === email
+          && sameLeadOwnerSet(nextOwners, currentOwners);
+        if (!isUnchangedLegacyDuplicate) {
+          return { field: "email", value: email, lead };
+        }
+      }
+    }
+
+    if (phone) {
+      const nextOwners = nextPhoneOwners.get(phone);
+      if (nextOwners && nextOwners.size > 1) {
+        const currentOwners = currentPhoneOwners.get(phone);
+        const isUnchangedLegacyDuplicate = previousLead
+          && normalizeLeadContactValue(previousLead.phone) === phone
+          && sameLeadOwnerSet(nextOwners, currentOwners);
+        if (!isUnchangedLegacyDuplicate) {
+          return { field: "phone", value: phone, lead };
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function findDuplicateLeadByEmailOrPhone(leads, incomingLead) {
+  const incomingEmail = normalizeLeadEmail(incomingLead?.email);
+  const incomingPhone = normalizeLeadContactValue(incomingLead?.phone);
+  return (Array.isArray(leads) ? leads : []).find((lead) => {
+    const matchesEmail = incomingEmail && normalizeLeadEmail(lead?.email) === incomingEmail;
+    const matchesPhone = incomingPhone && normalizeLeadContactValue(lead?.phone) === incomingPhone;
+    return matchesEmail || matchesPhone;
+  }) || null;
 }
 
 async function getStateDoc() {
@@ -2111,6 +2225,16 @@ app.put("/api/state", async (req, res) => {
     }
 
     const currentState = await getStateDoc();
+    if (Array.isArray(sanitized.leads)) {
+      const duplicateViolation = findLeadDuplicateViolation(sanitized.leads, currentState.leads);
+      if (duplicateViolation) {
+        return res.status(409).json({
+          message: `Duplicate lead rejected: ${duplicateViolation.field} already exists.`,
+          field: duplicateViolation.field,
+          leadId: duplicateViolation.lead?.id || null
+        });
+      }
+    }
     const expectedEtag = String(req.headers["if-match"] || "").trim();
     const currentEtag = buildStateEtag(currentState);
 
@@ -2206,6 +2330,14 @@ app.put("/api/leads", async (req, res) => {
     }
 
     const currentState = await getStateDoc();
+    const duplicateViolation = findLeadDuplicateViolation(req.body, currentState.leads);
+    if (duplicateViolation) {
+      return res.status(409).json({
+        message: `Duplicate lead rejected: ${duplicateViolation.field} already exists.`,
+        field: duplicateViolation.field,
+        leadId: duplicateViolation.lead?.id || null
+      });
+    }
     const nextState = cacheStateDoc({
       ...currentState,
       leads: req.body,
@@ -2455,6 +2587,26 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
     counselorName,
     nextId
   );
+  const duplicateLead = findDuplicateLeadByEmailOrPhone(snapshot.leads, newLead);
+  if (duplicateLead) {
+    if (retryJobId) {
+      await withMongoRetry(
+        () => metaRetryCollection.deleteOne({ _id: retryJobId }),
+        { retries: 1, label: "Delete duplicate Meta retry job" }
+      );
+    }
+    const duplicateField = normalizeLeadEmail(duplicateLead.email) === normalizeLeadEmail(newLead.email)
+      ? "email"
+      : "phone";
+    await saveMetaLog({
+      type: "ignored",
+      message: `Duplicate lead blocked by ${duplicateField} match`,
+      leadgenId,
+      formId,
+      leadId: duplicateLead.id
+    });
+    return;
+  }
 
   const result = await insertMetaLeadIfNew(leadgenId, newLead);
 
