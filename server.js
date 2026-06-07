@@ -97,6 +97,10 @@ let preferenceCollection;
 let metaConfigCollection;
 let metaLogsCollection;
 let metaRetryCollection;
+let leadsCollection;
+let counselorsCollection;
+let tasksCollection;
+let allocationCollection;
 let mongoClient;
 let mongoInitPromise;
 let cachedStateDoc    = null;
@@ -141,6 +145,10 @@ async function resetMongoConnection() {
   metaConfigCollection = null;
   metaLogsCollection = null;
   metaRetryCollection = null;
+  leadsCollection = null;
+  counselorsCollection = null;
+  tasksCollection = null;
+  allocationCollection = null;
 }
 
 async function withMongoRetry(operation, { retries = 1, label = "MongoDB operation" } = {}) {
@@ -463,12 +471,17 @@ async function initMongo() {
       metaConfigCollection = db.collection(MONGODB_META_CONFIG_COLLECTION);
       metaLogsCollection   = db.collection(MONGODB_META_LOGS_COLLECTION);
       metaRetryCollection  = db.collection(MONGODB_META_RETRY_COLLECTION);
-      // Ensure a fast index on the session token so every auth'd request
-      // resolves in a single indexed lookup instead of a full collection scan.
+
+      leadsCollection      = db.collection("leads");
+      counselorsCollection = db.collection("counselors");
+      tasksCollection      = db.collection("tasks");
+      allocationCollection = db.collection("allocation");
+
+      // Ensure indexes
       await sessionCollection.createIndex(
         { token: 1 },
         { unique: true, background: true }
-      ).catch(() => undefined); // ignore if index already exists
+      ).catch(() => undefined);
       await metaLogsCollection.createIndex(
         { receivedAt: -1 },
         { background: true }
@@ -481,6 +494,59 @@ async function initMongo() {
         { nextAttemptAt: 1 },
         { background: true }
       ).catch(() => undefined);
+
+      await leadsCollection.createIndex({ id: 1 }, { unique: true, background: true }).catch(() => undefined);
+      await leadsCollection.createIndex({ email: 1 }, { background: true }).catch(() => undefined);
+      await leadsCollection.createIndex({ phone: 1 }, { background: true }).catch(() => undefined);
+      await tasksCollection.createIndex({ id: 1 }, { unique: true, background: true }).catch(() => undefined);
+      await counselorsCollection.createIndex({ email: 1 }, { unique: true, background: true }).catch(() => undefined);
+
+      // One-time automatic schema migration
+      try {
+        const globalDoc = await stateCollection.findOne({ _id: STATE_DOC_ID });
+        if (globalDoc && (Array.isArray(globalDoc.leads) || Array.isArray(globalDoc.counselors) || Array.isArray(globalDoc.tasks) || Array.isArray(globalDoc.allocation))) {
+          console.log("Migrating database schema to normalized collections...");
+          
+          if (Array.isArray(globalDoc.leads) && globalDoc.leads.length) {
+            const leadsMap = new Map();
+            globalDoc.leads.forEach(lead => {
+              if (lead && lead.id) leadsMap.set(String(lead.id), lead);
+            });
+            const uniqueLeads = Array.from(leadsMap.values());
+            await leadsCollection.insertMany(uniqueLeads, { ordered: false }).catch(() => undefined);
+          }
+          
+          if (Array.isArray(globalDoc.counselors) && globalDoc.counselors.length) {
+            const counselorsMap = new Map();
+            globalDoc.counselors.forEach(counselor => {
+              if (counselor && counselor.email) counselorsMap.set(counselor.email.toLowerCase(), counselor);
+            });
+            const uniqueCounselors = Array.from(counselorsMap.values());
+            await counselorsCollection.insertMany(uniqueCounselors, { ordered: false }).catch(() => undefined);
+          }
+          
+          if (Array.isArray(globalDoc.tasks) && globalDoc.tasks.length) {
+            const tasksMap = new Map();
+            globalDoc.tasks.forEach(task => {
+              if (task && task.id) tasksMap.set(String(task.id), task);
+            });
+            const uniqueTasks = Array.from(tasksMap.values());
+            await tasksCollection.insertMany(uniqueTasks, { ordered: false }).catch(() => undefined);
+          }
+          
+          if (Array.isArray(globalDoc.allocation) && globalDoc.allocation.length) {
+            await allocationCollection.insertMany(globalDoc.allocation).catch(() => undefined);
+          }
+          
+          await stateCollection.updateOne(
+            { _id: STATE_DOC_ID },
+            { $unset: { leads: "", counselors: "", tasks: "", allocation: "" } }
+          );
+          console.log("Database schema migration completed successfully!");
+        }
+      } catch (migrationError) {
+        console.error("Database schema migration failed:", migrationError.message);
+      }
     })().catch(async (error) => {
       await resetMongoConnection();
       throw error;
@@ -732,135 +798,6 @@ async function fetchMetaLeadDetails(leadgenId, pageAccessToken) {
   });
 }
 
-async function processMetaWebhookPayloadLegacy(req, body) {
-  const config = await getMetaConfig();
-
-  // Verify HMAC-SHA256 signature to confirm the request is from Meta.
-  if (config.appSecret) {
-    const sig = req.headers["x-hub-signature-256"] || "";
-    const rawBuf = req.rawBody;
-    if (!rawBuf || !verifyWebhookSignature(rawBuf, sig, config.appSecret)) {
-      await saveMetaLog({ type: "error", message: "Signature verification failed", headers: { sig } });
-      return;
-    }
-  }
-
-  if (!body || body.object !== "page") {
-    await saveMetaLog({ type: "ignored", message: "Non-page event", object: body?.object });
-    return;
-  }
-
-  if (!config.enabled) {
-    await saveMetaLog({ type: "ignored", message: "Integration disabled", object: body?.object });
-    return;
-  }
-
-  const entries = Array.isArray(body.entry) ? body.entry : [];
-  for (const entry of entries) {
-    const changes = Array.isArray(entry.changes) ? entry.changes : [];
-    for (const change of changes) {
-      if (change.field !== "leadgen") continue;
-      const value = change.value || {};
-      const leadgenId = String(value.leadgen_id || "");
-      const formId    = String(value.form_id || "");
-      const pageId    = String(value.page_id || entry.id || "");
-
-      if (!leadgenId) {
-        await saveMetaLog({ type: "error", message: "Missing leadgen_id", raw: value });
-        continue;
-      }
-
-      // Filter to configured page and forms (if specified).
-      if (config.pageId && pageId && pageId !== String(config.pageId)) {
-        await saveMetaLog({ type: "ignored", message: `Page ID mismatch: got ${pageId}`, leadgenId });
-        continue;
-      }
-      const allowedForms = Array.isArray(config.formIds) ? config.formIds.filter(Boolean) : [];
-      if (allowedForms.length && !allowedForms.includes(formId)) {
-        await saveMetaLog({ type: "ignored", message: `Form ID ${formId} not in allowed list`, leadgenId });
-        continue;
-      }
-
-      let metaLead = null;
-      try {
-        if (!config.pageAccessToken) throw new Error("Page Access Token not configured.");
-        metaLead = await fetchMetaLeadDetails(leadgenId, config.pageAccessToken);
-      } catch (fetchErr) {
-        await enqueueMetaRetryJob({
-          leadgenId,
-          formId,
-          pageId,
-          reason: "fetch_lead_details",
-          lastError: fetchErr.message
-        }).catch(() => undefined);
-        await saveMetaLog({ type: "error", message: `Failed to fetch lead details: ${fetchErr.message}`, leadgenId, formId });
-        continue;
-      }
-
-      const stateDoc = await getStateDoc();
-      const leads = Array.isArray(stateDoc.leads) ? stateDoc.leads : [];
-
-      // De-duplicate: skip if lead with same Meta ID already exists.
-      const isDuplicate = leads.some((l) => String(l.metaLeadId || "") === leadgenId);
-      if (isDuplicate) {
-        await saveMetaLog({ type: "ignored", message: "Duplicate lead (already imported)", leadgenId });
-        continue;
-      }
-
-      const counselorName = await assignCounselorRoundRobin(stateDoc);
-      const nextId = Math.max(...leads.map((l) => Number(l.id) || 0), 0) + 1;
-      const newLead = buildMetaLead(
-        metaLead.field_data,
-        { leadgenId, formId, adId: metaLead.ad_id, adName: metaLead.ad_name, adsetName: metaLead.adset_name, campaignName: metaLead.campaign_name },
-        counselorName,
-        nextId
-      );
-      const duplicateLead = findDuplicateLeadByEmailOrPhone(leads, newLead);
-      if (duplicateLead) {
-        const duplicateField = normalizeLeadEmail(duplicateLead.email) === normalizeLeadEmail(newLead.email)
-          ? "email"
-          : "phone";
-        await saveMetaLog({
-          type: "ignored",
-          message: `Duplicate lead blocked by ${duplicateField} match`,
-          leadgenId,
-          formId,
-          leadId: duplicateLead.id
-        });
-        continue;
-      }
-
-      const now = new Date().toISOString();
-      await withMongoRetry(
-        () => stateCollection.updateOne(
-          { _id: STATE_DOC_ID },
-          {
-            $push: { leads: newLead },
-            $set:  { updatedAt: now },
-            $setOnInsert: { counselors: [], allocation: [], tasks: [], createdAt: now }
-          },
-          { upsert: true }
-        ),
-        { retries: 1, label: "Create Meta lead" }
-      );
-      // Invalidate cache so the next read hits MongoDB.
-      cachedStateDoc   = null;
-      cachedStateDocAt = 0;
-
-      await saveMetaLog({
-        type: "success",
-        message: `Lead created: ${newLead.name} → ${counselorName}`,
-        leadgenId,
-        formId,
-        leadId: nextId,
-        leadName: newLead.name,
-        counselor: counselorName,
-        campaignName: newLead.metaCampaignName
-      });
-    }
-  }
-}
-
 function shouldForwardMetaWebhook(req) {
   return !!META_WEBHOOK_FORWARD_URL && String(req.headers?.[FORWARDED_WEBHOOK_HEADER] || "") !== "1";
 }
@@ -901,24 +838,6 @@ async function forwardMetaWebhook(req, fallbackBody) {
   } finally {
     clearTimeout(timeoutId);
   }
-}
-
-async function assignCounselorRoundRobinLegacy(stateDoc) {
-  const counselors = (Array.isArray(stateDoc.counselors) ? stateDoc.counselors : [])
-    .filter(isCounselorInMetaRotation);
-  if (!counselors.length) return "Unassigned";
-  // Atomically increment so concurrent webhook calls never collide.
-  const result = await withMongoRetry(
-    () => metaConfigCollection.findOneAndUpdate(
-      { _id: META_CONFIG_DOC_ID },
-      { $inc: { roundRobinIndex: 1 } },
-      { returnDocument: "after", upsert: true }
-    ),
-    { retries: 1, label: "Advance Meta round robin" }
-  );
-  const newIdx = Number(result.roundRobinIndex) || 1;
-  const idx = ((newIdx - 1) % counselors.length + counselors.length) % counselors.length;
-  return counselors[idx].name;
 }
 
 function buildMetaLead(fieldData, meta, counselorName, nextId) {
@@ -1421,9 +1340,36 @@ app.post("/api/admin/restore", async (req, res) => {
     const snapshot = validation.snapshot;
     snapshot.state.updatedAt = restoredAt;
 
+    await Promise.all([
+      leadsCollection.deleteMany({}),
+      counselorsCollection.deleteMany({}),
+      tasksCollection.deleteMany({}),
+      allocationCollection.deleteMany({})
+    ]);
+
+    if (Array.isArray(snapshot.state.leads) && snapshot.state.leads.length) {
+      await leadsCollection.insertMany(snapshot.state.leads);
+    }
+    if (Array.isArray(snapshot.state.counselors) && snapshot.state.counselors.length) {
+      await counselorsCollection.insertMany(snapshot.state.counselors);
+    }
+    if (Array.isArray(snapshot.state.tasks) && snapshot.state.tasks.length) {
+      await tasksCollection.insertMany(snapshot.state.tasks);
+    }
+    if (Array.isArray(snapshot.state.allocation) && snapshot.state.allocation.length) {
+      await allocationCollection.insertMany(snapshot.state.allocation);
+    }
+
+    const metadata = {
+      _id: STATE_DOC_ID,
+      createdAt: snapshot.state.createdAt || restoredAt,
+      updatedAt: restoredAt,
+      clearedAt: snapshot.state.clearedAt || null,
+      marketingUsers: Array.isArray(snapshot.state.marketingUsers) ? snapshot.state.marketingUsers : []
+    };
     await stateCollection.replaceOne(
       { _id: STATE_DOC_ID },
-      snapshot.state,
+      metadata,
       { upsert: true }
     );
 
@@ -1449,7 +1395,13 @@ app.post("/api/admin/restore", async (req, res) => {
 
     metaLogWriteCount = 0;
     sessionCache.clear();
-    const nextState = cacheStateDoc(snapshot.state);
+    const nextState = cacheStateDoc({
+      ...metadata,
+      leads: snapshot.state.leads || [],
+      counselors: snapshot.state.counselors || [],
+      tasks: snapshot.state.tasks || [],
+      allocation: snapshot.state.allocation || []
+    });
     res.setHeader("ETag", buildStateEtag(nextState));
 
     return res.json({
@@ -1611,29 +1563,47 @@ async function getStateDoc() {
     return cachedStateDoc;
   }
 
-  const existing = await withMongoRetry(
+  const globalMeta = await withMongoRetry(
     () => stateCollection.findOne({ _id: STATE_DOC_ID }),
-    { retries: 1, label: "Load state document" }
+    { retries: 1, label: "Load state metadata" }
   );
-  if (existing) {
-    return cacheStateDoc(existing);
+
+  const [leads, counselors, tasks, allocation] = await Promise.all([
+    withMongoRetry(() => leadsCollection.find({}).toArray(), { retries: 1, label: "Load leads" }),
+    withMongoRetry(() => counselorsCollection.find({}).toArray(), { retries: 1, label: "Load counselors" }),
+    withMongoRetry(() => tasksCollection.find({}).toArray(), { retries: 1, label: "Load tasks" }),
+    withMongoRetry(() => allocationCollection.find({}).toArray(), { retries: 1, label: "Load allocation" })
+  ]);
+
+  if (globalMeta) {
+    return cacheStateDoc({
+      ...globalMeta,
+      leads: leads || [],
+      counselors: counselors || [],
+      tasks: tasks || [],
+      allocation: allocation || []
+    });
   }
 
-  const initial = cacheStateDoc({
+  const initialMeta = {
     _id: STATE_DOC_ID,
-    leads: [],
-    counselors: [],
-    allocation: [],
-    tasks: [],
     createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  });
+    updatedAt: new Date().toISOString(),
+    clearedAt: null
+  };
 
   await withMongoRetry(
-    () => stateCollection.insertOne(initial),
-    { retries: 1, label: "Create initial state document" }
+    () => stateCollection.insertOne(initialMeta),
+    { retries: 1, label: "Create initial state metadata" }
   );
-  return initial;
+
+  return cacheStateDoc({
+    ...initialMeta,
+    leads: leads || [],
+    counselors: counselors || [],
+    tasks: tasks || [],
+    allocation: allocation || []
+  });
 }
 
 async function requireSession(req, res) {
@@ -2124,19 +2094,29 @@ app.post("/api/leads/:leadId/activity", async (req, res) => {
       updates: patch,
       by: session.name || session.email || session.role
     };
-    const { update, options } = buildLeadSetPatch(leadId, {
-      ...patch,
-      [config.countField]: nextCount
-    }, leadEmail);
-    update.$push = {
-      [`leads.$[lead].${config.historyField}`]: event
+    const query = { id: { $in: getLeadIdCandidates(leadId) } };
+    if (leadEmail) {
+      query.email = String(leadEmail).trim().toLowerCase();
+    }
+    const update = {
+      $set: {
+        ...patch,
+        [config.countField]: nextCount
+      },
+      $push: {
+        [config.historyField]: event
+      }
     };
 
-    const result = await stateCollection.updateOne(
-      { _id: STATE_DOC_ID },
-      update,
-      options
-    );
+    const result = await leadsCollection.updateOne(query, update);
+
+    if (result.modifiedCount) {
+      await stateCollection.updateOne(
+        { _id: STATE_DOC_ID },
+        { $set: { updatedAt: new Date().toISOString() } },
+        { upsert: true }
+      );
+    }
 
     if (!result.modifiedCount) {
       return res.status(409).json({ message: "Lead changed before the activity could be saved. Please reload and retry." });
@@ -2177,14 +2157,21 @@ app.post("/api/leads/:leadId/notes", async (req, res) => {
       at: new Date().toISOString().slice(0, 10),
       by: session.name || "Unknown"
     };
-    const result = await stateCollection.updateOne(
-      { _id: STATE_DOC_ID },
-      {
-        $push: { "leads.$[lead].leadNotes": note },
-        $set: { updatedAt: new Date().toISOString() }
-      },
-      { arrayFilters: [buildLeadArrayFilter(leadId, leadEmail)] }
+    const query = { id: { $in: getLeadIdCandidates(leadId) } };
+    if (leadEmail) {
+      query.email = String(leadEmail).trim().toLowerCase();
+    }
+    const result = await leadsCollection.updateOne(
+      query,
+      { $push: { leadNotes: note } }
     );
+    if (result.modifiedCount) {
+      await stateCollection.updateOne(
+        { _id: STATE_DOC_ID },
+        { $set: { updatedAt: new Date().toISOString() } },
+        { upsert: true }
+      );
+    }
 
     if (!result.modifiedCount) {
       return res.status(409).json({ message: "Lead changed before the note could be saved. Please reload and retry." });
@@ -2222,8 +2209,21 @@ app.delete("/api/leads/:leadId/notes/:noteIndex", async (req, res) => {
     }
 
     const nextNotes = notes.filter((_, index) => index !== noteIndex);
-    const { update, options } = buildLeadSetPatch(leadId, { leadNotes: nextNotes }, leadEmail);
-    const result = await stateCollection.updateOne({ _id: STATE_DOC_ID }, update, options);
+    const query = { id: { $in: getLeadIdCandidates(leadId) } };
+    if (leadEmail) {
+      query.email = String(leadEmail).trim().toLowerCase();
+    }
+    const result = await leadsCollection.updateOne(
+      query,
+      { $set: { leadNotes: nextNotes } }
+    );
+    if (result.modifiedCount) {
+      await stateCollection.updateOne(
+        { _id: STATE_DOC_ID },
+        { $set: { updatedAt: new Date().toISOString() } },
+        { upsert: true }
+      );
+    }
     if (!result.modifiedCount) {
       return res.status(409).json({ message: "Lead changed before the note could be deleted. Please reload and retry." });
     }
@@ -2249,28 +2249,44 @@ app.patch("/api/leads/assignment", async (req, res) => {
       return res.status(400).json({ message: "Lead references and counselor are required." });
     }
 
-    const matchConditions = buildLeadIdentityMatchConditions(leadRefs);
-    const arrayFilters = matchConditions.length
-      ? [{ $or: matchConditions }]
-      : [{ "lead.id": { $in: [...new Set(leadIds.flatMap((leadId) => getLeadIdCandidates(leadId)))] } }];
-    const result = await stateCollection.updateOne(
-      { _id: STATE_DOC_ID },
-      {
-        $set: {
-          "leads.$[lead].counselor": counselor,
-          updatedAt: new Date().toISOString()
-        }
-      },
-      { arrayFilters }
+    const matchConditions = leadRefs.map((ref) => {
+      const id = String(ref?.id || "").trim();
+      if (!id) return null;
+      const condition = { id: { $in: getLeadIdCandidates(id) } };
+      const email = String(ref?.email || "").trim().toLowerCase();
+      const phone = String(ref?.phone || "").trim();
+      const workshop = String(ref?.workshop || "").trim();
+      const createdAt = String(ref?.createdAt || "").trim();
+      if (email) condition.email = email;
+      if (phone) condition.phone = phone;
+      if (workshop) condition.workshop = workshop;
+      if (createdAt) condition.createdAt = createdAt;
+      return condition;
+    }).filter(Boolean);
+
+    const query = matchConditions.length
+      ? { $or: matchConditions }
+      : { id: { $in: [...new Set(leadIds.flatMap((leadId) => getLeadIdCandidates(leadId)))] } };
+
+    const result = await leadsCollection.updateMany(
+      query,
+      { $set: { counselor } }
     );
 
     if (!result.modifiedCount) {
       return res.status(404).json({ message: "No matching leads were assigned." });
     }
 
+    const now = new Date().toISOString();
+    await stateCollection.updateOne(
+      { _id: STATE_DOC_ID },
+      { $set: { updatedAt: now } },
+      { upsert: true }
+    );
+
     const nextState = await refreshStateAfterAtomicUpdate();
     res.setHeader("ETag", buildStateEtag(nextState));
-    return res.json({ ok: true, updatedCount: leadRefs.length || leadIds.length, state: buildStateResponse(nextState) });
+    return res.json({ ok: true, updatedCount: result.modifiedCount, state: buildStateResponse(nextState) });
   } catch (error) {
     return res.status(500).json({ message: "Failed to assign leads", details: error.message });
   }
@@ -2291,19 +2307,18 @@ app.post("/api/tasks", async (req, res) => {
       return res.status(403).json({ message: "Counselors can only create tasks assigned to themselves." });
     }
 
-    const result = await stateCollection.updateOne(
-      { _id: STATE_DOC_ID },
-      {
-        $push: { tasks: { $each: [task], $position: 0 } },
-        $set: { updatedAt: new Date().toISOString() },
-        $setOnInsert: { leads: [], counselors: [], allocation: [], createdAt: new Date().toISOString() }
-      },
-      { upsert: true }
-    );
+    const result = await tasksCollection.insertOne(task);
 
-    if (!result.modifiedCount && !result.upsertedCount) {
+    if (!result.insertedId) {
       return res.status(409).json({ message: "Task could not be created. Please reload and retry." });
     }
+
+    const now = new Date().toISOString();
+    await stateCollection.updateOne(
+      { _id: STATE_DOC_ID },
+      { $set: { updatedAt: now } },
+      { upsert: true }
+    );
 
     const nextState = await refreshStateAfterAtomicUpdate();
     res.setHeader("ETag", buildStateEtag(nextState));
@@ -2335,20 +2350,21 @@ app.patch("/api/tasks/:taskId", async (req, res) => {
     }
     updates.updatedAt = new Date().toISOString();
 
-    const setPatch = { updatedAt: new Date().toISOString() };
-    Object.entries(updates).forEach(([field, value]) => {
-      setPatch[`tasks.$[task].${field}`] = value;
-    });
-
-    const result = await stateCollection.updateOne(
-      { _id: STATE_DOC_ID },
-      { $set: setPatch },
-      { arrayFilters: [{ "task.id": taskId }] }
+    const result = await tasksCollection.updateOne(
+      { id: taskId },
+      { $set: updates }
     );
 
     if (!result.modifiedCount) {
       return res.status(409).json({ message: "Task changed before it could be updated. Please reload and retry." });
     }
+
+    const now = new Date().toISOString();
+    await stateCollection.updateOne(
+      { _id: STATE_DOC_ID },
+      { $set: { updatedAt: now } },
+      { upsert: true }
+    );
 
     const nextState = await refreshStateAfterAtomicUpdate();
     const task = findTaskById(nextState, taskId);
@@ -2374,17 +2390,18 @@ app.delete("/api/tasks/:taskId", async (req, res) => {
       return res.status(403).json({ message: "You can only remove your assigned tasks." });
     }
 
-    const result = await stateCollection.updateOne(
-      { _id: STATE_DOC_ID },
-      {
-        $pull: { tasks: { id: taskId } },
-        $set: { updatedAt: new Date().toISOString() }
-      }
-    );
+    const result = await tasksCollection.deleteOne({ id: taskId });
 
-    if (!result.modifiedCount) {
+    if (!result.deletedCount) {
       return res.status(409).json({ message: "Task changed before it could be removed. Please reload and retry." });
     }
+
+    const now = new Date().toISOString();
+    await stateCollection.updateOne(
+      { _id: STATE_DOC_ID },
+      { $set: { updatedAt: now } },
+      { upsert: true }
+    );
 
     const nextState = await refreshStateAfterAtomicUpdate();
     res.setHeader("ETag", buildStateEtag(nextState));
@@ -2454,26 +2471,37 @@ app.put("/api/state", async (req, res) => {
     }
 
     const now = new Date().toISOString();
-    const nextState = cacheStateDoc({
-      ...currentState,
-      ...sanitized,
-      updatedAt: now
-    });
+    if (Array.isArray(sanitized.leads)) {
+      await leadsCollection.deleteMany({});
+      if (sanitized.leads.length) await leadsCollection.insertMany(sanitized.leads);
+    }
+    if (Array.isArray(sanitized.counselors)) {
+      await counselorsCollection.deleteMany({});
+      if (sanitized.counselors.length) await counselorsCollection.insertMany(sanitized.counselors);
+    }
+    if (Array.isArray(sanitized.tasks)) {
+      await tasksCollection.deleteMany({});
+      if (sanitized.tasks.length) await tasksCollection.insertMany(sanitized.tasks);
+    }
+    if (Array.isArray(sanitized.allocation)) {
+      await allocationCollection.deleteMany({});
+      if (sanitized.allocation.length) await allocationCollection.insertMany(sanitized.allocation);
+    }
 
+    const updatePatch = { updatedAt: now };
+    if (Array.isArray(sanitized.marketingUsers)) {
+      updatePatch.marketingUsers = sanitized.marketingUsers;
+    }
     await stateCollection.updateOne(
       { _id: STATE_DOC_ID },
-      {
-        $set: {
-          ...sanitized,
-          updatedAt: now
-        },
-        $setOnInsert: {
-          createdAt: now
-        }
-      },
+      { $set: updatePatch },
       { upsert: true }
     );
 
+    cachedStateDoc = null;
+    cachedStateDocAt = 0;
+
+    const nextState = await getStateDoc();
     res.setHeader("ETag", buildStateEtag(nextState));
     return res.json(buildStateResponse(nextState));
   } catch (error) {
@@ -2487,28 +2515,26 @@ app.put("/api/state/reset", async (req, res) => {
     if (!session) return;
 
     const now = new Date().toISOString();
-    const resetFields = {
-      leads: [],
-      allocation: [],
-      tasks: [],
-      updatedAt: now,
-      clearedAt: now
-    };
+    await Promise.all([
+      leadsCollection.deleteMany({}),
+      allocationCollection.deleteMany({}),
+      tasksCollection.deleteMany({})
+    ]);
 
-    const result = await stateCollection.updateOne(
+    await stateCollection.updateOne(
       { _id: STATE_DOC_ID },
       {
-        $set: resetFields,
-        $setOnInsert: {
-          counselors: [],
-          createdAt: now
+        $set: {
+          updatedAt: now,
+          clearedAt: now
         }
       },
       { upsert: true }
     );
 
-    const currentState = await getStateDoc();
-    const nextState = cacheStateDoc({ ...currentState, ...resetFields });
+    cachedStateDoc = null;
+    cachedStateDocAt = 0;
+    const nextState = await getStateDoc();
 
     return res.json(buildStateResponse(nextState));
   } catch (error) {
@@ -2546,28 +2572,18 @@ app.put("/api/leads", async (req, res) => {
         leadId: duplicateViolation.lead?.id || null
       });
     }
-    const nextState = cacheStateDoc({
-      ...currentState,
-      leads: req.body,
-      updatedAt: new Date().toISOString()
-    });
-
+    const now = new Date().toISOString();
+    await leadsCollection.deleteMany({});
+    if (req.body.length) {
+      await leadsCollection.insertMany(req.body);
+    }
     await stateCollection.updateOne(
       { _id: STATE_DOC_ID },
-      {
-        $set: {
-          leads: req.body,
-          updatedAt: nextState.updatedAt
-        },
-        $setOnInsert: {
-          counselors: [],
-          allocation: [],
-          tasks: [],
-          createdAt: new Date().toISOString()
-        }
-      },
+      { $set: { updatedAt: now } },
       { upsert: true }
     );
+    cachedStateDoc = null;
+    cachedStateDocAt = 0;
     return res.json({ ok: true });
   } catch (error) {
     return res.status(500).json({ message: "Failed to save leads", details: error.message });
@@ -2596,27 +2612,18 @@ app.put("/api/counselors", async (req, res) => {
     }
 
     const currentState = await getStateDoc();
-    const nextState = cacheStateDoc({
-      ...currentState,
-      counselors: req.body,
-      updatedAt: new Date().toISOString()
-    });
-
+    const now = new Date().toISOString();
+    await counselorsCollection.deleteMany({});
+    if (req.body.length) {
+      await counselorsCollection.insertMany(req.body);
+    }
     await stateCollection.updateOne(
       { _id: STATE_DOC_ID },
-      {
-        $set: {
-          counselors: req.body,
-          updatedAt: nextState.updatedAt
-        },
-        $setOnInsert: {
-          leads: [],
-          allocation: [],
-          createdAt: new Date().toISOString()
-        }
-      },
+      { $set: { updatedAt: now } },
       { upsert: true }
     );
+    cachedStateDoc = null;
+    cachedStateDocAt = 0;
     return res.json({ ok: true });
   } catch (error) {
     return res.status(500).json({ message: "Failed to save counselors", details: error.message });
@@ -2645,28 +2652,18 @@ app.put("/api/allocation", async (req, res) => {
     }
 
     const currentState = await getStateDoc();
-    const nextState = cacheStateDoc({
-      ...currentState,
-      allocation: req.body,
-      updatedAt: new Date().toISOString()
-    });
-
+    const now = new Date().toISOString();
+    await allocationCollection.deleteMany({});
+    if (req.body.length) {
+      await allocationCollection.insertMany(req.body);
+    }
     await stateCollection.updateOne(
       { _id: STATE_DOC_ID },
-      {
-        $set: {
-          allocation: req.body,
-          updatedAt: nextState.updatedAt
-        },
-        $setOnInsert: {
-          leads: [],
-          counselors: [],
-          tasks: [],
-          createdAt: new Date().toISOString()
-        }
-      },
+      { $set: { updatedAt: now } },
       { upsert: true }
     );
+    cachedStateDoc = null;
+    cachedStateDocAt = 0;
     return res.json({ ok: true });
   } catch (error) {
     return res.status(500).json({ message: "Failed to save allocation", details: error.message });
@@ -2761,21 +2758,20 @@ async function enqueueMetaRetryJob({
 }
 
 async function insertMetaLeadIfNew(leadgenId, newLead) {
-  return withMongoRetry(
-    () => stateCollection.updateOne(
-      {
-        _id: STATE_DOC_ID,
-        "leads.metaLeadId": { $ne: String(leadgenId) }
-      },
-      {
-        $push: { leads: newLead },
-        $set:  { updatedAt: new Date().toISOString() },
-        $setOnInsert: { counselors: [], allocation: [], tasks: [], createdAt: new Date().toISOString() }
-      },
+  return withMongoRetry(async () => {
+    const duplicate = await leadsCollection.findOne({ metaLeadId: String(leadgenId) });
+    if (duplicate) {
+      return { modifiedCount: 0, upsertedCount: 0 };
+    }
+    await leadsCollection.insertOne(newLead);
+    const now = new Date().toISOString();
+    await stateCollection.updateOne(
+      { _id: STATE_DOC_ID },
+      { $set: { updatedAt: now } },
       { upsert: true }
-    ),
-    { retries: 1, label: "Create Meta lead" }
-  );
+    );
+    return { modifiedCount: 1, upsertedCount: 1 };
+  }, { retries: 1, label: "Create Meta lead" });
 }
 
 async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retryJobId = null }) {

@@ -263,10 +263,6 @@ export async function updateStateFields(fields) {
   return pendingStateUpdate;
 }
 
-export async function syncStateFromLocal() {
-  return { ok: true, scheduled: false };
-}
-
 /**
  * Wait for all queued mutations to complete, then read back from the server
  * to confirm durable persistence.  Waits for the mutation poll-cooldown window
@@ -295,10 +291,6 @@ export async function syncStateFromLocalAndVerify() {
       message: error?.message || "Unable to confirm the backend update."
     };
   }
-}
-
-export function markStateMutated() {
-  return undefined;
 }
 
 /**

@@ -162,6 +162,7 @@ function bindMultiFilter(filterId, filterKey) {
       if (checkbox.value === SELECT_ALL_FILTER_VALUE) {
         filter[filterKey] = checkbox.checked ? optionValues : EMPTY_FILTER_VALUE;
         persistFilterState();
+        currentPage = 1;
         renderAll();
         return;
       }
@@ -171,6 +172,7 @@ function bindMultiFilter(filterId, filterKey) {
         .map((input) => input.value);
       filter[filterKey] = values.length ? values : EMPTY_FILTER_VALUE;
       persistFilterState();
+      currentPage = 1;
       renderAll();
     };
   });
@@ -239,6 +241,9 @@ let modalLeadId = null;
 let modalLeadEmail = "";
 let modalMode = "edit";
 let selectedLeadKeys = new Set();
+let searchTimeout = null;
+let currentPage = 1;
+const pageSize = 50;
 
 const activityFields = ["modalPostDialed", "modalCoursePitched", "modalCourseStatus", "modalAdmissionStatus", "modalPostCallStatus", "modalWorkshopJoiningStatus"];
 
@@ -684,18 +689,21 @@ function renderFilters(leads) {
     persistFilterState();
     document.getElementById("postStartDateWrap").classList.toggle("hidden", filter.timeline !== "custom");
     document.getElementById("postEndDateWrap").classList.toggle("hidden", filter.timeline !== "custom");
+    currentPage = 1;
     renderAll();
   };
 
   document.getElementById("postStartDateInput").onchange = (event) => {
     filter.startDate = event.target.value;
     persistFilterState();
+    currentPage = 1;
     renderAll();
   };
 
   document.getElementById("postEndDateInput").onchange = (event) => {
     filter.endDate = event.target.value;
     persistFilterState();
+    currentPage = 1;
     renderAll();
   };
 
@@ -704,18 +712,24 @@ function renderFilters(leads) {
     filter.startDate = DEFAULT_FILTER.startDate;
     filter.endDate = DEFAULT_FILTER.endDate;
     persistFilterState();
+    currentPage = 1;
     renderAll();
   };
 
   document.getElementById("postSearchLeadInput").oninput = (event) => {
     filter.search = event.target.value.trim();
     persistFilterState();
-    renderAll();
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+      currentPage = 1;
+      renderAll();
+    }, 250);
   };
 
   document.getElementById("postResetFilters").onclick = () => {
     filter = { ...DEFAULT_FILTER };
     persistFilterState();
+    currentPage = 1;
     renderAll();
   };
 }
@@ -822,9 +836,18 @@ function renderActivityPanel(lead) {
 }
 
 function renderLeadTable(leads) {
+  const totalLeads = leads.length;
+  const totalPages = Math.ceil(totalLeads / pageSize) || 1;
+  if (currentPage > totalPages) {
+    currentPage = totalPages;
+  }
+  const startIndex = (currentPage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, totalLeads);
+  const pagedLeads = leads.slice(startIndex, endIndex);
+
   syncSelectedLeadIds(leads);
   const selectedCount = isAdmin ? getSelectedLeadCount(leads) : 0;
-  const allSelected = isAdmin && leads.length > 0 && selectedCount === leads.length;
+  const allSelected = isAdmin && pagedLeads.length > 0 && pagedLeads.every(isLeadSelected);
   const assignableCounselors = isAdmin ? getAdminAssignmentOptions(leads) : [];
   const bulkToolbar = isAdmin
     ? `
@@ -877,10 +900,10 @@ function renderLeadTable(leads) {
         <tbody>
   `;
 
-  if (!leads.length) {
+  if (!pagedLeads.length) {
     html += `<tr><td colspan="${tableColspan}">No admission calling leads available for current filters.</td></tr>`;
   } else {
-    html += leads
+    html += pagedLeads
       .map(
         (lead) => `
       <tr>
@@ -998,6 +1021,85 @@ function renderLeadTable(leads) {
         toggleLeadSelection(leadKey, event.target.checked);
         renderAll();
       }
+    };
+  });
+
+  renderPaginationControls(totalLeads);
+}
+
+function renderPaginationControls(totalLeads) {
+  const container = document.getElementById("postPaginationSection");
+  if (!container) return;
+
+  const totalPages = Math.ceil(totalLeads / pageSize) || 1;
+  if (totalPages <= 1) {
+    container.innerHTML = "";
+    return;
+  }
+
+  const startRange = totalLeads === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const endRange = Math.min(currentPage * pageSize, totalLeads);
+
+  let html = `
+    <div class="pagination-info">
+      Showing ${startRange}–${endRange} of ${totalLeads} leads
+    </div>
+    <div class="pagination-buttons">
+      <button class="btn-ghost pagination-btn" id="prevPageBtn" ${currentPage === 1 ? "disabled" : ""}>Previous</button>
+  `;
+
+  const maxVisiblePages = 5;
+  let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+  let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+  if (endPage - startPage + 1 < maxVisiblePages) {
+    startPage = Math.max(1, endPage - maxVisiblePages + 1);
+  }
+
+  if (startPage > 1) {
+    html += `<button class="btn-ghost pagination-btn page-num-btn" data-page="1">1</button>`;
+    if (startPage > 2) html += `<span class="pagination-ellipsis">...</span>`;
+  }
+
+  for (let i = startPage; i <= endPage; i++) {
+    html += `<button class="btn-ghost pagination-btn page-num-btn ${i === currentPage ? "pagination-btn--active" : ""}" data-page="${i}">${i}</button>`;
+  }
+
+  if (endPage < totalPages) {
+    if (endPage < totalPages - 1) html += `<span class="pagination-ellipsis">...</span>`;
+    html += `<button class="btn-ghost pagination-btn page-num-btn" data-page="${totalPages}">${totalPages}</button>`;
+  }
+
+  html += `
+      <button class="btn-ghost pagination-btn" id="nextPageBtn" ${currentPage === totalPages ? "disabled" : ""}>Next</button>
+    </div>
+  `;
+
+  container.innerHTML = html;
+
+  const prevBtn = document.getElementById("prevPageBtn");
+  if (prevBtn) {
+    prevBtn.onclick = () => {
+      if (currentPage > 1) {
+        currentPage--;
+        renderAll();
+      }
+    };
+  }
+
+  const nextBtn = document.getElementById("nextPageBtn");
+  if (nextBtn) {
+    nextBtn.onclick = () => {
+      if (currentPage < totalPages) {
+        currentPage++;
+        renderAll();
+      }
+    };
+  }
+
+  container.querySelectorAll(".page-num-btn").forEach((button) => {
+    button.onclick = (e) => {
+      currentPage = Number(e.target.getAttribute("data-page"));
+      renderAll();
     };
   });
 }
