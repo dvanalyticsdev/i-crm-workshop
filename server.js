@@ -705,25 +705,16 @@ async function getMetaProcessingSnapshot() {
   }
 
   try {
-    const state = await withMongoRetry(
-      () => stateCollection.findOne(
-        { _id: STATE_DOC_ID },
-        { projection: { counselors: 1 } }
-      ),
-      { retries: 1, label: "Load Meta processing snapshot" }
+    // Counselors are stored in their own collection after the schema migration
+    // (they were $unset from stateCollection). Query counselorsCollection directly.
+    const counselors = await withMongoRetry(
+      () => counselorsCollection.find({}).toArray(),
+      { retries: 1, label: "Load Meta processing snapshot (counselors)" }
     );
 
-    if (state) {
-      if (cachedStateDoc) {
-        cachedStateDoc = {
-          ...cachedStateDoc,
-          counselors: Array.isArray(state.counselors) ? state.counselors : cachedStateDoc.counselors
-        };
-      }
-      return {
-        counselors: Array.isArray(state?.counselors) ? state.counselors : []
-      };
-    }
+    return {
+      counselors: Array.isArray(counselors) ? counselors : []
+    };
   } catch (error) {
     if (cachedStateDoc && Array.isArray(cachedStateDoc.counselors)) {
       return {
@@ -732,8 +723,6 @@ async function getMetaProcessingSnapshot() {
     }
     throw error;
   }
-
-  return { counselors: [] };
 }
 
 async function fetchMetaLeadDetails(leadgenId, pageAccessToken) {
