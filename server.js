@@ -547,6 +547,9 @@ async function initMongo() {
       } catch (migrationError) {
         console.error("Database schema migration failed:", migrationError.message);
       }
+
+      // Always ensure the lead ID sequence is in sync with the actual leads at startup
+      await syncLeadSequence().catch(() => undefined);
     })().catch(async (error) => {
       await resetMongoConnection();
       throw error;
@@ -1338,6 +1341,7 @@ app.post("/api/admin/restore", async (req, res) => {
 
     if (Array.isArray(snapshot.state.leads) && snapshot.state.leads.length) {
       await leadsCollection.insertMany(snapshot.state.leads);
+      await syncLeadSequence().catch(() => undefined);
     }
     if (Array.isArray(snapshot.state.counselors) && snapshot.state.counselors.length) {
       await counselorsCollection.insertMany(snapshot.state.counselors);
@@ -2462,7 +2466,10 @@ app.put("/api/state", async (req, res) => {
     const now = new Date().toISOString();
     if (Array.isArray(sanitized.leads)) {
       await leadsCollection.deleteMany({});
-      if (sanitized.leads.length) await leadsCollection.insertMany(sanitized.leads);
+      if (sanitized.leads.length) {
+        await leadsCollection.insertMany(sanitized.leads);
+        await syncLeadSequence().catch(() => undefined);
+      }
     }
     if (Array.isArray(sanitized.counselors)) {
       await counselorsCollection.deleteMany({});
@@ -2565,6 +2572,7 @@ app.put("/api/leads", async (req, res) => {
     await leadsCollection.deleteMany({});
     if (req.body.length) {
       await leadsCollection.insertMany(req.body);
+      await syncLeadSequence().catch(() => undefined);
     }
     await stateCollection.updateOne(
       { _id: STATE_DOC_ID },
@@ -2687,7 +2695,30 @@ if (require.main === module) {
   });
 }
 
+async function syncLeadSequence() {
+  try {
+    const maxLeadDoc = await leadsCollection.find({}, { projection: { id: 1 } })
+      .sort({ id: -1 })
+      .limit(1)
+      .toArray();
+    const maxLeadId = maxLeadDoc.length > 0 ? (Number(maxLeadDoc[0].id) || 0) : 0;
+    if (maxLeadId > 0) {
+      await withMongoRetry(
+        () => metaConfigCollection.updateOne(
+          { _id: META_CONFIG_DOC_ID },
+          { $max: { leadSequence: maxLeadId } },
+          { upsert: true }
+        ),
+        { retries: 1, label: "Sync Meta lead sequence to max ID" }
+      );
+    }
+  } catch (error) {
+    console.error("Failed to sync lead sequence:", error.message);
+  }
+}
+
 async function getNextMetaLeadId() {
+  await syncLeadSequence();
   const result = await withMongoRetry(
     () => metaConfigCollection.findOneAndUpdate(
       { _id: META_CONFIG_DOC_ID },
