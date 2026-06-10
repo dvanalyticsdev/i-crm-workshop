@@ -333,6 +333,7 @@ async function navigateToRoute(href, options = {}) {
     bindLogout();
     bindThemeControls();
     mountPingPill();
+    injectNotificationBell();
 
     if (pushState) {
       window.history.pushState({ route }, "", route);
@@ -404,5 +405,328 @@ if (session) {
     bindThemeControls();
     bindClientRouter();
     startPingMonitor();
+    injectNotificationBell();
+    startNotificationPolling(session);
+  }
+}
+
+function playNotificationSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    // Play a premium futuristic chime: two tones sliding up
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
+    gain.gain.setValueAtTime(0.08, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.18);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.18);
+
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(783.99, ctx.currentTime + 0.12); // G5
+    gain2.gain.setValueAtTime(0.08, ctx.currentTime + 0.12);
+    gain2.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.38);
+    osc2.start(ctx.currentTime + 0.12);
+    osc2.stop(ctx.currentTime + 0.38);
+  } catch (e) {
+    console.warn("AudioContext playback blocked or failed", e);
+  }
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function showNotificationPopup(n) {
+  let container = document.getElementById('notification-popup-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'notification-popup-container';
+    container.className = 'notification-container';
+    document.body.appendChild(container);
+  }
+
+  const toast = document.createElement('div');
+  toast.className = `notification-toast ${n.role === 'admin' ? 'toast-admin' : 'toast-counselor'}`;
+  
+  if (n.sound) {
+    playNotificationSound();
+  }
+
+  toast.innerHTML = `
+    <div class="toast-header">
+      <span class="toast-title">${escapeHtml(n.title)}</span>
+      <button class="toast-close-btn" aria-label="Close">&times;</button>
+    </div>
+    <div class="toast-body">${escapeHtml(n.message)}</div>
+  `;
+
+  container.appendChild(toast);
+
+  // Trigger browser paint for slide-in animation
+  requestAnimationFrame(() => {
+    toast.classList.add('show');
+  });
+
+  const closeBtn = toast.querySelector('.toast-close-btn');
+  closeBtn.addEventListener('click', () => dismissToast(toast));
+
+  // Auto dismiss after 7.5 seconds
+  let autoDismissTimer = setTimeout(() => dismissToast(toast), 7500);
+
+  // Hover pauses auto-dismiss
+  toast.addEventListener('mouseenter', () => clearTimeout(autoDismissTimer));
+  toast.addEventListener('mouseleave', () => {
+    autoDismissTimer = setTimeout(() => dismissToast(toast), 3000);
+  });
+}
+
+function dismissToast(toast) {
+  toast.classList.remove('show');
+  toast.classList.add('fade-out');
+  toast.addEventListener('transitionend', () => {
+    toast.remove();
+  }, { once: true });
+}
+
+function startNotificationPolling(session) {
+  if (!session || !session.role) return;
+
+  const pollInterval = 6000; // poll every 6s
+  let timerId = null;
+
+  async function poll() {
+    try {
+      // 1. Poll popups (undelivered notifications)
+      const popupResp = await fetch('/api/notifications?popup=true', {
+        credentials: 'same-origin',
+        headers: { 'Accept': 'application/json' }
+      });
+      if (popupResp.status === 401) {
+        clearInterval(timerId);
+        return;
+      }
+      if (popupResp.ok) {
+        const popups = await popupResp.json();
+        if (Array.isArray(popups) && popups.length > 0) {
+          popups.forEach(n => showNotificationPopup(n));
+        }
+      }
+
+      // 2. Poll full unread list to update bell badge and dropdown items
+      const listResp = await fetch('/api/notifications', {
+        credentials: 'same-origin',
+        headers: { 'Accept': 'application/json' }
+      });
+      if (listResp.ok) {
+        const unreadList = await listResp.json();
+        updateBellBadge(unreadList);
+      }
+    } catch (err) {
+      console.warn("Failed to poll notifications:", err);
+    }
+  }
+
+  timerId = setInterval(poll, pollInterval);
+  // Do an initial poll after a short delay
+  setTimeout(poll, 1500);
+}
+
+function injectNotificationBell() {
+  const profileContainer = document.querySelector('.topbar-profile');
+  if (!profileContainer) return;
+  
+  if (document.getElementById('notification-bell-btn')) return;
+
+  const bellWrap = document.createElement('div');
+  bellWrap.className = 'bell-wrap-container';
+  bellWrap.style.position = 'relative';
+
+  bellWrap.innerHTML = `
+    <button type="button" id="notification-bell-btn" class="bell-btn" aria-label="Notifications" aria-haspopup="true" aria-expanded="false">
+      <svg class="bell-icon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+        <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+      </svg>
+      <span id="bell-badge-count" class="bell-badge hidden">0</span>
+    </button>
+    
+    <div id="notification-dropdown" class="notification-dropdown-menu hidden">
+      <div class="dropdown-header">
+        <span>Notifications</span>
+        <button id="clear-all-notifications" class="clear-all-btn">Clear all</button>
+      </div>
+      <div id="dropdown-notifications-list" class="dropdown-list">
+        <div class="empty-dropdown">No new notifications</div>
+      </div>
+    </div>
+  `;
+
+  profileContainer.insertBefore(bellWrap, profileContainer.firstChild);
+
+  const bellBtn = document.getElementById('notification-bell-btn');
+  const dropdown = document.getElementById('notification-dropdown');
+  const clearBtn = document.getElementById('clear-all-notifications');
+
+  bellBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = !dropdown.classList.contains('hidden');
+    closeAllDropdowns();
+    if (!isOpen) {
+      dropdown.classList.remove('hidden');
+      bellBtn.setAttribute('aria-expanded', 'true');
+      refreshDropdownList();
+    }
+  });
+
+  clearBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    try {
+      await fetch('/api/notifications/read', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      document.getElementById('bell-badge-count').textContent = '0';
+      document.getElementById('bell-badge-count').classList.add('hidden');
+      document.getElementById('dropdown-notifications-list').innerHTML = `
+        <div class="empty-dropdown">No new notifications</div>
+      `;
+    } catch (err) {
+      console.warn("Failed to clear notifications", err);
+    }
+  });
+
+  document.addEventListener('click', () => {
+    closeAllDropdowns();
+  });
+
+  dropdown.addEventListener('click', (e) => {
+    e.stopPropagation();
+  });
+}
+
+function closeAllDropdowns() {
+  const dropdown = document.getElementById('notification-dropdown');
+  const bellBtn = document.getElementById('notification-bell-btn');
+  if (dropdown) dropdown.classList.add('hidden');
+  if (bellBtn) bellBtn.setAttribute('aria-expanded', 'false');
+}
+
+async function refreshDropdownList() {
+  try {
+    const resp = await fetch('/api/notifications', {
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' }
+    });
+    if (resp.ok) {
+      const unreadList = await resp.json();
+      renderNotificationsList(unreadList);
+      updateBellBadge(unreadList);
+    }
+  } catch (err) {
+    console.warn("Failed to refresh notifications list", err);
+  }
+}
+
+function renderNotificationsList(unreadList) {
+  const listContainer = document.getElementById('dropdown-notifications-list');
+  if (!listContainer) return;
+
+  if (!unreadList.length) {
+    listContainer.innerHTML = `<div class="empty-dropdown">No new notifications</div>`;
+    return;
+  }
+
+  listContainer.innerHTML = unreadList.map(n => {
+    const timeStr = formatNotificationTime(n.createdAt);
+    return `
+      <div class="dropdown-item" data-notification-id="${n.id}">
+        <div class="dropdown-item-header">
+          <span class="dropdown-item-title">${escapeHtml(n.title)}</span>
+          <span class="dropdown-item-time">${timeStr}</span>
+        </div>
+        <div class="dropdown-item-body">${escapeHtml(n.message)}</div>
+      </div>
+    `;
+  }).join('');
+
+  listContainer.querySelectorAll('.dropdown-item').forEach(item => {
+    item.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = item.getAttribute('data-notification-id');
+      try {
+        await fetch('/api/notifications/read', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: [id] })
+        });
+        item.remove();
+        
+        const badge = document.getElementById('bell-badge-count');
+        if (badge) {
+          const currentCount = parseInt(badge.textContent, 10) || 0;
+          const nextCount = Math.max(0, currentCount - 1);
+          if (nextCount > 0) {
+            badge.textContent = nextCount;
+          } else {
+            badge.textContent = '0';
+            badge.classList.add('hidden');
+            listContainer.innerHTML = `<div class="empty-dropdown">No new notifications</div>`;
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to mark notification as read", err);
+      }
+    });
+  });
+}
+
+function updateBellBadge(unreadList) {
+  const badge = document.getElementById('bell-badge-count');
+  if (!badge) return;
+
+  const count = unreadList.length;
+  if (count > 0) {
+    badge.textContent = count > 99 ? '99+' : count;
+    badge.classList.remove('hidden');
+  } else {
+    badge.textContent = '0';
+    badge.classList.add('hidden');
+  }
+
+  const dropdown = document.getElementById('notification-dropdown');
+  if (dropdown && !dropdown.classList.contains('hidden')) {
+    renderNotificationsList(unreadList);
+  }
+}
+
+function formatNotificationTime(dateString) {
+  try {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  } catch (e) {
+    return '';
   }
 }

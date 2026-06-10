@@ -1,6 +1,7 @@
 require("dotenv").config();
 const express    = require("express");
 const path       = require("path");
+const fs         = require("fs");
 const crypto     = require("crypto");
 const compress   = require("compression");
 const { MongoClient } = require("mongodb");
@@ -101,6 +102,7 @@ let leadsCollection;
 let counselorsCollection;
 let tasksCollection;
 let allocationCollection;
+let notificationsCollection;
 let mongoClient;
 let mongoInitPromise;
 let cachedStateDoc    = null;
@@ -149,6 +151,7 @@ async function resetMongoConnection() {
   counselorsCollection = null;
   tasksCollection = null;
   allocationCollection = null;
+  notificationsCollection = null;
 }
 
 async function withMongoRetry(operation, { retries = 1, label = "MongoDB operation" } = {}) {
@@ -476,6 +479,7 @@ async function initMongo() {
       counselorsCollection = db.collection("counselors");
       tasksCollection      = db.collection("tasks");
       allocationCollection = db.collection("allocation");
+      notificationsCollection = db.collection("notifications");
 
       // Ensure indexes
       await sessionCollection.createIndex(
@@ -500,6 +504,7 @@ async function initMongo() {
       await leadsCollection.createIndex({ phone: 1 }, { background: true }).catch(() => undefined);
       await tasksCollection.createIndex({ id: 1 }, { unique: true, background: true }).catch(() => undefined);
       await counselorsCollection.createIndex({ email: 1 }, { unique: true, background: true }).catch(() => undefined);
+      await notificationsCollection.createIndex({ userId: 1, read: 1 }, { background: true }).catch(() => undefined);
 
       // One-time automatic schema migration
       try {
@@ -2008,6 +2013,106 @@ app.put("/api/preferences/:scope", async (req, res) => {
   }
 });
 
+async function createNotification({ userId, role, type, title, message, sound = false, leadId = null, leadName = null, assignedCounselor = null, fromCounselor = null, toCounselor = null }) {
+  try {
+    fs.appendFileSync("c:\\DV Projects\\i-crm-workshop\\server-debug.log", `[${new Date().toISOString()}] createNotification called: ${JSON.stringify({ userId, role, type, title })}\n`);
+    
+    const notification = {
+      id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
+      userId: String(userId).toLowerCase().trim(),
+      role,
+      type,
+      title,
+      message,
+      sound: !!sound,
+      createdAt: new Date().toISOString(),
+      read: false,
+      delivered: false,
+      leadId: leadId ? String(leadId) : null,
+      leadName: leadName ? String(leadName) : null,
+      assignedCounselor: assignedCounselor ? String(assignedCounselor) : null,
+      fromCounselor: fromCounselor ? String(fromCounselor) : null,
+      toCounselor: toCounselor ? String(toCounselor) : null
+    };
+
+    if (!notificationsCollection) {
+      fs.appendFileSync("c:\\DV Projects\\i-crm-workshop\\server-debug.log", `[${new Date().toISOString()}] Warning: notificationsCollection is undefined!\n`);
+    }
+
+    const inserted = await withMongoRetry(
+      () => notificationsCollection.insertOne(notification),
+      { retries: 1, label: "Create notification record" }
+    );
+    
+    fs.appendFileSync("c:\\DV Projects\\i-crm-workshop\\server-debug.log", `[${new Date().toISOString()}] Notification inserted successfully: ${JSON.stringify(inserted)}\n`);
+    return notification;
+  } catch (error) {
+    fs.appendFileSync("c:\\DV Projects\\i-crm-workshop\\server-debug.log", `[${new Date().toISOString()}] Error in createNotification: ${error.stack}\n`);
+    console.error("Failed to create notification:", error.message);
+  }
+}
+
+app.get("/api/notifications", async (req, res) => {
+  try {
+    const activeSession = await getSessionFromRequest(req);
+    if (!activeSession) {
+      return res.status(401).json({ message: "No active session." });
+    }
+
+    const session = activeSession.session;
+    const userId = session.role === "admin" ? "admin" : session.email.toLowerCase().trim();
+    const isPopupOnly = req.query.popup === "true";
+
+    if (isPopupOnly) {
+      const notifications = await notificationsCollection
+        .find({ userId, read: false, delivered: false })
+        .sort({ createdAt: 1 })
+        .toArray();
+
+      if (notifications.length > 0) {
+        const ids = notifications.map(n => n.id);
+        await notificationsCollection.updateMany(
+          { id: { $in: ids } },
+          { $set: { delivered: true } }
+      );
+    }
+      return res.json(notifications);
+    } else {
+      const notifications = await notificationsCollection
+        .find({ userId, read: false })
+        .sort({ createdAt: -1 })
+        .limit(30)
+        .toArray();
+      return res.json(notifications);
+    }
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch notifications", details: error.message });
+  }
+});
+
+app.post("/api/notifications/read", async (req, res) => {
+  try {
+    const activeSession = await getSessionFromRequest(req);
+    if (!activeSession) {
+      return res.status(401).json({ message: "No active session." });
+    }
+
+    const session = activeSession.session;
+    const userId = session.role === "admin" ? "admin" : session.email.toLowerCase().trim();
+
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+    const query = { userId, read: false };
+    if (ids.length) {
+      query.id = { $in: ids };
+    }
+
+    await notificationsCollection.updateMany(query, { $set: { read: true } });
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to mark notifications as read", details: error.message });
+  }
+});
+
 app.post("/api/leads/:leadId/activity", async (req, res) => {
   try {
     const session = await requireRole(req, res, ["admin", "counselor"]);
@@ -2261,6 +2366,8 @@ app.patch("/api/leads/assignment", async (req, res) => {
       ? { $or: matchConditions }
       : { id: { $in: [...new Set(leadIds.flatMap((leadId) => getLeadIdCandidates(leadId)))] } };
 
+    const leadsToUpdate = await leadsCollection.find(query).toArray();
+
     const result = await leadsCollection.updateMany(
       query,
       { $set: { counselor } }
@@ -2268,6 +2375,56 @@ app.patch("/api/leads/assignment", async (req, res) => {
 
     if (!result.modifiedCount) {
       return res.status(404).json({ message: "No matching leads were assigned." });
+    }
+
+    // Trigger notifications for reassigned leads
+    const counselorsList = await counselorsCollection.find({}).toArray();
+    const counselorEmailByName = new Map();
+    counselorsList.forEach(c => {
+      if (c.name && c.email) {
+        counselorEmailByName.set(c.name.toLowerCase().trim(), c.email.toLowerCase().trim());
+      }
+    });
+
+    for (const lead of leadsToUpdate) {
+      const oldCounselor = String(lead.counselor || "").trim();
+      const newCounselor = String(counselor).trim();
+      
+      if (oldCounselor.toLowerCase() !== newCounselor.toLowerCase()) {
+        const oldCounselorEmail = counselorEmailByName.get(oldCounselor.toLowerCase());
+        const newCounselorEmail = counselorEmailByName.get(newCounselor.toLowerCase());
+
+        if (oldCounselorEmail && oldCounselor.toLowerCase() !== "unassigned") {
+          await createNotification({
+            userId: oldCounselorEmail,
+            role: "counselor",
+            type: "lead_transferred_from",
+            title: "Lead Transferred",
+            message: `Lead ${lead.name} has been transferred to ${newCounselor}.`,
+            sound: true,
+            leadId: lead.id,
+            leadName: lead.name,
+            toCounselor: newCounselor
+          });
+        }
+
+        if (newCounselorEmail && newCounselor.toLowerCase() !== "unassigned") {
+          const hasOldCounselor = oldCounselor && oldCounselor.toLowerCase() !== "unassigned";
+          await createNotification({
+            userId: newCounselorEmail,
+            role: "counselor",
+            type: "lead_transferred_to",
+            title: hasOldCounselor ? "Lead Transferred to You" : "New Lead Received",
+            message: hasOldCounselor
+              ? `You received lead ${lead.name} from ${oldCounselor}.`
+              : `You received new lead ${lead.name}.`,
+            sound: true,
+            leadId: lead.id,
+            leadName: lead.name,
+            fromCounselor: hasOldCounselor ? oldCounselor : null
+          });
+        }
+      }
     }
 
     const now = new Date().toISOString();
@@ -2865,6 +3022,37 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
     counselor: counselorName,
     campaignName: newLead.metaCampaignName
   });
+
+  await createNotification({
+    userId: "admin",
+    role: "admin",
+    type: "new_meta_lead",
+    title: "Lead Received",
+    message: `Lead: ${newLead.name}. Assigned counselor: ${counselorName}`,
+    sound: true,
+    leadId: nextId,
+    leadName: newLead.name,
+    assignedCounselor: counselorName
+  });
+
+  if (counselorName && counselorName.toLowerCase() !== "unassigned") {
+    const escapedName = counselorName.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+    const counselorDoc = await counselorsCollection.findOne({
+      name: { $regex: new RegExp(`^${escapedName}$`, "i") }
+    });
+    if (counselorDoc && counselorDoc.email) {
+      await createNotification({
+        userId: counselorDoc.email,
+        role: "counselor",
+        type: "new_lead",
+        title: "New Lead Received",
+        message: `You received new lead ${newLead.name}.`,
+        sound: true,
+        leadId: nextId,
+        leadName: newLead.name
+      });
+    }
+  }
 }
 
 async function processPendingMetaRetryJobs({ limit = 3 } = {}) {
