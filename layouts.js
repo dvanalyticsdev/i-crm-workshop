@@ -2,6 +2,17 @@ import { runPageCleanup } from "./page-runtime.js";
 import { bindThemeControls, initThemeSystem } from "./theme.js";
 import { bootstrapLocalState, getSession, getStateField, logout, refreshSession, refreshState, awaitPendingMutations } from "./state-sync.js";
 import { startPingMonitor, mountPingPill } from "./ping-monitor.js";
+const SYSTEM_UI_VERSION = "v2.0";
+if (localStorage.getItem("dv_crm_ui_version") !== SYSTEM_UI_VERSION) {
+  localStorage.setItem("dv_crm_ui_version", SYSTEM_UI_VERSION);
+  localStorage.setItem("show_welcome_intro", "true");
+  try {
+    await logout();
+  } catch (e) {
+    console.warn("Logout failed during version upgrade reset:", e);
+  }
+  window.location.href = "index.html";
+}
 
 let currentRoute = window.location.pathname.split("/").pop() || "dashboard.html";
 let activeSession = null;
