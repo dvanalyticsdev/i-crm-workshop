@@ -8,9 +8,9 @@
   --surface-overlay: #ffffff;
   --border: #e8e8e8;
   --border-strong: #dfdfdf;
-  --text: #444444;
-  --text-muted: #9b9b9b;
-  --heading: #222222;
+  --text: #000000;
+  --text-muted: #000000;
+  --heading: #000000;
   --primary: #e05322;
   --primary-soft: rgba(224, 83, 34, 0.08);
   --primary-gradient: #e05322;
@@ -20,9 +20,9 @@
   --success-soft: rgba(76, 175, 80, 0.08);
   --danger: #df514c;
   --danger-soft: rgba(223, 81, 76, 0.08);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 2px 5px rgba(0, 0, 0, 0.1);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.02);
+  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.06), 0 4px 8px rgba(0, 0, 0, 0.02);
   --chart-1: #e05322;
   --chart-2: #3b82f6;
   --chart-3: #4caf50;
@@ -80,9 +80,9 @@ html[data-theme="dark"] {
   --success-soft: rgba(0, 184, 82, 0.1);
   --danger: #ff5722;
   --danger-soft: rgba(255, 87, 34, 0.1);
-  --shadow-sm: none;
-  --shadow-md: none;
-  --shadow-lg: none;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 36px rgba(0, 0, 0, 0.6);
   --chart-1: #f05a28;
   --chart-2: #5cc8ff;
   --chart-3: #00b852;
@@ -163,7 +163,7 @@ a {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  box-shadow: none;
+  box-shadow: var(--shadow-md);
 }
 
 /* Login */
@@ -182,7 +182,7 @@ a {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
   background: var(--surface);
-  box-shadow: none;
+  box-shadow: var(--shadow-lg);
   position: relative;
 }
 
@@ -2255,7 +2255,6 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
 .meta-section-title p {
   margin: 0;
   font-size: 0.8rem;
-  opacity: 0.65;
   margin-top: 2px;
   color: var(--text-muted);
 }
@@ -2310,7 +2309,6 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
 }
 .status-pill__label {
   font-size: 0.72rem;
-  opacity: 0.65;
   line-height: 1;
   color: var(--text-muted);
 }
@@ -2378,7 +2376,6 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
 .setup-step__desc {
   font-size: 0.83rem;
   line-height: 1.65;
-  opacity: 0.85;
 }
 .setup-step__desc code {
   background: var(--surface-muted);
@@ -2426,7 +2423,6 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
 }
 .field-hint {
   font-size: 0.78rem;
-  opacity: 0.65;
   margin: 0.2rem 0 0;
   line-height: 1.5;
   color: var(--text-muted);
@@ -2522,7 +2518,6 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
 }
 .enable-row__hint {
   font-size: 0.78rem;
-  opacity: 0.65;
   color: var(--text-muted);
 }
 .switch {
@@ -2598,7 +2593,6 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
 }
 .rr-kpi__label {
   font-size: 0.75rem;
-  opacity: 0.65;
   font-weight: 500;
   color: var(--text-muted);
 }
@@ -2609,7 +2603,6 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
 }
 .rr-kpi__sub {
   font-size: 0.75rem;
-  opacity: 0.55;
   color: var(--text-muted);
 }
 .rr-roster {
@@ -2642,7 +2635,6 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
 }
 .rr-roster-person span {
   font-size: 0.78rem;
-  opacity: 0.65;
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2729,7 +2721,6 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  opacity: 0.65;
   color: var(--text-muted);
 }
 .log-summary-card__value {
@@ -2811,7 +2802,6 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
   font-size: 0.74rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  opacity: 0.65;
   color: var(--text-muted);
 }
 .retry-badge {
@@ -2859,7 +2849,6 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  opacity: 0.65;
   position: sticky;
   top: 0;
   background: var(--surface-muted);
