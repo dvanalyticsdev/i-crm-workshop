@@ -810,6 +810,88 @@ function assignWorkshopExtraSlots(workshopConfigs, activeCounselors, counselorEx
   return optionalAssignments;
 }
 
+function buildCounselorOptionalExtraTargetCandidates(workshopConfigs, activeCounselors, totalWorkshopExtras) {
+  if (!activeCounselors.length) {
+    return [];
+  }
+
+  const mandatoryExtraTotals = new Map(activeCounselors.map((name) => [name, 0]));
+  workshopConfigs.forEach((config) => {
+    activeCounselors.forEach((counselorName) => {
+      mandatoryExtraTotals.set(
+        counselorName,
+        (mandatoryExtraTotals.get(counselorName) || 0) + (config.mandatoryExtras.get(counselorName) || 0)
+      );
+    });
+  });
+
+  const baseExtraTarget = Math.floor(totalWorkshopExtras / activeCounselors.length);
+  const extraTargetRemainder = totalWorkshopExtras % activeCounselors.length;
+  const maxExtraTarget = baseExtraTarget + (extraTargetRemainder > 0 ? 1 : 0);
+  if ([...mandatoryExtraTotals.values()].some((count) => count > maxExtraTarget)) {
+    return [];
+  }
+
+  const requiredHighCounselors = [];
+  const optionalHighCounselors = [];
+  activeCounselors.forEach((counselorName) => {
+    const mandatoryCount = mandatoryExtraTotals.get(counselorName) || 0;
+    if (mandatoryCount > baseExtraTarget) {
+      requiredHighCounselors.push(counselorName);
+    } else {
+      optionalHighCounselors.push(counselorName);
+    }
+  });
+
+  if (requiredHighCounselors.length > extraTargetRemainder) {
+    return [];
+  }
+
+  const extraHighSlots = extraTargetRemainder - requiredHighCounselors.length;
+  const candidates = [];
+  const sortedOptionalHighCounselors = [...optionalHighCounselors].sort((left, right) => {
+    const mandatoryDelta = (mandatoryExtraTotals.get(right) || 0) - (mandatoryExtraTotals.get(left) || 0);
+    if (mandatoryDelta !== 0) {
+      return mandatoryDelta;
+    }
+    return left.localeCompare(right);
+  });
+
+  function visit(index, chosen) {
+    if (chosen.length === extraHighSlots) {
+      const highCounselors = new Set([...requiredHighCounselors, ...chosen]);
+      const optionalTargets = new Map();
+      activeCounselors.forEach((counselorName) => {
+        const finalExtraTarget = highCounselors.has(counselorName) ? baseExtraTarget + 1 : baseExtraTarget;
+        optionalTargets.set(
+          counselorName,
+          Math.max(0, finalExtraTarget - (mandatoryExtraTotals.get(counselorName) || 0))
+        );
+      });
+      candidates.push(optionalTargets);
+      return;
+    }
+
+    if (index >= sortedOptionalHighCounselors.length) {
+      return;
+    }
+
+    const remaining = sortedOptionalHighCounselors.length - index;
+    const needed = extraHighSlots - chosen.length;
+    if (remaining < needed) {
+      return;
+    }
+
+    chosen.push(sortedOptionalHighCounselors[index]);
+    visit(index + 1, chosen);
+    chosen.pop();
+    visit(index + 1, chosen);
+  }
+
+  visit(0, []);
+  return candidates;
+}
+
 function validateBalancedSuggestionTargets(activeCounselors, targetCounts, totalLeads) {
   if (!activeCounselors.length) {
     return "";
@@ -1001,11 +1083,14 @@ function getOverallLeadBalanceData(leads) {
     totalWorkshopExtras += remainder;
   }
 
-  const optionalAssignments = assignWorkshopExtraSlots(
+  const optionalAssignmentTargetCandidates = buildCounselorOptionalExtraTargetCandidates(
     workshopConfigs,
     activeCounselors,
-    new Map(activeCounselors.map((name) => [name, Math.ceil(totalWorkshopExtras / activeCounselors.length)]))
+    totalWorkshopExtras
   );
+  const optionalAssignments = optionalAssignmentTargetCandidates
+    .map((counselorExtraTargets) => assignWorkshopExtraSlots(workshopConfigs, activeCounselors, counselorExtraTargets))
+    .find(Boolean);
 
   if (!optionalAssignments) {
     return {

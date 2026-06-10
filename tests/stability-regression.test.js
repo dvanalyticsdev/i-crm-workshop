@@ -9,6 +9,29 @@ function read(file) {
   return fs.readFileSync(path.join(root, file), "utf8");
 }
 
+function getNamedFunctionSource(source, name) {
+  const start = source.indexOf(`function ${name}(`);
+  assert.notEqual(start, -1, `${name} should exist`);
+
+  let braceIndex = source.indexOf("{", start);
+  assert.notEqual(braceIndex, -1, `${name} should have a body`);
+
+  let depth = 0;
+  for (let index = braceIndex; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(start, index + 1);
+      }
+    }
+  }
+
+  assert.fail(`Could not extract ${name}`);
+}
+
 function countMatches(source, pattern) {
   return Array.from(source.matchAll(pattern)).length;
 }
@@ -90,6 +113,69 @@ test("lead-control includes smart assignment suggestion panel", () => {
   assert.match(leadControl, /validateBalancedSuggestionTargets/);
   assert.match(leadControl, /validateSuggestionOutcome/);
   assert.doesNotMatch(leadControl, /buildBestEffortBalanceData/);
+});
+
+test("smart assignment extra-slot planning stays balanced when touched leads force mandatory extras", async () => {
+  const leadControl = read("lead-control.js");
+  const source = [
+    getNamedFunctionSource(leadControl, "assignWorkshopExtraSlots"),
+    getNamedFunctionSource(leadControl, "buildCounselorOptionalExtraTargetCandidates")
+  ].join("\n\n");
+
+  const factory = new Function(`${source}; return { assignWorkshopExtraSlots, buildCounselorOptionalExtraTargetCandidates };`);
+  const { assignWorkshopExtraSlots, buildCounselorOptionalExtraTargetCandidates } = factory();
+
+  const activeCounselors = ["Bhavya", "Margesh", "Shubhashree"];
+  const workshopConfigs = [
+    {
+      workshopName: "W1",
+      remainingExtras: 0,
+      baseTarget: 1,
+      touchedCounts: new Map(activeCounselors.map((name) => [name, 0])),
+      mandatoryExtras: new Map([["Bhavya", 1], ["Margesh", 0], ["Shubhashree", 0]])
+    },
+    {
+      workshopName: "W2",
+      remainingExtras: 0,
+      baseTarget: 1,
+      touchedCounts: new Map(activeCounselors.map((name) => [name, 0])),
+      mandatoryExtras: new Map([["Bhavya", 1], ["Margesh", 0], ["Shubhashree", 0]])
+    },
+    ...["W3", "W4", "W5", "W6"].map((workshopName) => ({
+      workshopName,
+      remainingExtras: 1,
+      baseTarget: 1,
+      touchedCounts: new Map(activeCounselors.map((name) => [name, 0])),
+      mandatoryExtras: new Map(activeCounselors.map((name) => [name, 0]))
+    }))
+  ];
+
+  const candidates = buildCounselorOptionalExtraTargetCandidates(workshopConfigs, activeCounselors, 6);
+  assert.ok(candidates.length > 0, "should produce at least one balanced optional target plan");
+
+  const optionalAssignments = candidates
+    .map((candidate) => assignWorkshopExtraSlots(workshopConfigs, activeCounselors, candidate))
+    .find(Boolean);
+
+  assert.ok(optionalAssignments, "should find a feasible optional assignment plan");
+
+  const finalExtras = new Map(activeCounselors.map((name) => [name, 0]));
+  workshopConfigs.forEach((config) => {
+    activeCounselors.forEach((counselorName) => {
+      const mandatory = config.mandatoryExtras.get(counselorName) || 0;
+      const optional = optionalAssignments.get(config.workshopName)?.get(counselorName) || 0;
+      finalExtras.set(counselorName, finalExtras.get(counselorName) + mandatory + optional);
+    });
+  });
+
+  assert.deepEqual(
+    Object.fromEntries(activeCounselors.map((name) => [name, finalExtras.get(name)])),
+    {
+      Bhavya: 2,
+      Margesh: 2,
+      Shubhashree: 2
+    }
+  );
 });
 
 test("lead imports reject duplicates instead of merging", () => {
