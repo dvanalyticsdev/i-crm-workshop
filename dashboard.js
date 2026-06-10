@@ -222,6 +222,11 @@ function filterLeadsByTimeline(leads, range) {
 let trendChart;
 let workshopPieChart;
 
+function getCoreWorkshopName(workshopName) {
+  if (!workshopName) return "";
+  return String(workshopName).trim().replace(/[_\s]+(imp|od|ind)$/i, "").trim();
+}
+
 function renderCharts(leads, range) {
   const trendCanvas = document.getElementById("newLeadsTrendChart");
   const pieCanvas = document.getElementById("workshopBreakdownChart");
@@ -238,7 +243,8 @@ function renderCharts(leads, range) {
   });
 
   const workshopMap = leads.reduce((acc, lead) => {
-    acc[lead.workshop] = (acc[lead.workshop] || 0) + 1;
+    const coreName = getCoreWorkshopName(lead.workshop);
+    acc[coreName] = (acc[coreName] || 0) + 1;
     return acc;
   }, {});
 

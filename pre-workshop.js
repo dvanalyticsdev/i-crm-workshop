@@ -424,6 +424,16 @@ function normalizeSelectedFilterValue(value, options = null) {
   return normalized.length ? normalized : EMPTY_FILTER_VALUE;
 }
 
+function getCoreWorkshopName(workshopName) {
+  if (!workshopName) return "";
+  return String(workshopName).trim().replace(/[_\s]+(imp|od|ind)$/i, "").trim();
+}
+
+function getUniqueCoreWorkshops(leads) {
+  const coreNames = leads.map((lead) => getCoreWorkshopName(lead.workshop)).filter(Boolean);
+  return [...new Set(coreNames)];
+}
+
 function filterIncludesValue(filterValue, value) {
   const selected = getSelectedFilterValues(filterValue);
   if (!selected.length) {
@@ -431,8 +441,9 @@ function filterIncludesValue(filterValue, value) {
   }
 
   const normalizedValue = String(value || "").trim();
+  const isWorkshopFilter = (typeof filter !== "undefined" && filterValue === filter.workshop);
   return selected.some((item) => (
-    item === BLANK_FILTER_VALUE ? normalizedValue === "" : item === normalizedValue
+    item === BLANK_FILTER_VALUE ? normalizedValue === "" : (isWorkshopFilter ? getCoreWorkshopName(item) === getCoreWorkshopName(normalizedValue) : item === normalizedValue)
   ));
 }
 
@@ -637,7 +648,7 @@ function persistFilterState() {
 }
 
 function normalizeFilterState(leads) {
-  const workshops = getUniqueWorkshops(leads);
+  const workshops = getUniqueCoreWorkshops(leads);
   const counselorOptions = getActiveCounselorNames();
   const dialedOptions = getUniqueValues(leads, "dialed");
   const callStatusOptions = getUniqueValues(leads, "callStatus");
@@ -2341,7 +2352,6 @@ function filterLeads(leads) {
 }
 
 function renderKpis(leads) {
-  const workshops = getUniqueWorkshops(leads);
   const overall = leads.length;
 
   let html = `
@@ -2351,11 +2361,21 @@ function renderKpis(leads) {
     </article>
   `;
 
-  workshops.forEach((workshop) => {
-    const count = leads.filter((lead) => lead.workshop === workshop).length;
+  const coreWorkshopCounts = {};
+  leads.forEach((lead) => {
+    const coreName = getCoreWorkshopName(lead.workshop);
+    if (coreName) {
+      coreWorkshopCounts[coreName] = (coreWorkshopCounts[coreName] || 0) + 1;
+    }
+  });
+
+  const coreWorkshops = Object.keys(coreWorkshopCounts).sort((a, b) => a.localeCompare(b));
+
+  coreWorkshops.forEach((coreName) => {
+    const count = coreWorkshopCounts[coreName];
     html += `
       <article class="card kpi-card">
-        <p>${workshop}</p>
+        <p>${escapeHtml(coreName)}</p>
         <h2>${count}</h2>
       </article>
     `;
@@ -2365,7 +2385,7 @@ function renderKpis(leads) {
 }
 
 function renderFilters(leads) {
-  const workshops = getUniqueWorkshops(leads);
+  const workshops = getUniqueCoreWorkshops(leads);
   const counselorOptions = getActiveCounselorNames();
   const dialedOptions = getUniqueValues(leads, "dialed");
   const callStatusOptions = getUniqueValues(leads, "callStatus");

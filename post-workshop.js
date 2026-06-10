@@ -55,6 +55,16 @@ function isSelectedFilterValue(value) {
   return getSelectedFilterValues(value).length > 0;
 }
 
+function getCoreWorkshopName(workshopName) {
+  if (!workshopName) return "";
+  return String(workshopName).trim().replace(/[_\s]+(imp|od|ind)$/i, "").trim();
+}
+
+function getUniqueCoreWorkshops(leads) {
+  const coreNames = leads.map((lead) => getCoreWorkshopName(lead.workshop)).filter(Boolean);
+  return [...new Set(coreNames)];
+}
+
 function filterIncludesValue(filterValue, value) {
   const selected = getSelectedFilterValues(filterValue);
   if (!selected.length) {
@@ -62,8 +72,9 @@ function filterIncludesValue(filterValue, value) {
   }
 
   const normalizedValue = String(value || "").trim();
+  const isWorkshopFilter = (typeof filter !== "undefined" && filterValue === filter.workshop);
   return selected.some((item) => (
-    item === BLANK_FILTER_VALUE ? normalizedValue === "" : item === normalizedValue
+    item === BLANK_FILTER_VALUE ? normalizedValue === "" : (isWorkshopFilter ? getCoreWorkshopName(item) === getCoreWorkshopName(normalizedValue) : item === normalizedValue)
   ));
 }
 
@@ -508,7 +519,7 @@ function renderKpis(leads) {
 }
 
 function renderFilters(leads) {
-  const workshops = getUniqueValues(leads, "workshop");
+  const workshops = getUniqueCoreWorkshops(leads);
   const counselorOptions = [...new Set(
     leads
       .map((lead) => String(lead.counselor || "").trim())

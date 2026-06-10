@@ -265,12 +265,20 @@ function getPostLeads(allLeads) {
   return allLeads;
 }
 
+function getCoreWorkshopName(workshopName) {
+  if (!workshopName) return "";
+  return String(workshopName).trim().replace(/[_\s]+(imp|od|ind)$/i, "").trim();
+}
+
 function formatBreakdown(items, key, options = {}) {
   const { exclude = [] } = options;
   const counts = new Map();
 
   items.forEach((item) => {
-    const value = String(item[key] || "").trim();
+    let value = String(item[key] || "").trim();
+    if (key === "workshop") {
+      value = getCoreWorkshopName(value);
+    }
     if (!value || exclude.includes(value)) {
       return;
     }
