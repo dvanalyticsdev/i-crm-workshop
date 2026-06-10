@@ -32,6 +32,11 @@
   --chart-grid: rgba(148, 163, 184, 0.18);
   --toast-bg: rgba(15, 23, 42, 0.92);
   --toast-border: rgba(255, 255, 255, 0.12);
+  --notification-surface: rgba(255, 255, 255, 0.96);
+  --notification-border: rgba(148, 163, 184, 0.22);
+  --notification-divider: rgba(148, 163, 184, 0.16);
+  --notification-hover: rgba(30, 58, 138, 0.05);
+  --notification-shadow: 0 20px 40px rgba(15, 23, 42, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.65);
   --overlay: rgba(15, 23, 42, 0.42);
   --input-bg: rgba(255, 255, 255, 0.92);
   --input-border: rgba(148, 163, 184, 0.28);
@@ -87,6 +92,11 @@ html[data-theme="dark"] {
   --chart-grid: rgba(148, 163, 184, 0.14);
   --toast-bg: rgba(2, 6, 23, 0.94);
   --toast-border: rgba(148, 163, 184, 0.18);
+  --notification-surface: var(--toast-bg);
+  --notification-border: var(--toast-border);
+  --notification-divider: rgba(255, 255, 255, 0.08);
+  --notification-hover: rgba(255, 255, 255, 0.03);
+  --notification-shadow: 0 20px 40px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   --overlay: rgba(2, 6, 23, 0.7);
   --input-bg: rgba(8, 13, 24, 0.78);
   --input-border: rgba(148, 163, 184, 0.18);
@@ -2051,9 +2061,9 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
 .notification-toast {
   width: 380px;
   max-width: 90vw;
-  background: var(--toast-bg);
-  border: 1px solid var(--toast-border);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  background: var(--notification-surface);
+  border: 1px solid var(--notification-border);
+  box-shadow: var(--notification-shadow);
   border-radius: 12px;
   padding: 16px;
   display: flex;
@@ -2083,7 +2093,7 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--notification-divider);
   padding-bottom: 6px;
 }
 
@@ -2199,10 +2209,10 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
   right: 0;
   width: 320px;
   max-height: 400px;
-  background: var(--toast-bg);
-  border: 1px solid var(--toast-border);
+  background: var(--notification-surface);
+  border: 1px solid var(--notification-border);
   border-radius: 12px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  box-shadow: var(--notification-shadow);
   display: flex;
   flex-direction: column;
   z-index: 11000;
@@ -2218,7 +2228,7 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
 
 .dropdown-header {
   padding: 12px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--notification-divider);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -2261,7 +2271,7 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
 
 .dropdown-item {
   padding: 12px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--notification-divider);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -2271,7 +2281,7 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
 }
 
 .dropdown-item:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--notification-hover);
 }
 
 .dropdown-item-header {
