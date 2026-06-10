@@ -103,6 +103,11 @@ let counselorsCollection;
 let tasksCollection;
 let allocationCollection;
 let notificationsCollection;
+
+function logNotificationDebug(message, extra) {
+  const payload = extra === undefined ? "" : ` ${JSON.stringify(extra)}`;
+  console.log(`[notifications] ${message}${payload}`);
+}
 let mongoClient;
 let mongoInitPromise;
 let cachedStateDoc    = null;
@@ -2015,8 +2020,9 @@ app.put("/api/preferences/:scope", async (req, res) => {
 
 async function createNotification({ userId, role, type, title, message, sound = false, leadId = null, leadName = null, assignedCounselor = null, fromCounselor = null, toCounselor = null }) {
   try {
-    fs.appendFileSync("c:\\DV Projects\\i-crm-workshop\\server-debug.log", `[${new Date().toISOString()}] createNotification called: ${JSON.stringify({ userId, role, type, title })}\n`);
-    
+    await initMongo();
+    logNotificationDebug("createNotification called", { userId, role, type, title });
+
     const notification = {
       id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
       userId: String(userId).toLowerCase().trim(),
@@ -2036,24 +2042,25 @@ async function createNotification({ userId, role, type, title, message, sound = 
     };
 
     if (!notificationsCollection) {
-      fs.appendFileSync("c:\\DV Projects\\i-crm-workshop\\server-debug.log", `[${new Date().toISOString()}] Warning: notificationsCollection is undefined!\n`);
+      throw new Error("Notifications collection is not initialized.");
     }
 
-    const inserted = await withMongoRetry(
+    await withMongoRetry(
       () => notificationsCollection.insertOne(notification),
       { retries: 1, label: "Create notification record" }
     );
-    
-    fs.appendFileSync("c:\\DV Projects\\i-crm-workshop\\server-debug.log", `[${new Date().toISOString()}] Notification inserted successfully: ${JSON.stringify(inserted)}\n`);
+
+    logNotificationDebug("Notification inserted successfully", { id: notification.id, userId: notification.userId });
     return notification;
   } catch (error) {
-    fs.appendFileSync("c:\\DV Projects\\i-crm-workshop\\server-debug.log", `[${new Date().toISOString()}] Error in createNotification: ${error.stack}\n`);
+    console.error("[notifications] Error in createNotification:", error);
     console.error("Failed to create notification:", error.message);
   }
 }
 
 app.get("/api/notifications", async (req, res) => {
   try {
+    await initMongo();
     const activeSession = await getSessionFromRequest(req);
     if (!activeSession) {
       return res.status(401).json({ message: "No active session." });
@@ -2092,6 +2099,7 @@ app.get("/api/notifications", async (req, res) => {
 
 app.post("/api/notifications/read", async (req, res) => {
   try {
+    await initMongo();
     const activeSession = await getSessionFromRequest(req);
     if (!activeSession) {
       return res.status(401).json({ message: "No active session." });
