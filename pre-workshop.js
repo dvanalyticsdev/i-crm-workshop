@@ -426,6 +426,24 @@ function normalizeSelectedFilterValue(value, options = null) {
 
 function getCoreWorkshopName(workshopName) {
   if (!workshopName) return "";
+  const name = String(workshopName).toLowerCase();
+  
+  if (name.includes("gen") && name.includes("11")) {
+    return "Gen AI Workshop 11th June";
+  }
+  if (name.includes("python") && name.includes("20")) {
+    return "Python Workshop 20th June";
+  }
+  if (name.includes("powe") && name.includes("27")) {
+    return "Power BI Workshop 27th June";
+  }
+  if (name.includes("cyber") && name.includes("21")) {
+    return "Cyber AI Workshop 21st June";
+  }
+  if (name.includes("sql") && name.includes("13")) {
+    return "SQL Workshop 13th June";
+  }
+  
   return String(workshopName).trim().replace(/[_\s]+(imp|od|ind)$/i, "").trim();
 }
 
