@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lead & Data Control</title>
+  <link rel="icon" type="image/png" href="Logos/DV-Logo.png" />
+  <script src="theme-bootstrap.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="dashboard-body">
+  <div class="layout-root">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="icrm-logo-wrap">
+          <div class="icrm-text-wrap">
+            <span class="icrm-logo-text">i-CRM</span>
+          </div>
+          <div class="icrm-dv-badge">
+            <span class="icrm-dv-by">by</span>
+            <img src="Logos/DV-Logo.png" alt="DV Analytics" class="icrm-dv-img" />
+          </div>
+        </div>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="dashboard.html" class="sidebar-link">Dashboard</a>
+        <a href="pre-workshop.html" class="sidebar-link">Workshop Calling</a>
+        <a href="post-workshop.html" class="sidebar-link">Admission Calling</a>
+        <a href="task-tracker.html" class="sidebar-link" data-counselor-only="true">Task Tracker</a>
+        <a href="lost-leads.html" class="sidebar-link">Lost Leads</a>
+        <a href="monitoring.html" class="sidebar-link">Monitoring</a>
+      </nav>
+      <div class="sidebar-bottom-links" style="display:flex;flex-direction:column;gap:0;">
+        <a href="counselor-management.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Counselor Management</a>
+        <a href="lead-control.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Lead & Data Control</a>
+        <a href="meta-integration.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Meta Integration</a>
+      </div>
+    </aside>
+
+    <div class="main-content">
+      <header class="topbar">
+        <div class="topbar-title">
+          <h1>Lead & Data Control</h1>
+          <p>Import leads, allocate counselors, cleanup data, and manage backups.</p>
+        </div>
+        <div class="topbar-profile">
+          <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">
+            <span class="theme-toggle__stack" aria-hidden="true">
+              <span class="theme-toggle__icon theme-toggle__icon--sun" aria-hidden="true">
+                <svg viewBox="0 0 24 24" role="presentation" focusable="false">
+                  <circle cx="12" cy="12" r="4.5"></circle>
+                  <path d="M12 1.8v2.4M12 19.8v2.4M4.2 4.2l1.7 1.7M18.1 18.1l1.7 1.7M1.8 12h2.4M19.8 12h2.4M4.2 19.8l1.7-1.7M18.1 5.9l1.7-1.7"></path>
+                </svg>
+              </span>
+              <span class="theme-toggle__icon theme-toggle__icon--moon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" role="presentation" focusable="false">
+                  <path d="M20.2 14.7A8.2 8.2 0 0 1 9.3 3.8a8.5 8.5 0 1 0 10.9 10.9Z"></path>
+                </svg>
+              </span>
+            </span>
+            <span class="theme-toggle__label" data-theme-label>Light</span>
+          </button>
+          <span class="role-tag" data-role-tag></span>
+          <button data-logout class="btn-ghost" type="button">Log out</button>
+        </div>
+      </header>
+
+      <section class="card admin-panel hidden" id="adminImportPanel" data-admin-only="true">
+        <div class="card-head">
+          <h3>Lead Import & Counselor Allocation</h3>
+          <p>Upload leads and auto-assign counselors using percentage allocation.</p>
+        </div>
+
+        <div class="import-grid">
+          <div class="import-block">
+            <h4>Lead Import</h4>
+            <p class="block-help">Supported formats: .xlsx, .csv</p>
+            <input id="leadImportFile" type="file" accept=".xlsx,.csv" />
+            <button id="importLeadsBtn" type="button" class="btn-primary">Import Leads</button>
+          </div>
+
+          <div class="import-block">
+            <h4>Import Summary</h4>
+            <div class="import-summary" id="importSummary">
+              <p>Total Leads Imported: 0</p>
+              <p>Successful Imports: 0</p>
+              <p>Failed Entries: 0</p>
+            </div>
+            <p id="importMessage" class="message" aria-live="polite"></p>
+          </div>
+        </div>
+
+        <div class="allocation-block">
+          <div class="card-head">
+            <h4>Counselor Allocation</h4>
+            <p>Total allocation must be 100%</p>
+          </div>
+          <div id="allocationRows" class="allocation-rows"></div>
+          <div class="allocation-actions">
+            <button id="saveAllocationBtn" type="button" class="btn-ghost">Save Allocation</button>
+          </div>
+          <p id="allocationMessage" class="message" aria-live="polite"></p>
+        </div>
+
+        <div class="allocation-block">
+          <div class="card-head">
+            <h4>Lead Data Cleanup</h4>
+            <p>Use these actions to remove stored lead data when needed.</p>
+          </div>
+          <div class="allocation-actions cleanup-actions">
+            <button id="deleteAllLeadsBtn" type="button" class="btn-ghost">Delete Whole Lead Dataset</button>
+            <button id="deleteLostLeadsBtn" type="button" class="btn-ghost">Delete Lost Leads</button>
+          </div>
+          <div class="cleanup-file-actions">
+            <select id="deleteImportedFileSelect" class="cleanup-file-select">
+              <option value="">No imported files found</option>
+            </select>
+            <button id="deleteImportedFileBtn" type="button" class="btn-ghost">Delete File Import</button>
+          </div>
+          <p class="block-help">Deletes every lead tagged with the selected uploaded file.</p>
+          <p id="cleanupMessage" class="message" aria-live="polite"></p>
+        </div>
+
+        <div class="allocation-block">
+          <div class="card-head">
+            <h4>Manual Backup & Recovery</h4>
+            <p>Download a full admin backup snapshot and restore the CRM to that exact saved state when needed.</p>
+          </div>
+          <div class="allocation-actions cleanup-actions">
+            <button id="exportBackupBtn" type="button" class="btn-ghost">Download Backup Snapshot</button>
+          </div>
+          <div class="cleanup-file-actions">
+            <input id="restoreBackupFile" class="cleanup-file-select" type="file" accept=".json,application/json" />
+            <button id="restoreBackupBtn" type="button" class="btn-ghost">Restore Backup Snapshot</button>
+          </div>
+          <p class="block-help">Restore fully replaces the stored CRM backup collections with the uploaded snapshot.</p>
+          <p id="backupMessage" class="message" aria-live="polite"></p>
+        </div>
+
+        <div class="allocation-block">
+          <div class="card-head">
+            <h4>Smart Assignment Suggestions</h4>
+            <p>Analyze total counselor load and rebalance all leads evenly across the team.</p>
+          </div>
+          <div class="suggestion-toolbar">
+            <button id="applyAllAssignmentSuggestionsBtn" type="button" class="btn-ghost">Apply All Suggestions</button>
+          </div>
+          <div id="assignmentSuggestionSummary" class="suggestion-summary"></div>
+          <div id="assignmentSuggestionList" class="suggestion-list"></div>
+          <p id="assignmentSuggestionMessage" class="message" aria-live="polite"></p>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script type="module" src="lead-control.js"></script>
+  <script type="module" src="layouts.js"></script>
+</body>
+</html>

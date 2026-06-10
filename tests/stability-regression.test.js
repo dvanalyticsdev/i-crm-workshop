@@ -73,32 +73,32 @@ test("bulk assignment uses full lead identity references", () => {
   assert.match(server, /const leadRefs = Array\.isArray\(req\.body\?\.leadRefs\)/);
 });
 
-test("pre-workshop includes smart assignment suggestion panel", () => {
-  const preWorkshopHtml = read("pre-workshop.html");
-  const preWorkshop = read("pre-workshop.js");
+test("lead-control includes smart assignment suggestion panel", () => {
+  const leadControlHtml = read("lead-control.html");
+  const leadControl = read("lead-control.js");
   const styles = read("styles.css");
 
-  assert.match(preWorkshopHtml, /applyAllAssignmentSuggestionsBtn/);
-  assert.match(preWorkshop, /function renderAssignmentSuggestionPanel/);
-  assert.match(preWorkshop, /function applyAllAssignmentSuggestions/);
-  assert.match(preWorkshop, /function getOverallLeadBalanceData/);
-  assert.match(preWorkshop, /Total Reassignments/);
-  assert.match(preWorkshop, /isUntouchedLead\(lead\)/);
-  assert.match(preWorkshop, /externalTouchedWorkshopCounts/);
-  assert.match(preWorkshop, /suggestion\.workshopName/);
+  assert.match(leadControlHtml, /applyAllAssignmentSuggestionsBtn/);
+  assert.match(leadControl, /function renderAssignmentSuggestionPanel/);
+  assert.match(leadControl, /function applyAllAssignmentSuggestions/);
+  assert.match(leadControl, /function getOverallLeadBalanceData/);
+  assert.match(leadControl, /Total Reassignments/);
+  assert.match(leadControl, /isUntouchedLead\(lead\)/);
+  assert.match(leadControl, /externalTouchedWorkshopCounts/);
+  assert.match(leadControl, /suggestion\.workshopName/);
   assert.match(styles, /\.suggestion-overview/);
-  assert.match(preWorkshop, /validateBalancedSuggestionTargets/);
-  assert.match(preWorkshop, /validateSuggestionOutcome/);
-  assert.doesNotMatch(preWorkshop, /buildBestEffortBalanceData/);
+  assert.match(leadControl, /validateBalancedSuggestionTargets/);
+  assert.match(leadControl, /validateSuggestionOutcome/);
+  assert.doesNotMatch(leadControl, /buildBestEffortBalanceData/);
 });
 
 test("lead imports reject duplicates instead of merging", () => {
-  const preWorkshop = read("pre-workshop.js");
+  const leadControl = read("lead-control.js");
   const server = read("server.js");
 
-  assert.match(preWorkshop, /leadIndexByPhone/);
-  assert.match(preWorkshop, /Duplicate .* already exists/);
-  assert.doesNotMatch(getFunctionBody(preWorkshop, "handleLeadImport"), /mergeImportedLead\(/);
+  assert.match(leadControl, /leadIndexByPhone/);
+  assert.match(leadControl, /Duplicate .* already exists/);
+  assert.doesNotMatch(getFunctionBody(leadControl, "handleLeadImport"), /mergeImportedLead\(/);
   assert.match(server, /findLeadDuplicateViolation/);
   assert.match(server, /findDuplicateLeadByEmailOrPhone/);
   assert.match(server, /Duplicate lead rejected: \$\{duplicateViolation\.field\} already exists\./);
@@ -157,18 +157,18 @@ test("lead action buttons escape lead ids before binding click handlers", () => 
   assert.match(postWorkshop, /Could not open this lead/);
 });
 
-test("admin manual backup and restore controls exist on workshop management", () => {
-  const preWorkshopHtml = read("pre-workshop.html");
-  const preWorkshop = read("pre-workshop.js");
+test("admin manual backup and restore controls exist on lead control management", () => {
+  const leadControlHtml = read("lead-control.html");
+  const leadControl = read("lead-control.js");
   const server = read("server.js");
 
-  assert.match(preWorkshopHtml, /exportBackupBtn/);
-  assert.match(preWorkshopHtml, /restoreBackupFile/);
-  assert.match(preWorkshopHtml, /restoreBackupBtn/);
-  assert.match(preWorkshop, /function downloadManualBackup\(/);
-  assert.match(preWorkshop, /function restoreManualBackup\(/);
-  assert.match(preWorkshop, /apiUrl\("\/api\/admin\/backup"\)/);
-  assert.match(preWorkshop, /apiUrl\("\/api\/admin\/restore"\)/);
+  assert.match(leadControlHtml, /exportBackupBtn/);
+  assert.match(leadControlHtml, /restoreBackupFile/);
+  assert.match(leadControlHtml, /restoreBackupBtn/);
+  assert.match(leadControl, /function downloadManualBackup\(/);
+  assert.match(leadControl, /function restoreManualBackup\(/);
+  assert.match(leadControl, /apiUrl\("\/api\/admin\/backup"\)/);
+  assert.match(leadControl, /apiUrl\("\/api\/admin\/restore"\)/);
   assert.match(server, /const BACKUP_FORMAT = "dv-crm-manual-backup"/);
   assert.match(server, /app\.get\("\/api\/admin\/backup"/);
   assert.match(server, /app\.post\("\/api\/admin\/restore"/);

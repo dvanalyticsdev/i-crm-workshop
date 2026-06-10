@@ -153,7 +153,7 @@ function enforceAccess(session) {
   }
 
   if (
-    (currentRoute === "counselor-management.html" || currentRoute === "meta-integration.html") &&
+    (currentRoute === "counselor-management.html" || currentRoute === "meta-integration.html" || currentRoute === "lead-control.html") &&
     session.role !== "admin"
   ) {
     const fallback =
