@@ -2058,6 +2058,14 @@ async function createNotification({ userId, role, type, title, message, sound = 
   }
 }
 
+function formatLeadNotificationLabel(lead) {
+  const leadName = String(lead?.name || "").trim() || "Unknown lead";
+  const workshopName = String(lead?.workshop || "").trim();
+  return workshopName
+    ? `${leadName} (${workshopName})`
+    : leadName;
+}
+
 app.get("/api/notifications", async (req, res) => {
   try {
     await initMongo();
@@ -2397,6 +2405,7 @@ app.patch("/api/leads/assignment", async (req, res) => {
     for (const lead of leadsToUpdate) {
       const oldCounselor = String(lead.counselor || "").trim();
       const newCounselor = String(counselor).trim();
+      const leadLabel = formatLeadNotificationLabel(lead);
       
       if (oldCounselor.toLowerCase() !== newCounselor.toLowerCase()) {
         const oldCounselorEmail = counselorEmailByName.get(oldCounselor.toLowerCase());
@@ -2408,7 +2417,7 @@ app.patch("/api/leads/assignment", async (req, res) => {
             role: "counselor",
             type: "lead_transferred_from",
             title: "Lead Transferred",
-            message: `Lead ${lead.name} has been transferred to ${newCounselor}.`,
+            message: `Lead ${leadLabel} has been transferred to ${newCounselor}.`,
             sound: true,
             leadId: lead.id,
             leadName: lead.name,
@@ -2424,8 +2433,8 @@ app.patch("/api/leads/assignment", async (req, res) => {
             type: "lead_transferred_to",
             title: hasOldCounselor ? "Lead Transferred to You" : "New Lead Received",
             message: hasOldCounselor
-              ? `You received lead ${lead.name} from ${oldCounselor}.`
-              : `You received new lead ${lead.name}.`,
+              ? `You received lead ${leadLabel} from ${oldCounselor}.`
+              : `You received new lead ${leadLabel}.`,
             sound: true,
             leadId: lead.id,
             leadName: lead.name,
@@ -3036,7 +3045,7 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
     role: "admin",
     type: "new_meta_lead",
     title: "Lead Received",
-    message: `Lead: ${newLead.name}. Assigned counselor: ${counselorName}`,
+    message: `Lead: ${formatLeadNotificationLabel(newLead)}. Assigned counselor: ${counselorName}`,
     sound: true,
     leadId: nextId,
     leadName: newLead.name,
@@ -3054,7 +3063,7 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
         role: "counselor",
         type: "new_lead",
         title: "New Lead Received",
-        message: `You received new lead ${newLead.name}.`,
+        message: `You received new lead ${formatLeadNotificationLabel(newLead)}.`,
         sound: true,
         leadId: nextId,
         leadName: newLead.name
