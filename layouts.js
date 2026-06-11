@@ -89,11 +89,32 @@ function warmSidebarRoutes() {
   }
 }
 
+function getSessionIdentityLabel(session) {
+  const name = String(session?.name || "").trim();
+  if (name) {
+    return name;
+  }
+
+  if (session?.role === "admin") return "Admin";
+  if (session?.role === "marketing") return "Marketing";
+  return "Counselor";
+}
+
+function streamlineTopbarProfile() {
+  const profileContainers = document.querySelectorAll(".topbar-profile");
+  profileContainers.forEach((container) => {
+    container.querySelectorAll("[data-theme-toggle], [data-logout], .header-menu-wrap").forEach((element) => {
+      element.remove();
+    });
+  });
+}
+
 function hydrateRoleTag(session) {
   const roleTags = document.querySelectorAll("[data-role-tag]");
-  const text = session?.role === "admin" ? "Admin" : session?.role === "marketing" ? "Marketing" : "Counselor";
+  const text = getSessionIdentityLabel(session);
   roleTags.forEach((tag) => {
     tag.textContent = text;
+    tag.setAttribute("title", text);
   });
 }
 
@@ -204,10 +225,73 @@ function enforceAccess(session) {
 function bindLogout() {
   const buttons = document.querySelectorAll("[data-logout]");
   buttons.forEach((button) => {
+    if (button.dataset.logoutBound === "true") {
+      return;
+    }
+
+    button.dataset.logoutBound = "true";
     button.addEventListener("click", async () => {
       await logout();
       window.location.href = "index.html";
     });
+  });
+}
+
+function injectHeaderMenu() {
+  const profileContainer = document.querySelector(".topbar-profile");
+  if (!profileContainer || profileContainer.querySelector("#header-menu-btn")) return;
+
+  const menuWrap = document.createElement("div");
+  menuWrap.className = "header-menu-wrap";
+  menuWrap.innerHTML = `
+    <button type="button" id="header-menu-btn" class="header-menu-btn" aria-label="Open header menu" aria-haspopup="true" aria-expanded="false">
+      <span class="header-menu-btn__line" aria-hidden="true"></span>
+      <span class="header-menu-btn__line" aria-hidden="true"></span>
+      <span class="header-menu-btn__line" aria-hidden="true"></span>
+    </button>
+    <div id="header-menu-dropdown" class="header-menu-dropdown hidden">
+      <div class="header-menu-section">
+        <button type="button" class="theme-toggle theme-toggle--menu" data-theme-toggle aria-pressed="false">
+          <span class="theme-toggle__stack" aria-hidden="true">
+            <span class="theme-toggle__icon theme-toggle__icon--sun" aria-hidden="true">
+              <svg viewBox="0 0 24 24" role="presentation" focusable="false">
+                <circle cx="12" cy="12" r="4.5"></circle>
+                <path d="M12 1.8v2.4M12 19.8v2.4M4.2 4.2l1.7 1.7M18.1 18.1l1.7 1.7M1.8 12h2.4M19.8 12h2.4M4.2 19.8l1.7-1.7M18.1 5.9l1.7-1.7"></path>
+              </svg>
+            </span>
+            <span class="theme-toggle__icon theme-toggle__icon--moon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" role="presentation" focusable="false">
+                <path d="M20.2 14.7A8.2 8.2 0 0 1 9.3 3.8a8.5 8.5 0 1 0 10.9 10.9Z"></path>
+              </svg>
+            </span>
+          </span>
+          <span class="theme-toggle__label" data-theme-label>Light</span>
+        </button>
+      </div>
+      <div class="header-menu-section">
+        <button type="button" class="header-menu-action" data-logout>Log out</button>
+      </div>
+    </div>
+  `;
+
+  profileContainer.appendChild(menuWrap);
+
+  const menuButton = menuWrap.querySelector("#header-menu-btn");
+  const dropdown = menuWrap.querySelector("#header-menu-dropdown");
+  if (!menuButton || !dropdown) return;
+
+  menuButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const isOpen = !dropdown.classList.contains("hidden");
+    closeAllDropdowns();
+    if (!isOpen) {
+      dropdown.classList.remove("hidden");
+      menuButton.setAttribute("aria-expanded", "true");
+    }
+  });
+
+  dropdown.addEventListener("click", (event) => {
+    event.stopPropagation();
   });
 }
 
@@ -342,7 +426,9 @@ async function navigateToRoute(href, options = {}) {
     }
 
     applyActiveSidebarState();
+    streamlineTopbarProfile();
     hydrateRoleTag(activeSession);
+    injectHeaderMenu();
     bindLogout();
     bindThemeControls();
     mountPingPill();
@@ -413,7 +499,9 @@ if (session) {
   if (allowed) {
     applyActiveSidebarState();
     warmSidebarRoutes();
+    streamlineTopbarProfile();
     hydrateRoleTag(session);
+    injectHeaderMenu();
     bindLogout();
     bindThemeControls();
     bindClientRouter();
@@ -589,7 +677,15 @@ function injectNotificationBell() {
     </div>
   `;
 
-  profileContainer.insertBefore(bellWrap, profileContainer.firstChild);
+  const pingPill = document.getElementById("dvPingPill");
+  const identityTag = profileContainer.querySelector("[data-role-tag]");
+  if (pingPill && pingPill.parentElement === profileContainer) {
+    profileContainer.insertBefore(bellWrap, pingPill.nextSibling);
+  } else if (identityTag) {
+    profileContainer.insertBefore(bellWrap, identityTag);
+  } else {
+    profileContainer.insertBefore(bellWrap, profileContainer.firstChild);
+  }
 
   const bellBtn = document.getElementById('notification-bell-btn');
   const dropdown = document.getElementById('notification-dropdown');
@@ -638,6 +734,11 @@ function closeAllDropdowns() {
   const bellBtn = document.getElementById('notification-bell-btn');
   if (dropdown) dropdown.classList.add('hidden');
   if (bellBtn) bellBtn.setAttribute('aria-expanded', 'false');
+
+  const headerMenuDropdown = document.getElementById("header-menu-dropdown");
+  const headerMenuBtn = document.getElementById("header-menu-btn");
+  if (headerMenuDropdown) headerMenuDropdown.classList.add("hidden");
+  if (headerMenuBtn) headerMenuBtn.setAttribute("aria-expanded", "false");
 }
 
 async function refreshDropdownList() {

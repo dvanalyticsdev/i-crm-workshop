@@ -1,13 +1,13 @@
 :root {
   color-scheme: light;
-  --bg: #e2e2e2;
-  --page-gradient: #e2e2e2;
-  --surface: #f0f0f0;
-  --surface-muted: #e8e8e8;
+  --bg: #ffffff;
+  --page-gradient: #ffffff;
+  --surface: #ffffff;
+  --surface-muted: #fafafa;
   --surface-elevated: #ffffff;
   --surface-overlay: #ffffff;
-  --border: #d8d8d8;
-  --border-strong: #cccccc;
+  --border: #e8e8e8;
+  --border-strong: #dfdfdf;
   --text: #000000;
   --text-muted: #000000;
   --heading: #000000;
@@ -41,7 +41,7 @@
   --input-bg: #ffffff;
   --input-border: #e8e8e8;
   --input-shadow: 0 0 0 2px rgba(224, 83, 34, 0.15);
-  --row-hover: #e8e8e8;
+  --row-hover: #fafafa;
   --toggle-bg: #ffffff;
   --toggle-track: #e8e8e8;
   --toggle-thumb: #9b9b9b;
@@ -653,15 +653,97 @@ textarea:focus {
   gap: var(--space-2);
 }
 
+.header-menu-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.header-menu-btn {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface-elevated);
+  color: var(--heading);
+  cursor: pointer;
+  transition: transform var(--ease), border-color var(--ease), background var(--ease), box-shadow var(--ease);
+}
+
+.header-menu-btn:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-strong);
+  background: var(--surface-muted);
+  box-shadow: var(--shadow-sm);
+}
+
+.header-menu-btn__line {
+  width: 16px;
+  height: 2px;
+  margin: 0 auto;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.header-menu-dropdown {
+  position: absolute;
+  top: 48px;
+  right: 0;
+  min-width: 220px;
+  padding: 10px;
+  border: 1px solid var(--notification-border);
+  border-radius: 12px;
+  background: var(--notification-surface);
+  box-shadow: var(--notification-shadow);
+  display: grid;
+  gap: 8px;
+  z-index: 11000;
+  animation: dropdown-fade-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.header-menu-section {
+  display: grid;
+}
+
+.header-menu-action {
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-elevated);
+  color: var(--heading);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--ease), background var(--ease), color var(--ease), transform var(--ease);
+}
+
+.header-menu-action:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-muted);
+  color: var(--primary);
+  transform: translateY(-1px);
+}
+
 .role-tag {
-  padding: 6px 10px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 6px 12px;
   border-radius: 999px;
   background: var(--primary-soft);
   color: var(--primary);
-  font-size: 0.77rem;
+  font-size: 0.88rem;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
 }
 
 /* Dashboard */
@@ -1542,6 +1624,13 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
   letter-spacing: 0.01em;
 }
 
+.theme-toggle--menu {
+  width: 100%;
+  justify-content: flex-start;
+  border-radius: 10px;
+  box-shadow: none;
+}
+
 .dashboard-body .topbar-profile,
 .dashboard-body .auth-toolbar {
   display: flex;
@@ -1555,7 +1644,8 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
 }
 
 .dashboard-body .topbar-profile .btn-ghost,
-.dashboard-body .topbar-profile .theme-toggle {
+.dashboard-body .topbar-profile .theme-toggle,
+.dashboard-body .topbar-profile .header-menu-action {
   white-space: nowrap;
 }
 
@@ -1891,20 +1981,30 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
 
 .bell-badge {
   position: absolute;
-  top: -2px;
-  right: -2px;
-  background: linear-gradient(135deg, #ef4444, #b91c1c);
+  top: -5px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  background: #dc2626;
   color: #fff;
-  font-size: 0.68rem;
+  font-size: 0.7rem;
+  line-height: 1;
   font-weight: 800;
-  width: 16px;
-  height: 16px;
   border-radius: 50%;
+  border-radius: 999px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 2px solid var(--surface);
-  box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  border: 1.5px solid #ffffff;
+  box-shadow: none;
+}
+
+html[data-theme="dark"] .bell-badge {
+  background: #ef4444;
+  border-color: var(--surface);
 }
 
 .notification-dropdown-menu {
