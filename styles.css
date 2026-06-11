@@ -1,13 +1,13 @@
 :root {
   color-scheme: light;
-  --bg: #efefef;
-  --page-gradient: #efefef;
-  --surface: #f8f8f8;
-  --surface-muted: #f2f2f2;
+  --bg: #e2e2e2;
+  --page-gradient: #e2e2e2;
+  --surface: #f0f0f0;
+  --surface-muted: #e8e8e8;
   --surface-elevated: #ffffff;
   --surface-overlay: #ffffff;
-  --border: #e8e8e8;
-  --border-strong: #dfdfdf;
+  --border: #d8d8d8;
+  --border-strong: #cccccc;
   --text: #000000;
   --text-muted: #000000;
   --heading: #000000;
@@ -41,7 +41,7 @@
   --input-bg: #ffffff;
   --input-border: #e8e8e8;
   --input-shadow: 0 0 0 2px rgba(224, 83, 34, 0.15);
-  --row-hover: #f0f0f0;
+  --row-hover: #e8e8e8;
   --toggle-bg: #ffffff;
   --toggle-track: #e8e8e8;
   --toggle-thumb: #9b9b9b;
