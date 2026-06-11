@@ -272,6 +272,9 @@ async function navigateToRoute(href, options = {}) {
     return;
   }
 
+  // Check version on soft navigation
+  void checkSystemVersion();
+
   const navigationToken = ++activeNavigationToken;
 
   try {
@@ -417,6 +420,7 @@ if (session) {
     startPingMonitor();
     injectNotificationBell();
     startNotificationPolling(session);
+    startVersionCheck();
   }
 }
 
@@ -739,4 +743,90 @@ function formatNotificationTime(dateString) {
   } catch (e) {
     return '';
   }
+}
+
+// ─── Version Checker ─────────────────────────────────────────────────────────
+let currentClientVersion = null;
+let isUpdateModalShown = false;
+
+async function checkSystemVersion() {
+  try {
+    const response = await fetch("/api/version", {
+      credentials: "same-origin",
+      headers: { "Accept": "application/json" }
+    });
+    if (response.ok) {
+      const data = await response.json();
+      const version = data.version;
+      if (!currentClientVersion) {
+        currentClientVersion = version;
+      } else if (version !== currentClientVersion && !isUpdateModalShown) {
+        showUpdateModal();
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to check system version:", err);
+  }
+}
+
+function showUpdateModal() {
+  if (isUpdateModalShown) return;
+  isUpdateModalShown = true;
+
+  // Play a premium sound to notify the user
+  playNotificationSound();
+
+  const overlay = document.createElement("div");
+  overlay.className = "update-modal-overlay";
+  overlay.innerHTML = `
+    <div class="update-modal-card">
+      <div class="update-icon-container">
+        <div class="update-icon-pulse"></div>
+        <svg class="update-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+        </svg>
+      </div>
+      <h2>System Update Available</h2>
+      <p>A new version of the CRM has been deployed. Please perform a hard refresh to apply the latest updates and avoid data sync conflicts.</p>
+      
+      <div class="update-instructions">
+        <div class="update-instructions-title">Hard Refresh Shortcuts</div>
+        <ul class="update-instructions-list">
+          <li>
+            <span>Windows / Linux</span>
+            <kbd class="update-instruction-kbd">Ctrl + Shift + R</kbd>
+          </li>
+          <li>
+            <span>macOS</span>
+            <kbd class="update-instruction-kbd">Cmd + Shift + R</kbd>
+          </li>
+        </ul>
+      </div>
+      
+      <button class="btn-update-reload" id="btn-update-reload">Reload CRM</button>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  const reloadBtn = overlay.querySelector("#btn-update-reload");
+  reloadBtn.addEventListener("click", () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("v", Date.now().toString());
+    window.location.replace(url.toString());
+  });
+}
+
+function startVersionCheck() {
+  // Initial check
+  void checkSystemVersion();
+  // Poll every 60 seconds
+  setInterval(checkSystemVersion, 60000);
+  
+  // Check when the user refocuses or opens the tab
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      void checkSystemVersion();
+    }
+  });
 }

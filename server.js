@@ -2841,6 +2841,12 @@ app.put("/api/allocation", async (req, res) => {
   }
 });
 
+app.get("/api/version", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  const version = process.env.VERCEL_GIT_COMMIT_SHA || process.env.VERCEL_DEPLOYMENT_ID || process.env.VERCEL_URL || "local-development";
+  res.json({ version });
+});
+
 app.get("/", (_req, res) => {
   res.sendFile(path.join(ROOT_DIR, "index.html"));
 });
