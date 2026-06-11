@@ -142,7 +142,7 @@
       <div id="taskModal" class="modal hidden">
         <div class="modal-content card">
           <h3 id="taskModalTitle">Create Task</h3>
-          <form id="taskForm">
+          <form id="taskForm" class="task-form">
             <input type="hidden" id="taskLeadId" />
             <input type="hidden" id="taskCategory" />
             <div class="modal-row">
@@ -161,7 +161,7 @@
               <label for="taskTitle">Task Title</label>
               <input id="taskTitle" type="text" required />
             </div>
-            <div class="modal-row">
+            <div class="modal-row modal-row-span-2">
               <label for="taskNotes">Notes</label>
               <textarea id="taskNotes" rows="4" placeholder="Optional notes"></textarea>
             </div>
@@ -169,8 +169,8 @@
               <label for="taskDueDate">Due Date</label>
               <input id="taskDueDate" type="date" required />
             </div>
-            <p id="taskMessage" class="message" aria-live="polite"></p>
-            <div class="modal-actions">
+            <p id="taskMessage" class="message modal-row-span-2" aria-live="polite"></p>
+            <div class="modal-actions modal-row-span-2">
               <button type="submit" class="btn-primary">Create Task</button>
               <button type="button" id="closeTaskModalBtn" class="btn-ghost">Cancel</button>
             </div>
