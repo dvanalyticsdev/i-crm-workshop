@@ -1468,6 +1468,7 @@ let notesLeadId = null;
 let notesLeadEmail = "";
 
 function canEditLeadNotes(lead) {
+  if (isAdmin) return true;
   if (!isCounselorSession()) return false;
   const owner = String(lead?.counselor || "").trim().toLowerCase();
   return owner === getCounselorIdentity();
@@ -1479,6 +1480,7 @@ function openNotesModal(leadId, leadEmail = "") {
   const allLeads = getAllLeads();
   const lead = findLeadByActionIdentity(allLeads, leadId, leadEmail);
   if (!lead) {
+    showToast("Could not open this lead's notes. Please refresh and try again.", true);
     return;
   }
 
@@ -1546,7 +1548,7 @@ async function saveNote() {
     return;
   }
   if (!canEditLeadNotes(lead)) {
-    showToast("Only the assigned counselor can edit notes.", true);
+    showToast("Only the assigned counselor or admin can edit notes.", true);
     return;
   }
 
@@ -1566,7 +1568,7 @@ async function deleteNote(leadId, noteIndex, leadEmail = "") {
     return;
   }
   if (!canEditLeadNotes(lead)) {
-    showToast("Only the assigned counselor can delete notes.", true);
+    showToast("Only the assigned counselor or admin can delete notes.", true);
     return;
   }
 
