@@ -1,9 +1,9 @@
 :root {
   color-scheme: light;
-  --bg: #ffffff;
-  --page-gradient: #ffffff;
-  --surface: #ffffff;
-  --surface-muted: #fafafa;
+  --bg: #efefef;
+  --page-gradient: #efefef;
+  --surface: #f8f8f8;
+  --surface-muted: #f2f2f2;
   --surface-elevated: #ffffff;
   --surface-overlay: #ffffff;
   --border: #e8e8e8;
@@ -20,9 +20,9 @@
   --success-soft: rgba(76, 175, 80, 0.08);
   --danger: #df514c;
   --danger-soft: rgba(223, 81, 76, 0.08);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.02);
-  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.06), 0 4px 8px rgba(0, 0, 0, 0.02);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.09);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.10), 0 4px 8px rgba(0, 0, 0, 0.05);
   --chart-1: #e05322;
   --chart-2: #3b82f6;
   --chart-3: #4caf50;
@@ -41,7 +41,7 @@
   --input-bg: #ffffff;
   --input-border: #e8e8e8;
   --input-shadow: 0 0 0 2px rgba(224, 83, 34, 0.15);
-  --row-hover: #fafafa;
+  --row-hover: #f0f0f0;
   --toggle-bg: #ffffff;
   --toggle-track: #e8e8e8;
   --toggle-thumb: #9b9b9b;
