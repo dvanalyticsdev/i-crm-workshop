@@ -484,6 +484,10 @@ function normalizeCreatedAt(value) {
   return toIsoDate();
 }
 
+function normalizeDuplicatePhone(value) {
+  return String(value || "").replace(/\D+/g, "").trim();
+}
+
 function mergeImportedLead(existingLead, importedLead) {
   const preservedWorkshopHistory = Array.isArray(existingLead.workshopActivityHistory)
     ? existingLead.workshopActivityHistory
@@ -636,7 +640,7 @@ async function handleLeadImport() {
   const leadIndexByPhone = new Map();
   nextLeads.forEach((lead, index) => {
     const email = String(lead.email || "").trim().toLowerCase();
-    const phone = String(lead.phone || "").trim();
+    const phone = normalizeDuplicatePhone(lead.phone);
     if (email && !leadIndexByEmail.has(email)) {
       leadIndexByEmail.set(email, index);
     }
@@ -661,7 +665,8 @@ async function handleLeadImport() {
     if (lead.email && leadIndexByEmail.has(lead.email)) {
       duplicateReasons.push("email address");
     }
-    if (lead.phone && leadIndexByPhone.has(lead.phone)) {
+    const normalizedPhone = normalizeDuplicatePhone(lead.phone);
+    if (normalizedPhone && leadIndexByPhone.has(normalizedPhone)) {
       duplicateReasons.push("phone number");
     }
     if (duplicateReasons.length) {
@@ -672,8 +677,8 @@ async function handleLeadImport() {
     nextLeads.push(lead);
     importedRecords.push({ index: nextLeads.length - 1, lead });
     leadIndexByEmail.set(lead.email, nextLeads.length - 1);
-    if (lead.phone) {
-      leadIndexByPhone.set(lead.phone, nextLeads.length - 1);
+    if (normalizedPhone) {
+      leadIndexByPhone.set(normalizedPhone, nextLeads.length - 1);
     }
     createdCount += 1;
     nextId += 1;

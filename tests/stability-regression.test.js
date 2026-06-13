@@ -183,11 +183,27 @@ test("lead imports reject duplicates instead of merging", () => {
   const server = read("server.js");
 
   assert.match(leadControl, /leadIndexByPhone/);
+  assert.match(leadControl, /normalizeDuplicatePhone/);
   assert.match(leadControl, /Duplicate .* already exists/);
   assert.doesNotMatch(getFunctionBody(leadControl, "handleLeadImport"), /mergeImportedLead\(/);
   assert.match(server, /findLeadDuplicateViolation/);
   assert.match(server, /findDuplicateLeadByEmailOrPhone/);
+  assert.match(server, /function normalizeLeadPhone/);
   assert.match(server, /Duplicate lead rejected: \$\{duplicateViolation\.field\} already exists\./);
+});
+
+test("meta duplicate blocking loads real leads and restore rejects duplicate snapshots", () => {
+  const server = read("server.js");
+
+  assert.match(server, /async function getMetaProcessingSnapshot\(\)/);
+  assert.match(server, /leads: Array\.isArray\(cachedStateDoc\.leads\)/);
+  assert.match(server, /Load Meta processing snapshot \(leads\)/);
+  assert.match(server, /findDuplicateLeadByEmailOrPhone\(snapshot\.leads, newLead\)/);
+  assert.match(server, /Restore blocked: duplicate \$\{duplicateViolation\.field\} already exists in the backup snapshot\./);
+  assert.match(server, /createIndex\(\s*\{ metaLeadId: 1 \}/);
+  assert.match(server, /createIndex\(\s*\{ normalizedEmail: 1 \}/);
+  assert.match(server, /createIndex\(\s*\{ normalizedPhone: 1 \}/);
+  assert.match(server, /function decorateLeadDuplicateKeys/);
 });
 
 test("task service uses atomic task endpoints", () => {

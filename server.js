@@ -505,6 +505,30 @@ async function initMongo() {
       ).catch(() => undefined);
 
       await leadsCollection.createIndex({ id: 1 }, { unique: true, background: true }).catch(() => undefined);
+      await leadsCollection.createIndex(
+        { metaLeadId: 1 },
+        {
+          unique: true,
+          background: true,
+          partialFilterExpression: { metaLeadId: { $exists: true, $type: "string" } }
+        }
+      ).catch(() => undefined);
+      await leadsCollection.createIndex(
+        { normalizedEmail: 1 },
+        {
+          unique: true,
+          background: true,
+          partialFilterExpression: { normalizedEmail: { $exists: true, $type: "string" } }
+        }
+      ).catch(() => undefined);
+      await leadsCollection.createIndex(
+        { normalizedPhone: 1 },
+        {
+          unique: true,
+          background: true,
+          partialFilterExpression: { normalizedPhone: { $exists: true, $type: "string" } }
+        }
+      ).catch(() => undefined);
       await leadsCollection.createIndex({ email: 1 }, { background: true }).catch(() => undefined);
       await leadsCollection.createIndex({ phone: 1 }, { background: true }).catch(() => undefined);
       await tasksCollection.createIndex({ id: 1 }, { unique: true, background: true }).catch(() => undefined);
@@ -522,7 +546,7 @@ async function initMongo() {
             globalDoc.leads.forEach(lead => {
               if (lead && lead.id) leadsMap.set(String(lead.id), lead);
             });
-            const uniqueLeads = Array.from(leadsMap.values());
+            const uniqueLeads = decorateLeadListForStorage(Array.from(leadsMap.values()));
             await leadsCollection.insertMany(uniqueLeads, { ordered: false }).catch(() => undefined);
           }
           
@@ -711,26 +735,41 @@ function isCounselorInMetaRotation(counselor) {
 }
 
 async function getMetaProcessingSnapshot() {
-  if (cachedStateDoc && Array.isArray(cachedStateDoc.counselors)) {
+  if (
+    cachedStateDoc
+    && Array.isArray(cachedStateDoc.counselors)
+    && Array.isArray(cachedStateDoc.leads)
+  ) {
     return {
+      leads: Array.isArray(cachedStateDoc.leads) ? cachedStateDoc.leads : [],
       counselors: Array.isArray(cachedStateDoc.counselors) ? cachedStateDoc.counselors : []
     };
   }
 
   try {
-    // Counselors are stored in their own collection after the schema migration
-    // (they were $unset from stateCollection). Query counselorsCollection directly.
-    const counselors = await withMongoRetry(
-      () => counselorsCollection.find({}).toArray(),
-      { retries: 1, label: "Load Meta processing snapshot (counselors)" }
-    );
+    const [leads, counselors] = await Promise.all([
+      withMongoRetry(
+        () => leadsCollection.find({}).toArray(),
+        { retries: 1, label: "Load Meta processing snapshot (leads)" }
+      ),
+      withMongoRetry(
+        () => counselorsCollection.find({}).toArray(),
+        { retries: 1, label: "Load Meta processing snapshot (counselors)" }
+      )
+    ]);
 
     return {
+      leads: Array.isArray(leads) ? leads : [],
       counselors: Array.isArray(counselors) ? counselors : []
     };
   } catch (error) {
-    if (cachedStateDoc && Array.isArray(cachedStateDoc.counselors)) {
+    if (
+      cachedStateDoc
+      && Array.isArray(cachedStateDoc.counselors)
+      && Array.isArray(cachedStateDoc.leads)
+    ) {
       return {
+        leads: cachedStateDoc.leads,
         counselors: cachedStateDoc.counselors
       };
     }
@@ -1343,6 +1382,17 @@ app.post("/api/admin/restore", async (req, res) => {
     const snapshot = validation.snapshot;
     snapshot.state.updatedAt = restoredAt;
 
+    if (Array.isArray(snapshot.state.leads)) {
+      const duplicateViolation = findLeadDuplicateViolation(snapshot.state.leads, []);
+      if (duplicateViolation) {
+        return res.status(409).json({
+          message: `Restore blocked: duplicate ${duplicateViolation.field} already exists in the backup snapshot.`,
+          field: duplicateViolation.field,
+          leadId: duplicateViolation.lead?.id || null
+        });
+      }
+    }
+
     await Promise.all([
       leadsCollection.deleteMany({}),
       counselorsCollection.deleteMany({}),
@@ -1351,7 +1401,7 @@ app.post("/api/admin/restore", async (req, res) => {
     ]);
 
     if (Array.isArray(snapshot.state.leads) && snapshot.state.leads.length) {
-      await leadsCollection.insertMany(snapshot.state.leads);
+      await leadsCollection.insertMany(decorateLeadListForStorage(snapshot.state.leads));
       await syncLeadSequence().catch(() => undefined);
     }
     if (Array.isArray(snapshot.state.counselors) && snapshot.state.counselors.length) {
@@ -1463,8 +1513,43 @@ function normalizeLeadContactValue(value) {
   return String(value || "").trim();
 }
 
+function normalizeLeadPhone(value) {
+  return normalizeLeadContactValue(value).replace(/\D+/g, "");
+}
+
 function normalizeLeadEmail(value) {
   return normalizeLeadContactValue(value).toLowerCase();
+}
+
+function decorateLeadDuplicateKeys(lead = {}) {
+  const normalizedEmail = normalizeLeadEmail(lead?.email);
+  const normalizedPhone = normalizeLeadPhone(lead?.phone);
+  const nextLead = { ...lead };
+  const metaLeadId = normalizeLeadContactValue(lead?.metaLeadId);
+
+  if (normalizedEmail) {
+    nextLead.normalizedEmail = normalizedEmail;
+  } else {
+    delete nextLead.normalizedEmail;
+  }
+
+  if (normalizedPhone) {
+    nextLead.normalizedPhone = normalizedPhone;
+  } else {
+    delete nextLead.normalizedPhone;
+  }
+
+  if (metaLeadId) {
+    nextLead.metaLeadId = metaLeadId;
+  } else {
+    delete nextLead.metaLeadId;
+  }
+
+  return nextLead;
+}
+
+function decorateLeadListForStorage(leads = []) {
+  return (Array.isArray(leads) ? leads : []).map((lead) => decorateLeadDuplicateKeys(lead));
 }
 
 function buildLeadOwnerMap(leads, field) {
@@ -1473,7 +1558,7 @@ function buildLeadOwnerMap(leads, field) {
     const id = String(lead?.id || "").trim();
     const value = field === "email"
       ? normalizeLeadEmail(lead?.email)
-      : normalizeLeadContactValue(lead?.phone);
+      : normalizeLeadPhone(lead?.phone);
     if (!id || !value) {
       return;
     }
@@ -1517,7 +1602,7 @@ function findLeadDuplicateViolation(nextLeads, currentLeads = []) {
 
     const previousLead = currentById.get(id) || null;
     const email = normalizeLeadEmail(lead?.email);
-    const phone = normalizeLeadContactValue(lead?.phone);
+    const phone = normalizeLeadPhone(lead?.phone);
 
     if (email) {
       const nextOwners = nextEmailOwners.get(email);
@@ -1537,7 +1622,7 @@ function findLeadDuplicateViolation(nextLeads, currentLeads = []) {
       if (nextOwners && nextOwners.size > 1) {
         const currentOwners = currentPhoneOwners.get(phone);
         const isUnchangedLegacyDuplicate = previousLead
-          && normalizeLeadContactValue(previousLead.phone) === phone
+          && normalizeLeadPhone(previousLead.phone) === phone
           && sameLeadOwnerSet(nextOwners, currentOwners);
         if (!isUnchangedLegacyDuplicate) {
           return { field: "phone", value: phone, lead };
@@ -1551,10 +1636,10 @@ function findLeadDuplicateViolation(nextLeads, currentLeads = []) {
 
 function findDuplicateLeadByEmailOrPhone(leads, incomingLead) {
   const incomingEmail = normalizeLeadEmail(incomingLead?.email);
-  const incomingPhone = normalizeLeadContactValue(incomingLead?.phone);
+  const incomingPhone = normalizeLeadPhone(incomingLead?.phone);
   return (Array.isArray(leads) ? leads : []).find((lead) => {
     const matchesEmail = incomingEmail && normalizeLeadEmail(lead?.email) === incomingEmail;
-    const matchesPhone = incomingPhone && normalizeLeadContactValue(lead?.phone) === incomingPhone;
+    const matchesPhone = incomingPhone && normalizeLeadPhone(lead?.phone) === incomingPhone;
     return matchesEmail || matchesPhone;
   }) || null;
 }
@@ -2629,6 +2714,9 @@ app.put("/api/state", async (req, res) => {
         });
       }
     }
+    const preparedLeads = Array.isArray(sanitized.leads)
+      ? decorateLeadListForStorage(sanitized.leads)
+      : null;
     const expectedEtag = String(req.headers["if-match"] || "").trim();
     const currentEtag = buildStateEtag(currentState);
 
@@ -2642,8 +2730,8 @@ app.put("/api/state", async (req, res) => {
     const now = new Date().toISOString();
     if (Array.isArray(sanitized.leads)) {
       await leadsCollection.deleteMany({});
-      if (sanitized.leads.length) {
-        await leadsCollection.insertMany(sanitized.leads);
+      if (preparedLeads.length) {
+        await leadsCollection.insertMany(preparedLeads);
         await syncLeadSequence().catch(() => undefined);
       }
     }
@@ -2744,10 +2832,11 @@ app.put("/api/leads", async (req, res) => {
         leadId: duplicateViolation.lead?.id || null
       });
     }
+    const preparedLeads = decorateLeadListForStorage(req.body);
     const now = new Date().toISOString();
     await leadsCollection.deleteMany({});
-    if (req.body.length) {
-      await leadsCollection.insertMany(req.body);
+    if (preparedLeads.length) {
+      await leadsCollection.insertMany(preparedLeads);
       await syncLeadSequence().catch(() => undefined);
     }
     await stateCollection.updateOne(
@@ -2965,7 +3054,14 @@ async function insertMetaLeadIfNew(leadgenId, newLead) {
     if (duplicate) {
       return { modifiedCount: 0, upsertedCount: 0 };
     }
-    await leadsCollection.insertOne(newLead);
+    try {
+      await leadsCollection.insertOne(decorateLeadDuplicateKeys(newLead));
+    } catch (error) {
+      if (Number(error?.code) === 11000) {
+        return { modifiedCount: 0, upsertedCount: 0 };
+      }
+      throw error;
+    }
     const now = new Date().toISOString();
     await stateCollection.updateOne(
       { _id: STATE_DOC_ID },
