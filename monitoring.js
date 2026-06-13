@@ -288,6 +288,10 @@ function getCoreWorkshopName(workshopName) {
   return String(workshopName).trim().replace(/[_\s]+(imp|od|ind)$/i, "").trim();
 }
 
+function getAdmissionWorkshopName(lead) {
+  return String(lead?.admissionWorkshop || lead?.workshop || "").trim();
+}
+
 function formatBreakdown(items, key, options = {}) {
   const { exclude = [] } = options;
   const counts = new Map();
@@ -312,6 +316,15 @@ function formatBreakdown(items, key, options = {}) {
     .sort((a, b) => b[1] - a[1])
     .map(([name, count]) => `${name} (${count})`)
     .join(", ");
+}
+
+function formatAdmissionWorkshopBreakdown(items, options = {}) {
+  const normalizedItems = items.map((lead) => ({
+    ...lead,
+    workshop: getAdmissionWorkshopName(lead)
+  }));
+
+  return formatBreakdown(normalizedItems, "workshop", options);
 }
 
 function getCounselorBuckets(allLeads) {
@@ -394,7 +407,7 @@ function buildPostRows(counselors, postLeads, rawAllLeads, range) {
     return {
       counselor,
       activities,
-      workshops: formatBreakdown(activityLeads, "workshop"),
+      workshops: formatAdmissionWorkshopBreakdown(activityLeads),
       interested,
       notInterested,
       enrolled,

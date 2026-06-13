@@ -231,12 +231,15 @@ test("admission workshop override stays scoped to admission calling", () => {
   const preWorkshop = read("pre-workshop.js");
   const postWorkshop = read("post-workshop.js");
   const postWorkshopHtml = read("post-workshop.html");
+  const monitoring = read("monitoring.js");
   const server = read("server.js");
 
   assert.match(postWorkshopHtml, /modalAdmissionWorkshop/);
   assert.match(postWorkshop, /function getAdmissionWorkshopName/);
   assert.match(postWorkshop, /admissionWorkshop: document\.getElementById\("modalAdmissionWorkshop"\)\.value/);
   assert.match(postWorkshop, /getAdmissionWorkshopName\(lead\)/);
+  assert.match(monitoring, /function getAdmissionWorkshopName/);
+  assert.match(monitoring, /formatAdmissionWorkshopBreakdown\(activityLeads\)/);
   assert.match(server, /"admissionWorkshop"/);
   assert.doesNotMatch(preWorkshop, /admissionWorkshop/);
 });
