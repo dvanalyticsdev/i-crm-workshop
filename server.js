@@ -19,6 +19,8 @@ const MONGODB_META_CONFIG_COLLECTION = process.env.MONGODB_META_CONFIG_COLLECTIO
 const MONGODB_META_LOGS_COLLECTION = process.env.MONGODB_META_LOGS_COLLECTION || "meta_logs";
 const MONGODB_META_RETRY_COLLECTION = process.env.MONGODB_META_RETRY_COLLECTION || "meta_retry_jobs";
 const META_WEBHOOK_FORWARD_URL = String(process.env.META_WEBHOOK_FORWARD_URL || "").trim();
+const ADMIN_LOGIN_ID = String(process.env.ADMIN_LOGIN_ID || "").trim();
+const ADMIN_LOGIN_PASSWORD = String(process.env.ADMIN_LOGIN_PASSWORD || "").trim();
 const STATE_DOC_ID = "global";
 const META_CONFIG_DOC_ID = "meta_integration";
 const BACKUP_FORMAT = "dv-crm-manual-backup";
@@ -32,8 +34,8 @@ const META_LEAD_FETCH_MAX_ATTEMPTS = 3;
 const META_RETRY_JOB_MAX_ATTEMPTS = 10;
 
 const ADMIN_USER = {
-  id: "dvanalytics@W@2010",
-  password: "dv@dataanalytics@2010W",
+  id: ADMIN_LOGIN_ID,
+  password: ADMIN_LOGIN_PASSWORD,
   name: "Admin"
 };
 
