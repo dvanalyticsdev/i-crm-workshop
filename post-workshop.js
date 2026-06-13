@@ -78,9 +78,22 @@ function getCoreWorkshopName(workshopName) {
   return String(workshopName).trim().replace(/[_\s]+(imp|od|ind)$/i, "").trim();
 }
 
+function getAdmissionWorkshopName(lead) {
+  return String(lead?.admissionWorkshop || lead?.workshop || "").trim();
+}
+
 function getUniqueCoreWorkshops(leads) {
-  const coreNames = leads.map((lead) => getCoreWorkshopName(lead.workshop)).filter(Boolean);
+  const coreNames = leads.map((lead) => getCoreWorkshopName(getAdmissionWorkshopName(lead))).filter(Boolean);
   return [...new Set(coreNames)];
+}
+
+function getAdmissionWorkshopOptions(leads) {
+  return [...new Set(
+    leads
+      .flatMap((lead) => [lead?.workshop, lead?.admissionWorkshop])
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+  )].sort((left, right) => left.localeCompare(right));
 }
 
 function filterIncludesValue(filterValue, value) {
@@ -274,7 +287,7 @@ let searchTimeout = null;
 let currentPage = 1;
 const pageSize = 50;
 
-const activityFields = ["modalPostDialed", "modalCoursePitched", "modalCourseStatus", "modalAdmissionStatus", "modalPostCallStatus", "modalWorkshopJoiningStatus"];
+const activityFields = ["modalPostDialed", "modalCoursePitched", "modalCourseStatus", "modalAdmissionStatus", "modalPostCallStatus", "modalAdmissionWorkshop", "modalWorkshopJoiningStatus"];
 
 function setMessage(text, isError = true) {
   if (!postActivityMessage) {
@@ -441,6 +454,7 @@ function normalizeLeadFields(leads) {
     lead.courseStatus = lead.courseStatus || "";
     lead.admissionStatus = lead.admissionStatus || "";
     lead.postCallStatus = lead.postCallStatus || "";
+    lead.admissionWorkshop = lead.admissionWorkshop || "";
     lead.workshopJoiningStatus = lead.workshopJoiningStatus || "";
     lead.postStatusUpdated = typeof lead.postStatusUpdated === "boolean" ? lead.postStatusUpdated : false;
     lead.workshopActivityHistory = Array.isArray(lead.workshopActivityHistory) ? lead.workshopActivityHistory : [];
@@ -773,7 +787,7 @@ function filterLeads(leads) {
         lead.name,
         lead.email,
         lead.phone,
-        lead.workshop,
+        getAdmissionWorkshopName(lead),
         lead.counselor
       ]
         .map((value) => String(value || "").toLowerCase())
@@ -784,7 +798,7 @@ function filterLeads(leads) {
   }
 
   if (isSelectedFilterValue(filter.workshop)) {
-    filtered = filtered.filter((lead) => filterIncludesValue(filter.workshop, lead.workshop));
+    filtered = filtered.filter((lead) => filterIncludesValue(filter.workshop, getAdmissionWorkshopName(lead)));
   }
 
   if (isSelectedFilterValue(filter.counselor)) {
@@ -945,7 +959,7 @@ function renderLeadTable(leads) {
         <td>${escapeHtml(lead.name)}</td>
         <td>${escapeHtml(lead.phone || "-")}</td>
         <td>${escapeHtml(lead.email)}</td>
-        <td>${escapeHtml(lead.workshop)}</td>
+        <td>${escapeHtml(getAdmissionWorkshopName(lead))}</td>
         <td>${escapeHtml(lead.counselor || "Unassigned")}</td>
         <td>${renderActivityPanel(lead)}</td>
       </tr>
@@ -1155,6 +1169,21 @@ function setPostActivityModalMode(mode) {
 }
 
 function populatePostActivityModal(lead) {
+  const workshopSelect = document.getElementById("modalAdmissionWorkshop");
+  if (workshopSelect) {
+    const workshopOptions = getAdmissionWorkshopOptions(getAllLeads());
+    const selectedWorkshop = getAdmissionWorkshopName(lead);
+    const allOptions = [...workshopOptions];
+    if (selectedWorkshop && !allOptions.includes(selectedWorkshop)) {
+      allOptions.push(selectedWorkshop);
+    }
+    workshopSelect.innerHTML = [
+      '<option value="">Select workshop</option>',
+      ...allOptions.map((option) => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`)
+    ].join("");
+    workshopSelect.value = selectedWorkshop;
+  }
+
   document.getElementById("modalPostDialed").value = lead.postDialed;
   document.getElementById("modalCoursePitched").value = lead.coursePitched;
   document.getElementById("modalCourseStatus").value = lead.courseStatus;
@@ -1683,6 +1712,7 @@ function initPostWorkshopPage() {
       courseStatus: document.getElementById("modalCourseStatus").value,
       admissionStatus: document.getElementById("modalAdmissionStatus").value,
       postCallStatus: document.getElementById("modalPostCallStatus").value,
+      admissionWorkshop: document.getElementById("modalAdmissionWorkshop").value,
       workshopJoiningStatus: document.getElementById("modalWorkshopJoiningStatus").value,
       postStatusUpdated: true
     }, modalLeadEmail);

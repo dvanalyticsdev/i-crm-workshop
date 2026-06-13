@@ -894,6 +894,7 @@ function buildMetaLead(fieldData, meta, counselorName, nextId) {
     coursePitched: "",
     courseStatus: "",
     admissionStatus: "",
+    admissionWorkshop: workshop,
     postStatusUpdated: false,
     preActivityUpdates: 0,
     postActivityUpdates: 0,
@@ -2158,6 +2159,7 @@ app.post("/api/leads/:leadId/activity", async (req, res) => {
             "coursePitched",
             "courseStatus",
             "admissionStatus",
+            "admissionWorkshop",
             "postCallStatus",
             "workshopJoiningStatus",
             "postStatusUpdated"
