@@ -39,6 +39,15 @@ const ADMIN_USER = {
   name: "Admin"
 };
 
+function buildAdminAuthVersion() {
+  return crypto
+    .createHash("sha256")
+    .update(`${ADMIN_USER.id}:${ADMIN_USER.password}`)
+    .digest("hex");
+}
+
+const ADMIN_AUTH_VERSION = buildAdminAuthVersion();
+
 const DEFAULT_PERMISSIONS = {
   dashboard: false,
   preWorkshop: true,
@@ -124,7 +133,7 @@ const STATE_CACHE_TTL_MS = 5000;
 // request.  Entries expire after 60 s so a deleted/expired session is noticed
 // within a minute without hammering the DB.
 const SESSION_CACHE_TTL_MS = 60000;
-const sessionCache = new Map(); // token → { session, cachedAt }
+const sessionCache = new Map(); // token → { session, role, adminAuthVersion, cachedAt }
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -191,11 +200,16 @@ function getCachedSession(token) {
     sessionCache.delete(token);
     return null;
   }
-  return entry.session;
+  return entry;
 }
 
-function setCachedSession(token, session) {
-  sessionCache.set(token, { session, cachedAt: Date.now() });
+function setCachedSession(token, session, options = {}) {
+  sessionCache.set(token, {
+    session,
+    role: String(options.role || session?.role || "").trim().toLowerCase(),
+    adminAuthVersion: String(options.adminAuthVersion || "").trim(),
+    cachedAt: Date.now()
+  });
 }
 
 function evictCachedSession(token) {
@@ -248,7 +262,12 @@ async function getSessionFromRequest(req) {
   // authenticated API call (e.g. every 15 s state poll hits this path).
   const cached = getCachedSession(token);
   if (cached) {
-    return { token, session: cached };
+    if (cached.role === "admin" && cached.adminAuthVersion !== ADMIN_AUTH_VERSION) {
+      sessionCache.delete(token);
+      await sessionCollection.deleteOne({ token }).catch(() => undefined);
+      return null;
+    }
+    return { token, session: cached.session };
   }
 
   const sessionDoc = await sessionCollection.findOne({
@@ -260,8 +279,19 @@ async function getSessionFromRequest(req) {
     return null;
   }
 
+  if (String(sessionDoc.role || "").trim().toLowerCase() === "admin") {
+    const storedAdminAuthVersion = String(sessionDoc.adminAuthVersion || "").trim();
+    if (!storedAdminAuthVersion || storedAdminAuthVersion !== ADMIN_AUTH_VERSION) {
+      await sessionCollection.deleteOne({ token }).catch(() => undefined);
+      return null;
+    }
+  }
+
   const session = sanitizeSession(sessionDoc);
-  setCachedSession(token, session);
+  setCachedSession(token, session, {
+    role: sessionDoc.role,
+    adminAuthVersion: sessionDoc.adminAuthVersion
+  });
   return { token, session };
 }
 
@@ -274,6 +304,7 @@ async function persistSession(res, session) {
   await sessionCollection.insertOne({
     token,
     ...normalized,
+    ...(normalized.role === "admin" ? { adminAuthVersion: ADMIN_AUTH_VERSION } : {}),
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
     expiresAt

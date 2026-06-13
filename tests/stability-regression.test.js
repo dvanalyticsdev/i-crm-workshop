@@ -63,6 +63,17 @@ test("shared state endpoints require a session or role", () => {
   assert.match(server, /app\.put\("\/api\/state\/reset"[\s\S]*?requireRole\(req, res, "admin"\)/);
 });
 
+test("admin sessions are invalidated when configured admin credentials change", () => {
+  const server = read("server.js");
+
+  assert.match(server, /function buildAdminAuthVersion\(/);
+  assert.match(server, /const ADMIN_AUTH_VERSION = buildAdminAuthVersion\(\)/);
+  assert.match(server, /cached\.role === "admin" && cached\.adminAuthVersion !== ADMIN_AUTH_VERSION/);
+  assert.match(server, /sessionDoc\.adminAuthVersion/);
+  assert.match(server, /storedAdminAuthVersion !== ADMIN_AUTH_VERSION/);
+  assert.match(server, /normalized\.role === "admin" \? \{ adminAuthVersion: ADMIN_AUTH_VERSION \} : \{\}/);
+});
+
 test("lead activity saves use atomic lead-service calls on workshop pages", () => {
   const preWorkshop = read("pre-workshop.js");
   const postWorkshop = read("post-workshop.js");
