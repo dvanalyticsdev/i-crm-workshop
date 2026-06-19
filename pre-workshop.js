@@ -314,14 +314,9 @@ function getScopedLeads(allLeads) {
 }
 
 function getLeadActivityUpdateCount(lead) {
-  const workshopUpdates = Array.isArray(lead?.workshopActivityHistory)
+  return Array.isArray(lead?.workshopActivityHistory)
     ? lead.workshopActivityHistory.length
     : Number(lead?.preActivityUpdates) || 0;
-  const admissionUpdates = Array.isArray(lead?.admissionActivityHistory)
-    ? lead.admissionActivityHistory.length
-    : Number(lead?.postActivityUpdates) || 0;
-
-  return workshopUpdates + admissionUpdates;
 }
 
 function isUntouchedLead(lead) {

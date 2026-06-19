@@ -271,6 +271,16 @@ test("admission workshop override stays scoped to admission calling", () => {
   assert.doesNotMatch(preWorkshop, /admissionWorkshop/);
 });
 
+test("workshop updated filter stays scoped to workshop activity", () => {
+  const preWorkshop = getNamedFunctionSource(read("pre-workshop.js"), "getLeadActivityUpdateCount");
+
+  assert.match(preWorkshop, /function getLeadActivityUpdateCount\(lead\)/);
+  assert.match(preWorkshop, /workshopActivityHistory/);
+  assert.match(preWorkshop, /preActivityUpdates/);
+  assert.doesNotMatch(preWorkshop, /admissionActivityHistory/);
+  assert.doesNotMatch(preWorkshop, /postActivityUpdates/);
+});
+
 test("lead action buttons escape lead ids before binding click handlers", () => {
   const preWorkshop = read("pre-workshop.js");
   const postWorkshop = read("post-workshop.js");
