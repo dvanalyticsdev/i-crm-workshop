@@ -7,17 +7,11 @@ bindThemeControls();
 
 const coursesGrid = document.getElementById("coursesGrid");
 const courseDetailsModal = document.getElementById("courseDetailsModal");
-const courseModalSectionNav = document.getElementById("courseModalSectionNav");
-const courseModalSections = document.getElementById("courseModalSections");
-const courseModalPrevBtn = document.getElementById("courseModalPrevBtn");
-const courseModalNextBtn = document.getElementById("courseModalNextBtn");
 const registerModal = document.getElementById("registerModal");
 const successModal = document.getElementById("successModal");
 const registerForm = document.getElementById("registerForm");
 const registerFormMessage = document.getElementById("registerFormMessage");
 const submitRegistrationBtn = document.getElementById("submitRegistrationBtn");
-let activeCourseId = "";
-let activeCourseSectionIndex = 0;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -74,25 +68,16 @@ function renderCourses() {
         </div>
         <h2>${escapeHtml(course.name)}</h2>
         <p class="course-card__headline">${escapeHtml(course.headline)}</p>
-        <div class="course-card__prices">
-          <div>
-            <span class="course-card__price-label">INR (incl. 18% GST)</span>
-            <strong>${escapeHtml(formatInr(course.price.totalInr))}</strong>
+        <div class="course-card__rating" title="${rating} out of 5 stars based on ${reviews} reviews">
+          <div class="course-card__stars">
+            ${renderStars(rating)}
           </div>
-          <div>
-            <span class="course-card__price-label">AED</span>
-            <strong>${escapeHtml(formatAed(course.price.totalAed))}</strong>
-          </div>
+          <span class="course-card__rating-val">${rating}</span>
+          <span class="course-card__reviews">(${reviews})</span>
         </div>
         <div class="course-card__actions">
-          <button type="button" class="btn-primary register-course-btn" data-register-course="${course.id}">Register</button>
-          <div class="course-card__rating" title="${rating} out of 5 stars based on ${reviews} reviews">
-            <div class="course-card__stars">
-              ${renderStars(rating)}
-            </div>
-            <span class="course-card__rating-val">${rating}</span>
-            <span class="course-card__reviews">(${reviews})</span>
-          </div>
+          <button type="button" class="btn-ghost check-details-btn" data-check-details="${course.id}">Check Details</button>
+          <button type="button" class="btn-primary register-course-btn" data-register-course="${course.id}">Register Now</button>
         </div>
       </article>
     `;
@@ -100,7 +85,7 @@ function renderCourses() {
 
   document.querySelectorAll("[data-course-card]").forEach((card) => {
     card.addEventListener("click", (event) => {
-      if (event.target.closest(".register-course-btn")) {
+      if (event.target.closest(".register-course-btn") || event.target.closest(".check-details-btn")) {
         return;
       }
       openCourseDetails(card.getAttribute("data-course-card"));
@@ -113,6 +98,13 @@ function renderCourses() {
     });
   });
 
+  document.querySelectorAll("[data-check-details]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openCourseDetails(button.getAttribute("data-check-details"));
+    });
+  });
+
   document.querySelectorAll("[data-register-course]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -121,73 +113,68 @@ function renderCourses() {
   });
 }
 
-function renderSectionNav(course, activeIndex) {
-  const sections = Array.isArray(course.sections) ? course.sections : [];
-  courseModalSectionNav.innerHTML = sections
-    .map((section, index) => `
-      <button
-        type="button"
-        class="public-modal__nav-btn${index === activeIndex ? " public-modal__nav-btn--active" : ""}"
-        data-course-section-index="${index}"
-      >
-        ${escapeHtml(section.title)}
-      </button>
-    `)
-    .join("");
+function renderCourseAccordion(course) {
+  const accordionContainer = document.getElementById("courseModalAccordion");
+  if (!accordionContainer) return;
 
-  document.querySelectorAll("[data-course-section-index]").forEach((button) => {
-    button.onclick = () => {
-      const nextIndex = Number(button.getAttribute("data-course-section-index"));
-      setActiveCourseSection(nextIndex);
+  const sections = Array.isArray(course.sections) ? course.sections : [];
+  accordionContainer.innerHTML = sections.map((section, index) => {
+    const isFirst = index === 0;
+    return `
+      <div class="accordion-item ${isFirst ? "accordion-item--active" : ""}">
+        <button type="button" class="accordion-trigger" aria-expanded="${isFirst ? "true" : "false"}" data-accordion-index="${index}">
+          <span class="accordion-title">${escapeHtml(section.title)}</span>
+          <span class="accordion-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </span>
+        </button>
+        <div class="accordion-content" style="${isFirst ? "" : "display: none;"}">
+          <div class="accordion-content-inner">
+            ${(Array.isArray(section.paragraphs) ? section.paragraphs : [])
+              .map((paragraph) => `<p class="accordion-paragraph">${escapeHtml(paragraph)}</p>`)
+              .join("")}
+            ${Array.isArray(section.bullets) && section.bullets.length ? `
+              <ul class="accordion-list">
+                ${section.bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}
+              </ul>
+            ` : ""}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  accordionContainer.querySelectorAll("[data-accordion-index]").forEach((trigger) => {
+    trigger.onclick = () => {
+      const item = trigger.closest(".accordion-item");
+      const content = item.querySelector(".accordion-content");
+      const isExpanded = trigger.getAttribute("aria-expanded") === "true";
+
+      // Collapse all other items
+      accordionContainer.querySelectorAll(".accordion-item").forEach((otherItem) => {
+        if (otherItem !== item) {
+          otherItem.classList.remove("accordion-item--active");
+          const otherTrigger = otherItem.querySelector(".accordion-trigger");
+          otherTrigger.setAttribute("aria-expanded", "false");
+          const otherContent = otherItem.querySelector(".accordion-content");
+          otherContent.style.display = "none";
+        }
+      });
+
+      // Toggle current item
+      if (isExpanded) {
+        item.classList.remove("accordion-item--active");
+        trigger.setAttribute("aria-expanded", "false");
+        content.style.display = "none";
+      } else {
+        item.classList.add("accordion-item--active");
+        trigger.setAttribute("aria-expanded", "true");
+        content.style.display = "block";
+      }
     };
   });
-}
-
-function renderActiveCourseSection(course, activeIndex) {
-  const sections = Array.isArray(course.sections) ? course.sections : [];
-  const section = sections[activeIndex];
-  if (!section) {
-    courseModalSections.innerHTML = "";
-    return;
-  }
-
-  courseModalSections.innerHTML = `
-    <section class="public-modal__section public-modal__section--active">
-      <h4>${escapeHtml(section.title)}</h4>
-      ${(Array.isArray(section.paragraphs) ? section.paragraphs : [])
-        .map((paragraph) => `<p class="public-modal__overview">${escapeHtml(paragraph)}</p>`)
-        .join("")}
-      ${Array.isArray(section.bullets) && section.bullets.length ? `
-        <ul class="public-modal__list">
-          ${section.bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}
-        </ul>
-      ` : ""}
-    </section>
-  `;
-}
-
-function syncCourseSectionControls(course, activeIndex) {
-  const sections = Array.isArray(course.sections) ? course.sections : [];
-  if (courseModalPrevBtn) {
-    courseModalPrevBtn.disabled = activeIndex <= 0;
-  }
-  if (courseModalNextBtn) {
-    courseModalNextBtn.disabled = activeIndex >= sections.length - 1;
-  }
-}
-
-function setActiveCourseSection(nextIndex) {
-  const course = findCourseById(activeCourseId);
-  if (!course) {
-    return;
-  }
-
-  const sections = Array.isArray(course.sections) ? course.sections : [];
-  const boundedIndex = Math.max(0, Math.min(nextIndex, sections.length - 1));
-  activeCourseSectionIndex = boundedIndex;
-  renderSectionNav(course, boundedIndex);
-  renderActiveCourseSection(course, boundedIndex);
-  syncCourseSectionControls(course, boundedIndex);
 }
 
 function openCourseDetails(courseId) {
@@ -198,10 +185,23 @@ function openCourseDetails(courseId) {
 
   document.getElementById("courseModalBadge").textContent = course.badge;
   document.getElementById("courseModalTitle").textContent = course.name;
-  document.getElementById("courseModalMeta").textContent = `${course.duration} • ${formatInr(course.price.totalInr)} • ${formatAed(course.price.totalAed)}`;
-  activeCourseId = course.id;
-  activeCourseSectionIndex = 0;
-  setActiveCourseSection(0);
+  
+  const highlightsContainer = document.getElementById("courseModalHighlights");
+  highlightsContainer.innerHTML = `
+    <div class="highlight-card highlight-card--duration">
+      <span class="highlight-card__label">Duration</span>
+      <span class="highlight-card__value">${escapeHtml(course.duration)}</span>
+    </div>
+    <div class="highlight-card highlight-card--price-inr">
+      <span class="highlight-card__label">INR Price (incl. 18% GST)</span>
+      <span class="highlight-card__value">${escapeHtml(formatInr(course.price.totalInr))}</span>
+    </div>
+    <div class="highlight-card highlight-card--price-aed">
+      <span class="highlight-card__label">AED Price</span>
+      <span class="highlight-card__value">${escapeHtml(formatAed(course.price.totalAed))}</span>
+    </div>
+  `;
+  renderCourseAccordion(course);
   courseDetailsModal.classList.remove("hidden");
 }
 
@@ -356,16 +356,6 @@ function renderSuccessStories() {
 }
 
 document.getElementById("closeCourseModalBtn").onclick = closeCourseDetails;
-if (courseModalPrevBtn) {
-  courseModalPrevBtn.onclick = () => {
-    setActiveCourseSection(activeCourseSectionIndex - 1);
-  };
-}
-if (courseModalNextBtn) {
-  courseModalNextBtn.onclick = () => {
-    setActiveCourseSection(activeCourseSectionIndex + 1);
-  };
-}
 document.getElementById("closeRegisterModalBtn").onclick = closeRegisterModal;
 document.getElementById("cancelRegistrationBtn").onclick = closeRegisterModal;
 document.getElementById("closeSuccessModalBtn").onclick = closeSuccessModal;

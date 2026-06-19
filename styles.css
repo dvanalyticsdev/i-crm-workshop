@@ -3435,55 +3435,80 @@ html[data-theme="dark"] .bell-badge {
   min-height: 72px;
 }
 
-.course-card__prices {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 4px;
-}
-
-.course-card__prices div {
-  padding: 12px 10px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--surface-muted) 82%, white);
-  display: grid;
-  gap: 4px;
-  min-height: 76px;
-  align-content: start;
-  min-width: 0;
-}
-
-.course-card__price-label {
-  font-size: 0.7rem;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 700;
-  line-height: 1.35;
-}
-
-.course-card__prices strong {
-  font-size: clamp(0.95rem, 1.4vw, 1.1rem);
-  color: var(--heading);
-  line-height: 1.2;
-  overflow-wrap: anywhere;
-}
-
 .course-card__actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 10px;
   margin-top: 4px;
 }
 
-.register-course-btn {
-  min-width: 110px;
-  padding: 8px 14px;
-  font-size: 0.85rem;
+.course-card__actions button {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
   border-radius: 8px;
-  flex-shrink: 0;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+/* Highlights inside the course details modal */
+.modal-highlights {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin: 16px 0 24px;
+}
+
+.highlight-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--surface-muted) 80%, white), var(--surface));
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--ease), border-color var(--ease);
+}
+
+.highlight-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+}
+
+.highlight-card__label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.highlight-card__value {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--heading);
+  line-height: 1.2;
+}
+
+.highlight-card--duration {
+  border-left: 4px solid var(--primary);
+}
+
+.highlight-card--price-inr {
+  border-left: 4px solid #f59e0b; /* Amber */
+}
+
+.highlight-card--price-aed {
+  border-left: 4px solid #10b981; /* Emerald */
+}
+
+@media (max-width: 680px) {
+  .modal-highlights {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
 }
 
 .course-card__rating {
@@ -3562,59 +3587,103 @@ html[data-theme="dark"] .bell-badge {
   line-height: 1.65;
 }
 
-.public-modal__sections {
-  display: grid;
-  gap: 4px;
-}
-
-.public-modal__nav {
+/* Accordion inside course details modal */
+.modal-accordion {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 8px;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
 }
 
-.public-modal__nav-btn {
+.accordion-item {
   border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--surface-muted) 72%, white);
-  color: var(--text-muted);
-  border-radius: 999px;
-  padding: 8px 14px;
-  font-size: 0.9rem;
-  font-weight: 700;
-  cursor: pointer;
+  border-radius: 10px;
+  background: var(--surface);
+  overflow: hidden;
+  transition: border-color var(--ease), box-shadow var(--ease);
 }
 
-.public-modal__nav-btn--active {
+.accordion-item:hover {
+  border-color: var(--border-strong);
+}
+
+.accordion-item--active {
   border-color: color-mix(in srgb, var(--primary) 32%, var(--border));
-  background: color-mix(in srgb, var(--primary) 12%, white);
+  box-shadow: var(--shadow-sm);
+}
+
+.accordion-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: var(--heading);
+  transition: background var(--ease);
+}
+
+.accordion-trigger:hover,
+.accordion-trigger:focus-visible {
+  background: var(--surface-muted);
+  outline: none;
+}
+
+.accordion-title {
+  font-size: 1rem;
+  font-weight: 750;
+}
+
+.accordion-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  transition: transform var(--ease-slow), color var(--ease);
+}
+
+.accordion-item--active .accordion-icon {
+  transform: rotate(180deg);
   color: var(--primary);
 }
 
-.public-modal__section {
-  display: grid;
+.accordion-content {
+  border-top: 1px solid var(--border);
+}
+
+.accordion-content-inner {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
-  margin-top: 18px;
+  background: color-mix(in srgb, var(--surface-muted) 50%, var(--surface));
 }
 
-.public-modal__section--active {
-  margin-top: 6px;
-}
-
-.public-modal__list {
+.accordion-paragraph {
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: var(--text-muted);
   margin: 0;
-  padding-left: 18px;
-  display: grid;
-  gap: 10px;
+}
+
+.accordion-list {
+  padding-left: 20px;
+  margin: 4px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   color: var(--text-muted);
   line-height: 1.55;
 }
 
-.public-modal__footer {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 20px;
+.accordion-list li {
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  position: relative;
 }
 
 .public-form {
