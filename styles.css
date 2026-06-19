@@ -3742,8 +3742,14 @@ html[data-theme="dark"] .bell-badge {
   animation: marquee-left-to-right 180s linear infinite;
 }
 
-.success-stories-track:hover {
-  animation-play-state: paused;
+@media (hover: hover) {
+  .success-stories-track:hover {
+    animation-play-state: paused;
+  }
+
+  .success-story-card:hover {
+    transform: scale(1.03);
+  }
 }
 
 .success-story-card {
@@ -3757,10 +3763,6 @@ html[data-theme="dark"] .bell-badge {
   background: var(--surface);
   margin-right: 24px;
   transition: transform var(--ease);
-}
-
-.success-story-card:hover {
-  transform: scale(1.03);
 }
 
 .success-story-card img {
