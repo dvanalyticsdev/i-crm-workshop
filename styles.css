@@ -4074,9 +4074,9 @@ html[data-theme="dark"] .bell-badge {
 
 .courses-footer__columns {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 40px 60px;
-  max-width: 1100px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 40px 32px;
+  max-width: 1200px;
   margin: 0 auto;
 }
 
@@ -4147,7 +4147,14 @@ html[data-theme="dark"] .bell-badge {
   margin: 0;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 960px) {
+  .courses-footer__columns {
+    grid-template-columns: 1fr 1fr;
+    gap: 40px 24px;
+  }
+}
+
+@media (max-width: 680px) {
   .courses-footer__columns {
     grid-template-columns: 1fr;
     gap: 32px;
