@@ -3266,17 +3266,17 @@ html[data-theme="dark"] .bell-badge {
 }
 
 .courses-shell {
-  width: min(1380px, calc(100% - 40px));
+  width: min(1200px, calc(100% - 32px));
   margin: 0 auto;
-  padding: 28px 0 56px;
+  padding: 20px 0 40px;
   display: grid;
-  gap: 28px;
+  gap: 20px;
 }
 
 .courses-hero {
-  padding: 12px 28px 24px;
+  padding: 10px 20px 18px;
   border: 1px solid var(--border);
-  border-radius: 24px;
+  border-radius: 16px;
   background: color-mix(in srgb, var(--surface) 92%, white);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
@@ -3287,8 +3287,8 @@ html[data-theme="dark"] .bell-badge {
   content: "";
   position: absolute;
   inset: auto -4% -40% auto;
-  width: 320px;
-  height: 320px;
+  width: 260px;
+  height: 260px;
   border-radius: 50%;
   background: radial-gradient(circle, rgba(224, 83, 34, 0.24), transparent 66%);
   pointer-events: none;
@@ -3299,7 +3299,7 @@ html[data-theme="dark"] .bell-badge {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  min-height: 76px;
+  min-height: 56px;
 }
 
 .courses-brand {
@@ -3313,44 +3313,45 @@ html[data-theme="dark"] .bell-badge {
 }
 
 .courses-brand__logo {
-  width: min(220px, 34vw);
+  width: min(170px, 30vw);
   height: auto;
   display: block;
-  filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.18));
+  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.15));
 }
 
 .courses-intro {
   display: grid;
-  gap: 10px;
-  padding: 26px 30px;
-  border-radius: 24px;
+  gap: 8px;
+  padding: 20px 24px;
+  border-radius: 16px;
 }
 
 .courses-intro h1 {
-  font-size: clamp(1.9rem, 2.7vw, 2.9rem);
-  line-height: 1.1;
+  font-size: clamp(1.5rem, 2.2vw, 2.2rem);
+  line-height: 1.15;
   color: var(--heading);
 }
 
 .courses-intro p {
-  max-width: 70ch;
+  max-width: 65ch;
   color: var(--text-muted);
-  line-height: 1.65;
+  font-size: 0.95rem;
+  line-height: 1.55;
 }
 
 .courses-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 26px;
+  gap: 20px;
 }
 
 .course-card {
   position: relative;
   display: grid;
-  gap: 16px;
-  padding: 24px;
+  gap: 12px;
+  padding: 16px;
   border: 1px solid var(--border);
-  border-radius: 22px;
+  border-radius: 16px;
   background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 94%, white), var(--surface));
   box-shadow: var(--shadow-md);
   cursor: pointer;
@@ -3361,7 +3362,7 @@ html[data-theme="dark"] .bell-badge {
 .course-card:hover,
 .course-card:focus-visible {
   transform: translateY(-4px);
-  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.1);
   border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
 }
 
@@ -3369,15 +3370,15 @@ html[data-theme="dark"] .bell-badge {
   position: absolute;
   inset: 0 auto auto 0;
   width: 100%;
-  height: 5px;
+  height: 4px;
   background: linear-gradient(90deg, var(--primary), #f59e0b, #1d4ed8);
 }
 
 .course-card__poster-wrap {
   position: relative;
   overflow: hidden;
-  margin: -24px -24px 4px;
-  border-radius: 22px 22px 18px 18px;
+  margin: -16px -16px 4px;
+  border-radius: 16px 16px 12px 12px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   background:
     linear-gradient(180deg, rgba(13, 24, 53, 0.04), rgba(13, 24, 53, 0.18)),
@@ -3404,10 +3405,10 @@ html[data-theme="dark"] .bell-badge {
 .course-card__duration {
   display: inline-flex;
   align-items: center;
-  min-height: 32px;
-  padding: 6px 12px;
+  min-height: 28px;
+  padding: 4px 10px;
   border-radius: 999px;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 800;
 }
 
@@ -3422,38 +3423,39 @@ html[data-theme="dark"] .bell-badge {
 }
 
 .course-card h2 {
-  font-size: 1.45rem;
-  line-height: 1.18;
+  font-size: 1.22rem;
+  line-height: 1.2;
   color: var(--heading);
 }
 
 .course-card__headline {
   color: var(--text-muted);
-  line-height: 1.6;
-  min-height: 96px;
+  line-height: 1.5;
+  font-size: 0.88rem;
+  min-height: 72px;
 }
 
 .course-card__prices {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  margin-top: 6px;
+  gap: 12px;
+  margin-top: 4px;
 }
 
 .course-card__prices div {
-  padding: 18px 16px;
+  padding: 12px 10px;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: 12px;
   background: color-mix(in srgb, var(--surface-muted) 82%, white);
   display: grid;
-  gap: 8px;
-  min-height: 108px;
+  gap: 4px;
+  min-height: 76px;
   align-content: start;
   min-width: 0;
 }
 
 .course-card__price-label {
-  font-size: 0.78rem;
+  font-size: 0.7rem;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -3462,7 +3464,7 @@ html[data-theme="dark"] .bell-badge {
 }
 
 .course-card__prices strong {
-  font-size: clamp(1.05rem, 1.6vw, 1.22rem);
+  font-size: clamp(0.95rem, 1.4vw, 1.1rem);
   color: var(--heading);
   line-height: 1.2;
   overflow-wrap: anywhere;
@@ -3470,13 +3472,64 @@ html[data-theme="dark"] .bell-badge {
 
 .course-card__actions {
   display: flex;
-  justify-content: flex-start;
-  margin-top: 6px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 4px;
 }
 
 .register-course-btn {
-  min-width: 140px;
+  min-width: 110px;
+  padding: 8px 14px;
+  font-size: 0.85rem;
+  border-radius: 8px;
+  flex-shrink: 0;
 }
+
+.course-card__rating {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.course-card__stars {
+  display: flex;
+  gap: 1px;
+  color: var(--border-strong);
+}
+
+.course-card__stars .star.filled {
+  color: #f59e0b;
+}
+
+.course-card__stars .star.half {
+  position: relative;
+  color: var(--border-strong);
+}
+
+.course-card__stars .star.half::before {
+  content: "★";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 50%;
+  overflow: hidden;
+  color: #f59e0b;
+}
+
+.course-card__rating-val {
+  font-weight: 750;
+  color: var(--heading);
+}
+
+.course-card__reviews {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
 
 .public-modal {
   width: min(840px, calc(100vw - 32px));
@@ -3576,6 +3629,84 @@ html[data-theme="dark"] .bell-badge {
   text-align: center;
 }
 
+.success-stories-section {
+  display: grid;
+  gap: 16px;
+  padding: 24px 30px;
+  border-radius: 16px;
+  overflow: hidden;
+  margin-top: 10px;
+}
+
+.success-stories-header {
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.success-stories-header h2 {
+  font-size: 1.8rem;
+  color: var(--heading);
+  margin-bottom: 6px;
+}
+
+.success-stories-header p {
+  color: var(--text-muted);
+  max-width: 70ch;
+  margin: 0 auto;
+}
+
+.success-stories-marquee {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  padding: 10px 0;
+  mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
+}
+
+.success-stories-track {
+  display: flex;
+  width: max-content;
+  animation: marquee-left-to-right 180s linear infinite;
+}
+
+.success-stories-track:hover {
+  animation-play-state: paused;
+}
+
+.success-story-card {
+  flex: 0 0 auto;
+  width: 380px;
+  height: 380px;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  margin-right: 24px;
+  transition: transform var(--ease);
+}
+
+.success-story-card:hover {
+  transform: scale(1.03);
+}
+
+.success-story-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+@keyframes marquee-left-to-right {
+  0% {
+    transform: translateX(-50%);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
 @media (max-width: 960px) {
   .courses-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3584,12 +3715,12 @@ html[data-theme="dark"] .bell-badge {
 
 @media (max-width: 640px) {
   .courses-shell {
-    width: min(100% - 24px, 1240px);
-    padding-top: 18px;
+    width: min(100% - 20px, 1200px);
+    padding-top: 14px;
   }
 
   .courses-hero {
-    padding: 20px;
+    padding: 16px;
   }
 
   .courses-hero__topbar,
@@ -3600,7 +3731,7 @@ html[data-theme="dark"] .bell-badge {
   }
 
   .courses-intro {
-    padding: 22px 20px;
+    padding: 18px 16px;
   }
 
   .courses-grid {
@@ -3608,18 +3739,33 @@ html[data-theme="dark"] .bell-badge {
   }
 
   .courses-brand__logo {
-    width: min(180px, 58vw);
+    width: min(140px, 50vw);
   }
 
   .course-card {
-    padding: 20px;
+    padding: 16px;
   }
 
   .course-card__poster-wrap {
-    margin: -20px -20px 4px;
+    margin: -16px -16px 4px;
   }
 
   .course-card__prices {
     grid-template-columns: 1fr;
   }
+
+  .success-stories-section {
+    padding: 18px 16px;
+  }
+
+  .success-stories-header h2 {
+    font-size: 1.45rem;
+  }
+
+  .success-story-card {
+    width: 280px;
+    height: 280px;
+    margin-right: 16px;
+  }
 }
+
