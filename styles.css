@@ -4060,4 +4060,109 @@ html[data-theme="dark"] .bell-badge {
   }
 }
 
+/* Premium Footer */
+.courses-footer {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  margin-top: 40px;
+  padding: 48px 32px 32px;
+  border-radius: 16px;
+  color: var(--text-muted);
+  font-family: inherit;
+  box-shadow: var(--shadow-md);
+}
+
+.courses-footer__columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40px 60px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.courses-footer__col h3 {
+  color: var(--primary);
+  font-size: 0.95rem;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 0 0 20px;
+  position: relative;
+  display: inline-block;
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--primary);
+}
+
+.courses-footer__col .company-name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--heading);
+  margin-bottom: 12px;
+}
+
+.courses-footer__col .address {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  margin-bottom: 16px;
+  color: var(--text-muted);
+}
+
+.courses-footer__col p {
+  font-size: 0.9rem;
+  margin: 6px 0;
+  color: var(--text-muted);
+}
+
+.courses-footer__col p strong {
+  color: var(--heading);
+}
+
+.courses-footer__col a {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 600;
+  transition: opacity var(--ease);
+}
+
+.courses-footer__col a:hover {
+  opacity: 0.85;
+}
+
+.courses-footer__bottom {
+  margin-top: 40px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+  text-align: left;
+  max-width: 1100px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.courses-footer__bottom p {
+  font-size: 0.76rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+@media (max-width: 768px) {
+  .courses-footer__columns {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+  
+  .courses-footer {
+    padding: 36px 20px 24px;
+    margin-top: 24px;
+  }
+  
+  .courses-footer__bottom {
+    margin-top: 32px;
+    padding-top: 18px;
+  }
+}
+
+
 
