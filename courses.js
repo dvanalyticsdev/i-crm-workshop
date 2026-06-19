@@ -118,8 +118,44 @@ function renderCourseAccordion(course) {
   if (!accordionContainer) return;
 
   const sections = Array.isArray(course.sections) ? course.sections : [];
-  accordionContainer.innerHTML = sections.map((section, index) => {
+  const allSections = [
+    ...sections,
+    {
+      title: "Program Fee",
+      isFeeSection: true
+    }
+  ];
+
+  accordionContainer.innerHTML = allSections.map((section, index) => {
     const isFirst = index === 0;
+    
+    let contentHtml = "";
+    if (section.isFeeSection) {
+      contentHtml = `
+        <div class="modal-price-banner" style="margin: 0; background: var(--surface); border: 1px dashed var(--border-strong);">
+          <div class="price-banner-item">
+            <span class="price-banner-label">INR Price (incl. 18% GST)</span>
+            <strong class="price-banner-val">${escapeHtml(formatInr(course.price.totalInr))}</strong>
+          </div>
+          <div class="price-banner-item">
+            <span class="price-banner-label">AED Price</span>
+            <strong class="price-banner-val">${escapeHtml(formatAed(course.price.totalAed))}</strong>
+          </div>
+        </div>
+      `;
+    } else {
+      contentHtml = `
+        ${(Array.isArray(section.paragraphs) ? section.paragraphs : [])
+          .map((paragraph) => `<p class="accordion-paragraph">${escapeHtml(paragraph)}</p>`)
+          .join("")}
+        ${Array.isArray(section.bullets) && section.bullets.length ? `
+          <ul class="accordion-list">
+            ${section.bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}
+          </ul>
+        ` : ""}
+      `;
+    }
+
     return `
       <div class="accordion-item ${isFirst ? "accordion-item--active" : ""}">
         <button type="button" class="accordion-trigger" aria-expanded="${isFirst ? "true" : "false"}" data-accordion-index="${index}">
@@ -132,14 +168,7 @@ function renderCourseAccordion(course) {
         </button>
         <div class="accordion-content" style="${isFirst ? "" : "display: none;"}">
           <div class="accordion-content-inner">
-            ${(Array.isArray(section.paragraphs) ? section.paragraphs : [])
-              .map((paragraph) => `<p class="accordion-paragraph">${escapeHtml(paragraph)}</p>`)
-              .join("")}
-            ${Array.isArray(section.bullets) && section.bullets.length ? `
-              <ul class="accordion-list">
-                ${section.bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}
-              </ul>
-            ` : ""}
+            ${contentHtml}
           </div>
         </div>
       </div>
@@ -253,7 +282,7 @@ const COURSE_HOOKS = {
             <polyline points="12 6 12 12 16 14"></polyline>
           </svg>
         `,
-        title: "5-8 Months",
+        title: "4-5 Months",
         subtext: "Flexible Scheduling"
       },
       {
@@ -353,7 +382,7 @@ const COURSE_HOOKS = {
             <polyline points="12 6 12 12 16 14"></polyline>
           </svg>
         `,
-        title: "3-4 Months",
+        title: "3 Months",
         subtext: "Fast-Track Specialization"
       },
       {
@@ -403,7 +432,7 @@ const COURSE_HOOKS = {
             <polyline points="12 6 12 12 16 14"></polyline>
           </svg>
         `,
-        title: "3-4 Months",
+        title: "3 Months",
         subtext: "Rapid Career Pivot"
       },
       {
@@ -518,10 +547,6 @@ function openCourseDetails(courseId) {
       </div>
     </div>
   `).join("");
-
-  // Render Prices
-  document.getElementById("courseModalPriceInr").textContent = formatInr(course.price.totalInr);
-  document.getElementById("courseModalPriceAed").textContent = formatAed(course.price.totalAed);
 
   renderCourseAccordion(course);
   courseDetailsModal.classList.remove("hidden");

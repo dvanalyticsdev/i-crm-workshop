@@ -38,10 +38,10 @@ const PUBLIC_COURSE_ROUTING_OWNER = "system:public-course-routing";
 
 const PUBLIC_COURSE_CATALOG = [
   { id: "apids", code: "APIDS", name: "Advanced Program in Industrial Data Science & AI", duration: "6-8 Months" },
-  { id: "apida", code: "APIDA", name: "Advanced Program in Industrial Data Analytics & AI", duration: "5-8 Months" },
+  { id: "apida", code: "APIDA", name: "Advanced Program in Industrial Data Analytics & AI", duration: "4-5 Months" },
   { id: "advanced-aiml-genai-agentic", code: "AIML + GenAI", name: "Advanced AIML with Gen AI & Agentic AI", duration: "4 Months" },
-  { id: "master-genai-agentic", code: "GenAI Master", name: "Master Program in Gen AI & Agentic AI", duration: "2 Months" },
-  { id: "data-analytics-specialist", code: "DAS", name: "Data Analytics Specialist", duration: "3-4 Months" },
+  { id: "master-genai-agentic", code: "GenAI Master", name: "Master Program in Gen AI & Agentic AI", duration: "3 Months" },
+  { id: "data-analytics-specialist", code: "DAS", name: "Data Analytics Specialist", duration: "3 Months" },
   { id: "apcs", code: "APCS", name: "Advanced Program in Cybersecurity & Forensics", duration: "3-4 Months" }
 ];
 
