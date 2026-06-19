@@ -57,16 +57,50 @@
   </main>
 
   <div id="courseDetailsModal" class="modal hidden">
-    <div class="modal-content card public-modal">
-      <div class="public-modal__header">
-        <div>
-          <p class="public-modal__eyebrow" id="courseModalBadge"></p>
-          <h3 id="courseModalTitle">Course details</h3>
-          <div id="courseModalHighlights" class="modal-highlights"></div>
+    <div class="modal-content card public-modal public-modal--custom-layout">
+      <!-- Dark Hook Header Section -->
+      <div class="modal-hook-header">
+        <div class="modal-hook-header__top">
+          <div>
+            <span class="public-modal__eyebrow" id="courseModalBadge"></span>
+            <h3 id="courseModalTitle">Course details</h3>
+          </div>
+          <button type="button" class="modal-close-btn" id="closeCourseModalBtn" aria-label="Close modal">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
         </div>
-        <button type="button" class="btn-ghost" id="closeCourseModalBtn">Close</button>
+        <ul class="modal-hook-bullets" id="courseModalHookBullets">
+          <!-- Populated by JS -->
+        </ul>
       </div>
-      <div id="courseModalAccordion" class="modal-accordion"></div>
+
+      <!-- Scrollable Modal Body -->
+      <div class="public-modal__body">
+        <!-- Features Overlapping Grid -->
+        <div class="modal-features-card">
+          <div class="modal-features-grid" id="courseModalFeaturesGrid">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+
+        <!-- Price Banner -->
+        <div class="modal-price-banner">
+          <div class="price-banner-item">
+            <span class="price-banner-label">INR Price (incl. 18% GST)</span>
+            <strong class="price-banner-val" id="courseModalPriceInr"></strong>
+          </div>
+          <div class="price-banner-item">
+            <span class="price-banner-label">AED Price</span>
+            <strong class="price-banner-val" id="courseModalPriceAed"></strong>
+          </div>
+        </div>
+
+        <!-- Accordion details section -->
+        <div id="courseModalAccordion" class="modal-accordion"></div>
+      </div>
     </div>
   </div>
 

@@ -177,6 +177,309 @@ function renderCourseAccordion(course) {
   });
 }
 
+const COURSE_HOOKS = {
+  apids: {
+    highlights: [
+      "GenAI & Agentic AI focus with multi-agent system workflows",
+      "Real-world projects across banking, healthcare, retail, & telecom",
+      "Comprehensive MLOps & LLMOps deployment training for production"
+    ],
+    features: [
+      {
+        icon: `
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+            <line x1="8" y1="21" x2="16" y2="21"></line>
+            <line x1="12" y1="17" x2="12" y2="21"></line>
+          </svg>
+        `,
+        title: "240+ Learning Hours",
+        subtext: "Instructor-Led Sessions"
+      },
+      {
+        icon: `
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+        `,
+        title: "6-8 Months",
+        subtext: "Program Duration"
+      },
+      {
+        icon: `
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+          </svg>
+        `,
+        title: "Placement Assistance*",
+        subtext: "Dedicated Hiring Network"
+      },
+      {
+        icon: `
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 10v6M2 10l10-5 10 5-10 5z"></path>
+            <path d="M6 12v5c0 2 2 3 6 3s6-1 6-3v-5"></path>
+          </svg>
+        `,
+        title: "Career Support",
+        subtext: "For Freshers & Professionals"
+      }
+    ]
+  },
+  apida: {
+    highlights: [
+      "Focused on business intelligence, reporting, & executive dashboards",
+      "Master SQL, Python, Excel AI, Power BI & Tableau",
+      "Applied machine learning & decision-making statistics"
+    ],
+    features: [
+      {
+        icon: `
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+            <line x1="8" y1="21" x2="16" y2="21"></line>
+            <line x1="12" y1="17" x2="12" y2="21"></line>
+          </svg>
+        `,
+        title: "180+ Learning Hours",
+        subtext: "Hands-on Lab Exercises"
+      },
+      {
+        icon: `
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+        `,
+        title: "5-8 Months",
+        subtext: "Flexible Scheduling"
+      },
+      {
+        icon: `
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+          </svg>
+        `,
+        title: "15+ Industry Cases",
+        subtext: "Real Domain Data Analysis"
+      },
+      {
+        icon: `
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 10v6M2 10l10-5 10 5-10 5z"></path>
+            <path d="M6 12v5c0 2 2 3 6 3s6-1 6-3v-5"></path>
+          </svg>
+        `,
+        title: "Placement Assistance",
+        subtext: "Resume Prep & Mock Interviews"
+      }
+    ]
+  },
+  "advanced-aiml-genai-agentic": {
+    highlights: [
+      "Advanced neural networks, deep learning & transformer architectures",
+      "Design multi-agent setups with LangGraph, CrewAI & AutoGen",
+      "Deploy scalable systems using advanced MLOps & cloud scaling"
+    ],
+    features: [
+      {
+        icon: `
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+            <line x1="8" y1="21" x2="16" y2="21"></line>
+            <line x1="12" y1="17" x2="12" y2="21"></line>
+          </svg>
+        `,
+        title: "200+ Learning Hours",
+        subtext: "Deep Technical Coding"
+      },
+      {
+        icon: `
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+        `,
+        title: "5-6 Months",
+        subtext: "Accelerated Learning Track"
+      },
+      {
+        icon: `
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+          </svg>
+        `,
+        title: "Hands-on GPU Labs",
+        subtext: "Train Models on Cloud GPUs"
+      },
+      {
+        icon: `
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+          </svg>
+        `,
+        title: "Placement Assistance*",
+        subtext: "Dedicated Hiring Network"
+      }
+    ]
+  },
+  "master-genai-agentic": {
+    highlights: [
+      "Deep dive into LLMs, prompt engineering, & prompt routing",
+      "Build RAG systems, vector search, & custom indexing layers",
+      "Construct production-grade autonomous agent networks"
+    ],
+    features: [
+      {
+        icon: `
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+            <line x1="8" y1="21" x2="16" y2="21"></line>
+            <line x1="12" y1="17" x2="12" y2="21"></line>
+          </svg>
+        `,
+        title: "120+ Learning Hours",
+        subtext: "Focus on Builder Labs"
+      },
+      {
+        icon: `
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+        `,
+        title: "3-4 Months",
+        subtext: "Fast-Track Specialization"
+      },
+      {
+        icon: `
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+          </svg>
+        `,
+        title: "8+ GenAI Projects",
+        subtext: "Ready-to-Deploy Portfolio Apps"
+      },
+      {
+        icon: `
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 10v6M2 10l10-5 10 5-10 5z"></path>
+            <path d="M6 12v5c0 2 2 3 6 3s6-1 6-3v-5"></path>
+          </svg>
+        `,
+        title: "Global Certification",
+        subtext: "Verify Your AI Expertise"
+      }
+    ]
+  },
+  "data-analytics-specialist": {
+    highlights: [
+      "Perfect career transition pathway for non-technical fields",
+      "Learn SQL database structures, Excel macros & core statistics",
+      "Interactive data storytelling with Power BI & Tableau dashboards"
+    ],
+    features: [
+      {
+        icon: `
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+            <line x1="8" y1="21" x2="16" y2="21"></line>
+            <line x1="12" y1="17" x2="12" y2="21"></line>
+          </svg>
+        `,
+        title: "100+ Learning Hours",
+        subtext: "Beginner-Friendly Lectures"
+      },
+      {
+        icon: `
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+        `,
+        title: "3-4 Months",
+        subtext: "Rapid Career Pivot"
+      },
+      {
+        icon: `
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+          </svg>
+        `,
+        title: "10+ Reporting Projects",
+        subtext: "Interactive BI Deployments"
+      },
+      {
+        icon: `
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 10v6M2 10l10-5 10 5-10 5z"></path>
+            <path d="M6 12v5c0 2 2 3 6 3s6-1 6-3v-5"></path>
+          </svg>
+        `,
+        title: "Expert Mentorship",
+        subtext: "Weekly 1-on-1 Guidance"
+      }
+    ]
+  },
+  apcs: {
+    highlights: [
+      "Master MLOps pipeline design: CI/CD, monitoring & drift checks",
+      "Deploy models to AWS, GCP, and Azure using Docker & Kubernetes",
+      "Automated testing, versioning & orchestration with GitHub & MLflow"
+    ],
+    features: [
+      {
+        icon: `
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+            <line x1="8" y1="21" x2="16" y2="21"></line>
+            <line x1="12" y1="17" x2="12" y2="21"></line>
+          </svg>
+        `,
+        title: "150+ Learning Hours",
+        subtext: "Heavy Hands-on Exercises"
+      },
+      {
+        icon: `
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+        `,
+        title: "4-6 Months",
+        subtext: "Highly Technical Curriculum"
+      },
+      {
+        icon: `
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+          </svg>
+        `,
+        title: "Live Cloud Labs",
+        subtext: "Real Cloud Infrastructure Credits"
+      },
+      {
+        icon: `
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 10v6M2 10l10-5 10 5-10 5z"></path>
+            <path d="M6 12v5c0 2 2 3 6 3s6-1 6-3v-5"></path>
+          </svg>
+        `,
+        title: "Expert Mentorship",
+        subtext: "Cybersecurity Career Coaching"
+      }
+    ]
+  }
+};
+
 function openCourseDetails(courseId) {
   const course = findCourseById(courseId);
   if (!course) {
@@ -186,21 +489,40 @@ function openCourseDetails(courseId) {
   document.getElementById("courseModalBadge").textContent = course.badge;
   document.getElementById("courseModalTitle").textContent = course.name;
   
-  const highlightsContainer = document.getElementById("courseModalHighlights");
-  highlightsContainer.innerHTML = `
-    <div class="highlight-card highlight-card--duration">
-      <span class="highlight-card__label">Duration</span>
-      <span class="highlight-card__value">${escapeHtml(course.duration)}</span>
+  // Retrieve hooks for this course
+  const hooks = COURSE_HOOKS[course.id] || { highlights: [], features: [] };
+  
+  // Render bullets (highlights) with check SVGs
+  const bulletsContainer = document.getElementById("courseModalHookBullets");
+  bulletsContainer.innerHTML = (hooks.highlights || []).map((highlight) => `
+    <li>
+      <span class="hook-bullet-icon-wrap" aria-hidden="true">
+        <svg class="hook-bullet-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+      </span>
+      <span class="hook-bullet-text">${escapeHtml(highlight)}</span>
+    </li>
+  `).join("");
+
+  // Render Features Grid
+  const featuresContainer = document.getElementById("courseModalFeaturesGrid");
+  featuresContainer.innerHTML = (hooks.features || []).map((feat) => `
+    <div class="modal-feature-item">
+      <div class="modal-feature-icon-wrap" aria-hidden="true">
+        ${feat.icon}
+      </div>
+      <div class="modal-feature-text">
+        <h4 class="modal-feature-title">${escapeHtml(feat.title)}</h4>
+        <span class="modal-feature-subtext">${escapeHtml(feat.subtext)}</span>
+      </div>
     </div>
-    <div class="highlight-card highlight-card--price-inr">
-      <span class="highlight-card__label">INR Price (incl. 18% GST)</span>
-      <span class="highlight-card__value">${escapeHtml(formatInr(course.price.totalInr))}</span>
-    </div>
-    <div class="highlight-card highlight-card--price-aed">
-      <span class="highlight-card__label">AED Price</span>
-      <span class="highlight-card__value">${escapeHtml(formatAed(course.price.totalAed))}</span>
-    </div>
-  `;
+  `).join("");
+
+  // Render Prices
+  document.getElementById("courseModalPriceInr").textContent = formatInr(course.price.totalInr);
+  document.getElementById("courseModalPriceAed").textContent = formatAed(course.price.totalAed);
+
   renderCourseAccordion(course);
   courseDetailsModal.classList.remove("hidden");
 }

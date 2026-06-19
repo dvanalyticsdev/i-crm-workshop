@@ -8,12 +8,12 @@ function toAed(amountInr) {
   return Math.round(amountInr / AED_EXCHANGE_RATE_INR);
 }
 
-function buildPrice(basePriceInr) {
+function buildPrice(basePriceInr, customAed = null) {
   const totalInr = withGst(basePriceInr);
   return {
     baseInr: basePriceInr,
     totalInr,
-    totalAed: toAed(totalInr)
+    totalAed: customAed !== null ? customAed : toAed(totalInr)
   };
 }
 
@@ -29,7 +29,7 @@ export const PUBLIC_COURSES = [
     poster: "Logos/APIDS.jpeg",
     name: "Advanced Program in Industrial Data Science & AI",
     duration: "6-8 Months",
-    price: buildPrice(300000),
+    price: buildPrice(300000, 20000),
     badge: "Flagship Program",
     headline: "Build full-stack data science, machine learning, generative AI, and agentic AI skills in one career track.",
     sections: [
@@ -78,7 +78,7 @@ export const PUBLIC_COURSES = [
     poster: "Logos/APIDA.jpeg",
     name: "Advanced Program in Industrial Data Analytics & AI",
     duration: "5-8 Months",
-    price: buildPrice(250000),
+    price: buildPrice(250000, 15000),
     badge: "Analytics Focus",
     headline: "A business analytics track focused on BI, dashboards, statistics, machine learning, and decision-ready reporting.",
     sections: [
@@ -123,7 +123,7 @@ export const PUBLIC_COURSES = [
     poster: "Logos/Advance-AIML-GenAI-AgenticAI.jpeg",
     name: "Advanced AIML with Gen AI & Agentic AI",
     duration: "4 Months",
-    price: buildPrice(220000),
+    price: buildPrice(220000, 15000),
     badge: "AI Builder",
     headline: "An advanced AI program that bridges Python, SQL, ML, deep learning, GenAI, RAG, and agentic workflows.",
     sections: [
@@ -149,6 +149,10 @@ export const PUBLIC_COURSES = [
       buildSection("Ideal For", [], [
         "Learners building toward Data Scientist, ML Engineer, or Applied AI roles",
         "Professionals who want stronger foundations before production GenAI and agentic system work"
+      ]),
+      buildSection("Program Support", [], [
+        "Live sessions, recordings, assignments, and capstone project",
+        "Resume building, LinkedIn optimization, mock interviews, placement assistance"
       ])
     ]
   },
@@ -159,7 +163,7 @@ export const PUBLIC_COURSES = [
     poster: "Logos/Master-GenAI-AgenticAI.jpeg",
     name: "Master Program in Gen AI & Agentic AI",
     duration: "2 Months",
-    price: buildPrice(120000),
+    price: buildPrice(120000, 12000),
     badge: "Advanced Track",
     headline: "A production-focused GenAI and Agentic AI program covering transformers, RAG, fine-tuning, evaluation, and multi-agent systems.",
     sections: [
@@ -195,7 +199,7 @@ export const PUBLIC_COURSES = [
     poster: "Logos/DAS.jpeg",
     name: "Data Analytics Specialist",
     duration: "3-4 Months",
-    price: buildPrice(150000),
+    price: buildPrice(150000, 10000),
     badge: "Career Starter",
     headline: "A practical analytics program for SQL, Python, Excel AI, Power BI, dashboards, reporting automation, and BI careers.",
     sections: [
@@ -221,7 +225,7 @@ export const PUBLIC_COURSES = [
       buildSection("Program Deliverables", [], [
         "Live instructor-led sessions, LMS access, and recorded sessions",
         "Assignments, assessments, industry case studies, and real-time projects",
-        "Dashboard portfolio, resume support, LinkedIn optimization, mock interviews, and placement assistance"
+        "Dashboard portfolio, resume support, LinkedIn optimization, and mock interviews"
       ])
     ]
   },
@@ -232,7 +236,7 @@ export const PUBLIC_COURSES = [
     poster: "Logos/APCS.jpeg",
     name: "Advanced Program in Cybersecurity & Forensics",
     duration: "3-4 Months",
-    price: buildPrice(70000),
+    price: buildPrice(70000, 10000),
     badge: "Security Track",
     headline: "A cybersecurity and digital forensics program built around bridge learning, ethical hacking, incident response, and hands-on labs.",
     sections: [
@@ -242,7 +246,7 @@ export const PUBLIC_COURSES = [
       ]),
       buildSection("Why This Program", [], [
         "Covers cybersecurity foundations, ethical hacking, and cyber forensics in one pathway",
-        "Live training with recorded sessions, real-time industry projects, resume building, mock interviews, and job referrals",
+        "Live training with recorded sessions, real-time industry projects, resume building, and mock interviews",
         "Open to graduates, post-graduates, masters, and PhD holders from any discipline"
       ]),
       buildSection("Learning Path", [], [
@@ -259,7 +263,7 @@ export const PUBLIC_COURSES = [
       ]),
       buildSection("Career Support and Delivery", [], [
         "Offline and online classes, quizzes, assignments, and case studies",
-        "Placement assistance, alumni connect, mock interviews, and job referrals",
+        "Alumni connect, mock interviews, and certification prep",
         "Designed for learners targeting cybersecurity, ethical hacking, DFIR, and cyber defense career paths"
       ])
     ]
