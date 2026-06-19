@@ -558,20 +558,30 @@ async function initMongo() {
           partialFilterExpression: { metaLeadId: { $exists: true, $type: "string" } }
         }
       ).catch(() => undefined);
+      await leadsCollection.dropIndex("normalizedEmail_1").catch(() => undefined);
+      await leadsCollection.dropIndex("normalizedPhone_1").catch(() => undefined);
       await leadsCollection.createIndex(
         { normalizedEmail: 1 },
         {
+          name: "normalizedEmail_1",
           unique: true,
           background: true,
-          partialFilterExpression: { normalizedEmail: { $exists: true, $type: "string" } }
+          partialFilterExpression: {
+            normalizedEmail: { $exists: true, $type: "string" },
+            leadPipeline: { $ne: "course-registration" }
+          }
         }
       ).catch(() => undefined);
       await leadsCollection.createIndex(
         { normalizedPhone: 1 },
         {
+          name: "normalizedPhone_1",
           unique: true,
           background: true,
-          partialFilterExpression: { normalizedPhone: { $exists: true, $type: "string" } }
+          partialFilterExpression: {
+            normalizedPhone: { $exists: true, $type: "string" },
+            leadPipeline: { $ne: "course-registration" }
+          }
         }
       ).catch(() => undefined);
       await leadsCollection.createIndex({ email: 1 }, { background: true }).catch(() => undefined);
@@ -1544,21 +1554,22 @@ app.post("/api/public-course-registrations", async (req, res) => {
     }
 
     const snapshot = await getStateDoc();
-    const existingLead = findDuplicateLeadByEmailOrPhone(snapshot.leads, { email, phone });
-    const isDuplicateRegisteredLead = isPublicCourseRegistrationLead(existingLead);
-    const isSameRegisteredCourse = isDuplicateRegisteredLead && publicCourseLeadMatchesCourse(existingLead, course);
+    const masterLead = findDuplicateNonRegisteredLeadByEmailOrPhone(snapshot.leads, { email, phone });
+    const existingRegisteredLead = findDuplicateRegisteredLeadByEmailOrPhone(snapshot.leads, { email, phone });
+    const counselorSourceLead = masterLead || existingRegisteredLead || null;
+    const isSameRegisteredCourse = !!existingRegisteredLead && publicCourseLeadMatchesCourse(existingRegisteredLead, course);
 
     if (isSameRegisteredCourse) {
       return res.status(200).json({
         ok: true,
         alreadyRegistered: true,
         message: "You have already registered for this course.",
-        leadId: existingLead.id,
-        assignedCounselor: String(existingLead.counselor || "").trim() || "Unassigned"
+        leadId: existingRegisteredLead.id,
+        assignedCounselor: String(existingRegisteredLead.counselor || "").trim() || "Unassigned"
       });
     }
 
-    const counselorName = String(existingLead?.counselor || "").trim() || await assignPublicCourseCounselorRoundRobin(snapshot.counselors);
+    const counselorName = String(counselorSourceLead?.counselor || "").trim() || await assignPublicCourseCounselorRoundRobin(snapshot.counselors);
     const nextId = await getNextMetaLeadId();
     const newLead = buildPublicCourseLead({
       name,
@@ -1569,17 +1580,17 @@ app.post("/api/public-course-registrations", async (req, res) => {
       nextId
     });
 
-    const shouldReplaceExistingRegisteredLead = isDuplicateRegisteredLead && !isSameRegisteredCourse;
+    const shouldReplaceExistingRegisteredLead = !!existingRegisteredLead && !isSameRegisteredCourse;
 
     if (shouldReplaceExistingRegisteredLead) {
-      const leadIdCandidates = getLeadIdCandidates(existingLead.id);
+      const leadIdCandidates = getLeadIdCandidates(existingRegisteredLead.id);
       await withMongoRetry(
         () => leadsCollection.deleteOne({ id: { $in: leadIdCandidates } }),
-        { retries: 1, label: "Remove replaced duplicate lead before course registration insert" }
+        { retries: 1, label: "Remove replaced registered lead before course registration insert" }
       );
       await withMongoRetry(
         () => tasksCollection.deleteMany({ leadId: { $in: leadIdCandidates.map((value) => String(value)) } }),
-        { retries: 1, label: "Remove replaced duplicate lead tasks before course registration insert" }
+        { retries: 1, label: "Remove replaced registered lead tasks before course registration insert" }
       );
     }
 
@@ -1602,7 +1613,7 @@ app.post("/api/public-course-registrations", async (req, res) => {
       role: "admin",
       type: "public_course_registration",
       title: "New Course Registration",
-      message: `Lead: ${formatLeadNotificationLabel(newLead)}. Registered for ${course.name}. Assigned counselor: ${counselorName}${shouldReplaceExistingRegisteredLead ? " (replaced previous registered lead)" : existingLead ? " (matched existing CRM lead)" : ""}`,
+      message: `Lead: ${formatLeadNotificationLabel(newLead)}. Registered for ${course.name}. Assigned counselor: ${counselorName}${masterLead ? " (linked to existing CRM lead)" : ""}${shouldReplaceExistingRegisteredLead ? " (updated registered section)" : ""}`,
       sound: true,
       leadId: nextId,
       leadName: newLead.name,
@@ -1882,6 +1893,23 @@ function sameLeadOwnerSet(left, right) {
   return true;
 }
 
+function isAllowedRegisteredLeadDuplicateGroup(leads, owners) {
+  if (!(owners instanceof Set) || owners.size !== 2) {
+    return false;
+  }
+
+  const groupedLeads = [...owners]
+    .map((ownerId) => (Array.isArray(leads) ? leads : []).find((lead) => String(lead?.id || "").trim() === ownerId))
+    .filter(Boolean);
+
+  if (groupedLeads.length !== 2) {
+    return false;
+  }
+
+  const registeredCount = groupedLeads.filter((lead) => isPublicCourseRegistrationLead(lead)).length;
+  return registeredCount === 1;
+}
+
 function findLeadDuplicateViolation(nextLeads, currentLeads = []) {
   const currentById = new Map(
     (Array.isArray(currentLeads) ? currentLeads : []).map((lead) => [String(lead?.id || "").trim(), lead])
@@ -1904,6 +1932,9 @@ function findLeadDuplicateViolation(nextLeads, currentLeads = []) {
     if (email) {
       const nextOwners = nextEmailOwners.get(email);
       if (nextOwners && nextOwners.size > 1) {
+        if (isAllowedRegisteredLeadDuplicateGroup(nextLeads, nextOwners)) {
+          continue;
+        }
         const currentOwners = currentEmailOwners.get(email);
         const isUnchangedLegacyDuplicate = previousLead
           && normalizeLeadEmail(previousLead.email) === email
@@ -1917,6 +1948,9 @@ function findLeadDuplicateViolation(nextLeads, currentLeads = []) {
     if (phone) {
       const nextOwners = nextPhoneOwners.get(phone);
       if (nextOwners && nextOwners.size > 1) {
+        if (isAllowedRegisteredLeadDuplicateGroup(nextLeads, nextOwners)) {
+          continue;
+        }
         const currentOwners = currentPhoneOwners.get(phone);
         const isUnchangedLegacyDuplicate = previousLead
           && normalizeLeadPhone(previousLead.phone) === phone
@@ -1938,6 +1972,24 @@ function findDuplicateLeadByEmailOrPhone(leads, incomingLead) {
     const matchesEmail = incomingEmail && normalizeLeadEmail(lead?.email) === incomingEmail;
     const matchesPhone = incomingPhone && normalizeLeadPhone(lead?.phone) === incomingPhone;
     return matchesEmail || matchesPhone;
+  }) || null;
+}
+
+function findDuplicateNonRegisteredLeadByEmailOrPhone(leads, incomingLead) {
+  return (Array.isArray(leads) ? leads : []).find((lead) => {
+    if (isPublicCourseRegistrationLead(lead)) {
+      return false;
+    }
+    return !!findDuplicateLeadByEmailOrPhone([lead], incomingLead);
+  }) || null;
+}
+
+function findDuplicateRegisteredLeadByEmailOrPhone(leads, incomingLead) {
+  return (Array.isArray(leads) ? leads : []).find((lead) => {
+    if (!isPublicCourseRegistrationLead(lead)) {
+      return false;
+    }
+    return !!findDuplicateLeadByEmailOrPhone([lead], incomingLead);
   }) || null;
 }
 

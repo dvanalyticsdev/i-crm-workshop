@@ -203,7 +203,7 @@ test("lead imports reject duplicates instead of merging", () => {
   assert.match(server, /Duplicate lead rejected: \$\{duplicateViolation\.field\} already exists\./);
 });
 
-test("public course registrations reuse counselor ownership across CRM and replace only prior registered-course leads", () => {
+test("public course registrations keep master CRM leads and independently refresh registered-section entries", () => {
   const server = read("server.js");
   const courses = read("courses.js");
 
@@ -211,11 +211,18 @@ test("public course registrations reuse counselor ownership across CRM and repla
   assert.match(server, /You have already registered for this course\./);
   assert.match(server, /isPublicCourseRegistrationLead/);
   assert.match(server, /publicCourseLeadMatchesCourse/);
-  assert.match(server, /const counselorName = String\(existingLead\?\.counselor \|\| ""\)\.trim\(\) \|\| await assignPublicCourseCounselorRoundRobin/);
-  assert.match(server, /const shouldReplaceExistingRegisteredLead = isDuplicateRegisteredLead && !isSameRegisteredCourse/);
+  assert.match(server, /const masterLead = findDuplicateNonRegisteredLeadByEmailOrPhone/);
+  assert.match(server, /const existingRegisteredLead = findDuplicateRegisteredLeadByEmailOrPhone/);
+  assert.match(server, /const counselorSourceLead = masterLead \|\| existingRegisteredLead \|\| null/);
+  assert.match(server, /const counselorName = String\(counselorSourceLead\?\.counselor \|\| ""\)\.trim\(\) \|\| await assignPublicCourseCounselorRoundRobin/);
+  assert.match(server, /const shouldReplaceExistingRegisteredLead = !!existingRegisteredLead && !isSameRegisteredCourse/);
   assert.match(server, /leadsCollection\.deleteOne\(\{ id: \{ \$in: leadIdCandidates \} \}\)/);
   assert.match(server, /tasksCollection\.deleteMany\(\{ leadId: \{ \$in: leadIdCandidates\.map\(\(value\) => String\(value\)\) \} \}\)/);
-  assert.match(server, /matched existing CRM lead/);
+  assert.match(server, /linked to existing CRM lead/);
+  assert.match(server, /updated registered section/);
+  assert.match(server, /function isAllowedRegisteredLeadDuplicateGroup/);
+  assert.match(server, /function findDuplicateNonRegisteredLeadByEmailOrPhone/);
+  assert.match(server, /function findDuplicateRegisteredLeadByEmailOrPhone/);
   assert.match(server, /if \(digits\.length === 12 && digits\.startsWith\("91"\)\)/);
   assert.match(server, /return digits\.slice\(-10\);/);
   assert.match(courses, /if \(data\?\.alreadyRegistered\)/);
