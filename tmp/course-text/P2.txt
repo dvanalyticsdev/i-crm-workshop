@@ -1,0 +1,302 @@
+ADVANCED PROGRAM IN INDUSTRIAL DATA ANALYTICS & AI (APIDA)
+Program Overview
+The Advanced Program in Industrial Data Analytics & AI (APIDA) is a specialized industry-focused program designed for graduates and working professionals who want to build expertise in Data Analytics, Business Intelligence, Machine Learning, and AI-driven Decision Making.
+The program combines Data Management, Data Analysis, Data Visualization, Statistics, Machine Learning, and MLOps to help participants become job-ready professionals capable of solving real-world business problems using data.
+APIDA is ideal for professionals who want to build strong analytics capabilities without going into advanced Deep Learning, Generative AI, and Agentic AI development.
+Why APIDA?
+Organizations today generate massive amounts of data and need professionals who can:
+✅ Manage and process business data
+✅ Analyze customer and operational performance
+✅ Build insightful dashboards and reports
+✅ Apply statistical techniques
+✅ Develop Machine Learning models
+✅ Forecast business outcomes
+✅ Deploy predictive models into production
+This program provides the perfect blend of Analytics, AI, and Business Intelligence skills required by modern organizations.
+Program Objectives
+Upon successful completion of APIDA, participants will be able to:
+Manage structured and large-scale business data 
+Perform advanced data analysis 
+Build executive dashboards and reports 
+Apply statistical techniques for business insights 
+Develop predictive Machine Learning models 
+Solve real-world business problems 
+Deploy Machine Learning models using MLOps 
+Prepare for Data Analytics and AI career opportunities 
+Program Structure
+Module-1: Data Management
+Data Management forms the foundation of modern analytics and AI systems.
+SQL Server
+Topics Covered
+Database Concepts 
+Relational Data Modeling 
+DDL, DML & TCL Commands 
+Joins 
+Subqueries 
+Common Table Expressions (CTE) 
+Window Functions 
+Views 
+Stored Procedures 
+Query Optimization 
+Business Applications
+Customer Analytics 
+Sales Analytics 
+Banking Analytics 
+MIS Reporting 
+Portfolio Reporting 
+Python Programming
+Topics Covered
+Python Fundamentals 
+Variables & Data Types 
+Functions 
+OOP Concepts 
+Exception Handling 
+File Processing 
+API Integration 
+Python Libraries 
+Business Applications
+Data Processing 
+Automation 
+Reporting Automation 
+Analytics Development 
+SAS Base & Advanced Programming
+Topics Covered
+DATA Step Programming 
+PROC SQL 
+Reporting Procedures 
+Macro Programming 
+Data Manipulation 
+Statistical Procedures 
+Business Applications
+Banking Analytics 
+Credit Risk Analytics 
+Insurance Analytics 
+Regulatory Reporting 
+PySpark / Scala Programming
+Topics Covered
+Big Data Concepts 
+Spark Architecture 
+DataFrames 
+Spark SQL 
+Distributed Data Processing 
+Business Applications
+Large Scale Customer Analytics 
+Transaction Analytics 
+Data Engineering Support 
+Module-2: Data Analysis & Visualization
+Transforming raw data into meaningful business insights.
+Excel + AI
+Topics Covered
+Advanced Excel 
+Pivot Tables 
+Power Query 
+Power Pivot 
+Dashboard Development 
+Excel AI & Copilot 
+Business Applications
+MIS Reporting 
+Financial Reporting 
+Operational Analytics 
+Business KPI Monitoring 
+Power BI
+Topics Covered
+Data Connectivity 
+Data Transformation 
+Data Modeling 
+DAX Functions 
+Dashboard Design 
+Security & Publishing 
+Business Applications
+Executive Dashboards 
+KPI Monitoring 
+Sales Performance Analytics 
+Business Intelligence 
+Tableau
+Topics Covered
+Tableau Fundamentals 
+Calculated Fields 
+Parameters 
+Advanced Dashboards 
+Storytelling with Data 
+Business Applications
+Customer Analytics 
+Marketing Analytics 
+Financial Analytics 
+Operational Reporting 
+Module-3: Data Mining & AI
+Building analytical and predictive solutions using data.
+Python Statistics
+Topics Covered
+Descriptive Statistics 
+Probability 
+Sampling Techniques 
+Hypothesis Testing 
+Correlation Analysis 
+Regression Analysis 
+Business Applications
+Risk Analysis 
+Marketing Analytics 
+Customer Analytics 
+Financial Analytics 
+Python Machine Learning
+Supervised Learning
+Linear Regression 
+Logistic Regression 
+Decision Trees 
+Random Forest 
+Gradient Boosting 
+Unsupervised Learning
+Clustering 
+Customer Segmentation 
+Market Basket Analysis 
+Dimensionality Reduction 
+Model Evaluation
+Accuracy 
+Precision 
+Recall 
+ROC-AUC 
+Cross Validation 
+Business Applications
+Credit Risk Prediction 
+Customer Churn Prediction 
+Customer Segmentation 
+Demand Forecasting 
+Sales Prediction 
+Fraud Detection 
+Module-4: Cloud Deployment
+Deploying Machine Learning solutions into enterprise environments.
+MLOps
+Topics Covered
+Git & Version Control 
+Model Lifecycle Management 
+CI/CD Pipelines 
+Model Deployment 
+Model Monitoring 
+Performance Tracking 
+Business Applications
+Production ML Systems 
+Enterprise AI Solutions 
+Automated Model Deployment 
+Industry Projects
+Participants will work on real-world projects across multiple industries.
+Banking & Financial Services
+Credit Risk Modeling 
+Loan Default Prediction 
+Customer Segmentation 
+Collection Analytics 
+Telecom
+Customer Churn Prediction 
+Customer Lifetime Value 
+Revenue Analytics 
+Insurance
+Claims Analytics 
+Fraud Detection 
+Policyholder Analytics 
+Retail & E-Commerce
+Sales Analytics 
+Product Recommendation 
+Customer Segmentation 
+Demand Forecasting 
+Healthcare
+Patient Analytics 
+Hospital Performance Analytics 
+Predictive Healthcare Models 
+Capstone Project
+Every participant will complete an end-to-end Analytics & AI project covering:
+Business Problem Definition 
+Data Collection 
+Data Cleaning 
+Data Transformation 
+Exploratory Data Analysis 
+Dashboard Development 
+Machine Learning Model Building 
+Model Deployment 
+Business Presentation 
+Tools & Technologies Covered
+Data Management
+SQL Server 
+Python 
+SAS 
+PySpark 
+Scala 
+Data Analysis & Visualization
+Excel AI 
+Power BI 
+Tableau 
+Statistics & Machine Learning
+NumPy 
+Pandas 
+Scikit-Learn 
+Matplotlib 
+Seaborn 
+Deployment
+GitHub 
+Docker 
+MLOps Tools 
+Career Opportunities
+Upon successful completion of APIDA, participants can apply for:
+Analytics Roles
+Data Analyst 
+Business Analyst 
+MIS Analyst 
+Reporting Analyst 
+BI Analyst 
+AI & Machine Learning Roles
+Machine Learning Analyst 
+Associate Data Scientist 
+Analytics Consultant 
+Predictive Analytics Specialist 
+Industry-Specific Roles
+Credit Risk Analyst 
+Marketing Analyst 
+Customer Analytics Analyst 
+Insurance Analytics Analyst 
+Retail Analytics Analyst 
+Who Should Join?
+Fresh Graduates
+B.Sc. 
+BCA 
+B.Tech 
+B.Com 
+BBA 
+MCA 
+MBA 
+Working Professionals
+IT Professionals 
+Banking Professionals 
+Finance Professionals 
+MIS Professionals 
+Business Analysts 
+Operations Professionals 
+Sales & Marketing Professionals 
+Career Transition Aspirants
+Professionals looking to move into Data Analytics, Business Intelligence, and AI-driven roles.
+Program Deliverables
+✅ Instructor-Led Live Sessions
+✅ LMS Access
+✅ Session Recordings
+✅ Assignments & Assessments
+✅ Industry Case Studies
+✅ Real-Time Industry Projects
+✅ Capstone Project
+✅ Resume Building Support
+✅ LinkedIn Profile Optimization
+✅ Mock Interviews
+✅ Placement Assistance
+✅ Industry Recognized Certification
+Learning Outcome
+After completing APIDA, participants will gain expertise in:
+SQL Server + Python + SAS + PySpark/Scala + Excel AI + Power BI + Tableau + Statistics + Machine Learning + MLOps
+and become industry-ready professionals capable of delivering end-to-end Data Analytics and AI solutions for business decision-making and digital transformation initiatives.
+Key Program Highlights
+⭐ Industry-Oriented Curriculum
+⭐ Real-Time Projects
+⭐ Banking, Telecom, Insurance, Retail & Healthcare Use Cases
+⭐ Hands-on Analytics & Machine Learning
+⭐ Dashboard Development Expertise
+⭐ End-to-End Project Experience
+⭐ Cloud-Based Model Deployment
+⭐ Career Mentorship & Placement Support
+⭐ Suitable for Freshers and Experienced Professionals
+⭐ Designed by Industry Experts with Real-World Experience
+APIDA – Building the Next Generation of Data Analytics & AI Professionals.

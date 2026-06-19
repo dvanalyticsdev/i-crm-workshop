@@ -730,8 +730,12 @@ function normalizeLeadFields(leads) {
   });
 }
 
+function isCourseRegistrationLead(lead) {
+  return String(lead?.leadPipeline || "").trim().toLowerCase() === "course-registration";
+}
+
 function getAllLeads() {
-  const leads = getStoredLeads();
+  const leads = getStoredLeads().filter((lead) => !isCourseRegistrationLead(lead));
   normalizeLeadFields(leads);
   return leads;
 }

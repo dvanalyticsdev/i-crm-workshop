@@ -51,7 +51,7 @@ function persistTimelineState() {
 }
 
 function getLeads() {
-  return getStoredLeads();
+  return getStoredLeads().filter((lead) => String(lead?.leadPipeline || "").trim().toLowerCase() !== "course-registration");
 }
 
 function buildKpis(leads) {

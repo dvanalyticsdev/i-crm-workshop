@@ -7,7 +7,6 @@ import {
   getCounselors as getStoredCounselors,
   getLeads as getStoredLeads,
   getSession,
-  loadPersistedValue,
   replaceStateSnapshot,
   saveAllocation as persistAllocation,
   saveLeads as persistLeads,
@@ -690,8 +689,9 @@ async function handleLeadImport() {
   });
 
   const assignments = createCounselorAssignments(recordsNeedingAssignment.length, allocationValidation.cleaned);
+  const fallbackCounselor = allocationValidation.cleaned[0].name;
   recordsNeedingAssignment.forEach((record, index) => {
-    const assignedCounselor = assignments[index] || allocationValidation.cleaned[0].name;
+    const assignedCounselor = assignments[index] || fallbackCounselor;
     record.lead.counselor = assignedCounselor;
     nextLeads[record.index] = record.lead;
   });

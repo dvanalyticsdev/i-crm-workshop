@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DV Analytics Courses</title>
+  <link rel="icon" type="image/png" href="Logos/DV-Logo.png" />
+  <script src="theme-bootstrap.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="public-courses-body">
+  <main class="courses-shell">
+    <header class="courses-hero">
+      <div class="courses-hero__topbar">
+        <div class="courses-brand courses-brand--topbar">
+          <img src="Logos/DV-Logo.png" alt="DV Analytics" class="courses-brand__logo" />
+        </div>
+        <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">
+          <span class="theme-toggle__stack" aria-hidden="true">
+            <span class="theme-toggle__icon theme-toggle__icon--sun" aria-hidden="true">
+              <svg viewBox="0 0 24 24" role="presentation" focusable="false">
+                <circle cx="12" cy="12" r="4.5"></circle>
+                <path d="M12 1.8v2.4M12 19.8v2.4M4.2 4.2l1.7 1.7M18.1 18.1l1.7 1.7M1.8 12h2.4M19.8 12h2.4M4.2 19.8l1.7-1.7M18.1 5.9l1.7-1.7"></path>
+              </svg>
+            </span>
+            <span class="theme-toggle__icon theme-toggle__icon--moon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" role="presentation" focusable="false">
+                <path d="M20.2 14.7A8.2 8.2 0 0 1 9.3 3.8a8.5 8.5 0 1 0 10.9 10.9Z"></path>
+              </svg>
+            </span>
+          </span>
+          <span class="theme-toggle__label" data-theme-label>Light</span>
+        </button>
+      </div>
+    </header>
+
+    <section class="courses-intro card">
+      <h1>Shape Your Future with DV Analytics.</h1>
+      <p>Discover the right course for your career goals. Sign up now for free expert counseling and take your next big step.</p>
+    </section>
+
+    <section class="courses-grid" id="coursesGrid" aria-label="Course cards"></section>
+  </main>
+
+  <div id="courseDetailsModal" class="modal hidden">
+    <div class="modal-content card public-modal">
+      <div class="public-modal__header">
+        <div>
+          <p class="public-modal__eyebrow" id="courseModalBadge"></p>
+          <h3 id="courseModalTitle">Course details</h3>
+          <p id="courseModalMeta" class="public-modal__meta"></p>
+        </div>
+        <button type="button" class="btn-ghost" id="closeCourseModalBtn">Close</button>
+      </div>
+      <div id="courseModalSectionNav" class="public-modal__nav"></div>
+      <div id="courseModalSections" class="public-modal__sections"></div>
+      <div class="public-modal__footer">
+        <button type="button" class="btn-ghost" id="courseModalPrevBtn">Previous</button>
+        <button type="button" class="btn-ghost" id="courseModalNextBtn">Next</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="registerModal" class="modal hidden">
+    <div class="modal-content card public-modal public-modal--form">
+      <div class="public-modal__header">
+        <div>
+          <p class="public-modal__eyebrow">Lead Capture</p>
+          <h3 id="registerModalTitle">Register</h3>
+          <p id="registerModalCourse" class="public-modal__meta"></p>
+        </div>
+        <button type="button" class="btn-ghost" id="closeRegisterModalBtn">Close</button>
+      </div>
+      <form id="registerForm" class="public-form">
+        <input type="hidden" id="registerCourseId" />
+        <div class="modal-row">
+          <label for="registerName">Name</label>
+          <input id="registerName" type="text" required />
+        </div>
+        <div class="modal-row">
+          <label for="registerPhone">Phone Number</label>
+          <input id="registerPhone" type="tel" required />
+        </div>
+        <div class="modal-row">
+          <label for="registerEmail">Email Address</label>
+          <input id="registerEmail" type="email" required />
+        </div>
+        <p id="registerFormMessage" class="message" aria-live="polite"></p>
+        <div class="modal-actions">
+          <button type="submit" class="btn-primary" id="submitRegistrationBtn">Submit</button>
+          <button type="button" class="btn-ghost" id="cancelRegistrationBtn">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="successModal" class="modal hidden">
+    <div class="modal-content card public-success">
+      <h3>Registration Received</h3>
+      <p>Thank you for registering! Your assigned counselor will reach out to you soon.</p>
+      <button type="button" class="btn-primary" id="closeSuccessModalBtn">Close</button>
+    </div>
+  </div>
+
+  <script type="module" src="courses.js"></script>
+</body>
+</html>

@@ -6,6 +6,7 @@ await bootstrapLocalState();
 
 const workshopTaskSection = document.getElementById("workshopTaskSection");
 const admissionTaskSection = document.getElementById("admissionTaskSection");
+const registeredTaskSection = document.getElementById("registeredTaskSection");
 
 const session = getSession();
 
@@ -124,7 +125,7 @@ function renderTaskTable(tasks, emptyMessage) {
                 <tr>
                   <td>
                     <strong>${escapeHtml(task.leadName || "-")}</strong>${task.leadPhone ? `<br /><span class="muted-text">${escapeHtml(task.leadPhone)}</span>` : ""}<br />
-                    <span class="muted-text">${escapeHtml(task.category === TASK_CATEGORY.workshop ? getTaskCategoryLabel(TASK_CATEGORY.workshop) : getTaskCategoryLabel(TASK_CATEGORY.admission))}</span>
+                    <span class="muted-text">${escapeHtml(getTaskCategoryLabel(task.category))}</span>
                   </td>
                   <td>${escapeHtml(task.leadCounselor || task.counselor || "Unassigned")}</td>
                   <td>${escapeHtml(task.title || "Follow up")}</td>
@@ -171,7 +172,11 @@ async function removeTask(taskId) {
 }
 
 async function rescheduleTask(taskId) {
-  const task = [...getTasksByCategory(TASK_CATEGORY.workshop), ...getTasksByCategory(TASK_CATEGORY.admission)]
+  const task = [
+    ...getTasksByCategory(TASK_CATEGORY.workshop),
+    ...getTasksByCategory(TASK_CATEGORY.admission),
+    ...getTasksByCategory(TASK_CATEGORY.registered)
+  ]
     .find((item) => String(item.id) === String(taskId));
 
   if (!task) {
@@ -228,9 +233,11 @@ function bindTaskActions() {
 function renderAll() {
   const workshopTasks = sortTasks(getScopedTasks(getTasksByCategory(TASK_CATEGORY.workshop)));
   const admissionTasks = sortTasks(getScopedTasks(getTasksByCategory(TASK_CATEGORY.admission)));
+  const registeredTasks = sortTasks(getScopedTasks(getTasksByCategory(TASK_CATEGORY.registered)));
 
   workshopTaskSection.innerHTML = renderTaskTable(workshopTasks, "No workshop tasks yet.");
   admissionTaskSection.innerHTML = renderTaskTable(admissionTasks, "No admission tasks yet.");
+  registeredTaskSection.innerHTML = renderTaskTable(registeredTasks, "No registered candidate tasks yet.");
   bindTaskActions();
 }
 

@@ -203,6 +203,25 @@ test("lead imports reject duplicates instead of merging", () => {
   assert.match(server, /Duplicate lead rejected: \$\{duplicateViolation\.field\} already exists\./);
 });
 
+test("public course registrations reuse counselor ownership across CRM and replace only prior registered-course leads", () => {
+  const server = read("server.js");
+  const courses = read("courses.js");
+
+  assert.match(server, /alreadyRegistered: true/);
+  assert.match(server, /You have already registered for this course\./);
+  assert.match(server, /isPublicCourseRegistrationLead/);
+  assert.match(server, /publicCourseLeadMatchesCourse/);
+  assert.match(server, /const counselorName = String\(existingLead\?\.counselor \|\| ""\)\.trim\(\) \|\| await assignPublicCourseCounselorRoundRobin/);
+  assert.match(server, /const shouldReplaceExistingRegisteredLead = isDuplicateRegisteredLead && !isSameRegisteredCourse/);
+  assert.match(server, /leadsCollection\.deleteOne\(\{ id: \{ \$in: leadIdCandidates \} \}\)/);
+  assert.match(server, /tasksCollection\.deleteMany\(\{ leadId: \{ \$in: leadIdCandidates\.map\(\(value\) => String\(value\)\) \} \}\)/);
+  assert.match(server, /matched existing CRM lead/);
+  assert.match(server, /if \(digits\.length === 12 && digits\.startsWith\("91"\)\)/);
+  assert.match(server, /return digits\.slice\(-10\);/);
+  assert.match(courses, /if \(data\?\.alreadyRegistered\)/);
+  assert.match(courses, /setFormMessage\(data\?\.message \|\| "You have already registered for this course\.", false\)/);
+});
+
 test("meta duplicate blocking loads real leads and restore rejects duplicate snapshots", () => {
   const server = read("server.js");
 

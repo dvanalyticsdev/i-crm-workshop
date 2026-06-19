@@ -6,6 +6,7 @@ await bootstrapLocalState();
 const monitoringKpiSection = document.getElementById("monitoringKpiSection");
 const preMonitoringTable = document.getElementById("preMonitoringTable");
 const postMonitoringTable = document.getElementById("postMonitoringTable");
+const registeredMonitoringTable = document.getElementById("registeredMonitoringTable");
 
 const monitoringTimelineSelect = document.getElementById("monitoringTimelineSelect");
 const monitoringStartDate = document.getElementById("monitoringStartDate");
@@ -107,6 +108,11 @@ function normalizeLeadFields(leads) {
     lead.postStatusUpdated = typeof lead.postStatusUpdated === "boolean" ? lead.postStatusUpdated : false;
     lead.workshopActivityHistory = Array.isArray(lead.workshopActivityHistory) ? lead.workshopActivityHistory : [];
     lead.admissionActivityHistory = Array.isArray(lead.admissionActivityHistory) ? lead.admissionActivityHistory : [];
+    lead.registeredCourseActivityHistory = Array.isArray(lead.registeredCourseActivityHistory) ? lead.registeredCourseActivityHistory : [];
+    lead.registeredDialed = lead.registeredDialed || "";
+    lead.registeredCourseStatus = lead.registeredCourseStatus || "";
+    lead.registeredAdmissionStatus = lead.registeredAdmissionStatus || "";
+    lead.registeredCallStatus = lead.registeredCallStatus || "";
     lead.whatsappGroupStatus = lead.whatsappGroupStatus || "";
     lead.preActivityUpdates = new Set(
       lead.workshopActivityHistory
@@ -118,7 +124,16 @@ function normalizeLeadFields(leads) {
         .map((entry) => (entry.at ? new Date(entry.at).toISOString().slice(0, 10) : null))
         .filter(Boolean)
     ).size;
+    lead.registeredCourseActivityUpdates = new Set(
+      lead.registeredCourseActivityHistory
+        .map((entry) => (entry.at ? new Date(entry.at).toISOString().slice(0, 10) : null))
+        .filter(Boolean)
+    ).size;
   });
+}
+
+function isCourseRegistrationLead(lead) {
+  return String(lead?.leadPipeline || "").trim().toLowerCase() === "course-registration";
 }
 
 function getAllLeads() {
@@ -190,6 +205,7 @@ function applyTimelineFilter(leads) {
     .map((lead) => {
       const workshopHistory = Array.isArray(lead.workshopActivityHistory) ? lead.workshopActivityHistory : [];
       const admissionHistory = Array.isArray(lead.admissionActivityHistory) ? lead.admissionActivityHistory : [];
+      const registeredHistory = Array.isArray(lead.registeredCourseActivityHistory) ? lead.registeredCourseActivityHistory : [];
 
       const workshopInRange = workshopHistory.filter((entry) => {
         const d = new Date(entry.at);
@@ -199,14 +215,19 @@ function applyTimelineFilter(leads) {
         const d = new Date(entry.at);
         return d >= start && d <= end;
       });
+      const registeredInRange = registeredHistory.filter((entry) => {
+        const d = new Date(entry.at);
+        return d >= start && d <= end;
+      });
 
       return {
         ...lead,
         preActivityUpdates: new Set(workshopInRange.map((e) => new Date(e.at).toISOString().slice(0, 10))).size,
-        postActivityUpdates: new Set(admissionInRange.map((e) => new Date(e.at).toISOString().slice(0, 10))).size
+        postActivityUpdates: new Set(admissionInRange.map((e) => new Date(e.at).toISOString().slice(0, 10))).size,
+        registeredCourseActivityUpdates: new Set(registeredInRange.map((e) => new Date(e.at).toISOString().slice(0, 10))).size
       };
     })
-    .filter((lead) => lead.preActivityUpdates > 0 || lead.postActivityUpdates > 0);
+    .filter((lead) => lead.preActivityUpdates > 0 || lead.postActivityUpdates > 0 || lead.registeredCourseActivityUpdates > 0);
 }
 
 function bindTimelineControls() {
@@ -258,11 +279,15 @@ function isLostLead(lead) {
 }
 
 function getPreLeads(allLeads) {
-  return allLeads.filter((lead) => !isLostLead(lead));
+  return allLeads.filter((lead) => !isCourseRegistrationLead(lead) && !isLostLead(lead));
 }
 
 function getPostLeads(allLeads) {
-  return allLeads;
+  return allLeads.filter((lead) => !isCourseRegistrationLead(lead));
+}
+
+function getRegisteredCandidateLeads(allLeads) {
+  return allLeads.filter((lead) => isCourseRegistrationLead(lead));
 }
 
 function getCoreWorkshopName(workshopName) {
@@ -419,6 +444,49 @@ function buildPostRows(counselors, postLeads, rawAllLeads, range) {
   });
 }
 
+function buildRegisteredRows(counselors, registeredLeads, rawAllLeads, range) {
+  return counselors.map((counselor) => {
+    const leads = registeredLeads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
+    const rawLeads = rawAllLeads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
+    const activityLeads = leads.filter((lead) => (Number(lead.registeredCourseActivityUpdates) || 0) > 0);
+    const activities = activityLeads.reduce((sum, lead) => sum + (Number(lead.registeredCourseActivityUpdates) || 0), 0);
+    const dialed = activityLeads.filter((lead) => lead.registeredDialed === "Yes").length;
+    const interested = activityLeads.filter((lead) => lead.registeredCourseStatus === "Interested").length;
+    const notInterested = leads.filter((lead) => lead.registeredCourseStatus === "Not Interested").length;
+
+    let newLeads;
+    let freshActivities;
+    let oldLeadActivities;
+    if (!range) {
+      newLeads = rawLeads.length;
+      freshActivities = activities;
+      oldLeadActivities = 0;
+    } else {
+      const { start, end } = range;
+      newLeads = rawLeads.filter((lead) => {
+        const created = new Date(lead.createdAt);
+        return created >= start && created <= end;
+      }).length;
+      const freshActivityLeads = activityLeads.filter((lead) => new Date(lead.createdAt) >= start);
+      freshActivities = freshActivityLeads.reduce((sum, lead) => sum + (Number(lead.registeredCourseActivityUpdates) || 0), 0);
+      const oldActivityLeads = activityLeads.filter((lead) => new Date(lead.createdAt) < start);
+      oldLeadActivities = oldActivityLeads.reduce((sum, lead) => sum + (Number(lead.registeredCourseActivityUpdates) || 0), 0);
+    }
+
+    return {
+      counselor,
+      activities,
+      courseBreakdown: formatBreakdown(activityLeads, "courseName"),
+      newLeads,
+      freshActivities,
+      oldLeadActivities,
+      dialed,
+      interested,
+      notInterested
+    };
+  });
+}
+
 function renderPreMonitoringTable(container, rows) {
   const html = `
     <div class="table-scroll">
@@ -515,6 +583,53 @@ function renderPostMonitoringTable(container, rows) {
   container.innerHTML = html;
 }
 
+function renderRegisteredMonitoringTable(container, rows) {
+  const html = `
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Counselor Name</th>
+            <th>Overall Activity</th>
+            <th>Course-wise Activity Breakdown</th>
+            <th>Fresh Leads Received</th>
+            <th>Fresh Lead Activities</th>
+            <th>Old Lead Activities</th>
+            <th>Dialed Leads</th>
+            <th>Interested Leads</th>
+            <th>Not Interested Leads</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${
+            rows.length
+              ? rows
+                  .map(
+                    (row) => `
+                    <tr>
+                      <td>${escapeHtml(row.counselor)}</td>
+                      <td>${row.activities}</td>
+                      <td>${escapeHtml(row.courseBreakdown)}</td>
+                      <td>${row.newLeads}</td>
+                      <td>${row.freshActivities}</td>
+                      <td>${row.oldLeadActivities}</td>
+                      <td>${row.dialed}</td>
+                      <td>${row.interested}</td>
+                      <td>${row.notInterested}</td>
+                    </tr>
+                  `
+                  )
+                  .join("")
+              : `<tr><td colspan="9">No monitoring data available.</td></tr>`
+          }
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  container.innerHTML = html;
+}
+
 function getTimelineLabel() {
   if (timelineFilter.type === "overall") {
     return "Overall";
@@ -590,15 +705,20 @@ function exportMonitoringExcel() {
   const admissionSheet = XLSX.utils.aoa_to_sheet([admissionTable.headers, ...admissionTable.rows]);
   XLSX.utils.book_append_sheet(workbook, admissionSheet, "Admission Monitoring");
 
+  const registeredTable = getVisibleTableSnapshot(registeredMonitoringTable);
+  const registeredSheet = XLSX.utils.aoa_to_sheet([registeredTable.headers, ...registeredTable.rows]);
+  XLSX.utils.book_append_sheet(workbook, registeredSheet, "Registered Candidates");
+
   const fileName = `monitoring-report-${timelineFilter.type}-${new Date().toISOString().slice(0, 10)}.xlsx`;
   XLSX.writeFile(workbook, fileName);
   setExportMessage("Excel report exported successfully.", false);
 }
 
-function renderKpis(allLeads, preLeads, postLeads, rawAllLeads, range) {
+function renderKpis(allLeads, preLeads, postLeads, registeredLeads, rawAllLeads, range) {
   const preActivity = preLeads.reduce((sum, lead) => sum + (Number(lead.preActivityUpdates) || 0), 0);
   const postActivity = postLeads.reduce((sum, lead) => sum + (Number(lead.postActivityUpdates) || 0), 0);
-  const overallActivity = preActivity + postActivity;
+  const registeredActivity = registeredLeads.reduce((sum, lead) => sum + (Number(lead.registeredCourseActivityUpdates) || 0), 0);
+  const overallActivity = preActivity + postActivity + registeredActivity;
 
   let totalNewLeads, totalFreshActivities, totalOldTouched;
   if (!range) {
@@ -613,12 +733,12 @@ function renderKpis(allLeads, preLeads, postLeads, rawAllLeads, range) {
     }).length;
     const freshLeads = allLeads.filter((lead) => new Date(lead.createdAt) >= start);
     totalFreshActivities = freshLeads.reduce(
-      (sum, lead) => sum + (Number(lead.preActivityUpdates) || 0) + (Number(lead.postActivityUpdates) || 0),
+      (sum, lead) => sum + (Number(lead.preActivityUpdates) || 0) + (Number(lead.postActivityUpdates) || 0) + (Number(lead.registeredCourseActivityUpdates) || 0),
       0
     );
     const oldLeadsInRange = allLeads.filter((lead) => new Date(lead.createdAt) < start);
     totalOldTouched = oldLeadsInRange.reduce(
-      (sum, lead) => sum + (Number(lead.preActivityUpdates) || 0) + (Number(lead.postActivityUpdates) || 0),
+      (sum, lead) => sum + (Number(lead.preActivityUpdates) || 0) + (Number(lead.postActivityUpdates) || 0) + (Number(lead.registeredCourseActivityUpdates) || 0),
       0
     );
   }
@@ -635,6 +755,10 @@ function renderKpis(allLeads, preLeads, postLeads, rawAllLeads, range) {
     <article class="card kpi-card">
       <p>Admission Calling Activity</p>
       <h2>${postActivity}</h2>
+    </article>
+    <article class="card kpi-card">
+      <p>Registered Candidate Activity</p>
+      <h2>${registeredActivity}</h2>
     </article>
     <article class="card kpi-card">
       <p>New Leads Received</p>
@@ -658,15 +782,22 @@ function renderAll() {
   const allLeads = getScopedLeads(timelineLeads);
   const preLeads = getPreLeads(allLeads);
   const postLeads = getPostLeads(allLeads);
+  const registeredLeads = getRegisteredCandidateLeads(allLeads);
+  const rawPreLeads = rawAllLeads.filter((lead) => !isCourseRegistrationLead(lead) && !isLostLead(lead));
+  const rawPostLeads = rawAllLeads.filter((lead) => !isCourseRegistrationLead(lead));
+  const rawRegisteredLeads = rawAllLeads.filter(isCourseRegistrationLead);
   const counselors = getCounselorBuckets(allLeads);
 
-  renderKpis(allLeads, preLeads, postLeads, rawAllLeads, range);
+  renderKpis(allLeads, preLeads, postLeads, registeredLeads, rawAllLeads, range);
 
-  const preRows = buildPreRows(counselors, preLeads, rawAllLeads, range);
+  const preRows = buildPreRows(counselors, preLeads, rawPreLeads, range);
   renderPreMonitoringTable(preMonitoringTable, preRows);
 
-  const postRows = buildPostRows(counselors, postLeads, rawAllLeads, range);
+  const postRows = buildPostRows(counselors, postLeads, rawPostLeads, range);
   renderPostMonitoringTable(postMonitoringTable, postRows);
+
+  const registeredRows = buildRegisteredRows(counselors, registeredLeads, rawRegisteredLeads, range);
+  renderRegisteredMonitoringTable(registeredMonitoringTable, registeredRows);
 
   if (exportMonitoringBtn) {
     exportMonitoringBtn.onclick = () => {

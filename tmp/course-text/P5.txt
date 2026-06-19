@@ -1,0 +1,244 @@
+DATA ANALYTICS SPECIALIST
+Program Overview
+The Data Analytics Specialist Program is a practical, industry-oriented training program designed to equip graduates and working professionals with the most in-demand skills required for modern Data Analytics and Business Intelligence careers.
+This program focuses on building expertise in:
+Data Management 
+Data Analysis 
+Data Visualization 
+Business Intelligence 
+Reporting Automation 
+Data-Driven Decision Making 
+Participants will learn how to collect, manage, analyze, visualize, and communicate business insights using industry-leading tools such as SQL Server, Python, Excel AI, and Power BI.
+Why Data Analytics?
+Every organization generates data and needs professionals who can convert data into actionable business insights.
+Data Analytics helps organizations:
+✅ Improve business performance
+✅ Increase revenue
+✅ Reduce costs
+✅ Understand customer behavior
+✅ Monitor KPIs
+✅ Make informed decisions
+Program Objectives
+Upon successful completion of this program, participants will be able to:
+Extract and manage business data 
+Analyze large datasets efficiently 
+Build automated reports and dashboards 
+Create business intelligence solutions 
+Generate actionable insights from data 
+Present data effectively to stakeholders 
+Prepare for Data Analyst and Business Analyst roles 
+Program Structure
+Module-1: Data Management
+Data Management forms the foundation of all Analytics projects.
+SQL Server
+Topics Covered
+Database Fundamentals
+Database Concepts 
+Relational Databases 
+Data Modeling 
+Primary & Foreign Keys 
+SQL Programming
+SELECT Statements 
+Filtering Data 
+Sorting Data 
+Aggregations 
+Advanced SQL
+Joins 
+Subqueries 
+Common Table Expressions (CTE) 
+Window Functions 
+Views 
+Stored Procedures 
+Reporting SQL
+KPI Reporting Queries 
+Dashboard Data Preparation 
+Performance Optimization 
+Business Applications
+Sales Analytics 
+Customer Analytics 
+Banking Analytics 
+Retail Analytics 
+Financial Reporting 
+Python Programming
+Topics Covered
+Python Fundamentals
+Variables 
+Data Types 
+Operators 
+Control Statements 
+Functions & Modules
+Functions 
+Libraries 
+Exception Handling 
+Data Processing
+File Handling 
+CSV Processing 
+Excel Processing 
+API Integration 
+Python Libraries
+NumPy 
+Pandas 
+Business Applications
+Data Cleaning 
+Data Transformation 
+Data Automation 
+Report Generation 
+Module-2: Data Analysis & Visualization
+This module focuses on analyzing business data and creating impactful dashboards.
+Excel + AI
+Topics Covered
+Advanced Excel
+Formulas & Functions 
+Lookup Functions 
+Pivot Tables 
+Conditional Formatting 
+Data Transformation
+Power Query 
+Power Pivot 
+Dashboard Development
+KPI Dashboards 
+Dynamic Reports 
+Executive Reporting 
+AI in Excel
+Excel Copilot 
+AI Assisted Analysis 
+Automated Insights 
+Business Applications
+MIS Reporting 
+Financial Analytics 
+Operational Reporting 
+Sales Reporting 
+Power BI
+Topics Covered
+Data Connection
+SQL Server 
+Excel 
+CSV Files 
+Multiple Data Sources 
+Data Transformation
+Power Query 
+Data Cleaning 
+Data Preparation 
+Data Modeling
+Relationships 
+Star Schema 
+Snowflake Schema 
+DAX
+Measures 
+Calculated Columns 
+Time Intelligence 
+Dashboard Development
+KPI Reporting 
+Interactive Dashboards 
+Executive Dashboards 
+Publishing & Sharing
+Power BI Service 
+Workspace Management 
+Security 
+Business Applications
+Sales Analytics Dashboard 
+Customer Analytics Dashboard 
+Financial Analytics Dashboard 
+Banking Dashboard 
+Retail Dashboard 
+Industry Projects
+Participants will work on practical industry projects.
+Banking Analytics
+Loan Portfolio Dashboard 
+Credit Card Usage Analysis 
+Customer Analytics 
+Retail Analytics
+Sales Performance Dashboard 
+Product Performance Analysis 
+Customer Purchase Behavior 
+E-Commerce Analytics
+Customer Analytics 
+Product Analytics 
+Revenue Analytics 
+Telecom Analytics
+Customer Retention Analysis 
+Revenue Reporting Dashboard 
+Tools & Technologies
+Data Management
+SQL Server 
+Python 
+Data Analysis & Visualization
+Excel 
+Excel AI 
+Power BI 
+Supporting Libraries
+NumPy 
+Pandas 
+Career Opportunities
+After successful completion, participants can apply for:
+Entry-Level Roles
+Data Analyst 
+MIS Analyst 
+Reporting Analyst 
+Business Analyst 
+Operations Analyst 
+Mid-Level Roles
+Senior Data Analyst 
+BI Analyst 
+Analytics Consultant 
+Reporting Lead 
+Domain-Specific Roles
+Banking Analyst 
+Retail Analyst 
+Marketing Analyst 
+Financial Analyst 
+Telecom Analyst 
+Who Should Join?
+Fresh Graduates
+B.Com 
+BBA 
+BCA 
+B.Sc 
+B.Tech 
+MCA 
+MBA 
+Working Professionals
+MIS Executives 
+Operations Executives 
+Finance Professionals 
+Banking Professionals 
+Sales Professionals 
+Business Executives 
+Career Transition Aspirants
+Professionals looking to enter Data Analytics and Business Intelligence careers.
+Program Deliverables
+✅ Live Instructor-Led Sessions
+✅ LMS Access
+✅ Recorded Sessions
+✅ Assignments & Assessments
+✅ Industry Case Studies
+✅ Real-Time Projects
+✅ Dashboard Portfolio
+✅ Resume Building Support
+✅ LinkedIn Profile Optimization
+✅ Mock Interviews
+✅ Placement Assistance
+✅ Program Certification
+Learning Outcome
+After completing this program, participants will gain expertise in:
+SQL Server + Python + Excel AI + Power BI
+and become capable of handling end-to-end Data Analytics projects, creating professional dashboards, generating business insights, and supporting data-driven decision-making processes.
+Key Program Highlights
+⭐ Industry-Oriented Curriculum
+⭐ Hands-on Learning Approach
+⭐ Real Business Use Cases
+⭐ Banking, Retail, Telecom & E-Commerce Projects
+⭐ Dashboard Development Expertise
+⭐ Analytics Portfolio Creation
+⭐ Interview Preparation Support
+⭐ Placement Assistance
+⭐ Suitable for Freshers & Working Professionals
+⭐ Designed by Industry Experts
+Career Path After Completion
+Data Analytics Specialist → Senior Data Analyst → BI Analyst → Analytics Consultant → Analytics Manager
+Expected Salary Range
+Freshers: ₹4 LPA – ₹8 LPA 
+2–5 Years Experience: ₹8 LPA – ₹15 LPA 
+5–10 Years Experience: ₹15 LPA – ₹25 LPA 
+10+ Years Experience: ₹25 LPA – ₹40 LPA+ 
+Data Analytics Specialist – Your Gateway to a High-Growth Career in Data Analytics and Business Intelligence.

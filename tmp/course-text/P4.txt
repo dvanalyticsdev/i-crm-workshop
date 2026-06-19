@@ -1,0 +1,327 @@
+Master Programme in Generative AI and Agentic AI — Complete Restructured Curriculum
+Author: Suresh D R | AI Product Developer & Technology Mentor Organisation: DV Analytics Year: 2026
+CURRICULUM STRUCTURE AT A GLANCE
+TIER 1 — BRIDGE / FOUNDATION CONTENT
+Goal: Build solid Python programming foundations required for AI development. No prior experience assumed.
+Module 1 — Python for AI Development
+Section 1 — Python Fundamentals
+Introduction and Setup
+Variables and Data Types
+Operators and Control Flow — if, for, while
+Functions — arguments, return values, lambda
+Error Handling — try, except, finally
+Section 2 — Data Structures
+Lists, Tuples, Dictionaries, Sets
+String operations and formatting
+List comprehensions and generators
+Section 3 — File Handling and APIs
+File Operations — read, write, append
+Working with JSON and CSV
+Calling REST APIs with requests library
+Environment variables and secrets management
+Section 4 — NumPy and Pandas for AI
+NumPy — arrays, operations, random
+Pandas — DataFrame, read CSV, clean, transform, aggregate
+Data Visualisation — Matplotlib and Seaborn basics
+🏆 Tier 1 Capstone Project — Python for AI Foundations
+Project Name: Data Pipeline and API Integration Tool
+Industry: Any — Finance, HR, E-commerce
+Description: Students build a Python tool that pulls data from a REST API, processes and cleans it using Pandas, performs basic analysis, and outputs a structured report — integrating all Tier 1 skills into one end-to-end deliverable.
+Process: 1. Call a REST API using the requests library and handle authentication via environment variables 2. Parse JSON response and load into a Pandas DataFrame 3. Clean and transform data — handle nulls, type mismatches, duplicates 4. Perform aggregations and summaries using NumPy and Pandas 5. Visualise key trends using Matplotlib and Seaborn 6. Export final report as CSV and JSON
+Outcome: - Working data pipeline script with API integration - Clean processed dataset with summary statistics - Visualisation charts for key metrics - Students demonstrate Python readiness for Deep Learning and GenAI modules
+TIER 2 — BASE CONTENT
+Goal: Build a strong foundation in Deep Learning with NLP focus, then progress into Generative AI concepts, LLMs, RAG, and Fine-Tuning.
+Module 2 — Basics of Deep Learning — NLP Focus
+Section 1 — Neural Network Foundations
+What is a neural network — perceptron analogy
+Activation Functions — ReLU, Sigmoid, Softmax
+Forward Propagation and Backpropagation — intuition
+Loss Functions — Cross-Entropy, MSE
+Optimisers — SGD, Adam
+Regularisation — Dropout, L2
+Framework — Keras and PyTorch basics
+Section 2 — Natural Language Processing
+Text Preprocessing — tokenisation, stemming, lemmatisation, stopwords
+Text Representation — Bag of Words, TF-IDF
+Word Embeddings — Word2Vec, GloVe
+Recurrent Neural Networks (RNN) — sequence modelling
+Long Short-Term Memory (LSTM) — solving vanishing gradient
+Gated Recurrent Unit (GRU)
+Bidirectional RNNs
+Encoder-Decoder Architecture
+Attention Mechanism — what it solves
+Section 3 — Transformer Architecture
+Why Transformers replaced RNNs
+Self-Attention Mechanism — how it calculates relevance
+Multi-Head Attention
+Positional Encodings
+Encoder-Decoder Structure
+Tokenisation — BPE, WordPiece, SentencePiece
+BERT — Bidirectional Encoder — used for understanding text
+GPT — Decoder-only — used for generating text
+T5 — Text-to-Text — unified framework
+Hugging Face Transformers — practical usage
+Transfer Learning and Fine-Tuning concepts
+🏆 Module 2 Capstone — Sentiment Analysis API
+Industry: E-commerce, Product Reviews, Social Media
+Description: Fine-tune a BERT model on product review data to classify sentiment. Students apply everything from text preprocessing to transformer fine-tuning and serve the model via a REST API.
+Process: 1. Text preprocessing — tokenisation, cleaning, stopword removal 2. Fine-tune BERT on labelled review dataset using Hugging Face 3. Evaluate — accuracy, F1, confusion matrix 4. Build FastAPI REST endpoint for real-time inference 5. Dockerise the model service
+Outcome: - Working sentiment classification API - Real-time inference endpoint accepting raw text - Docker-ready model container - Students demonstrate readiness for Generative AI module
+Module 3 — Generative AI
+Section 1 — Generative AI Fundamentals
+What is Generative AI — definition and core concepts
+Classical ML vs Deep Learning vs Generative AI
+Generative Model Taxonomy — GANs, VAEs, Diffusion Models, Transformer-based
+Language Model Capabilities and Limitations — reasoning, emergent behaviours, failure modes
+Open vs Closed-Source LLM Licences
+Hugging Face Hub and Model Repositories — selecting and downloading models
+Section 2 — Large Language Models (LLMs)
+LLM Architecture Components — layers, hidden dimensions, pre-training
+Context Window and Memory Management
+Sampling and Generation — temperature, top-p, top-k, beam search
+Alignment Techniques — RLHF, DPO, Constitutional AI
+Advanced Architectures — Mixture of Experts (MoE)
+Model Optimisation — Quantisation (INT8, INT4), Pruning, Knowledge Distillation
+Section 3 — Prompt Engineering
+Prompt Fundamentals — structure, system messages, user messages
+Zero-shot, Few-shot, One-shot prompting
+Role-playing and personas
+Chain-of-Thought (CoT) — step-by-step reasoning
+Tree-of-Thought
+Self-consistency
+Structured Outputs — JSON mode and schema enforcement
+Prompt Injection Defense
+Prompt Security and Optimisation
+LangSmith for prompt debugging and versioning
+Section 4 — Retrieval-Augmented Generation (RAG)
+What is RAG — why models need external knowledge
+RAG Architecture — retriever and reader
+When to use RAG vs fine-tuning
+Embeddings and Similarity — embedding models, cosine similarity
+Vector Databases — FAISS, Pinecone, Weaviate, Chroma, Milvus, Qdrant
+Document Processing — text extraction, chunking strategies, metadata
+Semantic Search and Hybrid Search
+Re-ranking Mechanisms
+Advanced RAG Patterns — query decomposition, HyDE, multi-hop reasoning
+Graph RAG — knowledge graphs and entity linking
+Context Optimisation — context window management, lost-in-the-middle
+RAG Evaluation — RAGAS, ARES frameworks
+Section 5 — Multimodal AI
+Multimodal Fundamentals — cross-modal understanding
+Vision-Language Models — CLIP, BLIP, LLaVA
+Image Generation and Editing — Stable Diffusion, DALL-E
+Audio Processing — Whisper (speech recognition), text-to-speech
+Video Understanding
+Multimodal RAG — image-text retrieval
+Document Understanding — PDF parsing, table extraction, layout analysis
+Multimodal Prompting — combining text and images
+Section 6 — Fine-Tuning and Model Optimisation
+Fine-Tuning Fundamentals — transfer learning, when to fine-tune
+Dataset Preparation — collection, cleaning, format standardisation
+Parameter-Efficient Fine-Tuning — LoRA and QLoRA
+Adapter Layers and Prefix Tuning
+Instruction Tuning and Dataset Creation
+Supervised Fine-Tuning (SFT)
+Alignment Fine-Tuning — RLHF, PPO, DPO
+Catastrophic Forgetting and Mitigation
+Knowledge Distillation — teacher-student framework
+Model Merging — weight averaging, task arithmetic
+Section 7 — Safety and Guardrails
+AI Safety Principles
+Content Moderation — toxicity detection, hate speech, NSFW filtering
+Input Validation and Sanitisation
+Output Validation — harmful content, PII detection
+Prompt Injection Defense
+Jailbreak Prevention — system message hardening
+Hallucination Mitigation — uncertainty quantification, Chain-of-Verification
+Constitutional Constraints
+Safety Classifiers
+Human Oversight — human-in-the-loop for high-risk decisions
+Red-Teaming — OWASP Top 10 for LLMs
+Section 8 — Evaluation and Testing
+Defining Success Criteria and Metric Selection
+Offline Evaluation — static dataset, ground truth comparison
+Online Evaluation — A/B testing, canary deployment
+LLM-as-Judge — using LLMs to evaluate other LLMs
+RAG-Specific Evaluation — retrieval and generation metrics
+Human Evaluation — crowdsourcing, expert evaluation
+🏆 Module 3 Capstone — Document Intelligence System (RAG)
+Industry: Law Firms, Finance, Healthcare, HR
+Description: Build a production RAG system where users upload PDF documents — financial reports, legal contracts, medical records — and ask natural language questions. The system retrieves relevant context and generates accurate answers with source citations.
+Process: 1. Upload PDFs, extract and clean text 2. Chunk documents with overlap strategy and metadata tagging 3. Embed chunks and store in Chroma vector database 4. Build retrieval pipeline — semantic search + re-ranking 5. LLM answering questions grounded in retrieved context with source citations 6. Build Streamlit UI for document upload and Q&A 7. FastAPI REST endpoint 8. Evaluate with RAGAS — faithfulness, relevancy, context precision
+Outcome: - Document Q&A system handling multi-PDF knowledge bases - Answers with source citations for traceability - RAGAS evaluation report on retrieval quality - Students demonstrate readiness for Agentic AI module
+TIER 3 — ADVANCED CONTENT
+Goal: Build, deploy, and operate production-grade Agentic AI systems and LLM infrastructure on AWS.
+Module 4 — Agentic AI
+Section 1 — Agentic AI Foundations
+AI agents vs models — what makes an agent
+Autonomous vs semi-autonomous agents
+Perception-Action Loop — observe, decide, act, feedback
+Planning and Reasoning — ReAct paradigm, Reflexion
+Tool Use and Function Calling
+Multi-step Task Execution
+Agent Memory Systems:
+Short-term memory — context window, conversation history
+Long-term memory — vector stores, database storage
+Episodic memory — event sequence storage
+Semantic memory — fact storage, knowledge graphs
+Agent State Management — stateful vs stateless
+Section 2 — Agent Architectures
+Single-Agent Systems — ReAct agents and tool-augmented agents
+ReAct Agent Implementation — Thought-Action-Observation loops
+Multi-Agent Systems — coordination and communication
+Hierarchical Agents — high-level planning and low-level execution
+Manager-Worker Patterns — task allocation strategies
+Collaborative vs Competitive Agents
+Advanced Patterns — meta-learning, swarm intelligence
+Section 3 — Agentic Frameworks
+LangChain — LCEL, chains, memory management, tool development
+LangGraph — stateful workflows, graph-based flows, checkpointing
+AutoGen — conversable agents, group chats, multi-agent orchestration
+CrewAI — role-based agent design, task delegation, collaboration
+Framework Comparison — LangChain vs LangGraph vs AutoGen vs CrewAI
+Human-in-the-Loop Integration — approval workflows, human feedback
+Section 4 — Multi-Agent Systems
+Multi-Agent Architecture — centralised vs decentralised control
+Communication Protocols — message passing, pub-sub patterns
+Agent Routing and Orchestration — dynamic routing, semantic routing
+Role Design and Delegation — RACI matrix, task decomposition
+Coordination Mechanisms — consensus building, conflict resolution
+Section 5 — Agent Memory and Persistence
+Memory Architecture Design — multi-tier memory hierarchy
+Short-Term and Long-Term Memory Implementation
+Memory Operations — encoding, consolidation, retrieval, updating
+Memory Summarisation — compressing long conversations
+Cross-Session Persistence — session management, privacy
+State Management — SQLite, Redis, PostgreSQL, checkpointing
+Section 6 — Real-Time and Event-Driven Agents
+Event-Driven Architecture — event sourcing, pub-sub patterns
+Webhooks — fundamentals, security, retry logic
+FastAPI for Agent APIs — REST design, Pydantic models
+WebSocket Connections — real-time bidirectional communication
+Background Tasks and Async Processing
+Streaming Responses — Server-Sent Events, streaming LLM outputs
+External Integrations — Gmail, Google Calendar, Slack, CRM tools
+Section 7 — Observability and Monitoring for Agents
+Observability Fundamentals — metrics, logs, traces
+LangSmith Platform — dataset management, prompt versioning, A/B testing
+Helicone Analytics — request logging, cost tracking, latency analysis
+Grafana Dashboards — metrics visualisation and alerting
+Tracing and Debugging — distributed tracing, performance bottlenecks
+Section 8 — Model Context Protocol (MCP)
+MCP Fundamentals — protocol, core architecture, MCP vs traditional APIs
+MCP Server Development — creating servers, tool registration, schema definition
+MCP Client Integration — connecting clients, tool discovery, error handling
+LLM Connectors — connecting LLMs to external systems
+MCP Security — authentication, permission and access control
+MCP Deployment — containerisation, orchestration, monitoring
+Section 9 — Specialised Agent Patterns
+SQL Agents — natural language to SQL, query optimisation, security
+Code Analysis and Review Agents — static analysis, security scanning
+Test Generation Agents — unit tests, integration tests, edge cases
+Documentation Agents — code docs, API docs, README creation
+Research and Synthesis Agents — multi-source gathering, literature review
+Data Curation Agents — quality assessment, cleaning, schema inference
+Recommendation Agents — collaborative, content-based, hybrid
+Planning and Scheduling Agents — calendar management, resource allocation
+Section 10 — Domain-Specific Applications
+Finance and Banking — fraud detection, risk assessment, portfolio management
+Healthcare and Clinical — clinical note summarisation, diagnostic support, HIPAA
+Legal Applications — contract analysis, legal research, e-discovery
+Retail and E-commerce — product recommendations, dynamic pricing
+Technology — code generation, automated code review, test generation
+Education and Tutoring — personalised learning paths, homework help
+Business Intelligence — natural language to SQL, automated reports
+Content Creation — blog posts, social media, SEO, brand voice
+Research — literature review automation, grant writing support
+Module 5 — LLMOps — Deployment on AWS
+Section 1 — LLMOps Introduction
+What is LLMOps — LLM lifecycle in production
+Differences between MLOps and LLMOps
+Challenges unique to LLM deployment — latency, cost, hallucinations
+LLMOps stack — development, deployment, monitoring, evaluation
+Section 2 — Containerising LLM Applications
+Docker for LLM apps — packaging model + API + dependencies
+Writing Dockerfiles for FastAPI LLM endpoints
+Multi-stage builds for smaller images
+Docker Compose for local development
+Amazon ECR — private Docker registry on AWS
+DevOps practices used here — containerisation, image versioning, and registry management as part of the LLM deployment workflow
+Section 3 — Deploying LLMs on AWS
+Amazon Bedrock — managed LLM service — Claude, Titan, Llama
+SageMaker JumpStart — deploy foundation models with one click
+SageMaker Endpoints — custom model serving with auto-scaling
+Amazon EKS — Kubernetes deployment for LLM APIs
+AWS Lambda — serverless LLM inference for event-driven workloads
+FastAPI on EKS — production REST API for LLM
+DevOps practices used here — Helm for packaging EKS deployments, Terraform for provisioning AWS infrastructure as code
+Section 4 — CI/CD for GenAI Applications
+GitHub Actions for LLM app deployment
+Automated testing for LLM outputs — evaluation in CI/CD
+Canary deployment for new LLM versions
+Rollback strategies when new LLM degrades
+GitHub Secrets for API keys — OpenAI, Anthropic, AWS
+DevOps practices used here — YAML pipelines as code, automated testing gates, and blue-green deployment strategies applied to LLM versioning
+Section 5 — Monitoring LLMs in Production
+LangSmith — tracing every LLM call, prompt versioning, debugging
+Helicone Analytics — token usage, cost per request, latency distribution
+Prometheus metrics for LLM API
+Grafana dashboards — visualise token cost, latency, error rate
+Amazon CloudWatch — infrastructure monitoring and alarms
+SNS alerts — email when cost exceeds budget or errors spike
+DevOps practices used here — centralised observability, alerting pipelines, and log aggregation applied across all LLM microservices
+Section 6 — Cost Optimisation for LLMs
+Token usage tracking and budgeting
+Model selection — GPT-4 vs Claude vs Llama cost comparison
+Caching strategies — exact match and semantic caching
+Batch inference vs real-time — when to use each
+Prompt compression — reduce tokens without losing meaning
+Spot instances for training and fine-tuning
+Section 7 — LLM Evaluation in Production
+Defining evaluation metrics for your use case
+Offline Evaluation — static dataset, ground truth comparison
+Online Evaluation — A/B testing prompt versions
+LLM-as-Judge — Claude evaluates GPT outputs
+RAG Evaluation — RAGAS framework — faithfulness, relevancy, context precision
+Agent Evaluation — task completion rate, tool usage appropriateness
+Human Evaluation — when automated evaluation is not enough
+Section 8 — Security for LLM Applications
+API key management — AWS Secrets Manager
+Input sanitisation — prevent prompt injection in production
+Output filtering — PII detection, harmful content
+Rate limiting and abuse prevention
+VPC deployment for sensitive LLM applications
+Audit logging — who called what, when, with what prompt
+🏆 Tier 3 — Industry Real-Time Projects
+Industry Project 1 — Multi-Agent Research and Report Generator
+Industry: Market Research, Consulting, Investment Banking, EdTech
+Description: User gives a research topic. Multiple specialised agents work together — one searches the web, one analyses sources, one writes the report, one reviews and edits. Final output is a structured research report generated in minutes.
+Process: 1. Build multi-agent system using CrewAI or LangGraph 2. Researcher agent — web search tool, source summarisation 3. Writer agent — structured long-form report generation 4. Reviewer agent — quality check, citation verification, hallucination detection 5. Build Streamlit interface for topic input and report download 6. FastAPI backend 7. Docker + ECR + EKS deployment 8. LangSmith full pipeline tracing and observability
+Outcome: - Automated research report generation in under 5 minutes - Streamlit interface for non-technical users - Full agent trace visibility via LangSmith - Production-deployed and scalable on AWS EKS
+Industry Project 2 — Intelligent Customer Support Agent with Memory
+Industry: E-commerce, Banking, Telecom, Healthcare
+Description: A customer support agent that handles queries, accesses customer history, resolves common issues automatically, and escalates complex cases to human agents — with full memory maintained across sessions.
+Process: 1. Build LangChain or LangGraph agent with tool use — CRM lookup, order status, knowledge base search 2. CRM integration — reads customer history and account details 3. Implement short-term (session) and long-term (cross-session) memory using SQLite 4. Handle FAQs automatically; escalate complex issues with full context summary 5. Streaming responses via WebSocket for real-time chat feel 6. FastAPI REST endpoint + Streamlit or web chat interface 7. Docker + ECR + EKS deployment 8. Helicone cost tracking and CloudWatch monitoring
+Outcome: - Customer support agent resolving >70% of queries autonomously - Memory system maintaining context across sessions - Human escalation with full conversation summary - Cost tracking dashboard via Helicone
+Industry Project 3 — SQL Analytics Agent
+Industry: Sales Teams, Marketing, Finance, Any Company with a Database
+Description: Business users ask questions in plain English. The agent translates to SQL, queries the database, generates insights, creates visualisations, and presents the answer in a readable format — no SQL knowledge required.
+Process: 1. Build LangChain SQL agent connected to a PostgreSQL or SQLite database 2. Natural language to SQL translation with schema awareness 3. Query validation and guardrails — prevent destructive queries (DELETE, DROP) 4. Generate reports and visualisations using Matplotlib and Plotly 5. FastAPI endpoint for business teams and dashboards 6. Build Streamlit business dashboard 7. Docker + ECR + EKS deployment 8. LangSmith monitoring
+Outcome: - Business teams querying databases in plain English - Automated report and chart generation - Guardrails preventing data corruption - Significant reduction in dependency on data analysts for routine queries
+Industry Project 4 — GenAI Content Pipeline with Agents
+Industry: Marketing Agencies, EdTech, News Organisations, Product Companies
+Description: An agentic pipeline that generates, reviews, and publishes content automatically. Given a topic — the system researches it, writes a blog post, creates social media variations, checks for brand tone, and schedules for publishing.
+Process: 1. Build LangGraph workflow agent with specialised sub-agents 2. Research agent — web search, source gathering and summarisation 3. Writing agent — long-form blog post generation 4. Social agent — short-form variations for Twitter, LinkedIn, Instagram 5. Review agent — brand voice check, hallucination detection, tone alignment 6. Integration with CMS or email platform via API 7. FastAPI + Docker + ECR + EKS deployment 8. LangSmith full pipeline tracing
+Outcome: - End-to-end content generation pipeline from topic to publish-ready post - Multi-platform content variations in one run - Brand voice consistency enforced by review agent - Full observability of every agent step via LangSmith
+Industry Project 5 — Document Intelligence System (Advanced RAG + Agents)
+Industry: Law Firms, Finance, Healthcare, HR
+Description: An advanced version of the Tier 2 RAG capstone — now with agentic capabilities. The system not only answers questions but autonomously navigates multi-document knowledge bases, cross-references sources, flags contradictions, and generates executive summaries.
+Process: 1. Upload and process multiple PDFs — financial reports, legal contracts, medical records 2. Advanced chunking with metadata — document type, date, section tags 3. Hybrid search — semantic + keyword with re-ranking 4. Agentic layer — agent decides which documents to retrieve, in what order, and when to ask clarifying questions 5. Cross-reference and contradiction detection across documents 6. Generate executive summary with source citations 7. FastAPI REST endpoint + Streamlit UI 8. Docker + ECR + EKS deployment with LangSmith monitoring
+Outcome: - Intelligent document Q&A with multi-document reasoning - Contradiction and inconsistency detection across sources - Executive summary generation with full citation trail - Production-deployed on AWS with full observability
+Tools and Technologies — Complete Reference
+What You Will Build
+By the end of this programme, you will have built and deployed:
+✅ Sentiment Analysis API — BERT fine-tuned, Dockerised ✅ Document Intelligence System — RAG with vector database ✅ Multi-Agent Research Assistant — CrewAI/LangGraph ✅ Intelligent Customer Support Agent — with memory and CRM integration ✅ SQL Analytics Agent — natural language to database ✅ GenAI Content Pipeline — full agentic workflow
+All deployed on AWS with:
+✅ Docker containers on EKS ✅ CI/CD pipeline via GitHub Actions ✅ Full observability — LangSmith + CloudWatch ✅ Cost monitoring — Helicone ✅ Security — API keys, rate limiting, guardrails
+© 2026 — Master Programme in Generative AI and Agentic AI | DV Analytics Author: Suresh D R | AI Product Developer & Technology Mentor

@@ -32,6 +32,18 @@ const FORWARDED_WEBHOOK_HEADER = "x-dv-webhook-forwarded";
 const META_LEAD_FETCH_TIMEOUT_MS = 20000;
 const META_LEAD_FETCH_MAX_ATTEMPTS = 3;
 const META_RETRY_JOB_MAX_ATTEMPTS = 10;
+const PUBLIC_COURSE_ROUND_ROBIN_FIELD = "publicCourseRoundRobinIndex";
+const PUBLIC_COURSE_ROUTING_SCOPE = "public-course-routing";
+const PUBLIC_COURSE_ROUTING_OWNER = "system:public-course-routing";
+
+const PUBLIC_COURSE_CATALOG = [
+  { id: "apids", code: "APIDS", name: "Advanced Program in Industrial Data Science & AI", duration: "6-8 Months" },
+  { id: "apida", code: "APIDA", name: "Advanced Program in Industrial Data Analytics & AI", duration: "5-8 Months" },
+  { id: "advanced-aiml-genai-agentic", code: "AIML + GenAI", name: "Advanced AIML with Gen AI & Agentic AI", duration: "4 Months" },
+  { id: "master-genai-agentic", code: "GenAI Master", name: "Master Program in Gen AI & Agentic AI", duration: "2 Months" },
+  { id: "data-analytics-specialist", code: "DAS", name: "Data Analytics Specialist", duration: "3-4 Months" },
+  { id: "apcs", code: "APCS", name: "Advanced Program in Cybersecurity & Forensics", duration: "3-4 Months" }
+];
 
 const ADMIN_USER = {
   id: ADMIN_LOGIN_ID,
@@ -1520,6 +1532,159 @@ app.use("/api", async (_req, res, next) => {
   }
 });
 
+app.post("/api/public-course-registrations", async (req, res) => {
+  try {
+    const name = String(req.body?.name || "").trim();
+    const phone = String(req.body?.phone || "").trim();
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    const course = findPublicCourseDefinition(req.body?.courseId);
+
+    if (!name || !phone || !email || !course) {
+      return res.status(400).json({ message: "Name, phone, email, and a valid course are required." });
+    }
+
+    const snapshot = await getStateDoc();
+    const existingLead = findDuplicateLeadByEmailOrPhone(snapshot.leads, { email, phone });
+    const isDuplicateRegisteredLead = isPublicCourseRegistrationLead(existingLead);
+    const isSameRegisteredCourse = isDuplicateRegisteredLead && publicCourseLeadMatchesCourse(existingLead, course);
+
+    if (isSameRegisteredCourse) {
+      return res.status(200).json({
+        ok: true,
+        alreadyRegistered: true,
+        message: "You have already registered for this course.",
+        leadId: existingLead.id,
+        assignedCounselor: String(existingLead.counselor || "").trim() || "Unassigned"
+      });
+    }
+
+    const counselorName = String(existingLead?.counselor || "").trim() || await assignPublicCourseCounselorRoundRobin(snapshot.counselors);
+    const nextId = await getNextMetaLeadId();
+    const newLead = buildPublicCourseLead({
+      name,
+      email,
+      phone,
+      course,
+      counselorName,
+      nextId
+    });
+
+    const shouldReplaceExistingRegisteredLead = isDuplicateRegisteredLead && !isSameRegisteredCourse;
+
+    if (shouldReplaceExistingRegisteredLead) {
+      const leadIdCandidates = getLeadIdCandidates(existingLead.id);
+      await withMongoRetry(
+        () => leadsCollection.deleteOne({ id: { $in: leadIdCandidates } }),
+        { retries: 1, label: "Remove replaced duplicate lead before course registration insert" }
+      );
+      await withMongoRetry(
+        () => tasksCollection.deleteMany({ leadId: { $in: leadIdCandidates.map((value) => String(value)) } }),
+        { retries: 1, label: "Remove replaced duplicate lead tasks before course registration insert" }
+      );
+    }
+
+    await withMongoRetry(
+      () => leadsCollection.insertOne(decorateLeadDuplicateKeys(newLead)),
+      { retries: 1, label: "Create public course registration lead" }
+    );
+
+    const now = new Date().toISOString();
+    await stateCollection.updateOne(
+      { _id: STATE_DOC_ID },
+      { $set: { updatedAt: now } },
+      { upsert: true }
+    );
+    cachedStateDoc = null;
+    cachedStateDocAt = 0;
+
+    await createNotification({
+      userId: "admin",
+      role: "admin",
+      type: "public_course_registration",
+      title: "New Course Registration",
+      message: `Lead: ${formatLeadNotificationLabel(newLead)}. Registered for ${course.name}. Assigned counselor: ${counselorName}${shouldReplaceExistingRegisteredLead ? " (replaced previous registered lead)" : existingLead ? " (matched existing CRM lead)" : ""}`,
+      sound: true,
+      leadId: nextId,
+      leadName: newLead.name,
+      assignedCounselor: counselorName
+    });
+
+    if (counselorName && counselorName.toLowerCase() !== "unassigned") {
+      const escapedName = counselorName.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+      const counselorDoc = await counselorsCollection.findOne({
+        name: { $regex: new RegExp(`^${escapedName}$`, "i") }
+      });
+
+      if (counselorDoc?.email) {
+        await createNotification({
+          userId: counselorDoc.email,
+          role: "counselor",
+          type: "public_course_registration",
+          title: "New Registered Candidate",
+          message: `You received new registered candidate ${formatLeadNotificationLabel(newLead)} for ${course.code}.`,
+          sound: true,
+          leadId: nextId,
+          leadName: newLead.name,
+          assignedCounselor: counselorName
+        });
+      }
+    }
+
+    return res.status(201).json({
+      ok: true,
+      message: "Registration received.",
+      leadId: nextId,
+      assignedCounselor: counselorName
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to create course registration lead", details: error.message });
+  }
+});
+
+app.get("/api/public-course-routing", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, "admin");
+    if (!session) return;
+
+    const config = await getPublicCourseRoutingConfig();
+    return res.json({ ok: true, ...config });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch public course routing", details: error.message });
+  }
+});
+
+app.put("/api/public-course-routing", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, "admin");
+    if (!session) return;
+
+    const selectedCounselors = Array.isArray(req.body?.selectedCounselors)
+      ? req.body.selectedCounselors.map((name) => String(name || "").trim()).filter(Boolean)
+      : [];
+
+    const now = new Date().toISOString();
+    await preferenceCollection.updateOne(
+      { ownerKey: PUBLIC_COURSE_ROUTING_OWNER, scope: PUBLIC_COURSE_ROUTING_SCOPE },
+      {
+        $set: {
+          value: { selectedCounselors },
+          updatedAt: now
+        },
+        $setOnInsert: {
+          ownerKey: PUBLIC_COURSE_ROUTING_OWNER,
+          scope: PUBLIC_COURSE_ROUTING_SCOPE,
+          createdAt: now
+        }
+      },
+      { upsert: true }
+    );
+
+    return res.json({ ok: true, selectedCounselors });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to save public course routing", details: error.message });
+  }
+});
+
 function sanitizeState(payload = {}) {
   const next = {};
 
@@ -1546,8 +1711,107 @@ function normalizeLeadContactValue(value) {
   return String(value || "").trim();
 }
 
+function findPublicCourseDefinition(courseId) {
+  return PUBLIC_COURSE_CATALOG.find((course) => course.id === String(courseId || "").trim()) || null;
+}
+
+async function getPublicCourseRoutingConfig() {
+  const preference = await preferenceCollection.findOne({
+    ownerKey: PUBLIC_COURSE_ROUTING_OWNER,
+    scope: PUBLIC_COURSE_ROUTING_SCOPE
+  });
+
+  const selectedCounselors = Array.isArray(preference?.value?.selectedCounselors)
+    ? preference.value.selectedCounselors.map((name) => String(name || "").trim()).filter(Boolean)
+    : [];
+
+  return {
+    selectedCounselors
+  };
+}
+
+function isCounselorEligibleForCourseRegistrations(counselor) {
+  return !!counselor && !counselor.disabled;
+}
+
+async function assignPublicCourseCounselorRoundRobin(counselors = []) {
+  const routingConfig = await getPublicCourseRoutingConfig().catch(() => ({ selectedCounselors: [] }));
+  const selectedCounselorSet = new Set(routingConfig.selectedCounselors.map((name) => name.toLowerCase()));
+  const activeCounselors = (Array.isArray(counselors) ? counselors : [])
+    .filter(isCounselorEligibleForCourseRegistrations)
+    .filter((counselor) => !selectedCounselorSet.size || selectedCounselorSet.has(String(counselor.name || "").trim().toLowerCase()));
+  if (!activeCounselors.length) {
+    return "Unassigned";
+  }
+
+  const result = await withMongoRetry(
+    () => stateCollection.findOneAndUpdate(
+      { _id: STATE_DOC_ID },
+      { $inc: { [PUBLIC_COURSE_ROUND_ROBIN_FIELD]: 1 } },
+      { returnDocument: "after", upsert: true }
+    ),
+    { retries: 1, label: "Advance public course round robin" }
+  );
+
+  const newIndex = Number(result?.[PUBLIC_COURSE_ROUND_ROBIN_FIELD]) || 1;
+  const counselorIndex = ((newIndex - 1) % activeCounselors.length + activeCounselors.length) % activeCounselors.length;
+  return activeCounselors[counselorIndex].name;
+}
+
+function buildPublicCourseLead({ name, email, phone, course, counselorName, nextId }) {
+  return {
+    id: nextId,
+    name: String(name || "").trim(),
+    email: String(email || "").trim().toLowerCase(),
+    phone: String(phone || "").trim(),
+    workshop: "",
+    courseId: course.id,
+    courseName: course.name,
+    courseCode: course.code,
+    courseDuration: course.duration,
+    status: "New",
+    source: "Public Course Registration",
+    leadPipeline: "course-registration",
+    createdAt: new Date().toISOString().slice(0, 10),
+    counselor: counselorName,
+    registeredDialed: "",
+    registeredCoursePitched: "",
+    registeredCourseStatus: "",
+    registeredAdmissionStatus: "",
+    registeredCallStatus: "",
+    registeredActivityUpdated: false,
+    registeredCourseActivityUpdates: 0,
+    registeredCourseActivityHistory: [],
+    leadNotes: [],
+    importSourceFiles: ["Public Course Landing Page"],
+    importSourceSheets: []
+  };
+}
+
+function isPublicCourseRegistrationLead(lead) {
+  return String(lead?.leadPipeline || "").trim().toLowerCase() === "course-registration";
+}
+
+function publicCourseLeadMatchesCourse(lead, course) {
+  const courseId = String(course?.id || "").trim();
+  const courseCode = String(course?.code || "").trim().toLowerCase();
+  const courseName = String(course?.name || "").trim().toLowerCase();
+
+  if (!courseId && !courseCode && !courseName) {
+    return false;
+  }
+
+  return String(lead?.courseId || "").trim() === courseId
+    || String(lead?.courseCode || "").trim().toLowerCase() === courseCode
+    || String(lead?.courseName || "").trim().toLowerCase() === courseName;
+}
+
 function normalizeLeadPhone(value) {
-  return normalizeLeadContactValue(value).replace(/\D+/g, "");
+  const digits = normalizeLeadContactValue(value).replace(/\D+/g, "");
+  if (digits.length === 12 && digits.startsWith("91")) {
+    return digits.slice(-10);
+  }
+  return digits;
 }
 
 function normalizeLeadEmail(value) {
@@ -1868,7 +2132,11 @@ function createTaskId() {
 
 function normalizeTaskDoc(task = {}) {
   const createdAt = task.createdAt || new Date().toISOString();
-  const category = task.category === "admission" ? "admission" : "workshop";
+  const category = task.category === "admission"
+    ? "admission"
+    : task.category === "registered"
+      ? "registered"
+      : "workshop";
 
   return {
     id: String(task.id || createTaskId()),
@@ -2283,7 +2551,7 @@ app.post("/api/leads/:leadId/activity", async (req, res) => {
             "postStatusUpdated"
           ]
         }
-      : stage === "workshop"
+        : stage === "workshop"
         ? {
             source: "Workshop Calling",
             historyField: "workshopActivityHistory",
@@ -2296,10 +2564,24 @@ app.post("/api/leads/:leadId/activity", async (req, res) => {
               "whatsappGroupStatus"
             ]
           }
+        : stage === "registered-course"
+          ? {
+              source: "Post Workshop Registered Candidate",
+              historyField: "registeredCourseActivityHistory",
+              countField: "registeredCourseActivityUpdates",
+              allowedFields: [
+                "registeredDialed",
+                "registeredCoursePitched",
+                "registeredCourseStatus",
+                "registeredAdmissionStatus",
+                "registeredCallStatus",
+                "registeredActivityUpdated"
+              ]
+            }
         : null;
 
     if (!config) {
-      return res.status(400).json({ message: "Activity stage must be workshop or admission." });
+      return res.status(400).json({ message: "Activity stage must be workshop, admission, or registered-course." });
     }
 
     if (stage === "admission" && !req.body?.allowWithoutWorkshopActivity) {

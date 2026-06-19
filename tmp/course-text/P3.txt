@@ -1,0 +1,565 @@
+Advanced AI & Machine Learning — Complete Restructured Curriculum
+Author: Suresh D R | AI Product Developer & Technology Mentor Organisation: DV Analytics Year: 2026
+CURRICULUM STRUCTURE AT A GLANCE
+TIER 1 — BRIDGE / FOUNDATION CONTENT
+Goal: Build the programming and data foundations every student needs before touching ML. No prior experience assumed.
+Module 1 — Python for Data Science
+Section 1 — Python Fundamentals
+Introduction and Setup
+Variables and Data Types
+Operators
+Control Flow — if, for, while
+Functions
+Section 2 — Data Structures
+Lists
+Tuples
+Dictionaries
+Sets
+Strings
+Section 3 — Functions and File Handling
+Functions — arguments, return values, lambda
+File Operations — read, write, append
+Working with File Types — CSV, JSON, Excel
+Error Handling — try, except, finally
+Section 4 — NumPy
+NumPy Basics — arrays, indexing, slicing
+Array Operations — broadcasting, reshaping
+Mathematical Operations
+Random Module
+Section 5 — Pandas
+Pandas Fundamentals — Series, DataFrame
+Data Cleaning — nulls, duplicates, types
+Data Transformation — apply, map, replace
+Data Aggregation and Grouping — groupby, pivot
+Merging and Joining — merge, concat, join
+Data Import/Export — CSV, Excel, SQL, JSON
+Section 6 — Data Visualisation
+Matplotlib — line, bar, scatter, histogram
+Seaborn — heatmap, boxplot, pairplot, violin
+Module 2 — SQL for Data Science
+Section 1 — SQL Fundamentals
+Introduction to Databases and SQL
+SELECT, FROM, WHERE
+ORDER BY, LIMIT, DISTINCT
+Filtering — AND, OR, NOT, IN, BETWEEN, LIKE
+Section 2 — Intermediate SQL
+Aggregate Functions — COUNT, SUM, AVG, MIN, MAX
+GROUP BY and HAVING
+JOINs — INNER, LEFT, RIGHT, FULL OUTER
+Subqueries and Nested Queries
+Section 3 — Advanced SQL
+Window Functions — ROW_NUMBER, RANK, LAG, LEAD
+CTEs — Common Table Expressions
+CASE WHEN Statements
+Indexes and Query Optimisation
+SQL for Data Science — EDA using SQL
+Module 3 — Basic Statistics & Probability (Bridge Level)
+Note: This is a foundational introduction. Full inferential statistics and ML-specific statistics are covered in Tier 2.
+Section 1 — Descriptive Statistics
+What is Statistics — descriptive vs inferential
+Types of Data — nominal, ordinal, continuous
+Measures of Central Tendency — mean, median, mode
+Measures of Dispersion — variance, std, range
+Quartiles, Percentiles and IQR
+Outlier Detection — IQR method, Z-score
+Sampling Methods
+Section 2 — Probability Foundations
+Probability Basics and Rules
+Conditional Probability
+Bayes Theorem
+Discrete Distributions — Binomial, Poisson
+Continuous Distributions — Normal, Exponential
+Expected Value and Variance
+🏆 Tier 1 Capstone Project — Exploratory Data Analysis Dashboard
+Project Name: Retail Sales EDA & Insights Dashboard
+Industry: Retail / E-commerce
+Description: Students perform a complete end-to-end EDA on a retail sales dataset using Python, SQL, and basic statistics. The project integrates all Tier 1 skills into one deliverable — a working interactive dashboard.
+Process: 1. Load and clean raw sales data using Pandas (handle nulls, duplicates, type mismatches) 2. Query and aggregate data using SQL (window functions, CTEs, group-by analysis) 3. Perform descriptive statistics — central tendency, dispersion, outlier detection 4. Apply probability concepts — distribution analysis on sales and revenue columns 5. Build visualisations — trend lines, category breakdowns, heatmaps using Matplotlib and Seaborn 6. Deploy as a Streamlit dashboard
+Outcome: - Interactive sales dashboard with filters by region, category, and date - Statistical summary report with outlier flags - SQL query library for repeat business reporting - Students demonstrate readiness to move into Machine Learning
+TIER 2 — BASE CONTENT
+Goal: Build strong theoretical and practical foundations in Statistics, Machine Learning, and Deep Learning.
+Module 4 — Statistics for Machine Learning (Inferential & ML-Focused)
+Section 1 — Statistical Inference
+Central Limit Theorem
+Confidence Intervals
+Hypothesis Testing Framework
+Type I and Type II Errors
+P-values and Significance Levels
+Statistical Power and Effect Size
+Section 2 — Parametric Tests
+Z-Test
+One-Sample and Two-Sample T-Test
+Paired T-Test
+One-Way and Two-Way ANOVA
+Post-hoc Tests
+Section 3 — Non-Parametric Tests
+Mann-Whitney U Test
+Wilcoxon Signed-Rank Test
+Kruskal-Wallis Test
+Section 4 — Categorical Data Tests
+Chi-Square Test of Independence
+Chi-Square Goodness of Fit
+Fisher’s Exact Test
+Section 5 — Regression and Correlation
+Pearson and Spearman Correlation
+Simple and Multiple Linear Regression
+Regression Assumptions (LINE)
+R-squared and Adjusted R-squared
+Residual Analysis
+Multicollinearity and VIF
+Logistic Regression Basics
+Section 6 — Distribution Properties
+Skewness and Kurtosis
+Q-Q Plots
+Normality Tests — Shapiro-Wilk
+Transformations for Normality
+Section 7 — ML-Specific Statistics
+Maximum Likelihood Estimation (MLE)
+Bias-Variance Tradeoff
+Cross-Validation Methods
+Bootstrap and Resampling
+KS Test and PSI — used in drift detection
+Model Evaluation Metrics
+Module 5 — Machine Learning Complete
+Section 1 — Data Preprocessing and Foundations
+Understanding Your Data — shape, types, describe
+Handling Missing Data — imputation strategies
+Handling Outliers — capping, removal
+Encoding Categorical Variables — label, one-hot, target
+Feature Scaling — StandardScaler, MinMaxScaler
+Train-Test Split — stratified, random
+Section 2 — Supervised Learning — Regression
+Simple Linear Regression
+Multiple Linear Regression
+Ridge Regression (L2 Regularisation)
+Lasso Regression (L1 Regularisation)
+Elastic Net
+Polynomial Regression
+Evaluation Metrics — RMSE, MAE, R², MAPE
+Section 3 — Supervised Learning — Classification
+Logistic Regression — binary and multiclass
+Classification Metrics — accuracy, precision, recall, F1
+ROC Curves and AUC
+Precision-Recall Curves
+Confusion Matrix
+Section 4 — Handling Real-World Problems
+Class Imbalance Problem
+SMOTE and Resampling Techniques
+Evaluation for Imbalanced Data
+Section 5 — Tree-Based Models
+Decision Trees
+Random Forest
+Bagging and Bootstrap Aggregating
+AdaBoost
+Gradient Boosting Machines (GBM)
+XGBoost
+LightGBM
+CatBoost
+Ensemble Methods — Stacking, Voting
+Section 6 — Other Supervised Algorithms
+Naive Bayes
+K-Nearest Neighbors (KNN)
+Support Vector Machines (SVM)
+Section 7 — Advanced ML Topics
+Feature Engineering
+Feature Selection Methods
+Principal Component Analysis (PCA)
+t-SNE
+Linear Discriminant Analysis (LDA)
+UMAP
+Section 8 — Unsupervised Learning
+K-Means Clustering
+K-Means++ Initialisation
+Hierarchical Clustering
+DBSCAN
+HDBSCAN
+Gaussian Mixture Models (GMM)
+Isolation Forest — Anomaly Detection
+Local Outlier Factor (LOF)
+Section 9 — Model Interpretation
+Feature Importance
+SHAP — SHapley Additive Explanations
+LIME — Local Interpretable Model-agnostic Explanations
+Partial Dependence Plots
+Section 10 — Hyperparameter Tuning and Pipelines
+Grid Search and Randomised Search
+Bayesian Optimisation
+Scikit-learn Pipelines
+Section 11 — Time Series (Optional)
+Time Series Components
+Stationarity and Differencing
+ACF and PACF
+ARIMA and SARIMA
+Prophet (Facebook)
+LSTM for Time Series
+🏆 Module 5 Capstone Project — Machine Learning
+ML Capstone — Customer Churn Prediction (Classification)
+Industry: Telecom, Banking, OTT, SaaS
+Description: Build a complete classification pipeline to predict which customers are likely to churn. This project covers the full ML workflow from statistical analysis to model deployment.
+Process: 1. Statistical analysis — t-test, chi-square, and correlation on customer features 2. EDA and data preprocessing — handle imbalanced churn labels 3. Feature engineering — RFM-style features, usage patterns 4. Model building — Logistic Regression, Random Forest, XGBoost 5. Handle class imbalance with SMOTE 6. Evaluate with ROC-AUC, F1, Precision-Recall curves 7. SHAP explainability — identify top churn drivers 8. Deploy as REST API using FastAPI
+Outcome: - Churn probability score per customer - Top 5 churn driver features via SHAP - REST API endpoint for CRM integration - Business report with retention recommendations
+Module 6 — Deep Learning Foundations
+Section 1 — Neural Network Foundations
+Perceptron and Multi-layer Networks
+Activation Functions — ReLU, Sigmoid, Tanh, Softmax
+Forward Propagation
+Backpropagation and Gradient Descent
+Optimisers — SGD, Adam, RMSprop
+Loss Functions — MSE, Cross-Entropy, Focal Loss
+Regularisation — L1, L2, Dropout
+Batch Normalisation
+Framework — TensorFlow/Keras and PyTorch
+Section 2 — Natural Language Processing
+Text Preprocessing — tokenisation, stemming, lemmatisation
+Text Representation — TF-IDF, Word2Vec, GloVe
+Recurrent Neural Networks (RNN)
+Long Short-Term Memory (LSTM)
+Gated Recurrent Unit (GRU)
+Bidirectional RNNs
+Encoder-Decoder Architecture
+Attention Mechanism
+Sequence-to-Sequence Models
+Section 3 — Transformers and Modern NLP
+Transformer Architecture
+Self-Attention and Multi-Head Attention
+BERT — Bidirectional Encoder
+GPT — Generative Pre-trained Transformer
+T5 — Text-to-Text Transfer
+Model Variants — RoBERTa, DistilBERT, ALBERT
+Transfer Learning and Fine-Tuning
+Hugging Face Transformers
+Section 4 — Computer Vision
+Convolutional Neural Networks (CNNs)
+Convolution and Pooling Operations
+LeNet, AlexNet, VGGNet
+ResNet — Residual Networks
+MobileNet and EfficientNet
+Transfer Learning in Vision
+Data Augmentation
+Object Detection — YOLO, Faster R-CNN
+Image Segmentation — U-Net, Mask R-CNN
+Vision Transformers (ViT)
+🏆 Tier 2 Capstone Projects — Deep Learning
+Capstone Project 1 — Sentiment Analysis API (Deep Learning NLP)
+Industry: E-commerce, Product Reviews, Social Media
+Description: Fine-tune a BERT model on product review data to classify sentiment. Students learn the full deep learning workflow from data prep to production API.
+Process: 1. Data collection and text preprocessing — tokenisation, cleaning 2. Fine-tune BERT on labelled review dataset using Hugging Face 3. Evaluate — accuracy, F1, confusion matrix 4. Build FastAPI REST endpoint for real-time inference 5. Dockerise the model service
+Outcome: - Production sentiment classification API - Real-time inference endpoint accepting raw text - Docker-ready model container - Students demonstrate readiness for Advanced tier
+Capstone Project 2 — Image Classification for Defect Detection (Computer Vision)
+Industry: Manufacturing, Quality Control
+Description: Build a transfer learning-based image classifier to detect product defects on a manufacturing line. Uses ResNet/EfficientNet with custom dataset.
+Process: 1. Build and label custom defect image dataset 2. Apply data augmentation — flips, rotations, brightness 3. Fine-tune EfficientNet using transfer learning 4. Evaluate model performance — accuracy, precision per defect class 5. Build Streamlit app for quality inspection team 6. Dockerise and prepare for deployment
+Outcome: - Defect detection model with >90% accuracy target - Streamlit app for factory floor teams - Docker container ready for edge deployment
+TIER 3 — ADVANCED CONTENT
+Goal: Production-grade skills — deploying, monitoring, and operating ML and GenAI systems at scale on AWS.
+Module 7 — MLOps — Deploy and Retrain ML Models on AWS
+Section 1 — Introduction to MLOps
+What is MLOps and why it matters
+The gap between ML notebooks and production systems
+MLOps maturity levels — Manual → Automated → Full CI/CD
+Key roles — ML Engineer, MLOps Engineer, Data Engineer
+ML lifecycle — Data → Train → Evaluate → Deploy → Monitor → Retrain
+Reproducibility, scalability, and automation principles
+Section 2 — Containerisation with Docker
+What are containers and why they solve the “works on my machine” problem
+Containers vs Virtual Machines
+Docker architecture — Images, Containers, Registries
+Writing Dockerfiles for ML model serving
+Docker layers, caching, and image optimisation
+Docker Compose for multi-service ML applications
+Introduction to Amazon ECR
+Pushing and pulling ML model images to ECR
+Best practices for lightweight production-ready ML containers
+DevOps practices used here — image scanning, container hardening, and registry management as part of the deployment workflow
+Section 3 — Kubernetes for ML Workloads
+What is Kubernetes and why ML teams use it
+Kubernetes architecture — Control Plane, Worker Nodes, Pods
+Core objects — Pod, Deployment, Service, Ingress, ConfigMap, Secret
+Deploying ML model APIs on Kubernetes
+Horizontal Pod Autoscaler — scaling based on traffic
+Rolling updates and rollbacks for model versions
+Introduction to Amazon EKS
+Connecting and managing EKS clusters
+DevOps practices used here — Helm for packaging deployments, Secrets Manager for credentials, infrastructure provisioned as code using Terraform
+Section 4 — GitHub and Version Control for ML
+Git fundamentals — init, add, commit, push, pull, clone
+Branching strategies for ML teams
+Pull Requests and code reviews
+What to version — code, configs, requirements
+What NOT to commit — datasets, model weights, API keys
+Using .gitignore for ML projects
+DVC — Data Version Control alongside Git
+Section 5 — GitHub Actions and CI/CD Pipelines
+What is CI/CD for ML
+GitHub Actions fundamentals — Workflows, Jobs, Steps, Runners
+YAML workflow file structure
+Events that trigger workflows
+Connecting GitHub Actions to AWS
+Storing AWS credentials in GitHub Secrets
+Complete ML CI/CD pipeline:
+Trigger on code push
+Install dependencies and run unit tests
+Build Docker image
+Push to Amazon ECR
+Trigger SageMaker Training Job
+Evaluate model against baseline threshold
+Register in Model Registry if passes
+Deploy to EKS
+Run integration tests
+Deployment strategies — Blue-Green, Canary, Rolling
+Automated rollback when model degrades
+DevOps practices used here — YAML pipeline as code, environment-based secrets, automated testing gates, and blue-green deploy strategies borrowed directly from DevOps engineering
+Section 6 — AWS Services for ML
+Amazon SageMaker — Studio, Training Jobs, Endpoints, Pipelines
+SageMaker Model Registry — version and manage models
+Amazon S3 — storing datasets, model artifacts, logs
+Amazon ECR — private Docker registry
+Amazon EKS — managed Kubernetes
+AWS Lambda — serverless inference
+Amazon CloudWatch — logs, metrics, alarms
+AWS IAM — roles and permissions
+Section 7 — ML Pipeline Orchestration
+Pipeline stages — Ingestion → Preprocessing → Training → Evaluation → Deployment
+SageMaker Pipelines in depth
+Defining and connecting pipeline steps
+Conditional steps based on evaluation results
+Scheduling and triggering pipelines
+Automated retraining pipelines
+Section 8 — Data Drift Detection with Evidently AI
+What is data drift and why it happens
+Types of drift:
+Data Drift (Covariate Shift) — input features change
+Concept Drift — relationship between features and target changes
+Prediction Drift — output distribution shifts
+Data Quality Issues — nulls, schema changes
+Statistical methods for drift detection:
+KS Test (Kolmogorov-Smirnov) for continuous features
+Chi-Square Test for categorical features
+Population Stability Index (PSI)
+Jensen-Shannon Divergence
+PSI interpretation — No change / Minor change / Major shift
+Evidently AI complete practical implementation:
+Installing Evidently AI
+Creating reference dataset from training data
+Collecting current live data
+Running DataDriftPreset report
+Generating HTML drift reports
+Interpreting feature-level drift results
+Setting drift thresholds and sensitivity levels
+Saving and uploading reports to S3
+Triggering SageMaker Pipeline when drift detected
+End-to-end automated drift → retrain → deploy loop
+Scheduling drift checks via AWS Lambda + EventBridge
+CloudWatch alarms when drift detected
+Section 9 — Model Monitoring and Observability
+The 4 pillars — Infrastructure, Data Quality, Model Performance, Business Metrics
+Key metrics — latency, throughput, error rate, prediction distribution
+Setting up monitoring with Amazon CloudWatch
+Custom metrics for ML model servers
+Prometheus and Grafana for ML observability
+Building dashboards for real-time model health
+Alerting — CloudWatch Alarms → SNS → Email/Slack
+A/B testing and shadow mode deployment
+DevOps practices used here — Prometheus and Grafana dashboards, centralised log management, and alerting pipelines are standard DevOps observability tools applied to ML systems
+Section 10 — SageMaker Model Monitor
+Enabling data capture on SageMaker endpoints
+Creating baseline statistics from training data
+Data Quality Monitor — detect feature drift
+Model Quality Monitor — track accuracy over time
+Bias Drift Monitor — detect fairness issues
+Scheduling monitoring jobs
+Connecting violations to CloudWatch alarms
+Triggering automated retraining from monitoring alerts
+Section 11 — Model Retraining Strategies
+Why and when to retrain models
+Retraining triggers — scheduled, performance-based, drift-based, event-based
+Managing training data for retraining
+Full retraining vs incremental fine-tuning
+Challenger pattern — comparing new model vs champion
+Automated retraining pipelines
+Lambda functions triggered by CloudWatch alarms
+Retraining rollback when new model is worse
+Tracking retrained model versions in Model Registry
+Section 12 — Model Governance and Best Practices
+Model cards — documenting purpose, data, performance, limitations
+Audit trails — tracking who trained, approved, deployed each model
+Model approval workflows — staging → approval → production
+Bias and fairness monitoring with SageMaker Clarify
+SHAP explainability in production
+Regulatory compliance — GDPR, RBI guidelines
+🏆 MLOps Industry Projects
+Industry Project 1 — Annual Vehicle Mileage Prediction
+Industry: Insurance, Tyre Manufacturing, Fleet Management
+Description: Build a regression system that predicts annual vehicle mileage to help insurance companies price premiums accurately and help fleet operators plan tyre replacement cycles. The system must handle quarterly data drift and auto-retrain via MLOps pipeline.
+Process: 1. EDA and statistical analysis on vehicle and usage data in Google Colab 2. Feature engineering — 20+ features including vehicle age, geography, usage type 3. Model building and comparison — Linear Regression, Random Forest, XGBoost 4. Evaluation with MAPE, RMSE, R² 5. Build Streamlit dashboard for insurance agents 6. FastAPI REST endpoint for system integration 7. Dockerise → push to ECR → deploy on EKS 8. Set up Evidently AI drift monitoring — vehicle data changes quarterly 9. Automated retrain pipeline triggered by drift detection 10. Integrate LLM to generate personalised insurance renewal messages per customer
+Outcome: - Mileage prediction API with <8% MAPE - Streamlit dashboard for insurance agents - Fully automated retrain pipeline on SageMaker - LLM-powered personalised renewal message generator - End-to-end CI/CD pipeline on AWS
+Industry Project 2 — Customer Churn Prediction with Full MLOps
+Industry: Telecom, Banking, OTT, SaaS
+Description: Extend the Tier 2 churn model into a full production MLOps system with CI/CD, monitoring, drift detection, and automated retraining. This project demonstrates the complete production ML lifecycle.
+Process: 1. Statistical analysis — t-test, chi-square, correlation on customer features 2. Classification model — Random Forest, XGBoost with SMOTE for imbalance 3. Metrics — ROC-AUC, F1, Precision-Recall 4. Full CI/CD pipeline — GitHub Actions → ECR → EKS 5. SageMaker Model Monitor for data and model quality 6. Drift detection with Evidently AI — trigger retrain when PSI exceeds threshold 7. Model governance — approval workflow, model card, SHAP explainability report 8. LLM integration — generate personalised retention offers per at-risk customer
+Outcome: - Production churn prediction system with automated retraining - LLM-powered retention offer generator - Complete audit trail and model governance documentation - Business dashboard showing churn rate trends and model health
+Industry Project 3 — E-commerce Return Prediction
+Industry: Flipkart, Amazon, Myntra, Food, Hotels, SaaS
+Description: Predict whether an order will be returned before it is shipped, enabling operations teams to take proactive action — better packaging, size guidance, or flagging high-risk orders.
+Process: 1. Return pattern analysis using statistics — chi-square, t-test on product and customer attributes 2. Classification model — predict return or keep with Random Forest, XGBoost 3. Handle imbalanced return labels with SMOTE 4. Evaluate with ROC-AUC, F1, Precision-Recall 5. Full MLOps pipeline — CI/CD → Docker → EKS 6. Operations team dashboard showing return risk per order 7. REST API integration with order management system 8. LLM integration — proactive size guide and product clarification message sent before shipping
+Outcome: - Return prediction API integrated with order management system - Operations dashboard with real-time return risk scores - LLM-generated proactive customer messages reducing return rate - Estimated 15–25% reduction in preventable returns
+Industry Project 4 — Customer Segmentation with Auto Re-clustering
+Industry: Retail, Banking, EdTech, Healthcare
+Description: Segment customers into behavioural groups using RFM analysis and clustering algorithms. Marketing teams use these segments to deliver personalised campaigns. Segments are automatically refreshed every quarter.
+Process: 1. RFM Analysis — Recency, Frequency, Monetary value calculation 2. K-Means and DBSCAN clustering 3. Elbow method and silhouette score for optimal cluster selection 4. Marketing dashboard — segment profiles with behaviour summaries 5. Automate re-clustering every quarter via SageMaker Pipelines 6. LLM integration — generate personalised marketing message per segment 7. REST API for CRM and marketing automation tools
+Outcome: - 5–8 distinct customer segments with business-readable profiles - Marketing dashboard with segment performance metrics - Automated quarterly re-clustering pipeline - LLM-powered personalised campaign message generator per segment
+Industry Project 5 — Patient Risk Segmentation
+Industry: Apollo Hospitals, Fortis, Max Healthcare
+Description: Cluster patients by risk level using healthcare data to help doctors prioritise follow-ups, flag high-risk patients, and personalise care plans.
+Process: 1. Healthcare data analysis with statistical tests — chi-square, ANOVA on clinical features 2. Hierarchical clustering and K-Means on patient risk features 3. Patient risk dashboard for doctors — colour-coded risk levels 4. Alert system for high-risk patients — CloudWatch → SNS → email/SMS 5. LLM integration — personalised follow-up summary report generated per patient for the doctor
+Outcome: - Patient risk segmentation model with clinician-validated cluster profiles - Doctor dashboard with high-risk patient alerts - Automated follow-up summary report generator - Alert pipeline for critical risk threshold breaches
+Module 8 — Generative AI and Agentic AI
+Section 1 — Generative AI Fundamentals
+What is Generative AI — definition and core concepts
+Classical ML vs Deep Learning vs Generative AI
+Generative Model Taxonomy — GANs, VAEs, Diffusion Models, Transformers
+Language Model Capabilities and Limitations
+Open vs Closed-Source LLM Licences
+Hugging Face Hub and Model Repositories
+Section 2 — Large Language Models (LLMs)
+LLM Architecture Components
+Context Window and Memory Management
+Sampling and Generation — temperature, top-p, top-k, beam search
+Alignment Techniques — RLHF, DPO, Constitutional AI
+Advanced Architectures — Mixture of Experts (MoE)
+Model Optimisation — Quantisation, Pruning
+Section 3 — Prompt Engineering
+Prompt Fundamentals — structure and system messages
+Zero-shot, Few-shot, One-shot prompting
+Role-playing and personas
+Chain-of-Thought (CoT), Tree-of-Thought
+Self-consistency
+Structured Outputs — JSON mode
+Prompt Injection Defense
+LangSmith for debugging
+Section 4 — Agentic AI Foundations
+AI agents vs models
+Perception-Action Loop
+Planning and Reasoning — ReAct paradigm
+Tool use and function calling
+Agent Memory Systems — short-term, long-term, episodic, semantic
+Agent State Management
+Section 5 — Agent Architectures
+Single-Agent Systems
+ReAct Agent Implementation
+Multi-Agent Systems
+Hierarchical Agents
+Manager-Worker Patterns
+Collaborative vs Competitive Agents
+Section 6 — Agentic Frameworks
+LangChain — LCEL, chains, memory, tools
+LangGraph — stateful workflows, graph-based flows
+AutoGen — conversable agents, group chats
+CrewAI — role-based agent design, task delegation
+Framework Comparison
+Human-in-the-Loop Integration
+Section 7 — Retrieval-Augmented Generation (RAG)
+RAG Fundamentals — architecture, when to use RAG vs fine-tuning
+Embeddings and Similarity
+Vector Databases — FAISS, Pinecone, Weaviate, Chroma, Milvus, Qdrant
+Document Processing — chunking, metadata extraction
+Semantic Search and Hybrid Search
+Re-ranking Mechanisms
+Advanced RAG — Query decomposition, HyDE
+Graph RAG — knowledge graphs
+RAG Evaluation — RAGAS, ARES
+Section 8 — Multimodal AI
+Vision-Language Models — CLIP, BLIP, LLaVA
+Image Generation — Stable Diffusion, DALL-E
+Audio Processing — Whisper, text-to-speech
+Video Understanding
+Multimodal RAG
+Document Understanding — PDF parsing, table extraction
+Multimodal Prompting
+Section 9 — Fine-Tuning and Model Optimisation
+When to fine-tune vs RAG
+Dataset Preparation
+LoRA and QLoRA — Parameter-Efficient Fine-Tuning
+Instruction Tuning
+Supervised Fine-Tuning (SFT)
+RLHF and DPO
+Knowledge Distillation
+Model Merging
+Section 10 — Multi-Agent Systems
+Centralised vs Decentralised Control
+Communication Protocols
+Agent Routing and Orchestration
+Role Design and Delegation
+Coordination Mechanisms
+Section 11 — Safety and Guardrails
+Content Moderation
+Input Validation and Sanitisation
+Prompt Injection Defense
+Hallucination Mitigation
+Constitutional Constraints
+Human Oversight
+Red-Teaming — OWASP Top 10 for LLMs
+Section 12 — Model Context Protocol (MCP)
+MCP Fundamentals — protocol and architecture
+MCP Server Development
+MCP Client Integration
+LLM Connectors — connecting to external systems
+MCP Security
+MCP Deployment
+Module 9 — LLMOps — Deployment on AWS
+Section 1 — LLMOps Introduction
+What is LLMOps — LLM lifecycle in production
+Differences between MLOps and LLMOps
+Challenges unique to LLM deployment — latency, cost, hallucinations
+Section 2 — Deploying LLMs on AWS
+Amazon Bedrock — managed LLM service
+SageMaker JumpStart — deploy foundation models
+SageMaker Endpoints for LLM serving
+Containerising LLMs with Docker
+EKS deployment for LLM APIs
+FastAPI for LLM REST endpoints
+Streaming responses — Server-Sent Events
+DevOps practices used here — containerisation, Helm-based EKS deployment, and IaC for provisioning LLM infrastructure on AWS
+Section 3 — Observability and Monitoring
+LangSmith Platform — tracing, debugging, dataset management
+Helicone Analytics — request logging, cost tracking, latency
+Grafana Dashboards — metrics visualisation
+Prometheus for LLM metrics
+CloudWatch for infrastructure monitoring
+Section 4 — Cost Optimisation
+Token usage tracking and budgeting
+Model selection — cost vs quality tradeoff
+Caching strategies for repeated queries
+Batch inference vs real-time
+Spot instances for training and fine-tuning
+Section 5 — LLM Evaluation in Production
+Offline Evaluation — static dataset, ground truth comparison
+Online Evaluation — A/B testing, canary deployment
+LLM-as-Judge — using LLMs to evaluate other LLMs
+RAG-Specific Evaluation — RAGAS framework
+Agent Evaluation — task completion rate, step efficiency
+Human Evaluation
+🏆 GenAI & Agentic AI Industry Projects
+🏆 GenAI & Agentic AI Industry Projects
+Industry Project 6 — RAG-Based Document Q&A System
+Industry: Legal, Finance, Healthcare, HR
+Description: Build a production RAG system that allows users to upload PDFs and ask natural language questions. The system retrieves relevant context and generates accurate answers using an LLM.
+Process: 1. Upload PDFs, extract and clean text 2. Chunk documents with overlap strategy 3. Embed chunks and store in Chroma or Pinecone vector database 4. Build retrieval pipeline — semantic search + re-ranking 5. LLM answering questions grounded in retrieved context 6. FastAPI REST endpoint 7. Docker + ECR + EKS deployment 8. LangSmith monitoring for query tracing and latency
+Outcome: - Document Q&A API handling multi-PDF knowledge bases - Answer accuracy evaluated with RAGAS framework - Full observability via LangSmith dashboard - Production-ready deployment on AWS EKS
+Industry Project 7 — Multi-Agent Research Assistant
+Industry: Consulting, Finance, Media, Research
+Description: Build a multi-agent system where specialised agents collaborate to research a topic, write a structured report, and verify facts — fully automated end to end.
+Process: 1. Build multi-agent system using CrewAI or LangGraph 2. Researcher agent — searches the web, summarises sources 3. Writer agent — produces structured, well-formatted report 4. Reviewer agent — checks quality, factual consistency, and gaps 5. Build Streamlit interface for users to input research topics 6. Deploy on AWS with LangSmith observability
+Outcome: - Automated research report generation in under 5 minutes - Streamlit interface for non-technical users - Full agent trace visibility via LangSmith - Deployed and scalable on AWS
+Industry Project 8 — Customer Support Agent with Memory
+Industry: Banking, Insurance, E-commerce, SaaS
+Description: Build an intelligent customer support agent that remembers conversation history, reads customer CRM data, handles FAQs autonomously, and escalates complex issues to humans.
+Process: 1. Build LangChain agent with tool use — FAQ retrieval, CRM lookup 2. CRM integration — reads customer history and account details 3. Implement short-term (session) and long-term (cross-session) memory 4. Handle FAQs automatically; escalate complex issues with context summary 5. FastAPI + EKS deployment 6. Full observability with LangSmith — trace every conversation
+Outcome: - Customer support agent resolving >70% of queries autonomously - Memory system maintaining context across sessions - Human escalation with full conversation summary - LangSmith dashboard for quality monitoring
+Industry Project 9 — SQL Agent for Business Intelligence
+Industry: Retail, Finance, Operations, HR Analytics
+Description: Build a natural language to SQL agent that lets business teams query their database in plain English and receive reports and visualisations — no SQL knowledge required.
+Process: 1. Build LangChain SQL agent connected to a real business database 2. Natural language to SQL translation with schema awareness 3. Query validation and guardrails — prevent destructive queries (DELETE, DROP) 4. Generate reports and visualisations from query results 5. FastAPI endpoint for business teams and dashboards 6. Deploy on EKS with LangSmith monitoring
+Outcome: - Business teams querying databases in plain English - Automated report and chart generation - Guardrails preventing data corruption - Significant reduction in dependency on data analysts for routine queries
+Tools and Technologies — Complete Reference
+© 2026 — Advanced AI & Machine Learning Program | DV Analytics Author: Suresh D R | AI Product Developer & Technology Mentor

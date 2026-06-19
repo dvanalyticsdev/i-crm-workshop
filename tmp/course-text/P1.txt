@@ -1,0 +1,309 @@
+ADVANCED PROGRAM IN INDUSTRIAL DATA SCIENCE & AI (APIDS)
+Program Overview
+The Advanced Program in Industrial Data Science & AI (APIDS) is a comprehensive industry-oriented training program designed to transform graduates and working professionals into highly skilled Data Science & AI practitioners.
+This program provides a complete learning journey from Data Management, Data Analytics, Machine Learning, Deep Learning, Generative AI, Agentic AI, and Cloud Deployment to prepare candidates for modern AI-driven careers across industries.
+The curriculum is designed by industry experts and focuses on practical applications, real-world projects, business problem-solving, and deployment of AI solutions in enterprise environments.
+Why APIDS?
+Today's organizations are looking for professionals who can:
+✅ Manage large-scale data
+✅ Analyze and visualize business performance
+✅ Build Machine Learning & AI solutions
+✅ Develop Generative AI Applications
+✅ Build Agentic AI Systems
+✅ Deploy AI Models on Cloud Platforms
+APIDS is designed to build all these capabilities within a single integrated program.
+Program Objectives
+Upon completion of this program, participants will be able to:
+Manage structured and unstructured data 
+Perform advanced data analysis and visualization 
+Apply statistical techniques for business decision making 
+Develop Machine Learning and Deep Learning models 
+Build Generative AI applications using LLMs 
+Develop Agentic AI and Multi-Agent Systems 
+Deploy AI solutions using MLOps and LLMOps 
+Work on real-world industry projects 
+Prepare for Data Science & AI career opportunities 
+Program Structure
+Module-1: Data Management
+Data is the foundation of every AI and Analytics project. This module develops strong programming and data handling capabilities.
+SQL Server
+Topics Covered:
+Database Fundamentals 
+Data Modeling 
+DDL, DML & TCL Commands 
+Joins & Subqueries 
+CTEs 
+Window Functions 
+Stored Procedures 
+Views & Indexes 
+Query Optimization 
+Reporting Queries 
+Applications:
+Customer Analytics 
+Sales Analytics 
+Banking Analytics 
+Portfolio Reporting 
+Python Programming
+Topics Covered:
+Python Fundamentals 
+Data Types 
+Loops & Functions 
+OOP Concepts 
+File Handling 
+Exception Handling 
+API Integration 
+Python Libraries 
+Applications:
+Data Processing 
+Automation 
+AI Development 
+Model Building 
+SAS Base & Advanced Programming
+Topics Covered:
+DATA Step Programming 
+PROC SQL 
+Reporting Procedures 
+Macro Programming 
+Data Manipulation 
+Statistical Procedures 
+Applications:
+Banking Analytics 
+Insurance Analytics 
+Healthcare Analytics 
+Regulatory Reporting 
+PySpark / Scala Programming
+Topics Covered:
+Distributed Computing 
+Spark Architecture 
+RDDs 
+DataFrames 
+Spark SQL 
+Machine Learning with Spark 
+Applications:
+Big Data Analytics 
+Customer Analytics 
+Large Scale Data Processing 
+Module-2: Data Analysis & Visualization
+This module focuses on transforming data into business insights and interactive dashboards.
+Excel + AI
+Topics Covered:
+Advanced Excel 
+Power Query 
+Pivot Tables 
+Dashboard Development 
+Excel Copilot 
+AI-Assisted Analysis 
+Applications:
+MIS Reporting 
+Financial Reporting 
+Business Analytics 
+Power BI
+Topics Covered:
+Data Modeling 
+DAX 
+Power Query 
+Dashboard Design 
+Row-Level Security 
+AI Visuals 
+Applications:
+Executive Dashboards 
+KPI Monitoring 
+Operational Reporting 
+Tableau
+Topics Covered:
+Tableau Desktop 
+Calculated Fields 
+Dashboard Design 
+Storytelling 
+Advanced Visualizations 
+Applications:
+Customer Analytics 
+Marketing Analytics 
+Business Intelligence 
+Module-3: Data Mining & AI
+This module focuses on extracting insights, building predictive models, and developing intelligent AI systems.
+Python Statistics
+Topics Covered:
+Descriptive Statistics 
+Probability 
+Hypothesis Testing 
+Correlation Analysis 
+Regression Analysis 
+Statistical Inference 
+Applications:
+Risk Analytics 
+Marketing Analytics 
+Customer Analytics 
+Python Machine Learning
+Topics Covered:
+Supervised Learning
+Linear Regression 
+Logistic Regression 
+Decision Trees 
+Random Forest 
+Gradient Boosting 
+Unsupervised Learning
+Clustering 
+Segmentation 
+Dimensionality Reduction 
+Applications:
+Credit Risk Modeling 
+Churn Prediction 
+Customer Segmentation 
+Sales Forecasting 
+Python Deep Learning
+Topics Covered:
+Neural Networks 
+TensorFlow 
+Keras 
+CNN 
+RNN 
+LSTM 
+Applications:
+Image Classification 
+Fraud Detection 
+Predictive Analytics 
+Generative AI
+Topics Covered:
+Large Language Models (LLMs) 
+Prompt Engineering 
+Retrieval Augmented Generation (RAG) 
+Fine Tuning Concepts 
+AI Assistants 
+Enterprise AI Applications 
+Applications:
+Chatbots 
+Document Intelligence 
+Content Generation 
+Business Automation 
+Agentic AI
+Topics Covered:
+AI Agents 
+Multi-Agent Systems 
+LangChain 
+LangGraph 
+CrewAI 
+AutoGen 
+Applications:
+Autonomous Business Processes 
+AI Research Agents 
+Workflow Automation 
+Decision Support Systems 
+Module-4: Cloud Deployment
+Organizations require AI solutions that can be deployed and managed efficiently. This module covers AI deployment and operationalization.
+MLOps
+Topics Covered:
+Model Versioning 
+CI/CD Pipelines 
+Model Deployment 
+Monitoring 
+Performance Tracking 
+Applications:
+Production AI Systems 
+Enterprise ML Deployment 
+LLMOps
+Topics Covered:
+LLM Deployment 
+Prompt Monitoring 
+Model Evaluation 
+AI Governance 
+Cost Optimization 
+Applications:
+Enterprise Generative AI Solutions 
+AI Assistant Deployment 
+AIOps
+Topics Covered:
+AI Infrastructure Monitoring 
+Predictive Maintenance 
+Automated Incident Detection 
+Intelligent Operations 
+Applications:
+IT Operations 
+Cloud Operations 
+Enterprise Automation 
+Industry Projects
+Participants will work on real-world projects across multiple industries.
+Banking & Financial Services
+Credit Risk Modeling 
+Loan Default Prediction 
+Customer Segmentation 
+Telecom
+Customer Churn Prediction 
+Customer Lifetime Value 
+Insurance
+Claims Analytics 
+Fraud Detection 
+Retail & E-Commerce
+Recommendation Engine 
+Demand Forecasting 
+Healthcare
+Patient Analytics 
+Disease Prediction 
+Tools & Technologies
+Data Management
+SQL Server 
+Python 
+SAS 
+PySpark 
+Scala 
+Data Analysis & Visualization
+Excel AI 
+Power BI 
+Tableau 
+Data Mining & AI
+NumPy 
+Pandas 
+Scikit-Learn 
+TensorFlow 
+Keras 
+OpenAI APIs 
+LangChain 
+LangGraph 
+CrewAI 
+AutoGen 
+Cloud & Deployment
+AWS 
+Azure 
+GCP 
+Docker 
+GitHub 
+MLOps 
+LLMOps 
+AIOps 
+Career Opportunities
+Entry Level Roles
+Data Analyst 
+Business Analyst 
+Reporting Analyst 
+Junior Data Scientist 
+Mid-Level Roles
+Data Scientist 
+Machine Learning Engineer 
+AI Engineer 
+Analytics Consultant 
+Senior-Level Roles
+Lead Data Scientist 
+AI Solution Architect 
+Analytics Manager 
+Head of AI 
+Who Should Join?
+✔ Fresh Graduates
+✔ Engineers
+✔ MCA / MSc / BCA Graduates
+✔ MBA Professionals
+✔ Banking Professionals
+✔ Finance Professionals
+✔ IT Professionals
+✔ Business Analysts
+✔ Working Professionals Planning Career Transition
+Program Deliverables
+✅ Instructor-Led Training
+✅ LMS Access
+✅ Assignments & Case Studies
+✅ Industry Projects
+✅ Capstone Project
+✅ Resume Preparation
+✅ LinkedIn Optimization
+✅ Mock Interviews
+✅ Placement Assistance
+✅ Industry Certification
