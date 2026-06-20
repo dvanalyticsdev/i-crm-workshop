@@ -297,6 +297,7 @@
   const mascotJumper = document.getElementById("mascotJumper");
   const speechBubble = document.getElementById("mascotSpeechBubble");
   const speechText = document.getElementById("mascotSpeechText");
+  const speechCloseBtn = document.getElementById("mascotSpeechCloseBtn");
 
   const bubbleMessages = [
     { text: "Need help? Tap the Match Game! 🎮", expression: "surprised" },
@@ -317,6 +318,33 @@
 
   let bubbleTimeout = null;
   let talkInterval = null;
+  let lastSpeechOpenedAt = 0;
+
+  function hideSpeech(immediate = false) {
+    if (!speechBubble) return;
+    if (bubbleTimeout) clearTimeout(bubbleTimeout);
+    if (talkInterval) clearInterval(talkInterval);
+    bubbleTimeout = null;
+    talkInterval = null;
+    isTalking = false;
+    speechBubble.classList.remove("visible");
+
+    const finalizeHide = () => {
+      if (!speechBubble.classList.contains("visible")) {
+        speechBubble.classList.add("hidden");
+        if (currentExpression !== 'happy' || happyTimer === 0) {
+          setExpression('neutral');
+        }
+      }
+    };
+
+    if (immediate) {
+      finalizeHide();
+      return;
+    }
+
+    setTimeout(finalizeHide, 300);
+  }
 
   function showSpeech(text, expr = 'neutral') {
     if (!speechBubble || !speechText) return;
@@ -326,6 +354,7 @@
     if (talkInterval) clearInterval(talkInterval);
 
     speechText.textContent = text;
+    lastSpeechOpenedAt = Date.now();
     speechBubble.classList.remove("hidden");
     
     requestAnimationFrame(() => {
@@ -333,17 +362,7 @@
     });
 
     bubbleTimeout = setTimeout(() => {
-      speechBubble.classList.remove("visible");
-      isTalking = false;
-
-      setTimeout(() => {
-        if (!speechBubble.classList.contains("visible")) {
-          speechBubble.classList.add("hidden");
-          if (currentExpression !== 'happy' || happyTimer === 0) {
-            setExpression('neutral');
-          }
-        }
-      }, 300);
+      hideSpeech();
     }, 5000);
   }
 
@@ -353,14 +372,43 @@
     showSpeech(text, expr);
   };
   window.mascotSetExpression = setExpression;
-
-  // Periodic speech bubble advice trigger
-  setInterval(() => {
-    if (happyTimer === 0) {
-      const randomMsg = bubbleMessages[Math.floor(Math.random() * bubbleMessages.length)];
-      window.mascotShowSpeech(randomMsg.text, randomMsg.expression);
+  window.mascotReactToGameEvent = (eventName, detail = {}) => {
+    switch (eventName) {
+      case "game-opened":
+        window.mascotShowSpeech("Mission online. Pick a few skills and I will help narrow the right program.", "happy");
+        break;
+      case "game-closed":
+        window.mascotShowSpeech("No rush. Browse around and reopen the game whenever you want a guided match.", "neutral");
+        break;
+      case "best-match":
+        window.mascotShowSpeech(`${detail.courseName || "That program"} looks like your strongest fit so far.`, "happy");
+        break;
+      case "course-hover":
+        window.mascotShowSpeech(detail.message || `${detail.courseName || "This course"} looks worth exploring.`, detail.matchPct > 0 ? "happy" : "neutral");
+        break;
+      case "course-details":
+        window.mascotShowSpeech(`${detail.courseName || "This program"} is open. Ask me to explain the match if you want the quick version.`, "neutral");
+        break;
+      case "archetype-unlocked":
+        window.mascotShowSpeech(`Archetype unlocked: ${detail.label || "New path"}. Nice combination.`, "surprised");
+        break;
+      case "skills-reset":
+        window.mascotShowSpeech("Reset complete. We can build a fresh path from scratch.", "surprised");
+        break;
+      case "surprise-path":
+        window.mascotShowSpeech(`Surprise path loaded: ${detail.label || "new archetype"}. See how this one feels.`, "happy");
+        break;
+      case "register-opened":
+        window.mascotShowSpeech(`Nice choice. ${detail.courseName || "This program"} is ready for registration.`, "happy");
+        break;
+      default:
+        if (happyTimer === 0) {
+          const randomMsg = bubbleMessages[Math.floor(Math.random() * bubbleMessages.length)];
+          window.mascotShowSpeech(randomMsg.text, randomMsg.expression);
+        }
+        break;
     }
-  }, 15000);
+  };
 
   // Initial greeting 2.8s after landing
   setTimeout(() => {
@@ -389,6 +437,23 @@
       }
     });
   }
+
+  if (speechCloseBtn) {
+    speechCloseBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      hideSpeech(true);
+    });
+  }
+
+  document.addEventListener("click", (event) => {
+    if (!speechBubble || speechBubble.classList.contains("hidden")) return;
+    if (Date.now() - lastSpeechOpenedAt < 250) return;
+    const clickedInsideBubble = speechBubble.contains(event.target);
+    const clickedMascot = mascotJumper && mascotJumper.contains(event.target);
+    if (!clickedInsideBubble && !clickedMascot) {
+      hideSpeech(true);
+    }
+  });
 
   const clock = new THREE.Clock();
 

@@ -12,6 +12,13 @@ const successModal = document.getElementById("successModal");
 const registerForm = document.getElementById("registerForm");
 const registerFormMessage = document.getElementById("registerFormMessage");
 const submitRegistrationBtn = document.getElementById("submitRegistrationBtn");
+const skillMissionTitle = document.getElementById("skillMissionTitle");
+const skillProgressFill = document.getElementById("skillProgressFill");
+const skillProgressText = document.getElementById("skillProgressText");
+const skillMatchTitle = document.getElementById("skillMatchTitle");
+const skillMatchBody = document.getElementById("skillMatchBody");
+const skillArchetypeBadges = document.getElementById("skillArchetypeBadges");
+const mascotActionDock = document.getElementById("mascotActionDock");
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -49,12 +56,21 @@ function renderStars(rating) {
 }
 
 const COURSE_SKILLS = {
-  "apids": ["Python", "SQL Server", "PySpark & SAS", "Power BI", "Statistics", "Machine Learning", "Deep Learning", "Generative AI", "Agentic AI", "MLOps & LLMOps"],
+  "apids": ["Python", "SQL Server", "PySpark & SAS", "Power BI", "Statistics", "Machine Learning", "Deep Learning", "Generative AI", "Agentic AI", "Multi-Agent Systems", "MLOps & LLMOps"],
   "apida": ["Python", "SQL Server", "PySpark & SAS", "Excel AI", "Power BI", "Tableau", "Statistics", "Machine Learning", "MLOps & LLMOps", "Reporting"],
-  "advanced-aiml-genai-agentic": ["Python", "SQL Server", "Statistics", "Machine Learning", "Deep Learning", "Generative AI", "RAG Systems", "Agentic AI"],
+  "advanced-aiml-genai-agentic": ["Python", "SQL Server", "Statistics", "Machine Learning", "Deep Learning", "Generative AI", "RAG Systems", "Agentic AI", "Transformers"],
   "master-genai-agentic": ["Python", "Deep Learning", "Generative AI", "RAG Systems", "Agentic AI", "Multi-Agent Systems", "Transformers", "Fine-Tuning"],
   "data-analytics-specialist": ["Python", "SQL Server", "Excel AI", "Power BI", "Tableau", "Reporting"],
   "apcs": ["Cybersecurity", "Ethical Hacking", "Digital Forensics", "Incident Response"]
+};
+
+const COURSE_MASCOT_INTROS = {
+  apids: "This is the broadest AI path here. It takes you from analytics and machine learning into GenAI, agents, and deployment.",
+  apida: "This track is more business-analytics focused, with dashboards, reporting, statistics, and practical machine learning.",
+  "advanced-aiml-genai-agentic": "This one is for learners who want stronger AI foundations before going deeper into GenAI and agentic workflows.",
+  "master-genai-agentic": "This is the more focused GenAI builder track, with transformers, RAG, fine-tuning, and multi-agent systems.",
+  "data-analytics-specialist": "This is a career-starter analytics path centered on SQL, Python, Excel AI, Power BI, and dashboard work.",
+  apcs: "This path is built for cybersecurity, ethical hacking, incident response, and digital forensics with hands-on labs."
 };
 
 const SKILL_CATEGORIES = [
@@ -77,293 +93,6 @@ const SKILL_CATEGORIES = [
 ];
 
 const selectedSkills = new Set();
-
-// Contextual Skill Advisor database
-function getSkillAdvice(skill, isSelected) {
-  if (!isSelected) {
-    return {
-      text: `Removed ${skill}. Keep exploring other skills! 🔍`,
-      expr: 'neutral'
-    };
-  }
-
-  // Double skills combinations
-  if (selectedSkills.has("Python") && selectedSkills.has("Deep Learning")) {
-    return {
-      text: "Awesome! You are building a powerful Neural Network stack! 🧠",
-      expr: "happy"
-    };
-  }
-  if (selectedSkills.has("SQL") && selectedSkills.has("Spark")) {
-    return {
-      text: "Perfect combination for Big Data & Analytics! 🏎️",
-      expr: "happy"
-    };
-  }
-  if (selectedSkills.has("Generative AI") && selectedSkills.has("Agentic AI")) {
-    return {
-      text: "You are ready to build fully autonomous multi-agent systems! 🚀",
-      expr: "happy"
-    };
-  }
-  if (selectedSkills.has("Cybersecurity") && selectedSkills.has("Ethical Hacking")) {
-    return {
-      text: "Ethical Hacking and cyber defense make you a security champion! 🛡️",
-      expr: "happy"
-    };
-  }
-
-  // Individual skill advice
-  switch (skill) {
-    case "Python":
-      return {
-        text: "Excellent! Python is the foundation of modern AI. Learn NumPy and Pandas! 🐍",
-        expr: "happy"
-      };
-    case "Machine Learning":
-      return {
-        text: "Machine Learning models derive patterns from data. Try Deep Learning next! 🧠",
-        expr: "happy"
-      };
-    case "Deep Learning":
-      return {
-        text: "Deep Learning powers computer vision and NLP. Learn Transformers next! ⚡",
-        expr: "happy"
-      };
-    case "Statistics":
-      return {
-        text: "Statistics helps you understand data distributions and test hypotheses! 📊",
-        expr: "neutral"
-      };
-    case "NumPy":
-      return {
-        text: "NumPy is the core library for numerical computation in Python! 🧮",
-        expr: "neutral"
-      };
-    case "Pandas":
-      return {
-        text: "Pandas is the Swiss Army knife for data manipulation and analysis! 🐼",
-        expr: "happy"
-      };
-    case "SQL":
-      return {
-        text: "SQL is key for extracting data! Have you looked at Data Pipelines? 💾",
-        expr: "surprised"
-      };
-    case "Spark":
-      return {
-        text: "Apache Spark is the king of big data processing at scale! 🏎️",
-        expr: "surprised"
-      };
-    case "Cloud Computing (AWS/Azure)":
-      return {
-        text: "Cloud platforms are vital! Deploy your pipelines in the cloud! ☁️",
-        expr: "happy"
-      };
-    case "NoSQL":
-      return {
-        text: "NoSQL databases are perfect for unstructured and real-time big data! 🗄️",
-        expr: "neutral"
-      };
-    case "Data Pipelines":
-      return {
-        text: "Data Pipelines automate ETL flows to feed clean data to models! ⚙️",
-        expr: "happy"
-      };
-    case "Generative AI":
-      return {
-        text: "Generative AI is a superpower! Try RAG Systems or Agentic AI next! ⚡",
-        expr: "surprised"
-      };
-    case "RAG Systems":
-      return {
-        text: "RAG hooks LLMs to databases to prevent hallucinations! 📚",
-        expr: "happy"
-      };
-    case "Agentic AI":
-      return {
-        text: "Agentic AI allows models to reason, plan, and call tools autonomously! 🤖",
-        expr: "happy"
-      };
-    case "Multi-Agent Systems":
-      return {
-        text: "Multi-Agent Systems allow multiple AI agents to collaborate on tasks! 🤝",
-        expr: "happy"
-      };
-    case "Transformers":
-      return {
-        text: "Transformers power models like GPT and BERT. Core AI tech! ⚡",
-        expr: "surprised"
-      };
-    case "Fine-Tuning":
-      return {
-        text: "Fine-Tuning adapts pre-trained LLMs to domain-specific knowledge! 🎯",
-        expr: "happy"
-      };
-    case "Cybersecurity":
-      return {
-        text: "Cybersecurity is in huge demand! Learn Ethical Hacking next! 🛡️",
-        expr: "surprised"
-      };
-    case "Ethical Hacking":
-      return {
-        text: "Ethical Hacking helps you find weaknesses before malicious actors! 💻",
-        expr: "happy"
-      };
-    case "Digital Forensics":
-      return {
-        text: "Forensics makes you a digital detective solving cyber crimes! 🕵️‍♂️",
-        expr: "surprised"
-      };
-    case "Incident Response":
-      return {
-        text: "Incident Response prepares you to stop active cyber breaches! 🚨",
-        expr: "happy"
-      };
-    default:
-      return {
-        text: `Nice choice! Learning ${skill} opens up great opportunities! 🚀`,
-        expr: "happy"
-      };
-  }
-}
-
-function renderSkillTree() {
-  const container = document.getElementById("skillTreeCategories");
-  if (!container) return;
-
-  container.innerHTML = SKILL_CATEGORIES.map(category => {
-    const skillsHtml = category.skills.map(skill => {
-      const isSelected = selectedSkills.has(skill);
-      return `
-        <button type="button" class="skill-tag ${isSelected ? 'selected' : ''}" data-skill="${escapeHtml(skill)}">
-          ${isSelected ? '✓ ' : ''}${escapeHtml(skill)}
-        </button>
-      `;
-    }).join("");
-
-    return `
-      <div class="skill-category">
-        <h3 class="skill-category-title">${escapeHtml(category.name)}</h3>
-        <div class="skill-tags-list">
-          ${skillsHtml}
-        </div>
-      </div>
-    `;
-  }).join("");
-
-  const resetBtn = document.getElementById("resetSkillsBtn");
-  if (resetBtn) {
-    resetBtn.style.display = selectedSkills.size > 0 ? "inline-block" : "none";
-  }
-
-  container.querySelectorAll(".skill-tag").forEach(tag => {
-    tag.addEventListener("click", () => {
-      const skill = tag.getAttribute("data-skill");
-      const isNowSelected = !selectedSkills.has(skill);
-      if (selectedSkills.has(skill)) {
-        selectedSkills.delete(skill);
-      } else {
-        selectedSkills.add(skill);
-      }
-      renderSkillTree();
-      renderCourses();
-
-      // Trigger contextual advice from mascot
-      if (window.mascotShowSpeech) {
-        const advice = getSkillAdvice(skill, isNowSelected);
-        window.mascotShowSpeech(advice.text, advice.expr);
-      }
-    });
-  });
-}
-
-function renderCourses() {
-  let maxMatchPct = 0;
-  const courseMatches = {};
-  const hasMatch = selectedSkills.size > 0;
-
-  if (hasMatch) {
-    PUBLIC_COURSES.forEach(course => {
-      const courseSkills = COURSE_SKILLS[course.id] || [];
-      const matchingSkills = courseSkills.filter(s => selectedSkills.has(s)).length;
-      const pct = Math.round((matchingSkills / selectedSkills.size) * 100);
-      courseMatches[course.id] = pct;
-      if (pct > maxMatchPct) {
-        maxMatchPct = pct;
-      }
-    });
-  }
-
-  coursesGrid.innerHTML = PUBLIC_COURSES.map((course) => {
-    const { rating, reviews } = getFakeRating(course.id);
-    const matchPct = hasMatch ? (courseMatches[course.id] || 0) : 0;
-    const isBestMatch = hasMatch && matchPct === maxMatchPct && maxMatchPct > 0;
-    const matchBadgeHtml = hasMatch
-      ? `<span class="course-card__match-badge">${matchPct}% Match</span>`
-      : "";
-
-    return `
-      <article class="course-card ${isBestMatch ? 'course-card--best-match' : ''}" data-course-card="${course.id}" tabindex="0" role="button" aria-label="View ${escapeHtml(course.name)} details">
-        ${matchBadgeHtml}
-        <div class="course-card__poster-wrap">
-          <img
-            class="course-card__poster"
-            src="${escapeHtml(course.poster || "")}"
-            alt="${escapeHtml(course.name)} poster"
-            loading="lazy"
-          />
-        </div>
-        <div class="course-card__head">
-          <span class="course-card__badge">${escapeHtml(course.badge)}</span>
-          <span class="course-card__duration">${escapeHtml(course.duration)}</span>
-        </div>
-        <h2>${escapeHtml(course.name)}</h2>
-        <p class="course-card__headline">${escapeHtml(course.headline)}</p>
-        <div class="course-card__rating" title="${rating} out of 5 stars based on ${reviews} reviews">
-          <div class="course-card__stars">
-            ${renderStars(rating)}
-          </div>
-          <span class="course-card__rating-val">${rating}</span>
-          <span class="course-card__reviews">(${reviews})</span>
-        </div>
-        <div class="course-card__actions">
-          <button type="button" class="btn-ghost check-details-btn" data-check-details="${course.id}">Check Details</button>
-          <button type="button" class="btn-primary register-course-btn" data-register-course="${course.id}">Register Now</button>
-        </div>
-      </article>
-    `;
-  }).join("");
-
-  document.querySelectorAll("[data-course-card]").forEach((card) => {
-    card.addEventListener("click", (event) => {
-      if (event.target.closest(".register-course-btn") || event.target.closest(".check-details-btn")) {
-        return;
-      }
-      openCourseDetails(card.getAttribute("data-course-card"));
-    });
-    card.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        openCourseDetails(card.getAttribute("data-course-card"));
-      }
-    });
-  });
-
-  document.querySelectorAll("[data-check-details]").forEach((button) => {
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      openCourseDetails(button.getAttribute("data-check-details"));
-    });
-  });
-
-  document.querySelectorAll("[data-register-course]").forEach((button) => {
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      openRegisterModal(button.getAttribute("data-register-course"));
-    });
-  });
-}
 
 function renderCourseAccordion(course) {
   const accordionContainer = document.getElementById("courseModalAccordion");
@@ -802,6 +531,7 @@ function openCourseDetails(courseId) {
 
   renderCourseAccordion(course);
   courseDetailsModal.classList.remove("hidden");
+  notifyMascot("course-details", { courseName: course.name });
 }
 
 function closeCourseDetails() {
@@ -821,6 +551,7 @@ function openRegisterModal(courseId) {
   registerFormMessage.textContent = "";
   registerFormMessage.style.color = "var(--danger)";
   registerModal.classList.remove("hidden");
+  notifyMascot("register-opened", { courseName: course.name });
 }
 
 function closeRegisterModal() {
@@ -968,6 +699,570 @@ registerForm.addEventListener("submit", submitRegistration);
   });
 });
 
+const GAME_TARGET_SKILLS = 3;
+const RELATED_SKILL_PATHS = {
+  "Generative AI": [
+    { skill: "Transformers", weight: 0.25 },
+    { skill: "RAG Systems", weight: 0.25 },
+    { skill: "Agentic AI", weight: 0.25 }
+  ],
+  "Agentic AI": [
+    { skill: "Generative AI", weight: 0.3 },
+    { skill: "RAG Systems", weight: 0.2 },
+    { skill: "Multi-Agent Systems", weight: 0.35 }
+  ],
+  "RAG Systems": [
+    { skill: "Generative AI", weight: 0.35 },
+    { skill: "Transformers", weight: 0.2 },
+    { skill: "Agentic AI", weight: 0.15 }
+  ],
+  "Transformers": [
+    { skill: "Generative AI", weight: 0.45 },
+    { skill: "Deep Learning", weight: 0.35 },
+    { skill: "RAG Systems", weight: 0.25 },
+    { skill: "Agentic AI", weight: 0.2 }
+  ],
+  "Fine-Tuning": [
+    { skill: "Transformers", weight: 0.35 },
+    { skill: "Generative AI", weight: 0.35 },
+    { skill: "Deep Learning", weight: 0.2 }
+  ],
+  "Multi-Agent Systems": [
+    { skill: "Agentic AI", weight: 0.35 },
+    { skill: "Generative AI", weight: 0.15 }
+  ],
+  "Deep Learning": [
+    { skill: "Machine Learning", weight: 0.25 },
+    { skill: "Transformers", weight: 0.2 }
+  ],
+  "Machine Learning": [
+    { skill: "Deep Learning", weight: 0.2 },
+    { skill: "Python", weight: 0.15 },
+    { skill: "Statistics", weight: 0.15 }
+  ],
+  "Power BI": [
+    { skill: "Reporting", weight: 0.35 },
+    { skill: "Excel AI", weight: 0.25 },
+    { skill: "Tableau", weight: 0.2 }
+  ],
+  "Tableau": [
+    { skill: "Reporting", weight: 0.35 },
+    { skill: "Power BI", weight: 0.2 }
+  ],
+  "Ethical Hacking": [
+    { skill: "Cybersecurity", weight: 0.35 },
+    { skill: "Incident Response", weight: 0.15 }
+  ]
+};
+
+const SKILL_ARCHETYPES = [
+  {
+    key: "ai-builder",
+    label: "AI Builder",
+    description: "Python + ML + Deep Learning",
+    matches(skills) {
+      return ["Python", "Machine Learning", "Deep Learning"].filter((skill) => skills.has(skill)).length >= 2;
+    }
+  },
+  {
+    key: "genai-operator",
+    label: "GenAI Operator",
+    description: "Generative AI + RAG + Agents",
+    matches(skills) {
+      return ["Generative AI", "RAG Systems", "Agentic AI"].filter((skill) => skills.has(skill)).length >= 2;
+    }
+  },
+  {
+    key: "automation-architect",
+    label: "Automation Architect",
+    description: "Transformers + agents + tuning",
+    matches(skills) {
+      return ["Transformers", "Multi-Agent Systems", "Fine-Tuning", "Agentic AI"].filter((skill) => skills.has(skill)).length >= 2;
+    }
+  },
+  {
+    key: "insight-analyst",
+    label: "Insight Analyst",
+    description: "SQL + BI + Reporting",
+    matches(skills) {
+      return ["SQL Server", "Power BI", "Tableau", "Reporting", "Excel AI"].filter((skill) => skills.has(skill)).length >= 2;
+    }
+  },
+  {
+    key: "security-defender",
+    label: "Security Defender",
+    description: "Cyber defense and response",
+    matches(skills) {
+      return ["Cybersecurity", "Ethical Hacking", "Incident Response", "Digital Forensics"].filter((skill) => skills.has(skill)).length >= 2;
+    }
+  }
+];
+
+let lastTopCourseId = null;
+let lastArchetypeKey = "";
+let latestSortedMatches = [];
+let latestCourseMatchMap = new Map();
+let lastHoveredCourseId = null;
+
+function notifyMascot(eventName, detail = {}) {
+  if (window.mascotReactToGameEvent) {
+    window.mascotReactToGameEvent(eventName, detail);
+  }
+}
+
+function formatSkillList(skills) {
+  if (skills.length <= 1) return skills[0] || "";
+  if (skills.length === 2) return `${skills[0]} and ${skills[1]}`;
+  return `${skills.slice(0, -1).join(", ")}, and ${skills.at(-1)}`;
+}
+
+function setMascotActionState(actionName) {
+  if (!mascotActionDock) return;
+  mascotActionDock.querySelectorAll("[data-mascot-action]").forEach((button) => {
+    button.classList.toggle("is-active", button.getAttribute("data-mascot-action") === actionName);
+  });
+
+  if (actionName) {
+    window.setTimeout(() => {
+      mascotActionDock.querySelectorAll(".is-active").forEach((button) => button.classList.remove("is-active"));
+    }, 1200);
+  }
+}
+
+function getTopCourseMatches(limit = 2) {
+  return latestSortedMatches.filter((entry) => entry.rawScore > 0).slice(0, limit);
+}
+
+function getUnlockedArchetypes() {
+  return SKILL_ARCHETYPES.filter((archetype) => archetype.matches(selectedSkills));
+}
+
+function getSupportBonus(courseSkills, selectedSkill) {
+  const relations = RELATED_SKILL_PATHS[selectedSkill] || [];
+  const relationScore = relations.reduce((sum, relation) => {
+    return sum + (courseSkills.includes(relation.skill) ? relation.weight : 0);
+  }, 0);
+  return Math.min(0.12, relationScore * 0.08);
+}
+
+function scoreCourse(course) {
+  const selected = Array.from(selectedSkills);
+  const courseSkills = COURSE_SKILLS[course.id] || [];
+  const exactMatches = [];
+  const adjacentMatches = [];
+  let totalScore = 0;
+
+  selected.forEach((selectedSkill) => {
+    if (courseSkills.includes(selectedSkill)) {
+      exactMatches.push(selectedSkill);
+      totalScore += 1 + getSupportBonus(courseSkills, selectedSkill);
+      return;
+    }
+
+    const relations = RELATED_SKILL_PATHS[selectedSkill] || [];
+    let bestRelation = null;
+
+    relations.forEach((relation) => {
+      if (courseSkills.includes(relation.skill) && (!bestRelation || relation.weight > bestRelation.weight)) {
+        bestRelation = relation;
+      }
+    });
+
+    if (bestRelation) {
+      totalScore += bestRelation.weight;
+      adjacentMatches.push({
+        selectedSkill,
+        supportingSkill: bestRelation.skill,
+        weight: bestRelation.weight
+      });
+    }
+  });
+
+  return {
+    courseId: course.id,
+    exactMatches,
+    adjacentMatches,
+    rawScore: selected.length ? totalScore / selected.length : 0,
+    matchPct: selected.length ? Math.round(Math.min(1, totalScore / selected.length) * 100) : 0
+  };
+}
+
+function getSkillAdvice(skill, isSelected) {
+  if (!isSelected) {
+    return {
+      text: `Removed ${skill}. Keep exploring until the path feels right.`,
+      expr: "neutral"
+    };
+  }
+
+  if (selectedSkills.has("Python") && selectedSkills.has("Deep Learning")) {
+    return {
+      text: "Strong combo. Python and Deep Learning are pushing you toward serious AI builder roles.",
+      expr: "happy"
+    };
+  }
+
+  if (selectedSkills.has("SQL Server") && selectedSkills.has("PySpark & SAS")) {
+    return {
+      text: "That is a solid analytics foundation. SQL Server plus PySpark opens up practical data workflows.",
+      expr: "happy"
+    };
+  }
+
+  if (selectedSkills.has("Generative AI") && selectedSkills.has("Agentic AI")) {
+    return {
+      text: "Nice. Generative AI with Agentic AI is a powerful modern product combination.",
+      expr: "happy"
+    };
+  }
+
+  if (selectedSkills.has("Cybersecurity") && selectedSkills.has("Ethical Hacking")) {
+    return {
+      text: "Security path unlocked. You are mixing defense thinking with hands-on testing.",
+      expr: "happy"
+    };
+  }
+
+  switch (skill) {
+    case "Python":
+      return { text: "Python is a great starting point. It connects almost every AI and data path here.", expr: "happy" };
+    case "Machine Learning":
+      return { text: "Machine Learning is in play. Deep Learning is a smart next unlock.", expr: "happy" };
+    case "Deep Learning":
+      return { text: "Deep Learning opens the door to NLP, computer vision, and Transformers.", expr: "happy" };
+    case "Statistics":
+      return { text: "Statistics gives you the decision-making backbone behind strong models.", expr: "neutral" };
+    case "SQL Server":
+      return { text: "SQL Server is a strong data foundation. Pair it with BI or Python for momentum.", expr: "surprised" };
+    case "PySpark & SAS":
+      return { text: "PySpark and SAS push you toward large-scale analytics and industry data workflows.", expr: "surprised" };
+    case "Power BI":
+      return { text: "Power BI is perfect for turning analysis into business-ready stories.", expr: "happy" };
+    case "Generative AI":
+      return { text: "Generative AI is a big unlock. RAG, Transformers, and agents are natural next moves.", expr: "surprised" };
+    case "RAG Systems":
+      return { text: "RAG Systems connect models to live knowledge and make GenAI more practical.", expr: "happy" };
+    case "Agentic AI":
+      return { text: "Agentic AI adds planning, reasoning, and tool use to your stack.", expr: "happy" };
+    case "Multi-Agent Systems":
+      return { text: "Multi-agent systems are ideal when you want specialized AI roles working together.", expr: "happy" };
+    case "Transformers":
+      return { text: "Transformers are core GenAI infrastructure. Good pick if you want to go deeper than prompting.", expr: "surprised" };
+    case "Fine-Tuning":
+      return { text: "Fine-Tuning is a strong advanced skill when you want custom model behavior.", expr: "happy" };
+    case "Cybersecurity":
+      return { text: "Cybersecurity stays in demand. Ethical Hacking is a smart next step.", expr: "surprised" };
+    case "Ethical Hacking":
+      return { text: "Ethical Hacking sharpens your ability to find problems before attackers do.", expr: "happy" };
+    case "Digital Forensics":
+      return { text: "Digital Forensics is for careful investigators who want to trace what really happened.", expr: "surprised" };
+    case "Incident Response":
+      return { text: "Incident Response prepares you to move fast during active security events.", expr: "happy" };
+    default:
+      return { text: `Nice choice. ${skill} adds another useful layer to your path.`, expr: "happy" };
+  }
+}
+
+function updateSkillTreeDashboard(sortedMatches) {
+  const selectedCount = selectedSkills.size;
+  const progressValue = Math.min(selectedCount, GAME_TARGET_SKILLS);
+  const progressPct = Math.round((progressValue / GAME_TARGET_SKILLS) * 100);
+
+  if (skillMissionTitle) {
+    if (selectedCount === 0) {
+      skillMissionTitle.textContent = "Choose your first skill";
+    } else if (selectedCount < GAME_TARGET_SKILLS) {
+      skillMissionTitle.textContent = `Build your stack: ${selectedCount}/${GAME_TARGET_SKILLS} selected`;
+    } else {
+      skillMissionTitle.textContent = "Path unlocked";
+    }
+  }
+
+  if (skillProgressFill) {
+    skillProgressFill.style.width = `${progressPct}%`;
+  }
+
+  if (skillProgressText) {
+    if (selectedCount === 0) {
+      skillProgressText.textContent = "Select 1 of 3 skills to unlock your path.";
+    } else if (selectedCount < GAME_TARGET_SKILLS) {
+      skillProgressText.textContent = `Add ${GAME_TARGET_SKILLS - selectedCount} more skill${GAME_TARGET_SKILLS - selectedCount === 1 ? "" : "s"} to complete the core mission.`;
+    } else {
+      skillProgressText.textContent = "You have enough signal. Explore the highlighted course and refine your stack.";
+    }
+  }
+
+  const unlockedArchetypes = getUnlockedArchetypes();
+  if (skillArchetypeBadges) {
+    skillArchetypeBadges.innerHTML = unlockedArchetypes.length
+      ? unlockedArchetypes.map((archetype) => `
+          <article class="skill-archetype-badge">
+            <span class="skill-archetype-badge__label">${escapeHtml(archetype.label)}</span>
+            <span class="skill-archetype-badge__meta">${escapeHtml(archetype.description)}</span>
+          </article>
+        `).join("")
+      : `
+          <article class="skill-archetype-badge skill-archetype-badge--empty">
+            <span class="skill-archetype-badge__label">Archetypes unlock as you combine skills</span>
+            <span class="skill-archetype-badge__meta">Try pairs like Python + Deep Learning or Generative AI + Agentic AI.</span>
+          </article>
+        `;
+  }
+
+  if (!skillMatchTitle || !skillMatchBody) return;
+
+  if (!selectedCount || !sortedMatches.length || sortedMatches[0].matchPct === 0) {
+    skillMatchTitle.textContent = "No path revealed yet";
+    skillMatchBody.textContent = "Start with one or two skills and the game will explain which course fits and why.";
+    lastTopCourseId = null;
+    lastArchetypeKey = unlockedArchetypes.map((archetype) => archetype.key).join("|");
+    return;
+  }
+
+  const topMatch = sortedMatches[0];
+  const topCourse = findCourseById(topMatch.courseId);
+  const exactLabel = topMatch.exactMatches.length ? formatSkillList(topMatch.exactMatches) : "";
+  const adjacentLabel = topMatch.adjacentMatches.length
+    ? `${topMatch.adjacentMatches[0].selectedSkill} is supported through ${topMatch.adjacentMatches[0].supportingSkill}`
+    : "";
+
+  skillMatchTitle.textContent = `${topCourse?.name || "Top program"} is your strongest match at ${topMatch.matchPct}%`;
+  skillMatchBody.textContent = topMatch.exactMatches.length
+    ? `Exact coverage for ${exactLabel}.${adjacentLabel ? ` Also, ${adjacentLabel}.` : ""}`
+    : `Closest related match: ${adjacentLabel}.`;
+
+  if (topMatch.courseId !== lastTopCourseId) {
+    notifyMascot("best-match", {
+      courseName: topCourse?.name || "your best match",
+      matchPct: topMatch.matchPct
+    });
+  }
+
+  const newArchetypeKey = unlockedArchetypes.map((archetype) => archetype.key).join("|");
+  if (newArchetypeKey && newArchetypeKey !== lastArchetypeKey) {
+    notifyMascot("archetype-unlocked", {
+      label: unlockedArchetypes[0].label
+    });
+  }
+
+  lastTopCourseId = topMatch.courseId;
+  lastArchetypeKey = newArchetypeKey;
+}
+
+function helpChooseWithMascot() {
+  if (!selectedSkills.size) {
+    if (skillTreeSection?.classList.contains("hidden")) {
+      skillTreeSection.classList.remove("hidden");
+      syncGamePanelState();
+    }
+    window.mascotShowSpeech?.("Start with one anchor skill like Python, Power BI, or Generative AI and I will narrow the path.", "happy");
+    return;
+  }
+
+  const unlockedArchetypes = getUnlockedArchetypes();
+  const suggestion = unlockedArchetypes.length
+    ? `You are leaning toward ${unlockedArchetypes[0].label}. Add one more supporting skill to sharpen the recommendation.`
+    : `You have ${selectedSkills.size} skills selected. Try pairing related skills like Generative AI with Agentic AI, or Python with Deep Learning.`;
+
+  window.mascotShowSpeech?.(suggestion, "neutral");
+}
+
+function explainTopMatchWithMascot() {
+  const topMatch = getTopCourseMatches(1)[0];
+  if (!topMatch) {
+    window.mascotShowSpeech?.("I need at least one selected skill before I can explain a match clearly.", "surprised");
+    return;
+  }
+
+  const course = findCourseById(topMatch.courseId);
+  const exactLabel = topMatch.exactMatches.length ? formatSkillList(topMatch.exactMatches.slice(0, 3)) : "";
+  const adjacentLabel = topMatch.adjacentMatches.length
+    ? `${topMatch.adjacentMatches[0].selectedSkill} is supported by ${topMatch.adjacentMatches[0].supportingSkill}`
+    : "";
+  const explanation = exactLabel
+    ? `${course?.name || "This course"} leads because it directly covers ${exactLabel}.${adjacentLabel ? ` Also, ${adjacentLabel}.` : ""}`
+    : `${course?.name || "This course"} is closest because ${adjacentLabel}.`;
+
+  window.mascotShowSpeech?.(explanation, "happy");
+}
+
+function compareTopCoursesWithMascot() {
+  const [firstMatch, secondMatch] = getTopCourseMatches(2);
+  if (!firstMatch || !secondMatch) {
+    window.mascotShowSpeech?.("Pick a few skills first. Then I can compare the top two programs for you.", "surprised");
+    return;
+  }
+
+  const firstCourse = findCourseById(firstMatch.courseId);
+  const secondCourse = findCourseById(secondMatch.courseId);
+  const message = `${firstCourse?.name || "Course 1"} is stronger on ${formatSkillList(firstMatch.exactMatches.slice(0, 2)) || "your exact picks"}, while ${secondCourse?.name || "Course 2"} stays close at ${secondMatch.matchPct}% for a broader option.`;
+  window.mascotShowSpeech?.(message, "neutral");
+}
+
+function renderSkillTree() {
+  const container = document.getElementById("skillTreeCategories");
+  if (!container) return;
+
+  container.innerHTML = SKILL_CATEGORIES.map((category) => {
+    const skillsHtml = category.skills.map((skill) => {
+      const isSelected = selectedSkills.has(skill);
+      return `
+        <button type="button" class="skill-tag ${isSelected ? "selected" : ""}" data-skill="${escapeHtml(skill)}" aria-pressed="${isSelected ? "true" : "false"}">
+          ${isSelected ? '<span class="skill-tag__check" aria-hidden="true">+</span>' : ""}
+          ${escapeHtml(skill)}
+        </button>
+      `;
+    }).join("");
+
+    return `
+      <div class="skill-category">
+        <h3 class="skill-category-title">${escapeHtml(category.name)}</h3>
+        <div class="skill-tags-list">
+          ${skillsHtml}
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  const resetBtn = document.getElementById("resetSkillsBtn");
+  if (resetBtn) {
+    resetBtn.style.display = selectedSkills.size > 0 ? "inline-flex" : "none";
+  }
+
+  container.querySelectorAll(".skill-tag").forEach((tag) => {
+    tag.addEventListener("click", () => {
+      const skill = tag.getAttribute("data-skill");
+      const isNowSelected = !selectedSkills.has(skill);
+
+      if (isNowSelected) {
+        selectedSkills.add(skill);
+      } else {
+        selectedSkills.delete(skill);
+      }
+
+      renderSkillTree();
+      renderCourses();
+
+      const advice = getSkillAdvice(skill, isNowSelected);
+      if (window.mascotShowSpeech) {
+        window.mascotShowSpeech(advice.text, advice.expr);
+      }
+    });
+  });
+}
+
+function renderCourses() {
+  const hasSelection = selectedSkills.size > 0;
+  const scoredMatches = PUBLIC_COURSES.map((course) => ({
+    course,
+    ...scoreCourse(course)
+  }));
+  const maxRawScore = hasSelection ? Math.max(...scoredMatches.map((entry) => entry.rawScore)) : 0;
+  latestSortedMatches = [...scoredMatches].sort((a, b) => b.rawScore - a.rawScore);
+  latestCourseMatchMap = new Map(scoredMatches.map((entry) => [entry.course.id, entry]));
+  lastHoveredCourseId = null;
+
+  coursesGrid.innerHTML = scoredMatches.map(({ course, matchPct, rawScore, exactMatches, adjacentMatches }) => {
+    const { rating, reviews } = getFakeRating(course.id);
+    const isBestMatch = hasSelection && rawScore > 0 && Math.abs(rawScore - maxRawScore) < 0.0001;
+    const whyMatched = exactMatches.length
+      ? `Best on: ${formatSkillList(exactMatches.slice(0, 2))}`
+      : adjacentMatches.length
+        ? `Related via ${adjacentMatches[0].supportingSkill}`
+        : "";
+
+    return `
+      <article class="course-card ${isBestMatch ? "course-card--best-match" : ""}" data-course-card="${course.id}" tabindex="0" role="button" aria-label="View ${escapeHtml(course.name)} details">
+        ${hasSelection ? `<span class="course-card__match-badge">${matchPct}% Match</span>` : ""}
+        <div class="course-card__poster-wrap">
+          <img
+            class="course-card__poster"
+            src="${escapeHtml(course.poster || "")}"
+            alt="${escapeHtml(course.name)} poster"
+            loading="lazy"
+          />
+        </div>
+        <div class="course-card__head">
+          <span class="course-card__badge">${escapeHtml(course.badge)}</span>
+          <span class="course-card__duration">${escapeHtml(course.duration)}</span>
+        </div>
+        <h2>${escapeHtml(course.name)}</h2>
+        <p class="course-card__headline">${escapeHtml(course.headline)}</p>
+        ${whyMatched ? `<p class="course-card__match-reason">${escapeHtml(whyMatched)}</p>` : ""}
+        <div class="course-card__rating" title="${rating} out of 5 stars based on ${reviews} reviews">
+          <div class="course-card__stars">
+            ${renderStars(rating)}
+          </div>
+          <span class="course-card__rating-val">${rating}</span>
+          <span class="course-card__reviews">(${reviews})</span>
+        </div>
+        <div class="course-card__actions">
+          <button type="button" class="btn-ghost check-details-btn" data-check-details="${course.id}">Check Details</button>
+          <button type="button" class="btn-primary register-course-btn" data-register-course="${course.id}">Register Now</button>
+        </div>
+      </article>
+    `;
+  }).join("");
+
+  updateSkillTreeDashboard(latestSortedMatches);
+
+  document.querySelectorAll("[data-course-card]").forEach((card) => {
+    const courseId = card.getAttribute("data-course-card");
+    card.addEventListener("click", (event) => {
+      if (event.target.closest(".register-course-btn") || event.target.closest(".check-details-btn")) {
+        return;
+      }
+      openCourseDetails(courseId);
+    });
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openCourseDetails(courseId);
+      }
+    });
+    card.addEventListener("mouseenter", () => {
+      const matchData = latestCourseMatchMap.get(courseId);
+      const course = findCourseById(courseId);
+      if (!course || !matchData || courseId === lastHoveredCourseId) return;
+      lastHoveredCourseId = courseId;
+      const hoverMessage = selectedSkills.size === 0
+        ? (COURSE_MASCOT_INTROS[course.id] || `${course.name} is one of the main learning paths available here.`)
+        : matchData.matchPct > 0
+          ? `${course.name} is at ${matchData.matchPct}% because it lines up with ${formatSkillList(matchData.exactMatches.slice(0, 2)) || "related skills"}.`
+          : `${course.name} explores a different direction. If you want, I can help you find the skills that match it better.`;
+      notifyMascot("course-hover", {
+        courseName: course.name,
+        matchPct: matchData.matchPct,
+        message: hoverMessage
+      });
+    });
+    card.addEventListener("focus", () => {
+      const matchData = latestCourseMatchMap.get(courseId);
+      const course = findCourseById(courseId);
+      if (!course || !matchData) return;
+      notifyMascot("course-hover", {
+        courseName: course.name,
+        matchPct: matchData.matchPct,
+        message: `${course.name} is ready to inspect.`
+      });
+    });
+  });
+
+  document.querySelectorAll("[data-check-details]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openCourseDetails(button.getAttribute("data-check-details"));
+    });
+  });
+
+  document.querySelectorAll("[data-register-course]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openRegisterModal(button.getAttribute("data-register-course"));
+    });
+  });
+}
+
 renderCourses();
 renderSkillTree();
 renderSuccessStories();
@@ -987,13 +1282,6 @@ function transitionMascot(inGame) {
   void jumper.offsetWidth;
   jumper.classList.add("mascot-hop");
   
-  if (window.mascotShowSpeech) {
-    if (inGame) {
-      window.mascotShowSpeech("Let's build your skill tree! Select your skills! 🎮", "happy");
-    } else {
-      window.mascotShowSpeech("Good luck! Let's find your course! 🤖", "neutral");
-    }
-  }
 }
 
 // Re-position mascot dynamically on window resize
@@ -1003,27 +1291,40 @@ const resetSkillsBtn = document.getElementById("resetSkillsBtn");
 if (resetSkillsBtn) {
   resetSkillsBtn.addEventListener("click", () => {
     selectedSkills.clear();
+    lastTopCourseId = null;
+    lastArchetypeKey = "";
     renderSkillTree();
     renderCourses();
-    if (window.mascotShowSpeech) {
-      window.mascotShowSpeech("Cleared selected skills! Ready to try again? 🔄", "surprised");
-    }
+    notifyMascot("skills-reset");
   });
 }
 
 const toggleGamePanelBtn = document.getElementById("toggleGamePanelBtn");
 const skillTreeSection = document.getElementById("skillTreeSection");
+const toggleGamePanelLabel = document.querySelector(".courses-hero__game-msg");
+
+function syncGamePanelState() {
+  if (!toggleGamePanelBtn || !skillTreeSection) return;
+  const isOpen = !skillTreeSection.classList.contains("hidden");
+  toggleGamePanelBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+  if (toggleGamePanelLabel) {
+    toggleGamePanelLabel.textContent = isOpen ? "Hide Skill Match Game" : "Play Skill Match Game";
+  }
+}
 
 if (toggleGamePanelBtn && skillTreeSection) {
   toggleGamePanelBtn.addEventListener("click", () => {
     const isOpening = skillTreeSection.classList.contains("hidden");
     
     skillTreeSection.classList.toggle("hidden");
+    syncGamePanelState();
     
     if (isOpening) {
       transitionMascot(true);
+      notifyMascot("game-opened");
     } else {
       transitionMascot(false);
+      notifyMascot("game-closed");
     }
   });
 }
@@ -1032,6 +1333,54 @@ const closeSkillTreeBtn = document.getElementById("closeSkillTreeBtn");
 if (closeSkillTreeBtn && skillTreeSection) {
   closeSkillTreeBtn.addEventListener("click", () => {
     skillTreeSection.classList.add("hidden");
+    syncGamePanelState();
     transitionMascot(false);
+    notifyMascot("game-closed");
   });
 }
+
+const surpriseSkillsBtn = document.getElementById("surpriseSkillsBtn");
+if (surpriseSkillsBtn) {
+  surpriseSkillsBtn.addEventListener("click", () => {
+    const starterSkillsByArchetype = {
+      "ai-builder": ["Python", "Machine Learning", "Deep Learning"],
+      "genai-operator": ["Generative AI", "RAG Systems", "Agentic AI"],
+      "automation-architect": ["Transformers", "Agentic AI", "Fine-Tuning"],
+      "insight-analyst": ["SQL Server", "Power BI", "Reporting"],
+      "security-defender": ["Cybersecurity", "Ethical Hacking", "Incident Response"]
+    };
+    const archetype = SKILL_ARCHETYPES[Math.floor(Math.random() * SKILL_ARCHETYPES.length)];
+    selectedSkills.clear();
+    (starterSkillsByArchetype[archetype.key] || []).forEach((skill) => selectedSkills.add(skill));
+    renderSkillTree();
+    renderCourses();
+    notifyMascot("surprise-path", { label: archetype.label });
+  });
+}
+
+if (mascotActionDock) {
+  mascotActionDock.querySelectorAll("[data-mascot-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const actionName = button.getAttribute("data-mascot-action");
+      setMascotActionState(actionName);
+      switch (actionName) {
+        case "help-choose":
+          helpChooseWithMascot();
+          break;
+        case "explain-match":
+          explainTopMatchWithMascot();
+          break;
+        case "surprise-path":
+          surpriseSkillsBtn?.click();
+          break;
+        case "compare-courses":
+          compareTopCoursesWithMascot();
+          break;
+        default:
+          break;
+      }
+    });
+  });
+}
+
+syncGamePanelState();

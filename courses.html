@@ -22,7 +22,7 @@
         <div class="courses-brand courses-brand--topbar">
           <img src="Logos/DV-Logo.png" alt="DV Analytics" class="courses-brand__logo" />
         </div>
-        <button type="button" class="courses-hero__game-panel" id="toggleGamePanelBtn" aria-label="Toggle interactive skill match game">
+        <button type="button" class="courses-hero__game-panel" id="toggleGamePanelBtn" aria-label="Toggle interactive skill match game" aria-expanded="false">
           <span class="courses-hero__game-msg">Play Skill Match Game 🎮</span>
         </button>
         
@@ -37,7 +37,14 @@
       <div class="courses-intro__mascot-wrapper" id="mascotHeaderPlaceholder">
         <div class="mascot-jumper" id="mascotJumper">
           <div class="mascot-speech-bubble hidden" id="mascotSpeechBubble">
+            <button type="button" class="mascot-speech-close" id="mascotSpeechCloseBtn" aria-label="Dismiss mascot message">×</button>
             <span id="mascotSpeechText"></span>
+          </div>
+          <div class="mascot-action-dock" id="mascotActionDock" aria-label="Mascot actions">
+            <button type="button" class="mascot-action-btn" data-mascot-action="help-choose">Help Me Choose</button>
+            <button type="button" class="mascot-action-btn" data-mascot-action="explain-match">Explain Match</button>
+            <button type="button" class="mascot-action-btn" data-mascot-action="surprise-path">Surprise Me</button>
+            <button type="button" class="mascot-action-btn" data-mascot-action="compare-courses">Compare Top 2</button>
           </div>
           <div class="mascot-avatar" id="mascotAvatar" style="cursor: pointer;">
             <div id="mascot3dContainer" style="width: 100%; height: 100%;"></div>
@@ -55,12 +62,31 @@
       </button>
       <div class="skill-tree-header">
         <h2>Interactive Skill Tree Builder</h2>
-        <p>Toggle the skills you want to learn. We will dynamically highlight the program that fits your goals!</p>
+        <p>Pick the skills you want to build, unlock your learning archetype, and we will surface the strongest-fit program for your goals.</p>
       </div>
+      <div class="skill-tree-dashboard">
+        <section class="skill-tree-mission" aria-label="Skill game progress">
+          <div class="skill-tree-mission__eyebrow">Mission</div>
+          <div class="skill-tree-mission__title" id="skillMissionTitle">Choose your first skill</div>
+          <div class="skill-tree-progress-bar" aria-hidden="true">
+            <span id="skillProgressFill"></span>
+          </div>
+          <p class="skill-tree-mission__meta" id="skillProgressText">Select 1 of 3 skills to unlock your path.</p>
+        </section>
+        <section class="skill-tree-result" id="skillMatchSummary" aria-live="polite">
+          <div class="skill-tree-result__eyebrow">Match Radar</div>
+          <h3 id="skillMatchTitle">No path revealed yet</h3>
+          <p id="skillMatchBody">Start with one or two skills and the game will explain which course fits and why.</p>
+        </section>
+      </div>
+      <div class="skill-tree-archetypes" id="skillArchetypeBadges" aria-live="polite"></div>
       <div class="skill-tree-categories" id="skillTreeCategories">
         <!-- Dynamically rendered by courses.js -->
       </div>
       <div class="skill-tree-footer">
+        <button type="button" class="btn-ghost reset-skills-btn" id="surpriseSkillsBtn">
+          Surprise Me
+        </button>
         <button type="button" class="btn-ghost reset-skills-btn" id="resetSkillsBtn" style="display: none;">
           Reset Selected Skills
         </button>
