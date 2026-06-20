@@ -4384,6 +4384,18 @@ html[data-theme="dark"] .bell-badge {
   }
 }
 
+@media (max-width: 640px) {
+  .courses-hero__game-panel,
+  .courses-intro__mascot-wrapper,
+  .skill-tree-section {
+    display: none !important;
+  }
+
+  .courses-intro {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Premium Footer */
 .courses-footer {
   background: var(--surface);

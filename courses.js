@@ -1406,6 +1406,7 @@ if (resetSkillsBtn) {
 const toggleGamePanelBtn = document.getElementById("toggleGamePanelBtn");
 const skillTreeSection = document.getElementById("skillTreeSection");
 const toggleGamePanelLabel = document.querySelector(".courses-hero__game-msg");
+const isMobileCoursesView = window.matchMedia("(max-width: 640px)");
 
 function syncGamePanelState() {
   if (!toggleGamePanelBtn || !skillTreeSection) return;
@@ -1416,8 +1417,24 @@ function syncGamePanelState() {
   }
 }
 
+function syncMobileExperience() {
+  if (!skillTreeSection) return;
+  if (isMobileCoursesView.matches) {
+    skillTreeSection.classList.add("hidden");
+    if (toggleGamePanelBtn) {
+      toggleGamePanelBtn.setAttribute("aria-expanded", "false");
+    }
+  }
+  syncGamePanelState();
+}
+
 if (toggleGamePanelBtn && skillTreeSection) {
   toggleGamePanelBtn.addEventListener("click", () => {
+    if (isMobileCoursesView.matches) {
+      skillTreeSection.classList.add("hidden");
+      syncGamePanelState();
+      return;
+    }
     const isOpening = skillTreeSection.classList.contains("hidden");
     
     skillTreeSection.classList.toggle("hidden");
@@ -1442,6 +1459,12 @@ if (closeSkillTreeBtn && skillTreeSection) {
     notifyMascot("game-closed");
   });
 }
+
+if (isMobileCoursesView?.addEventListener) {
+  isMobileCoursesView.addEventListener("change", syncMobileExperience);
+}
+
+syncMobileExperience();
 
 const surpriseSkillsBtn = document.getElementById("surpriseSkillsBtn");
 if (surpriseSkillsBtn) {
