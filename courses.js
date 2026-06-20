@@ -53,7 +53,6 @@ function renderCourses() {
     const { rating, reviews } = getFakeRating(course.id);
     return `
       <article class="course-card" data-course-card="${course.id}" tabindex="0" role="button" aria-label="View ${escapeHtml(course.name)} details">
-        <div class="course-card__accent"></div>
         <div class="course-card__poster-wrap">
           <img
             class="course-card__poster"
