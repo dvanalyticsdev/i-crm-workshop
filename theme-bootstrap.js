@@ -1,7 +1,11 @@
 (function () {
   const STORAGE_KEY = "dvWorkshopTheme";
+  const isCoursesPage = window.location.pathname.includes("courses");
 
   function getPreferredTheme() {
+    if (isCoursesPage) {
+      return "light";
+    }
     try {
       const storedTheme = window.localStorage.getItem(STORAGE_KEY);
       if (storedTheme === "light" || storedTheme === "dark") {
