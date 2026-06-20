@@ -10,20 +10,61 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body class="public-courses-body">
   <main class="courses-shell">
     <header class="courses-hero">
       <div class="courses-hero__topbar">
+        <div class="courses-hero__welcome-panel">
+          <span class="courses-hero__welcome">Welcome, Future AI Innovator!</span>
+        </div>
         <div class="courses-brand courses-brand--topbar">
           <img src="Logos/DV-Logo.png" alt="DV Analytics" class="courses-brand__logo" />
         </div>
+        <button type="button" class="courses-hero__game-panel" id="toggleGamePanelBtn" aria-label="Toggle interactive skill match game">
+          <span class="courses-hero__game-msg">Play Skill Match Game 🎮</span>
+        </button>
+        
       </div>
     </header>
 
     <section class="courses-intro card">
-      <h1>Shape your future with Data Science &amp;  AI</h1>
-      <p>Discover the right course for your career goals. Sign up now for free expert counseling and take your next big step.</p>
+      <div class="courses-intro__content">
+        <h1>Shape your future with Data Science &amp;  AI</h1>
+        <p>Discover the right course for your career goals. Sign up now for free expert counseling and take your next big step.</p>
+      </div>
+      <div class="courses-intro__mascot-wrapper" id="mascotHeaderPlaceholder">
+        <div class="mascot-jumper" id="mascotJumper">
+          <div class="mascot-speech-bubble hidden" id="mascotSpeechBubble">
+            <span id="mascotSpeechText"></span>
+          </div>
+          <div class="mascot-avatar" id="mascotAvatar" style="cursor: pointer;">
+            <div id="mascot3dContainer" style="width: 100%; height: 100%;"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="skill-tree-section card hidden" id="skillTreeSection" aria-label="Interactive Skill Tree Builder">
+      <button type="button" class="skill-tree-close-btn" id="closeSkillTreeBtn" aria-label="Close interactive skill tree builder">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+      <div class="skill-tree-header">
+        <h2>Interactive Skill Tree Builder</h2>
+        <p>Toggle the skills you want to learn. We will dynamically highlight the program that fits your goals!</p>
+      </div>
+      <div class="skill-tree-categories" id="skillTreeCategories">
+        <!-- Dynamically rendered by courses.js -->
+      </div>
+      <div class="skill-tree-footer">
+        <button type="button" class="btn-ghost reset-skills-btn" id="resetSkillsBtn" style="display: none;">
+          Reset Selected Skills
+        </button>
+      </div>
     </section>
 
     <section class="courses-grid" id="coursesGrid" aria-label="Course cards"></section>
@@ -166,6 +207,7 @@
     </div>
   </div>
 
+  <script src="mascot-3d.js" defer></script>
   <script type="module" src="courses.js"></script>
 </body>
 </html>

@@ -48,11 +48,264 @@ function renderStars(rating) {
   return starsHtml;
 }
 
+const COURSE_SKILLS = {
+  "apids": ["Python", "SQL Server", "PySpark & SAS", "Power BI", "Statistics", "Machine Learning", "Deep Learning", "Generative AI", "Agentic AI", "MLOps & LLMOps"],
+  "apida": ["Python", "SQL Server", "PySpark & SAS", "Excel AI", "Power BI", "Tableau", "Statistics", "Machine Learning", "MLOps & LLMOps", "Reporting"],
+  "advanced-aiml-genai-agentic": ["Python", "SQL Server", "Statistics", "Machine Learning", "Deep Learning", "Generative AI", "RAG Systems", "Agentic AI"],
+  "master-genai-agentic": ["Python", "Deep Learning", "Generative AI", "RAG Systems", "Agentic AI", "Multi-Agent Systems", "Transformers", "Fine-Tuning"],
+  "data-analytics-specialist": ["Python", "SQL Server", "Excel AI", "Power BI", "Tableau", "Reporting"],
+  "apcs": ["Cybersecurity", "Ethical Hacking", "Digital Forensics", "Incident Response"]
+};
+
+const SKILL_CATEGORIES = [
+  {
+    name: "Data & BI Tools",
+    skills: ["SQL Server", "Excel AI", "Power BI", "Tableau", "PySpark & SAS", "Reporting"]
+  },
+  {
+    name: "Data Science & ML",
+    skills: ["Python", "Statistics", "Machine Learning", "Deep Learning", "MLOps & LLMOps"]
+  },
+  {
+    name: "Generative AI & Agents",
+    skills: ["Generative AI", "RAG Systems", "Agentic AI", "Multi-Agent Systems", "Transformers", "Fine-Tuning"]
+  },
+  {
+    name: "Cybersecurity",
+    skills: ["Cybersecurity", "Ethical Hacking", "Digital Forensics", "Incident Response"]
+  }
+];
+
+const selectedSkills = new Set();
+
+// Contextual Skill Advisor database
+function getSkillAdvice(skill, isSelected) {
+  if (!isSelected) {
+    return {
+      text: `Removed ${skill}. Keep exploring other skills! 🔍`,
+      expr: 'neutral'
+    };
+  }
+
+  // Double skills combinations
+  if (selectedSkills.has("Python") && selectedSkills.has("Deep Learning")) {
+    return {
+      text: "Awesome! You are building a powerful Neural Network stack! 🧠",
+      expr: "happy"
+    };
+  }
+  if (selectedSkills.has("SQL") && selectedSkills.has("Spark")) {
+    return {
+      text: "Perfect combination for Big Data & Analytics! 🏎️",
+      expr: "happy"
+    };
+  }
+  if (selectedSkills.has("Generative AI") && selectedSkills.has("Agentic AI")) {
+    return {
+      text: "You are ready to build fully autonomous multi-agent systems! 🚀",
+      expr: "happy"
+    };
+  }
+  if (selectedSkills.has("Cybersecurity") && selectedSkills.has("Ethical Hacking")) {
+    return {
+      text: "Ethical Hacking and cyber defense make you a security champion! 🛡️",
+      expr: "happy"
+    };
+  }
+
+  // Individual skill advice
+  switch (skill) {
+    case "Python":
+      return {
+        text: "Excellent! Python is the foundation of modern AI. Learn NumPy and Pandas! 🐍",
+        expr: "happy"
+      };
+    case "Machine Learning":
+      return {
+        text: "Machine Learning models derive patterns from data. Try Deep Learning next! 🧠",
+        expr: "happy"
+      };
+    case "Deep Learning":
+      return {
+        text: "Deep Learning powers computer vision and NLP. Learn Transformers next! ⚡",
+        expr: "happy"
+      };
+    case "Statistics":
+      return {
+        text: "Statistics helps you understand data distributions and test hypotheses! 📊",
+        expr: "neutral"
+      };
+    case "NumPy":
+      return {
+        text: "NumPy is the core library for numerical computation in Python! 🧮",
+        expr: "neutral"
+      };
+    case "Pandas":
+      return {
+        text: "Pandas is the Swiss Army knife for data manipulation and analysis! 🐼",
+        expr: "happy"
+      };
+    case "SQL":
+      return {
+        text: "SQL is key for extracting data! Have you looked at Data Pipelines? 💾",
+        expr: "surprised"
+      };
+    case "Spark":
+      return {
+        text: "Apache Spark is the king of big data processing at scale! 🏎️",
+        expr: "surprised"
+      };
+    case "Cloud Computing (AWS/Azure)":
+      return {
+        text: "Cloud platforms are vital! Deploy your pipelines in the cloud! ☁️",
+        expr: "happy"
+      };
+    case "NoSQL":
+      return {
+        text: "NoSQL databases are perfect for unstructured and real-time big data! 🗄️",
+        expr: "neutral"
+      };
+    case "Data Pipelines":
+      return {
+        text: "Data Pipelines automate ETL flows to feed clean data to models! ⚙️",
+        expr: "happy"
+      };
+    case "Generative AI":
+      return {
+        text: "Generative AI is a superpower! Try RAG Systems or Agentic AI next! ⚡",
+        expr: "surprised"
+      };
+    case "RAG Systems":
+      return {
+        text: "RAG hooks LLMs to databases to prevent hallucinations! 📚",
+        expr: "happy"
+      };
+    case "Agentic AI":
+      return {
+        text: "Agentic AI allows models to reason, plan, and call tools autonomously! 🤖",
+        expr: "happy"
+      };
+    case "Multi-Agent Systems":
+      return {
+        text: "Multi-Agent Systems allow multiple AI agents to collaborate on tasks! 🤝",
+        expr: "happy"
+      };
+    case "Transformers":
+      return {
+        text: "Transformers power models like GPT and BERT. Core AI tech! ⚡",
+        expr: "surprised"
+      };
+    case "Fine-Tuning":
+      return {
+        text: "Fine-Tuning adapts pre-trained LLMs to domain-specific knowledge! 🎯",
+        expr: "happy"
+      };
+    case "Cybersecurity":
+      return {
+        text: "Cybersecurity is in huge demand! Learn Ethical Hacking next! 🛡️",
+        expr: "surprised"
+      };
+    case "Ethical Hacking":
+      return {
+        text: "Ethical Hacking helps you find weaknesses before malicious actors! 💻",
+        expr: "happy"
+      };
+    case "Digital Forensics":
+      return {
+        text: "Forensics makes you a digital detective solving cyber crimes! 🕵️‍♂️",
+        expr: "surprised"
+      };
+    case "Incident Response":
+      return {
+        text: "Incident Response prepares you to stop active cyber breaches! 🚨",
+        expr: "happy"
+      };
+    default:
+      return {
+        text: `Nice choice! Learning ${skill} opens up great opportunities! 🚀`,
+        expr: "happy"
+      };
+  }
+}
+
+function renderSkillTree() {
+  const container = document.getElementById("skillTreeCategories");
+  if (!container) return;
+
+  container.innerHTML = SKILL_CATEGORIES.map(category => {
+    const skillsHtml = category.skills.map(skill => {
+      const isSelected = selectedSkills.has(skill);
+      return `
+        <button type="button" class="skill-tag ${isSelected ? 'selected' : ''}" data-skill="${escapeHtml(skill)}">
+          ${isSelected ? '✓ ' : ''}${escapeHtml(skill)}
+        </button>
+      `;
+    }).join("");
+
+    return `
+      <div class="skill-category">
+        <h3 class="skill-category-title">${escapeHtml(category.name)}</h3>
+        <div class="skill-tags-list">
+          ${skillsHtml}
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  const resetBtn = document.getElementById("resetSkillsBtn");
+  if (resetBtn) {
+    resetBtn.style.display = selectedSkills.size > 0 ? "inline-block" : "none";
+  }
+
+  container.querySelectorAll(".skill-tag").forEach(tag => {
+    tag.addEventListener("click", () => {
+      const skill = tag.getAttribute("data-skill");
+      const isNowSelected = !selectedSkills.has(skill);
+      if (selectedSkills.has(skill)) {
+        selectedSkills.delete(skill);
+      } else {
+        selectedSkills.add(skill);
+      }
+      renderSkillTree();
+      renderCourses();
+
+      // Trigger contextual advice from mascot
+      if (window.mascotShowSpeech) {
+        const advice = getSkillAdvice(skill, isNowSelected);
+        window.mascotShowSpeech(advice.text, advice.expr);
+      }
+    });
+  });
+}
+
 function renderCourses() {
+  let maxMatchPct = 0;
+  const courseMatches = {};
+  const hasMatch = selectedSkills.size > 0;
+
+  if (hasMatch) {
+    PUBLIC_COURSES.forEach(course => {
+      const courseSkills = COURSE_SKILLS[course.id] || [];
+      const matchingSkills = courseSkills.filter(s => selectedSkills.has(s)).length;
+      const pct = Math.round((matchingSkills / selectedSkills.size) * 100);
+      courseMatches[course.id] = pct;
+      if (pct > maxMatchPct) {
+        maxMatchPct = pct;
+      }
+    });
+  }
+
   coursesGrid.innerHTML = PUBLIC_COURSES.map((course) => {
     const { rating, reviews } = getFakeRating(course.id);
+    const matchPct = hasMatch ? (courseMatches[course.id] || 0) : 0;
+    const isBestMatch = hasMatch && matchPct === maxMatchPct && maxMatchPct > 0;
+    const matchBadgeHtml = hasMatch
+      ? `<span class="course-card__match-badge">${matchPct}% Match</span>`
+      : "";
+
     return `
-      <article class="course-card" data-course-card="${course.id}" tabindex="0" role="button" aria-label="View ${escapeHtml(course.name)} details">
+      <article class="course-card ${isBestMatch ? 'course-card--best-match' : ''}" data-course-card="${course.id}" tabindex="0" role="button" aria-label="View ${escapeHtml(course.name)} details">
+        ${matchBadgeHtml}
         <div class="course-card__poster-wrap">
           <img
             class="course-card__poster"
@@ -716,4 +969,69 @@ registerForm.addEventListener("submit", submitRegistration);
 });
 
 renderCourses();
+renderSkillTree();
 renderSuccessStories();
+
+// Mascot Dynamic Coordinate Positioning helper
+function updateMascotPosition() {
+  // Statically positioned on the right of the main heading panel
+}
+
+// Trigger transition jump slide
+function transitionMascot(inGame) {
+  const jumper = document.getElementById("mascotJumper");
+  if (!jumper) return;
+  
+  // Hop jump landing effect
+  jumper.classList.remove("mascot-hop");
+  void jumper.offsetWidth;
+  jumper.classList.add("mascot-hop");
+  
+  if (window.mascotShowSpeech) {
+    if (inGame) {
+      window.mascotShowSpeech("Let's build your skill tree! Select your skills! 🎮", "happy");
+    } else {
+      window.mascotShowSpeech("Good luck! Let's find your course! 🤖", "neutral");
+    }
+  }
+}
+
+// Re-position mascot dynamically on window resize
+window.addEventListener("resize", updateMascotPosition);
+
+const resetSkillsBtn = document.getElementById("resetSkillsBtn");
+if (resetSkillsBtn) {
+  resetSkillsBtn.addEventListener("click", () => {
+    selectedSkills.clear();
+    renderSkillTree();
+    renderCourses();
+    if (window.mascotShowSpeech) {
+      window.mascotShowSpeech("Cleared selected skills! Ready to try again? 🔄", "surprised");
+    }
+  });
+}
+
+const toggleGamePanelBtn = document.getElementById("toggleGamePanelBtn");
+const skillTreeSection = document.getElementById("skillTreeSection");
+
+if (toggleGamePanelBtn && skillTreeSection) {
+  toggleGamePanelBtn.addEventListener("click", () => {
+    const isOpening = skillTreeSection.classList.contains("hidden");
+    
+    skillTreeSection.classList.toggle("hidden");
+    
+    if (isOpening) {
+      transitionMascot(true);
+    } else {
+      transitionMascot(false);
+    }
+  });
+}
+
+const closeSkillTreeBtn = document.getElementById("closeSkillTreeBtn");
+if (closeSkillTreeBtn && skillTreeSection) {
+  closeSkillTreeBtn.addEventListener("click", () => {
+    skillTreeSection.classList.add("hidden");
+    transitionMascot(false);
+  });
+}
