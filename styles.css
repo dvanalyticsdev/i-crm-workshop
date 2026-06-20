@@ -3886,6 +3886,92 @@ html[data-theme="dark"] .bell-badge {
   position: relative;
 }
 
+.curriculum-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.curriculum-card {
+  border: 1px solid color-mix(in srgb, var(--border-strong) 70%, #d9dee7);
+  border-radius: 12px;
+  overflow: hidden;
+  background: linear-gradient(180deg, #f8fbff 0%, #f2f7ff 100%);
+}
+
+.curriculum-card--active {
+  border-color: color-mix(in srgb, var(--primary) 28%, #d9dee7);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
+}
+
+.curriculum-card__trigger {
+  width: 100%;
+  border: none;
+  background: rgba(255, 255, 255, 0.58);
+  color: var(--heading);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 22px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.curriculum-card__trigger:hover,
+.curriculum-card__trigger:focus-visible {
+  background: rgba(255, 255, 255, 0.92);
+  outline: none;
+}
+
+.curriculum-card__title {
+  font-size: 1rem;
+  font-weight: 800;
+  color: #ff5b1f;
+}
+
+.curriculum-card__toggle {
+  font-size: 2rem;
+  line-height: 1;
+  font-weight: 500;
+  color: #ff5b1f;
+  flex-shrink: 0;
+}
+
+.curriculum-card__content {
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.curriculum-card__body {
+  padding: 18px 24px 22px;
+  background: rgba(239, 246, 255, 0.72);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.curriculum-card__summary {
+  margin: 0;
+  font-size: 0.98rem;
+  line-height: 1.75;
+  color: #163053;
+}
+
+.curriculum-card__topics {
+  margin: 0;
+  padding-left: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: #1d3557;
+}
+
+.curriculum-card__topics li {
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
 .public-form {
   display: grid;
   gap: 14px;
@@ -4894,6 +4980,31 @@ html[data-theme="dark"] .bell-badge {
   background: var(--border);
   color: var(--text);
   transform: scale(1.05);
+}
+
+/* brochure download styles */
+.modal-hook-cta-row {
+  margin-top: 24px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.btn-download-brochure {
+  padding: 10px 22px;
+  border-radius: 8px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 14px rgba(224, 83, 34, 0.3);
+  transition: transform var(--ease), box-shadow var(--ease);
+}
+
+.btn-download-brochure:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(224, 83, 34, 0.45);
 }
 
 

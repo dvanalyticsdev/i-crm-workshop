@@ -20,6 +20,9 @@ const skillMatchBody = document.getElementById("skillMatchBody");
 const skillArchetypeBadges = document.getElementById("skillArchetypeBadges");
 const mascotActionDock = document.getElementById("mascotActionDock");
 
+let currentDetailsCourseId = null;
+let shouldDownloadAfterRegister = false;
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -27,6 +30,50 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function isCurriculumSection(section) {
+  return Array.isArray(section?.curriculumItems) && section.curriculumItems.length > 0;
+}
+
+function renderCurriculumSection(section) {
+  const introHtml = (Array.isArray(section.paragraphs) ? section.paragraphs : [])
+    .map((paragraph) => `<p class="accordion-paragraph">${escapeHtml(paragraph)}</p>`)
+    .join("");
+
+  const itemsHtml = section.curriculumItems.map((item, index) => {
+    const isOpen = index === 0;
+    return `
+      <div class="curriculum-card ${isOpen ? "curriculum-card--active" : ""}">
+        <button
+          type="button"
+          class="curriculum-card__trigger"
+          aria-expanded="${isOpen ? "true" : "false"}"
+          data-curriculum-index="${index}"
+        >
+          <span class="curriculum-card__title">${escapeHtml(item.title)}</span>
+          <span class="curriculum-card__toggle" aria-hidden="true">${isOpen ? "−" : "+"}</span>
+        </button>
+        <div class="curriculum-card__content" style="${isOpen ? "" : "display: none;"}">
+          <div class="curriculum-card__body">
+            ${item.summary ? `<p class="curriculum-card__summary">${escapeHtml(item.summary)}</p>` : ""}
+            ${Array.isArray(item.topics) && item.topics.length ? `
+              <ul class="curriculum-card__topics">
+                ${item.topics.map((topic) => `<li>${escapeHtml(topic)}</li>`).join("")}
+              </ul>
+            ` : ""}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  return `
+    ${introHtml}
+    <div class="curriculum-cards">
+      ${itemsHtml}
+    </div>
+  `;
 }
 
 function getFakeRating(courseId) {
@@ -124,6 +171,8 @@ function renderCourseAccordion(course) {
           </div>
         </div>
       `;
+    } else if (isCurriculumSection(section)) {
+      contentHtml = renderCurriculumSection(section);
     } else {
       contentHtml = `
         ${(Array.isArray(section.paragraphs) ? section.paragraphs : [])
@@ -182,6 +231,27 @@ function renderCourseAccordion(course) {
         item.classList.add("accordion-item--active");
         trigger.setAttribute("aria-expanded", "true");
         content.style.display = "block";
+      }
+    };
+  });
+
+  accordionContainer.querySelectorAll("[data-curriculum-index]").forEach((trigger) => {
+    trigger.onclick = () => {
+      const card = trigger.closest(".curriculum-card");
+      const content = card.querySelector(".curriculum-card__content");
+      const toggle = trigger.querySelector(".curriculum-card__toggle");
+      const isExpanded = trigger.getAttribute("aria-expanded") === "true";
+
+      if (isExpanded) {
+        trigger.setAttribute("aria-expanded", "false");
+        card.classList.remove("curriculum-card--active");
+        content.style.display = "none";
+        if (toggle) toggle.textContent = "+";
+      } else {
+        trigger.setAttribute("aria-expanded", "true");
+        card.classList.add("curriculum-card--active");
+        content.style.display = "block";
+        if (toggle) toggle.textContent = "−";
       }
     };
   });
@@ -313,7 +383,7 @@ const COURSE_HOOKS = {
             <polyline points="12 6 12 12 16 14"></polyline>
           </svg>
         `,
-        title: "5-6 Months",
+        title: "4 Months",
         subtext: "Accelerated Learning Track"
       },
       {
@@ -333,8 +403,8 @@ const COURSE_HOOKS = {
             <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
           </svg>
         `,
-        title: "Placement Assistance*",
-        subtext: "Dedicated Hiring Network"
+        title: "Career Support",
+        subtext: "Resume Prep & Mock Interviews"
       }
     ]
   },
@@ -383,8 +453,8 @@ const COURSE_HOOKS = {
             <path d="M6 12v5c0 2 2 3 6 3s6-1 6-3v-5"></path>
           </svg>
         `,
-        title: "Global Certification",
-        subtext: "Verify Your AI Expertise"
+        title: "Recorded Learning Access",
+        subtext: "Revise Sessions & Project Work"
       }
     ]
   },
@@ -433,16 +503,16 @@ const COURSE_HOOKS = {
             <path d="M6 12v5c0 2 2 3 6 3s6-1 6-3v-5"></path>
           </svg>
         `,
-        title: "Expert Mentorship",
-        subtext: "Weekly 1-on-1 Guidance"
+        title: "Placement Assistance",
+        subtext: "Resume, LinkedIn & Mock Interviews"
       }
     ]
   },
   apcs: {
     highlights: [
-      "Master MLOps pipeline design: CI/CD, monitoring & drift checks",
-      "Deploy models to AWS, GCP, and Azure using Docker & Kubernetes",
-      "Automated testing, versioning & orchestration with GitHub & MLflow"
+      "Bridge learning, ethical hacking, and cyber forensics in one pathway",
+      "Hands-on labs across malware analysis, phishing, DFIR, and security operations",
+      "Mock interviews, alumni connect, and certification preparation support"
     ],
     features: [
       {
@@ -453,8 +523,8 @@ const COURSE_HOOKS = {
             <line x1="12" y1="17" x2="12" y2="21"></line>
           </svg>
         `,
-        title: "150+ Learning Hours",
-        subtext: "Heavy Hands-on Exercises"
+        title: "180 Learning Hours",
+        subtext: "Hands-on Security Labs"
       },
       {
         icon: `
@@ -463,8 +533,8 @@ const COURSE_HOOKS = {
             <polyline points="12 6 12 12 16 14"></polyline>
           </svg>
         `,
-        title: "4-6 Months",
-        subtext: "Highly Technical Curriculum"
+        title: "3-4 Months",
+        subtext: "Immersive Security Track"
       },
       {
         icon: `
@@ -473,8 +543,8 @@ const COURSE_HOOKS = {
             <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
           </svg>
         `,
-        title: "Live Cloud Labs",
-        subtext: "Real Cloud Infrastructure Credits"
+        title: "Live & Recorded Classes",
+        subtext: "Flexible Revision Support"
       },
       {
         icon: `
@@ -483,8 +553,8 @@ const COURSE_HOOKS = {
             <path d="M6 12v5c0 2 2 3 6 3s6-1 6-3v-5"></path>
           </svg>
         `,
-        title: "Expert Mentorship",
-        subtext: "Cybersecurity Career Coaching"
+        title: "Certification Prep",
+        subtext: "Mock Interviews & Alumni Connect"
       }
     ]
   }
@@ -495,6 +565,8 @@ function openCourseDetails(courseId) {
   if (!course) {
     return;
   }
+
+  currentDetailsCourseId = courseId;
 
   document.getElementById("courseModalBadge").textContent = course.badge;
   document.getElementById("courseModalTitle").textContent = course.name;
@@ -556,6 +628,7 @@ function openRegisterModal(courseId) {
 
 function closeRegisterModal() {
   registerModal.classList.add("hidden");
+  shouldDownloadAfterRegister = false;
 }
 
 function openSuccessModal() {
@@ -569,6 +642,15 @@ function closeSuccessModal() {
 function setFormMessage(message, isError = true) {
   registerFormMessage.textContent = message;
   registerFormMessage.style.color = isError ? "var(--danger)" : "var(--success)";
+}
+
+function triggerBrochureDownload() {
+  const link = document.createElement("a");
+  link.href = "Logos/Brochure.pdf";
+  link.download = "Brochure.pdf";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
 async function submitRegistration(event) {
@@ -613,11 +695,24 @@ async function submitRegistration(event) {
 
     if (data?.alreadyRegistered) {
       setFormMessage(data?.message || "You have already registered for this course.", false);
+      localStorage.setItem("candidateRegistered", "true");
+      if (shouldDownloadAfterRegister) {
+        triggerBrochureDownload();
+        shouldDownloadAfterRegister = false;
+        setTimeout(() => {
+          closeRegisterModal();
+        }, 1500);
+      }
       return;
     }
 
-        closeRegisterModal();
+    localStorage.setItem("candidateRegistered", "true");
+    closeRegisterModal();
     openSuccessModal();
+    if (shouldDownloadAfterRegister) {
+      triggerBrochureDownload();
+      shouldDownloadAfterRegister = false;
+    }
   } catch {
     setFormMessage("We could not save your registration. Please try again.");
   } finally {
@@ -690,6 +785,15 @@ document.getElementById("closeRegisterModalBtn").onclick = closeRegisterModal;
 document.getElementById("cancelRegistrationBtn").onclick = closeRegisterModal;
 document.getElementById("closeSuccessModalBtn").onclick = closeSuccessModal;
 registerForm.addEventListener("submit", submitRegistration);
+
+document.getElementById("downloadBrochureBtn").onclick = () => {
+  if (localStorage.getItem("candidateRegistered") === "true") {
+    triggerBrochureDownload();
+  } else {
+    shouldDownloadAfterRegister = true;
+    openRegisterModal(currentDetailsCourseId || PUBLIC_COURSES[0].id);
+  }
+};
 
 [courseDetailsModal, registerModal, successModal].forEach((modal) => {
   modal.addEventListener("click", (event) => {
