@@ -3443,14 +3443,45 @@ html[data-theme="dark"] .bell-badge {
   grid-template-columns: 1fr;
   align-items: center;
   gap: 20px;
-  padding: 24px 32px;
-  border-radius: 16px;
+  padding: 48px 40px;
+  border-radius: 24px;
   position: relative;
+  /* Light theme, clean white-blue-gray gradient with diagonal accents, mimicking the attached image */
+  background: 
+    linear-gradient(135deg, #ffffff 0%, #f4f7fc 100%);
+  border: 1px solid #d8e3f4;
+  box-shadow: 0 12px 32px rgba(22, 28, 45, 0.05);
+  overflow: hidden;
+}
+
+/* Subtle diagonal stripe overlay inside the intro panel matching the image style */
+.courses-intro::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(
+    115deg,
+    transparent 40%,
+    rgba(224, 235, 252, 0.4) 40%,
+    rgba(224, 235, 252, 0.4) 43%,
+    transparent 43%,
+    transparent 50%,
+    rgba(224, 235, 252, 0.4) 50%,
+    rgba(224, 235, 252, 0.4) 55%,
+    transparent 55%
+  );
+  pointer-events: none;
+  z-index: 1;
 }
 
 .courses-intro__content {
-  display: grid;
-  gap: 8px;
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  width: 100%;
 }
 
 .courses-intro__mascot-wrapper {
@@ -3527,17 +3558,90 @@ html[data-theme="dark"] .bell-badge {
   color: #fff;
 }
 
-.courses-intro h1 {
-  font-size: clamp(1.5rem, 2.2vw, 2.2rem);
-  line-height: 1.15;
-  color: var(--heading);
+.courses-intro__eyebrow {
+  font-size: 0.85rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #ea580c;
+  background: rgba(234, 88, 12, 0.08);
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(234, 88, 12, 0.15);
+  display: inline-block;
+  margin-bottom: 4px;
 }
 
-.courses-intro p {
-  max-width: 65ch;
-  color: var(--text-muted);
+.courses-intro__heading {
+  font-family: 'Oswald', 'Bebas Neue', 'Plus Jakarta Sans', sans-serif;
+  font-size: clamp(2.2rem, 4.2vw, 3.8rem);
+  font-weight: 700;
+  text-transform: uppercase;
+  line-height: 1.05;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.courses-intro__heading .heading-line-1 {
+  color: #121c84; /* Deep rich blue/indigo from the image */
+  letter-spacing: -0.01em;
+}
+
+.courses-intro__heading .heading-line-2 {
+  color: #102294; /* Slightly different deep blue to add rich depth, uppercase */
+  letter-spacing: -0.015em;
+  font-weight: 800;
+}
+
+.courses-intro__desc {
+  max-width: 100%;
+  color: #4a5568;
+  font-size: clamp(0.95rem, 1.1vw, 1.1rem);
+  line-height: 1.6;
+  margin: 4px 0 0 0;
+}
+
+.courses-intro__cta-bar {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.courses-intro__cta-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 28px;
   font-size: 0.95rem;
-  line-height: 1.55;
+  font-weight: 700;
+  background: linear-gradient(135deg, #e05322 0%, #c2410c 100%);
+  color: #ffffff !important;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(224, 83, 34, 0.35);
+  transition: transform var(--ease), box-shadow var(--ease), filter var(--ease);
+}
+
+.courses-intro__cta-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(224, 83, 34, 0.45);
+  filter: brightness(1.05);
+}
+
+.courses-intro__cta-btn:active {
+  transform: translateY(0);
+}
+
+.courses-intro__cta-btn svg {
+  transition: transform var(--ease);
+}
+
+.courses-intro__cta-btn:hover svg {
+  transform: translateX(3px);
 }
 
 .courses-grid {

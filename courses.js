@@ -1511,3 +1511,5 @@ if (mascotActionDock) {
 }
 
 syncGamePanelState();
+
+
