@@ -1406,7 +1406,7 @@ if (resetSkillsBtn) {
 const toggleGamePanelBtn = document.getElementById("toggleGamePanelBtn");
 const skillTreeSection = document.getElementById("skillTreeSection");
 const toggleGamePanelLabel = document.querySelector(".courses-hero__game-msg");
-const isMobileCoursesView = window.matchMedia("(max-width: 640px)");
+const isMobileCoursesView = window.matchMedia("(max-width: 768px)");
 
 function syncGamePanelState() {
   if (!toggleGamePanelBtn || !skillTreeSection) return;

@@ -4384,7 +4384,7 @@ html[data-theme="dark"] .bell-badge {
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .courses-hero__game-panel,
   .courses-intro__mascot-wrapper,
   .skill-tree-section {
@@ -4508,7 +4508,7 @@ html[data-theme="dark"] .bell-badge {
 }
 
 /* Header Responsive Styles for welcome and game-panels */
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .courses-hero__topbar {
     display: flex !important;
     justify-content: center !important;
@@ -4520,9 +4520,6 @@ html[data-theme="dark"] .bell-badge {
   }
   .courses-hero__welcome-panel {
     display: none !important;
-  }
-  .courses-hero__game-panel {
-    display: inline-flex !important;
   }
   .mascot-track {
     display: none !important;
