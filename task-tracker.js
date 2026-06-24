@@ -1,6 +1,7 @@
 import { registerPageCleanup } from "./page-runtime.js";
-import { bootstrapLocalState, getCounselors, getSession, startStatePolling } from "./state-sync.js";
+import { bootstrapLocalState, getCounselors, getLeads as getStoredLeads, getSession, startStatePolling } from "./state-sync.js";
 import { deleteTask, getTaskCategoryLabel, getTasksByCategory, TASK_CATEGORY, updateTask } from "./task-service.js";
+import { openActivityHistory } from "./activity-history.js";
 
 await bootstrapLocalState();
 
@@ -136,6 +137,7 @@ function renderTaskTable(tasks, emptyMessage) {
                       <button type="button" class="btn-primary task-complete-btn" data-task-id="${task.id}">Complete</button>
                       <button type="button" class="btn-ghost task-reschedule-btn" data-task-id="${task.id}">Reschedule</button>
                       <button type="button" class="btn-ghost task-remove-btn" data-task-id="${task.id}">Remove</button>
+                      <button type="button" class="btn-ghost btn-activity-history" data-lead-id="${escapeHtml(task.leadId)}" data-lead-name="${escapeHtml(task.leadName)}">Activity History</button>
                     </div>
                   </td>
                 </tr>
@@ -225,6 +227,20 @@ function bindTaskActions() {
       const taskId = button.getAttribute("data-task-id");
       if (taskId) {
         void rescheduleTask(taskId);
+      }
+    };
+  });
+
+  document.querySelectorAll(".btn-activity-history").forEach((button) => {
+    button.onclick = () => {
+      const leadId = button.getAttribute("data-lead-id");
+      const leadName = button.getAttribute("data-lead-name");
+      const allLeads = getStoredLeads();
+      const lead = allLeads.find((item) => String(item.id) === String(leadId));
+      if (lead) {
+        openActivityHistory(lead.id, lead.name, lead.email);
+      } else {
+        openActivityHistory(leadId, leadName, "");
       }
     };
   });

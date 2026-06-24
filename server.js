@@ -3499,16 +3499,42 @@ app.get("/api/activity-logs", async (req, res) => {
     const state = await getStateDoc();
     const query = {};
 
+    const targetLeadId = String(req.query.leadId || "").trim();
+    let leadIdsToQuery = null;
+
+    if (targetLeadId) {
+      const lead = findLeadByIdentity(state, targetLeadId);
+      if (!lead) {
+        leadIdsToQuery = [targetLeadId];
+      } else {
+        const relatedIds = [lead.id];
+        const email = String(lead.email || "").trim().toLowerCase();
+        const phone = String(lead.phone || "").trim();
+        const allLeads = Array.isArray(state?.leads) ? state.leads : [];
+        allLeads.forEach((otherLead) => {
+          if (otherLead && otherLead.id && otherLead.id !== lead.id) {
+            const otherEmail = String(otherLead.email || "").trim().toLowerCase();
+            const otherPhone = String(otherLead.phone || "").trim();
+            const emailMatch = email && otherEmail && email === otherEmail;
+            const phoneMatch = phone && otherPhone && phone === otherPhone;
+            if (emailMatch || phoneMatch) {
+              relatedIds.push(otherLead.id);
+            }
+          }
+        });
+        leadIdsToQuery = [...new Set(relatedIds.map((id) => String(id)))];
+      }
+    }
+
     // 1. Enforce counselor scoping permissions
     if (session.role === "counselor") {
       const counselorName = getSessionCounselorName(state, session);
-      const targetLeadId = String(req.query.leadId || "").trim();
       if (targetLeadId) {
         const lead = findLeadByIdentity(state, targetLeadId);
         if (!lead || !canViewLeadActivity(session, state, lead)) {
           return res.status(403).json({ message: "Access denied. You can only view activity logs of leads assigned to you." });
         }
-        query.leadId = targetLeadId;
+        query.leadId = { $in: leadIdsToQuery };
       } else {
         query.$or = [
           { counselorName: { $regex: new RegExp("^" + escapeRegExp(counselorName) + "$", "i") } },
@@ -3516,9 +3542,8 @@ app.get("/api/activity-logs", async (req, res) => {
         ];
       }
     } else if (session.role === "admin" || session.role === "marketing") {
-      const targetLeadId = String(req.query.leadId || "").trim();
       if (targetLeadId) {
-        query.leadId = targetLeadId;
+        query.leadId = { $in: leadIdsToQuery };
       }
     } else {
       return res.status(403).json({ message: "Access denied." });

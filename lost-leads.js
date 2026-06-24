@@ -1,5 +1,6 @@
 import { registerPageCleanup } from "./page-runtime.js";
 import { bootstrapLocalState, getCounselors, getLeads as getStoredLeads, getSession, loadPersistedValue, saveLeads as persistLeads, savePersistedValue, startStatePolling } from "./state-sync.js";
+import { openActivityHistory } from "./activity-history.js";
 
 await bootstrapLocalState();
 
@@ -172,14 +173,14 @@ function renderTable(lostLeads) {
             <th>Workshop Name</th>
             <th>Counselor</th>
             <th>Lost Stage</th>
-            ${isAdmin ? "<th>Actions</th>" : ""}
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
   `;
 
   if (!lostLeads.length) {
-    html += `<tr><td colspan="${isAdmin ? 8 : 7}">No lost leads found.</td></tr>`;
+    html += `<tr><td colspan="8">No lost leads found.</td></tr>`;
   } else {
     html += lostLeads
       .map(
@@ -192,7 +193,12 @@ function renderTable(lostLeads) {
         <td>${escapeHtml(lead.workshop)}</td>
         <td>${escapeHtml(lead.counselor || "Unassigned")}</td>
         <td>${escapeHtml(getLostSource(lead))}</td>
-        ${isAdmin ? `<td><button class="btn-ghost btn-restore-lead" type="button" data-lead-id="${lead.id}">Restore</button></td>` : ""}
+        <td>
+          <div class="activity-panel">
+            <button class="btn-ghost btn-activity-history" type="button" data-lead-id="${escapeHtml(lead.id)}" data-lead-email="${escapeHtml(lead.email)}" data-lead-name="${escapeHtml(lead.name)}">Activity History</button>
+            ${isAdmin ? `<button class="btn-ghost btn-restore-lead" type="button" data-lead-id="${lead.id}">Restore</button>` : ""}
+          </div>
+        </td>
       </tr>
     `
       )
@@ -201,6 +207,20 @@ function renderTable(lostLeads) {
 
   html += `</tbody></table></div>`;
   lostLeadTableSection.innerHTML = html;
+
+  document.querySelectorAll(".btn-activity-history").forEach((button) => {
+    button.onclick = () => {
+      const leadId = button.getAttribute("data-lead-id");
+      const leadEmail = button.getAttribute("data-lead-email");
+      const allLeads = getAllLeads();
+      const lead = allLeads.find(
+        (item) => String(item.id) === String(leadId) || (leadEmail && String(item.email).toLowerCase() === String(leadEmail).toLowerCase())
+      );
+      if (lead) {
+        openActivityHistory(lead.id, lead.name, lead.email);
+      }
+    };
+  });
 
   if (isAdmin) {
     document.querySelectorAll(".btn-restore-lead").forEach((button) => {

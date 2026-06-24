@@ -360,6 +360,11 @@ test("activity history endpoint and UI checks", () => {
   assert.match(preWorkshop, /import \{ openActivityHistory \} from "\.\/activity-history\.js"/);
   assert.match(postWorkshop, /import \{ openActivityHistory \} from "\.\/activity-history\.js"/);
   assert.match(registered, /import \{ openActivityHistory \} from "\.\/activity-history\.js"/);
+  assert.match(read("lost-leads.js"), /import \{ openActivityHistory \} from "\.\/activity-history\.js"/);
+  assert.match(read("task-tracker.js"), /import \{ openActivityHistory \} from "\.\/activity-history\.js"/);
+
+  // Server query unification assertions
+  assert.match(server, /leadIdsToQuery/);
 
   // Reusable timeline assertions
   assert.match(activityHistory, /export function openActivityHistory\(/);
