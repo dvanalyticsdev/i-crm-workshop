@@ -1,5 +1,6 @@
 import { registerPageCleanup } from "./page-runtime.js";
 import { apiUrl } from "./api-client.js";
+import { openActivityHistory } from "./activity-history.js";
 import {
   bootstrapLocalState,
   acceptServerState,
@@ -1253,10 +1254,10 @@ function renderActivityStatusPanel(lead) {
   const leadAttrs = `data-lead-id="${leadId}" data-lead-email="${leadEmail}"`;
   return `
     <div class="activity-panel">
-      <button class="btn-view-activity" type="button" data-lead-id="${leadId}" aria-label="View activity details" title="View activity details">👁</button>
       <button class="btn-update-status${hasActivity ? " btn-update-status--active" : ""}" type="button" ${leadAttrs}>Update</button>
       <button class="btn-ghost btn-notes" type="button" ${leadAttrs}>Notes${noteCount ? ` (${noteCount})` : ""}</button>
       ${canCreateTasks ? `<button class="btn-ghost btn-task" type="button" ${leadAttrs}>Task</button>` : ""}
+      <button class="btn-ghost btn-activity-history" type="button" ${leadAttrs}>Activity History</button>
       ${isAdmin ? `<button class="btn-delete" type="button" ${leadAttrs}>Delete</button>` : ""}
     </div>
   `;
@@ -1355,12 +1356,6 @@ function renderLeadTable(leads) {
   html += `</tbody></table></div>`;
   preLeadTableSection.innerHTML = html;
 
-  document.querySelectorAll(".btn-view-activity").forEach((button) => {
-    button.onclick = () => {
-      const leadId = button.getAttribute("data-lead-id");
-      openActivityDetailsModal(leadId);
-    };
-  });
 
   document.querySelectorAll(".btn-update-status").forEach((button) => {
     button.onclick = () => {
@@ -1382,6 +1377,18 @@ function renderLeadTable(leads) {
     button.onclick = () => {
       const leadId = button.getAttribute("data-lead-id");
       openTaskModal(leadId);
+    };
+  });
+
+  document.querySelectorAll(".btn-activity-history").forEach((button) => {
+    button.onclick = () => {
+      const leadId = button.getAttribute("data-lead-id");
+      const leadEmail = button.getAttribute("data-lead-email");
+      const allLeads = getAllLeads();
+      const lead = findLeadByActionIdentity(allLeads, leadId, leadEmail);
+      if (lead) {
+        openActivityHistory(lead.id, lead.name, lead.email);
+      }
     };
   });
 
@@ -1641,29 +1648,6 @@ function openActivityStatusModal(leadId, leadEmail = "") {
   document.getElementById("activityStatusModal").classList.remove("hidden");
 }
 
-function openActivityDetailsModal(leadId, leadEmail = "") {
-  modalLeadId = leadId;
-  modalLeadEmail = leadEmail || "";
-  const allLeads = getAllLeads();
-  const lead = findLeadByActionIdentity(allLeads, leadId, leadEmail);
-
-  if (!lead) {
-    showToast("Could not open this lead. Please refresh and try again.", true);
-    return;
-  }
-
-  if (isCounselorSession()) {
-    const owner = String(lead.counselor || "").trim().toLowerCase();
-    if (owner !== getCounselorIdentity()) {
-      showToast("Only the assigned counselor can view this lead.", true);
-      return;
-    }
-  }
-
-  setActivityModalMode("view");
-  populateActivityModal(lead);
-  document.getElementById("activityStatusModal").classList.remove("hidden");
-}
 
 function closeActivityStatusModal() {
   document.getElementById("activityStatusModal").classList.add("hidden");

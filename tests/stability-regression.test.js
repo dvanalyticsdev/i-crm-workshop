@@ -341,3 +341,33 @@ test("admin manual backup and restore controls exist on lead control management"
   assert.match(server, /buildBackupPayload\(/);
   assert.match(server, /validateBackupPayload\(/);
 });
+
+test("activity history endpoint and UI checks", () => {
+  const server = read("server.js");
+  const preWorkshop = read("pre-workshop.js");
+  const postWorkshop = read("post-workshop.js");
+  const registered = read("registered-candidates.js");
+  const styles = read("styles.css");
+  const activityHistory = read("activity-history.js");
+
+  // Server assertions
+  assert.match(server, /activityLogsCollection/);
+  assert.match(server, /app\.get\("\/api\/activity-logs"/);
+  assert.match(server, /async function recordActivity\(/);
+  assert.match(server, /async function logBulkLeadChanges\(/);
+
+  // Frontend imports assertions
+  assert.match(preWorkshop, /import \{ openActivityHistory \} from "\.\/activity-history\.js"/);
+  assert.match(postWorkshop, /import \{ openActivityHistory \} from "\.\/activity-history\.js"/);
+  assert.match(registered, /import \{ openActivityHistory \} from "\.\/activity-history\.js"/);
+
+  // Reusable timeline assertions
+  assert.match(activityHistory, /export function openActivityHistory\(/);
+  assert.match(activityHistory, /fetchActivityLogs\(/);
+  assert.match(activityHistory, /activityHistoryModal/);
+
+  // Styles assertions
+  assert.match(styles, /\.timeline-modal/);
+  assert.match(styles, /\.timeline-track/);
+  assert.match(styles, /\.timeline-badge/);
+});

@@ -119,8 +119,9 @@ export async function updateTask(taskId, updates) {
   return { ok: true, task: result.task || updatedTask };
 }
 
-export async function deleteTask(taskId) {
-  const result = await requestJson(`/api/tasks/${encodeURIComponent(taskId)}`, {
+export async function deleteTask(taskId, completed = false) {
+  const query = completed ? "?completed=true" : "";
+  const result = await requestJson(`/api/tasks/${encodeURIComponent(taskId)}${query}`, {
     method: "DELETE"
   });
   if (!result || result.ok === false) {

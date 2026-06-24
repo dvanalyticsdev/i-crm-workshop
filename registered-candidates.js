@@ -1,5 +1,6 @@
 import { registerPageCleanup } from "./page-runtime.js";
 import { apiUrl } from "./api-client.js";
+import { openActivityHistory } from "./activity-history.js";
 import {
   bootstrapLocalState,
   getCounselors as getStoredCounselors,
@@ -551,10 +552,10 @@ function renderActivityPanel(lead) {
   const noteCount = lead.leadNotes.length;
   return `
     <div class="activity-panel">
-      <button type="button" class="btn-view-activity" data-registered-action="view" data-lead-key="${leadKey}" aria-label="View activity details" title="View activity details">&#128065;</button>
       <button type="button" class="btn-update-status${hasActivity ? " btn-update-status--active" : ""}" data-registered-action="update" data-lead-key="${leadKey}">Update</button>
       <button type="button" class="btn-ghost btn-notes" data-registered-action="notes" data-lead-key="${leadKey}">Notes${noteCount ? ` (${noteCount})` : ""}</button>
       ${canCreateTasks ? `<button type="button" class="btn-ghost btn-task" data-registered-action="task" data-lead-key="${leadKey}">Task</button>` : ""}
+      <button type="button" class="btn-ghost btn-activity-history" data-registered-action="activity-history" data-lead-key="${leadKey}">Activity History</button>
       ${isAdmin ? `<button type="button" class="btn-delete" data-registered-action="delete" data-lead-key="${leadKey}">Delete</button>` : ""}
     </div>
   `;
@@ -621,9 +622,6 @@ function renderLeadTable(leads) {
     </div>
   `;
 
-  document.querySelectorAll("[data-registered-action='view']").forEach((button) => {
-    button.onclick = () => openActivityDetailsModal(button.getAttribute("data-lead-key"));
-  });
   document.querySelectorAll("[data-registered-action='update']").forEach((button) => {
     button.onclick = () => openActivityModal(button.getAttribute("data-lead-key"));
   });
@@ -632,6 +630,15 @@ function renderLeadTable(leads) {
   });
   document.querySelectorAll("[data-registered-action='task']").forEach((button) => {
     button.onclick = () => openTaskModal(button.getAttribute("data-lead-key"));
+  });
+  document.querySelectorAll("[data-registered-action='activity-history']").forEach((button) => {
+    button.onclick = () => {
+      const leadKey = button.getAttribute("data-lead-key");
+      const lead = getAllLeads().find((item) => buildLeadKey(item) === leadKey);
+      if (lead) {
+        openActivityHistory(lead.id, lead.name, lead.email);
+      }
+    };
   });
   document.querySelectorAll("[data-registered-action='delete']").forEach((button) => {
     button.onclick = () => {
@@ -723,15 +730,6 @@ function openActivityModal(leadKey) {
   document.getElementById("registeredActivityModal").classList.remove("hidden");
 }
 
-function openActivityDetailsModal(leadKey) {
-  const lead = getAllLeads().find((item) => buildLeadKey(item) === leadKey);
-  if (!lead) return;
-
-  activeLeadRef = buildLeadRef(lead);
-  setRegisteredActivityModalMode("view");
-  populateActivityModal(lead);
-  document.getElementById("registeredActivityModal").classList.remove("hidden");
-}
 
 function setRegisteredActivityModalMode(mode) {
   registeredActivityModalMode = mode === "view" ? "view" : "edit";

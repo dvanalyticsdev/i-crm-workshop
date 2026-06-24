@@ -126,6 +126,7 @@ let counselorsCollection;
 let tasksCollection;
 let allocationCollection;
 let notificationsCollection;
+let activityLogsCollection;
 
 function logNotificationDebug(message, extra) {
   const payload = extra === undefined ? "" : ` ${JSON.stringify(extra)}`;
@@ -180,6 +181,7 @@ async function resetMongoConnection() {
   tasksCollection = null;
   allocationCollection = null;
   notificationsCollection = null;
+  activityLogsCollection = null;
 }
 
 async function withMongoRetry(operation, { retries = 1, label = "MongoDB operation" } = {}) {
@@ -530,6 +532,14 @@ async function initMongo() {
       tasksCollection      = db.collection("tasks");
       allocationCollection = db.collection("allocation");
       notificationsCollection = db.collection("notifications");
+      activityLogsCollection  = db.collection("activity_logs");
+
+      // Ensure indexes for activity_logs
+      await activityLogsCollection.createIndex({ leadId: 1, timestamp: -1 }, { background: true }).catch(() => undefined);
+      await activityLogsCollection.createIndex({ counselorName: 1, timestamp: -1 }, { background: true }).catch(() => undefined);
+      await activityLogsCollection.createIndex({ activityType: 1, timestamp: -1 }, { background: true }).catch(() => undefined);
+      await activityLogsCollection.createIndex({ performedBy: 1, timestamp: -1 }, { background: true }).catch(() => undefined);
+      await activityLogsCollection.createIndex({ timestamp: -1 }, { background: true }).catch(() => undefined);
 
       // Ensure indexes
       await sessionCollection.createIndex(
@@ -1599,6 +1609,26 @@ app.post("/api/public-course-registrations", async (req, res) => {
       { retries: 1, label: "Create public course registration lead" }
     );
 
+    await recordActivity({
+      leadId: newLead.id,
+      leadName: newLead.name,
+      counselorName: newLead.counselor || "",
+      activityType: "Lead Created",
+      actionDescription: `Lead created via public registration for course ${course.title || course.id}`,
+      newValue: `Name: ${newLead.name}, Phone: ${newLead.phone}, Email: ${newLead.email}`
+    });
+
+    if (newLead.counselor) {
+      await recordActivity({
+        leadId: newLead.id,
+        leadName: newLead.name,
+        counselorName: newLead.counselor,
+        activityType: "Lead Assigned",
+        actionDescription: `Lead initially assigned to counselor ${newLead.counselor}`,
+        newValue: newLead.counselor
+      });
+    }
+
     const now = new Date().toISOString();
     await stateCollection.updateOne(
       { _id: STATE_DOC_ID },
@@ -2168,6 +2198,159 @@ function canMutateLead(session, state, lead) {
   return !!counselorName && leadCounselor === counselorName;
 }
 
+function canViewLeadActivity(session, state, lead) {
+  if (session?.role === "admin") {
+    return true;
+  }
+  if (session?.role === "counselor") {
+    const counselorName = getSessionCounselorName(state, session).toLowerCase();
+    const leadCounselor = String(lead?.counselor || "").trim().toLowerCase();
+    return !!counselorName && leadCounselor === counselorName;
+  }
+  return false;
+}
+
+async function recordActivity({
+  leadId,
+  leadName,
+  counselorName,
+  activityType,
+  actionDescription,
+  previousValue = null,
+  newValue = null,
+  session = null,
+  remarks = null
+}) {
+  try {
+    if (!activityLogsCollection) {
+      console.warn("activityLogsCollection not initialized yet.");
+      return;
+    }
+    const now = new Date();
+    const userRole = session ? session.role : "system";
+    const performedBy = session ? (session.name || session.email || session.role) : "System";
+    
+    // YYYY-MM-DD
+    const dateStr = now.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).split('/').reverse().join('-');
+    // HH:MM:SS AM/PM
+    const timeStr = now.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: true, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+    const logEntry = {
+      activityType,
+      leadId: String(leadId),
+      leadName: String(leadName || ""),
+      counselorName: String(counselorName || ""),
+      performedBy,
+      userRole,
+      actionDescription,
+      previousValue: previousValue !== null ? String(previousValue) : null,
+      newValue: newValue !== null ? String(newValue) : null,
+      timestamp: now,
+      date: dateStr,
+      time: timeStr,
+      remarks: remarks ? String(remarks) : null
+    };
+
+    await activityLogsCollection.insertOne(logEntry);
+  } catch (error) {
+    console.error("Failed to record activity log:", error);
+  }
+}
+
+async function logBulkLeadChanges(oldLeads, newLeads, session) {
+  try {
+    const oldLeadsMap = new Map();
+    oldLeads.forEach(lead => {
+      if (lead && lead.id) oldLeadsMap.set(String(lead.id), lead);
+    });
+    
+    for (const lead of newLeads) {
+      if (!lead || !lead.id) continue;
+      const leadIdStr = String(lead.id);
+      const oldLead = oldLeadsMap.get(leadIdStr);
+      
+      if (!oldLead) {
+        // Lead Created
+        await recordActivity({
+          leadId: lead.id,
+          leadName: lead.name,
+          counselorName: lead.counselor || "",
+          activityType: "Lead Created",
+          actionDescription: `Lead imported/created in bulk`,
+          newValue: `Name: ${lead.name}, Phone: ${lead.phone}, Email: ${lead.email}`,
+          session
+        });
+        if (lead.counselor) {
+          await recordActivity({
+            leadId: lead.id,
+            leadName: lead.name,
+            counselorName: lead.counselor,
+            activityType: "Lead Assigned",
+            actionDescription: `Lead initially assigned to counselor ${lead.counselor}`,
+            newValue: lead.counselor,
+            session
+          });
+        }
+      } else {
+        // Check if counselor changed
+        const oldCounselor = String(oldLead.counselor || "").trim();
+        const newCounselor = String(lead.counselor || "").trim();
+        if (oldCounselor !== newCounselor) {
+          if (!oldCounselor && newCounselor) {
+            await recordActivity({
+              leadId: lead.id,
+              leadName: lead.name,
+              counselorName: newCounselor,
+              activityType: "Lead Assigned",
+              actionDescription: `Lead assigned to counselor ${newCounselor}`,
+              newValue: newCounselor,
+              session
+            });
+          } else {
+            await recordActivity({
+              leadId: lead.id,
+              leadName: lead.name,
+              counselorName: newCounselor,
+              activityType: "Counselor Changed",
+              actionDescription: `Lead counselor reassigned from ${oldCounselor || "Unassigned"} to ${newCounselor || "Unassigned"}`,
+              previousValue: oldCounselor || "Unassigned",
+              newValue: newCounselor || "Unassigned",
+              session
+            });
+          }
+        }
+        
+        // Check status fields
+        const statusFields = [
+          { key: "callStatus", label: "Workshop Call Status" },
+          { key: "wsStatus", label: "Workshop Status" },
+          { key: "postCallStatus", label: "Admission Call Status" },
+          { key: "admissionStatus", label: "Admission Status" },
+          { key: "registeredCallStatus", label: "Registered Candidate Call Status" }
+        ];
+        for (const field of statusFields) {
+          const oldVal = String(oldLead[field.key] || "").trim();
+          const newVal = String(lead[field.key] || "").trim();
+          if (oldVal !== newVal) {
+            await recordActivity({
+              leadId: lead.id,
+              leadName: lead.name,
+              counselorName: newCounselor || lead.counselor || "",
+              activityType: "Status Changed",
+              actionDescription: `${field.label} changed from ${oldVal || "None"} to ${newVal || "None"}`,
+              previousValue: oldVal || "None",
+              newValue: newVal || "None",
+              session
+            });
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Error in logBulkLeadChanges:", error);
+  }
+}
+
 function sanitizeLeadPatch(updates = {}, allowedFields = []) {
   const patch = {};
   allowedFields.forEach((field) => {
@@ -2679,6 +2862,68 @@ app.post("/api/leads/:leadId/activity", async (req, res) => {
     const result = await leadsCollection.updateOne(query, update);
 
     if (result.modifiedCount) {
+      for (const field of Object.keys(patch)) {
+        const oldVal = String(lead[field] || "").trim();
+        const newVal = String(patch[field] || "").trim();
+        if (oldVal !== newVal) {
+          let activityType = "Status Changed";
+          let actionDescription = `Field '${field}' updated from '${oldVal || "None"}' to '${newVal || "None"}'`;
+          
+          if (field === "dialed" || field === "postDialed" || field === "registeredDialed") {
+            if (newVal === "Yes") {
+              activityType = "Call Made";
+              actionDescription = `Call marked as Dialed (stage: ${stage})`;
+            }
+          } else if (field === "callStatus" || field === "postCallStatus" || field === "registeredCallStatus") {
+            activityType = "Call Made";
+            actionDescription = `Call made, status changed to: ${newVal}`;
+          } else if (field === "whatsappInvite") {
+            if (newVal === "Yes") {
+              activityType = "WhatsApp Sent";
+              actionDescription = `WhatsApp invitation sent`;
+            }
+          } else if (field === "coursePitched" || field === "registeredCoursePitched") {
+            activityType = "Course Discussed";
+            actionDescription = `Course pitched status: ${newVal}`;
+          } else if (field === "courseStatus" || field === "registeredCourseStatus") {
+            activityType = "Course Discussed";
+            actionDescription = `Course status changed to: ${newVal}`;
+          } else if (field === "admissionStatus" || field === "registeredAdmissionStatus") {
+            if (newVal === "Joined") {
+              activityType = "Lead Converted";
+              actionDescription = `Lead converted: admission completed!`;
+            } else if (newVal === "Not Interested" || newVal === "Not Joined" || newVal === "Closed") {
+              activityType = "Lead Closed";
+              actionDescription = `Lead closed: status changed to ${newVal}`;
+            } else {
+              activityType = "Status Changed";
+              actionDescription = `Admission status updated to: ${newVal}`;
+            }
+          } else if (field === "wsStatus") {
+            if (newVal === "Interested") {
+              activityType = "Status Changed";
+              actionDescription = `Workshop Status updated: Interested`;
+            } else if (newVal === "Not Interested") {
+              activityType = "Lead Closed";
+              actionDescription = `Workshop Status updated: Not Interested`;
+            }
+          } else if (field === "whatsappGroupStatus") {
+            activityType = "Status Changed";
+            actionDescription = `WhatsApp group status changed to: ${newVal}`;
+          }
+          
+          await recordActivity({
+            leadId: lead.id,
+            leadName: lead.name,
+            counselorName: lead.counselor || "",
+            activityType,
+            actionDescription,
+            previousValue: oldVal || "None",
+            newValue: newVal || "None",
+            session
+          });
+        }
+      }
       await stateCollection.updateOne(
         { _id: STATE_DOC_ID },
         { $set: { updatedAt: new Date().toISOString() } },
@@ -2734,6 +2979,15 @@ app.post("/api/leads/:leadId/notes", async (req, res) => {
       { $push: { leadNotes: note } }
     );
     if (result.modifiedCount) {
+      await recordActivity({
+        leadId: lead.id,
+        leadName: lead.name,
+        counselorName: lead.counselor || "",
+        activityType: "Notes Added",
+        actionDescription: `Added note: "${text}"`,
+        newValue: text,
+        session
+      });
       await stateCollection.updateOne(
         { _id: STATE_DOC_ID },
         { $set: { updatedAt: new Date().toISOString() } },
@@ -2786,6 +3040,16 @@ app.delete("/api/leads/:leadId/notes/:noteIndex", async (req, res) => {
       { $set: { leadNotes: nextNotes } }
     );
     if (result.modifiedCount) {
+      const deletedNoteText = notes[noteIndex]?.text || "";
+      await recordActivity({
+        leadId: lead.id,
+        leadName: lead.name,
+        counselorName: lead.counselor || "",
+        activityType: "Notes Deleted",
+        actionDescription: `Deleted note: "${deletedNoteText}"`,
+        previousValue: deletedNoteText,
+        session
+      });
       await stateCollection.updateOne(
         { _id: STATE_DOC_ID },
         { $set: { updatedAt: new Date().toISOString() } },
@@ -2862,6 +3126,20 @@ app.patch("/api/leads/assignment", async (req, res) => {
       const leadLabel = formatLeadNotificationLabel(lead);
       
       if (oldCounselor.toLowerCase() !== newCounselor.toLowerCase()) {
+        const hasOldCounselor = oldCounselor && oldCounselor.toLowerCase() !== "unassigned";
+        await recordActivity({
+          leadId: lead.id,
+          leadName: lead.name,
+          counselorName: newCounselor,
+          activityType: hasOldCounselor ? "Lead Reassigned" : "Lead Assigned",
+          actionDescription: hasOldCounselor
+            ? `Lead counselor reassigned from ${oldCounselor} to ${newCounselor}`
+            : `Lead assigned to counselor ${newCounselor}`,
+          previousValue: oldCounselor || "Unassigned",
+          newValue: newCounselor,
+          session
+        });
+
         const oldCounselorEmail = counselorEmailByName.get(oldCounselor.toLowerCase());
         const newCounselorEmail = counselorEmailByName.get(newCounselor.toLowerCase());
 
@@ -2933,6 +3211,16 @@ app.post("/api/tasks", async (req, res) => {
     if (!result.insertedId) {
       return res.status(409).json({ message: "Task could not be created. Please reload and retry." });
     }
+
+    await recordActivity({
+      leadId: task.leadId,
+      leadName: task.leadName,
+      counselorName: task.leadCounselor || task.counselor || "",
+      activityType: "Follow-Up Added",
+      actionDescription: `Follow-up task created: "${task.title}" (Due: ${task.dueDate})`,
+      newValue: `Title: ${task.title}, Due: ${task.dueDate}, Notes: ${task.notes || "None"}`,
+      session
+    });
 
     const now = new Date().toISOString();
     await stateCollection.updateOne(
@@ -3017,6 +3305,22 @@ app.delete("/api/tasks/:taskId", async (req, res) => {
       return res.status(409).json({ message: "Task changed before it could be removed. Please reload and retry." });
     }
 
+    const isCompleted = req.query.completed === "true";
+    const activityType = isCompleted ? "Follow-Up Completed" : "Follow-Up Removed";
+    const actionDescription = isCompleted
+      ? `Follow-up task completed: "${existingTask.title}"`
+      : `Follow-up task removed: "${existingTask.title}"`;
+
+    await recordActivity({
+      leadId: existingTask.leadId,
+      leadName: existingTask.leadName,
+      counselorName: existingTask.leadCounselor || existingTask.counselor || "",
+      activityType,
+      actionDescription,
+      previousValue: `Title: ${existingTask.title}, Due: ${existingTask.dueDate}`,
+      session
+    });
+
     const now = new Date().toISOString();
     await stateCollection.updateOne(
       { _id: STATE_DOC_ID },
@@ -3096,6 +3400,8 @@ app.put("/api/state", async (req, res) => {
 
     const now = new Date().toISOString();
     if (Array.isArray(sanitized.leads)) {
+      const currentLeads = Array.isArray(currentState.leads) ? currentState.leads : [];
+      await logBulkLeadChanges(currentLeads, preparedLeads, session);
       await leadsCollection.deleteMany({});
       if (preparedLeads.length) {
         await leadsCollection.insertMany(preparedLeads);
@@ -3181,6 +3487,102 @@ app.get("/api/leads", async (req, res) => {
   }
 });
 
+function escapeRegExp(string) {
+  return String(string || "").replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+app.get("/api/activity-logs", async (req, res) => {
+  try {
+    const session = await requireSession(req, res);
+    if (!session) return;
+
+    const state = await getStateDoc();
+    const query = {};
+
+    // 1. Enforce counselor scoping permissions
+    if (session.role === "counselor") {
+      const counselorName = getSessionCounselorName(state, session);
+      const targetLeadId = String(req.query.leadId || "").trim();
+      if (targetLeadId) {
+        const lead = findLeadByIdentity(state, targetLeadId);
+        if (!lead || !canViewLeadActivity(session, state, lead)) {
+          return res.status(403).json({ message: "Access denied. You can only view activity logs of leads assigned to you." });
+        }
+        query.leadId = targetLeadId;
+      } else {
+        query.$or = [
+          { counselorName: { $regex: new RegExp("^" + escapeRegExp(counselorName) + "$", "i") } },
+          { performedBy: { $regex: new RegExp("^" + escapeRegExp(session.name || session.email || "") + "$", "i") } }
+        ];
+      }
+    } else if (session.role === "admin" || session.role === "marketing") {
+      const targetLeadId = String(req.query.leadId || "").trim();
+      if (targetLeadId) {
+        query.leadId = targetLeadId;
+      }
+    } else {
+      return res.status(403).json({ message: "Access denied." });
+    }
+
+    // 2. Parse extra filters
+    const { startDate, endDate, counselorName, activityType, performedBy, search } = req.query;
+
+    if (startDate || endDate) {
+      query.date = {};
+      if (startDate) query.date.$gte = String(startDate);
+      if (endDate) query.date.$lte = String(endDate);
+    }
+
+    if (counselorName) {
+      query.counselorName = { $regex: new RegExp("^" + escapeRegExp(String(counselorName).trim()) + "$", "i") };
+    }
+
+    if (activityType) {
+      query.activityType = String(activityType).trim();
+    }
+
+    if (performedBy) {
+      query.performedBy = { $regex: new RegExp(escapeRegExp(String(performedBy).trim()), "i") };
+    }
+
+    if (search) {
+      const escapedSearch = escapeRegExp(String(search).trim());
+      query.$and = query.$and || [];
+      query.$and.push({
+        $or: [
+          { actionDescription: { $regex: new RegExp(escapedSearch, "i") } },
+          { leadName: { $regex: new RegExp(escapedSearch, "i") } },
+          { remarks: { $regex: new RegExp(escapedSearch, "i") } }
+        ]
+      });
+    }
+
+    // 3. Pagination
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 20));
+    const skip = (page - 1) * limit;
+
+    const logs = await activityLogsCollection
+      .find(query)
+      .sort({ timestamp: -1 })
+      .skip(skip)
+      .limit(limit)
+      .toArray();
+
+    const total = await activityLogsCollection.countDocuments(query);
+
+    res.json({
+      logs,
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit)
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch activity logs", details: error.message });
+  }
+});
+
 app.put("/api/leads", async (req, res) => {
   try {
     const session = await requireRole(req, res, ["admin", "counselor"]);
@@ -3199,13 +3601,15 @@ app.put("/api/leads", async (req, res) => {
         leadId: duplicateViolation.lead?.id || null
       });
     }
-    const preparedLeads = decorateLeadListForStorage(req.body);
-    const now = new Date().toISOString();
-    await leadsCollection.deleteMany({});
-    if (preparedLeads.length) {
-      await leadsCollection.insertMany(preparedLeads);
-      await syncLeadSequence().catch(() => undefined);
-    }
+     const preparedLeads = decorateLeadListForStorage(req.body);
+     const currentLeads = Array.isArray(currentState.leads) ? currentState.leads : [];
+     await logBulkLeadChanges(currentLeads, preparedLeads, session);
+     const now = new Date().toISOString();
+     await leadsCollection.deleteMany({});
+     if (preparedLeads.length) {
+       await leadsCollection.insertMany(preparedLeads);
+       await syncLeadSequence().catch(() => undefined);
+     }
     await stateCollection.updateOne(
       { _id: STATE_DOC_ID },
       { $set: { updatedAt: now } },
@@ -3423,6 +3827,24 @@ async function insertMetaLeadIfNew(leadgenId, newLead) {
     }
     try {
       await leadsCollection.insertOne(decorateLeadDuplicateKeys(newLead));
+      await recordActivity({
+        leadId: newLead.id,
+        leadName: newLead.name,
+        counselorName: newLead.counselor || "",
+        activityType: "Lead Created",
+        actionDescription: `Lead created from Meta Webhook (Leadgen ID: ${leadgenId})`,
+        newValue: `Name: ${newLead.name}, Phone: ${newLead.phone}, Email: ${newLead.email}`
+      });
+      if (newLead.counselor) {
+        await recordActivity({
+          leadId: newLead.id,
+          leadName: newLead.name,
+          counselorName: newLead.counselor,
+          activityType: "Lead Assigned",
+          actionDescription: `Lead initially assigned to counselor ${newLead.counselor}`,
+          newValue: newLead.counselor
+        });
+      }
     } catch (error) {
       if (Number(error?.code) === 11000) {
         return { modifiedCount: 0, upsertedCount: 0 };

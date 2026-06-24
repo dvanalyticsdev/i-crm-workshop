@@ -149,7 +149,7 @@ function renderTaskTable(tasks, emptyMessage) {
 }
 
 async function completeTask(taskId) {
-  const result = await deleteTask(taskId);
+  const result = await deleteTask(taskId, true);
   if (!result || result.ok === false) {
     showToast(result?.message || "Failed to complete task. Please check your connection and try again.", true);
     return;
@@ -163,7 +163,7 @@ async function removeTask(taskId) {
     return;
   }
 
-  const result = await deleteTask(taskId);
+  const result = await deleteTask(taskId, false);
   if (!result || result.ok === false) {
     showToast(result?.message || "Failed to remove task. Please check your connection and try again.", true);
     return;
