@@ -29,6 +29,7 @@ const MAX_META_LOGS = 200;
 const SESSION_COOKIE_NAME = "dvWorkshopSession";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const FORWARDED_WEBHOOK_HEADER = "x-dv-webhook-forwarded";
+const FORWARDED_WEBHOOK_SIGNATURE_HEADER = "x-dv-webhook-signature";
 const META_LEAD_FETCH_TIMEOUT_MS = 20000;
 const META_LEAD_FETCH_MAX_ATTEMPTS = 3;
 const META_RETRY_JOB_MAX_ATTEMPTS = 10;
@@ -765,6 +766,11 @@ function verifyWebhookSignature(rawBody, signatureHeader, appSecret) {
   }
 }
 
+function signWebhookPayload(rawBody, appSecret) {
+  if (!appSecret) return "";
+  return `sha256=${crypto.createHmac("sha256", appSecret).update(rawBody).digest("hex")}`;
+}
+
 function parseMetaWebhookBody(rawBody) {
   if (!rawBody) return null;
 
@@ -917,6 +923,10 @@ async function forwardMetaWebhook(req, fallbackBody) {
   const body = rawBody && rawBody.length
     ? rawBody
     : Buffer.from(JSON.stringify(fallbackBody || {}), "utf8");
+  const config = await getMetaConfig().catch(() => null);
+  const forwardedSignature = config?.appSecret
+    ? signWebhookPayload(body, config.appSecret)
+    : "";
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000);
 
@@ -926,7 +936,8 @@ async function forwardMetaWebhook(req, fallbackBody) {
       headers: {
         "Content-Type": req.headers["content-type"] || "application/json",
         "X-Hub-Signature-256": req.headers["x-hub-signature-256"] || "",
-        [FORWARDED_WEBHOOK_HEADER]: "1"
+        [FORWARDED_WEBHOOK_HEADER]: "1",
+        [FORWARDED_WEBHOOK_SIGNATURE_HEADER]: forwardedSignature
       },
       body,
       signal: controller.signal
@@ -1042,8 +1053,23 @@ async function processMetaWebhookPayload(req, body) {
   if (config.appSecret) {
     const sig = req.headers["x-hub-signature-256"] || "";
     const rawBuf = req.rawBody;
-    if (!rawBuf || !verifyWebhookSignature(rawBuf, sig, config.appSecret)) {
-      await saveMetaLog({ type: "error", message: "Signature verification failed", headers: { sig } });
+    const isForwarded = String(req.headers?.[FORWARDED_WEBHOOK_HEADER] || "") === "1";
+    const forwardedSig = req.headers?.[FORWARDED_WEBHOOK_SIGNATURE_HEADER] || "";
+    const trustedForward = isForwarded
+      && !!rawBuf
+      && verifyWebhookSignature(rawBuf, forwardedSig, config.appSecret);
+    const trustedDirect = !!rawBuf
+      && verifyWebhookSignature(rawBuf, sig, config.appSecret);
+    if (!trustedForward && !trustedDirect) {
+      await saveMetaLog({
+        type: "error",
+        message: "Signature verification failed",
+        headers: {
+          sig,
+          forwarded: isForwarded ? "1" : "0",
+          forwardedSignaturePresent: forwardedSig ? "1" : "0"
+        }
+      });
       return;
     }
   }

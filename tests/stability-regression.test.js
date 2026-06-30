@@ -243,6 +243,17 @@ test("meta duplicate blocking loads real leads and restore rejects duplicate sna
   assert.match(server, /function decorateLeadDuplicateKeys/);
 });
 
+test("forwarded Meta webhooks carry an internal signature and do not rely only on the original Meta header", () => {
+  const server = read("server.js");
+
+  assert.match(server, /const FORWARDED_WEBHOOK_SIGNATURE_HEADER = "x-dv-webhook-signature"/);
+  assert.match(server, /function signWebhookPayload\(rawBody, appSecret\)/);
+  assert.match(server, /\[FORWARDED_WEBHOOK_SIGNATURE_HEADER\]: forwardedSignature/);
+  assert.match(server, /const forwardedSig = req\.headers\?\.\[FORWARDED_WEBHOOK_SIGNATURE_HEADER\] \|\| ""/);
+  assert.match(server, /const trustedForward = isForwarded/);
+  assert.match(server, /if \(!trustedForward && !trustedDirect\)/);
+});
+
 test("task service uses atomic task endpoints", () => {
   const server = read("server.js");
   const taskService = read("task-service.js");
