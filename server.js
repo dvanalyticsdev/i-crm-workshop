@@ -105,6 +105,13 @@ app.get("/favicon.ico", (_req, res) => {
 
 // Compress all responses ≥ 1 KB — dramatically reduces /api/state payload size.
 app.use(compress({ threshold: 1024 }));
+app.use("/api/meta/webhook", express.raw({
+  type: "*/*",
+  limit: "25mb",
+  verify: (req, _res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 app.use(express.json({
   limit: "25mb",
   verify: (req, _res, buf) => {
@@ -794,6 +801,19 @@ function parseMetaWebhookBody(rawBody) {
   }
 }
 
+function parseMetaWebhookRequestBody(req) {
+  if (Buffer.isBuffer(req.body)) {
+    return parseMetaWebhookBody(req.body);
+  }
+  if (req.rawBody) {
+    return parseMetaWebhookBody(req.rawBody);
+  }
+  if (req.body && typeof req.body === "object") {
+    return req.body;
+  }
+  return null;
+}
+
 function normalizeMetaLabel(value) {
   return String(value || "")
     .replace(/[_-]+/g, " ")
@@ -1063,11 +1083,13 @@ async function processMetaWebhookPayload(req, body) {
     if (!trustedForward && !trustedDirect) {
       await saveMetaLog({
         type: "error",
-        message: "Signature verification failed",
+        message: `Signature verification failed (${isForwarded ? "forwarded" : "direct"} request; rawBody=${rawBuf ? "present" : "missing"})`,
         headers: {
           sig,
           forwarded: isForwarded ? "1" : "0",
-          forwardedSignaturePresent: forwardedSig ? "1" : "0"
+          forwardedSignaturePresent: forwardedSig ? "1" : "0",
+          contentType: String(req.headers?.["content-type"] || ""),
+          rawBodyLength: rawBuf ? String(rawBuf.length) : "0"
         }
       });
       return;
@@ -1182,7 +1204,7 @@ app.post("/api/meta/webhook", async (req, res) => {
   res.status(200).json({ ok: true });
 
   try {
-    const body = req.body || {};
+    const body = parseMetaWebhookRequestBody(req) || {};
 
     if (shouldForwardMetaWebhook(req)) {
       try {

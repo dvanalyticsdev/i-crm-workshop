@@ -248,9 +248,12 @@ test("forwarded Meta webhooks carry an internal signature and do not rely only o
 
   assert.match(server, /const FORWARDED_WEBHOOK_SIGNATURE_HEADER = "x-dv-webhook-signature"/);
   assert.match(server, /function signWebhookPayload\(rawBody, appSecret\)/);
+  assert.match(server, /app\.use\("\/api\/meta\/webhook", express\.raw\(/);
+  assert.match(server, /function parseMetaWebhookRequestBody\(req\)/);
   assert.match(server, /\[FORWARDED_WEBHOOK_SIGNATURE_HEADER\]: forwardedSignature/);
   assert.match(server, /const forwardedSig = req\.headers\?\.\[FORWARDED_WEBHOOK_SIGNATURE_HEADER\] \|\| ""/);
   assert.match(server, /const trustedForward = isForwarded/);
+  assert.match(server, /Signature verification failed \(\$\{isForwarded \? "forwarded" : "direct"\} request; rawBody=\$\{rawBuf \? "present" : "missing"\}\)/);
   assert.match(server, /if \(!trustedForward && !trustedDirect\)/);
 });
 
