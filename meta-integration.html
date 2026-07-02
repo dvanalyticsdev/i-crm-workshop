@@ -232,7 +232,7 @@
                   <span id="appSecretStatus" class="cred-status cred-status--err">Not set</span>
                 </label>
                 <div class="input-btn-row">
-                  <input id="appSecretInput" type="password" placeholder="Leave blank to keep existing" autocomplete="off" />
+                  <input id="appSecretInput" type="password" name="meta-app-secret" placeholder="Leave blank to keep existing" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" />
                   <button type="button" class="btn-secondary toggle-secret-btn" data-target="appSecretInput">Show</button>
                 </div>
                 <p class="field-hint">Found in Meta App Dashboard → Settings → Basic.</p>
@@ -244,7 +244,7 @@
                   <span id="pageAccessTokenStatus" class="cred-status cred-status--err">Not set</span>
                 </label>
                 <div class="input-btn-row">
-                  <input id="pageAccessTokenInput" type="password" placeholder="Leave blank to keep existing" autocomplete="off" />
+                  <input id="pageAccessTokenInput" type="password" name="meta-page-access-token" placeholder="Leave blank to keep existing" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" />
                   <button type="button" class="btn-secondary toggle-secret-btn" data-target="pageAccessTokenInput">Show</button>
                 </div>
                 <p class="field-hint">Long-lived token with <code>leads_retrieval</code> permission.</p>

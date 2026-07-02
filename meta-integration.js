@@ -471,6 +471,17 @@ document.querySelectorAll(".toggle-secret-btn").forEach((btn) => {
   });
 });
 
+// Keep secret inputs from being treated like login password fields by browsers/password managers.
+[appSecretInput, pageAccessTokenInput].forEach((input) => {
+  if (!input) return;
+  input.readOnly = true;
+  const unlockInput = () => {
+    input.readOnly = false;
+  };
+  input.addEventListener("focus", unlockInput, { once: true });
+  input.addEventListener("pointerdown", unlockInput, { once: true });
+});
+
 // ── Event bindings ────────────────────────────────────────────────────────────
 
 copyWebhookUrlBtn.addEventListener("click", async () => {
