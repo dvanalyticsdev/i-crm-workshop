@@ -146,32 +146,12 @@ function renderCourseAccordion(course) {
   if (!accordionContainer) return;
 
   const sections = Array.isArray(course.sections) ? course.sections : [];
-  const allSections = [
-    ...sections,
-    {
-      title: "Program Fee",
-      isFeeSection: true
-    }
-  ];
 
-  accordionContainer.innerHTML = allSections.map((section, index) => {
+  accordionContainer.innerHTML = sections.map((section, index) => {
     const isFirst = index === 0;
     
     let contentHtml = "";
-    if (section.isFeeSection) {
-      contentHtml = `
-        <div class="modal-price-banner" style="margin: 0; background: var(--surface); border: 1px dashed var(--border-strong);">
-          <div class="price-banner-item">
-            <span class="price-banner-label">INR Price (incl. 18% GST)</span>
-            <strong class="price-banner-val">${escapeHtml(formatInr(course.price.totalInr))}</strong>
-          </div>
-          <div class="price-banner-item">
-            <span class="price-banner-label">AED Price</span>
-            <strong class="price-banner-val">${escapeHtml(formatAed(course.price.totalAed))}</strong>
-          </div>
-        </div>
-      `;
-    } else if (isCurriculumSection(section)) {
+    if (isCurriculumSection(section)) {
       contentHtml = renderCurriculumSection(section);
     } else {
       contentHtml = `
