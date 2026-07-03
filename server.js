@@ -1750,13 +1750,16 @@ app.put("/api/public-course-routing", async (req, res) => {
     const selectedCounselors = Array.isArray(req.body?.selectedCounselors)
       ? req.body.selectedCounselors.map((name) => String(name || "").trim()).filter(Boolean)
       : [];
+    const isConfigured = typeof req.body?.isConfigured === "boolean"
+      ? req.body.isConfigured
+      : selectedCounselors.length > 0;
 
     const now = new Date().toISOString();
     await preferenceCollection.updateOne(
       { ownerKey: PUBLIC_COURSE_ROUTING_OWNER, scope: PUBLIC_COURSE_ROUTING_SCOPE },
       {
         $set: {
-          value: { selectedCounselors },
+          value: { selectedCounselors, isConfigured },
           updatedAt: now
         },
         $setOnInsert: {
@@ -1768,7 +1771,7 @@ app.put("/api/public-course-routing", async (req, res) => {
       { upsert: true }
     );
 
-    return res.json({ ok: true, selectedCounselors });
+    return res.json({ ok: true, selectedCounselors, isConfigured });
   } catch (error) {
     return res.status(500).json({ message: "Failed to save public course routing", details: error.message });
   }
@@ -1813,9 +1816,13 @@ async function getPublicCourseRoutingConfig() {
   const selectedCounselors = Array.isArray(preference?.value?.selectedCounselors)
     ? preference.value.selectedCounselors.map((name) => String(name || "").trim()).filter(Boolean)
     : [];
+  const isConfigured = typeof preference?.value?.isConfigured === "boolean"
+    ? preference.value.isConfigured
+    : selectedCounselors.length > 0;
 
   return {
-    selectedCounselors
+    selectedCounselors,
+    isConfigured
   };
 }
 
@@ -1824,11 +1831,13 @@ function isCounselorEligibleForCourseRegistrations(counselor) {
 }
 
 async function assignPublicCourseCounselorRoundRobin(counselors = []) {
-  const routingConfig = await getPublicCourseRoutingConfig().catch(() => ({ selectedCounselors: [] }));
+  const routingConfig = await getPublicCourseRoutingConfig().catch(() => ({ selectedCounselors: [], isConfigured: false }));
   const selectedCounselorSet = new Set(routingConfig.selectedCounselors.map((name) => name.toLowerCase()));
-  const activeCounselors = (Array.isArray(counselors) ? counselors : [])
-    .filter(isCounselorEligibleForCourseRegistrations)
-    .filter((counselor) => !selectedCounselorSet.size || selectedCounselorSet.has(String(counselor.name || "").trim().toLowerCase()));
+  const eligibleCounselors = (Array.isArray(counselors) ? counselors : [])
+    .filter(isCounselorEligibleForCourseRegistrations);
+  const activeCounselors = routingConfig.isConfigured
+    ? eligibleCounselors.filter((counselor) => selectedCounselorSet.has(String(counselor.name || "").trim().toLowerCase()))
+    : eligibleCounselors;
   if (!activeCounselors.length) {
     return "Unassigned";
   }

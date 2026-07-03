@@ -64,7 +64,7 @@ const pageSize = 50;
 let selectedLeadKeys = new Set();
 let activeLeadRef = null;
 let notesLeadRef = null;
-let registeredRoutingConfig = { selectedCounselors: [] };
+let registeredRoutingConfig = { selectedCounselors: [], isConfigured: false };
 let registeredActivityModalMode = "edit";
 
 function persistFilters() {
@@ -206,7 +206,13 @@ function getEffectiveRegisteredRoutingSelection(counselorNames) {
   const selectedCounselors = Array.isArray(registeredRoutingConfig.selectedCounselors)
     ? registeredRoutingConfig.selectedCounselors.map((name) => String(name || "").trim()).filter(Boolean)
     : [];
-  const validSelected = counselorNames.filter((name) => selectedCounselors.includes(name));
+  const selectedCounselorSet = new Set(selectedCounselors.map((name) => name.toLowerCase()));
+  const validSelected = counselorNames.filter((name) => selectedCounselorSet.has(String(name || "").trim().toLowerCase()));
+
+  if (registeredRoutingConfig.isConfigured) {
+    return validSelected;
+  }
+
   return validSelected.length ? validSelected : counselorNames;
 }
 
@@ -270,7 +276,8 @@ async function loadRegisteredRoutingConfig() {
     }
 
     registeredRoutingConfig = {
-      selectedCounselors: Array.isArray(json?.selectedCounselors) ? json.selectedCounselors : []
+      selectedCounselors: Array.isArray(json?.selectedCounselors) ? json.selectedCounselors : [],
+      isConfigured: Boolean(json?.isConfigured)
     };
     renderRegisteredRoutingPanel();
   } catch {
@@ -295,7 +302,7 @@ async function saveRegisteredRoutingConfig() {
         "Content-Type": "application/json",
         Accept: "application/json"
       },
-      body: JSON.stringify({ selectedCounselors })
+      body: JSON.stringify({ selectedCounselors, isConfigured: true })
     });
     const json = await response.json().catch(() => ({}));
 
@@ -305,7 +312,8 @@ async function saveRegisteredRoutingConfig() {
     }
 
     registeredRoutingConfig = {
-      selectedCounselors: Array.isArray(json?.selectedCounselors) ? json.selectedCounselors : selectedCounselors
+      selectedCounselors: Array.isArray(json?.selectedCounselors) ? json.selectedCounselors : selectedCounselors,
+      isConfigured: Boolean(json?.isConfigured ?? true)
     };
     renderRegisteredRoutingPanel();
     setRoutingMessage("Registered candidate routing saved successfully.");
@@ -336,7 +344,7 @@ async function clearRegisteredCandidateData() {
         "Content-Type": "application/json",
         Accept: "application/json"
       },
-      body: JSON.stringify({ selectedCounselors: [] })
+      body: JSON.stringify({ selectedCounselors: [], isConfigured: false })
     });
     const json = await response.json().catch(() => ({}));
 
@@ -355,7 +363,7 @@ async function clearRegisteredCandidateData() {
     return;
   }
 
-  registeredRoutingConfig = { selectedCounselors: [] };
+  registeredRoutingConfig = { selectedCounselors: [], isConfigured: false };
   selectedLeadKeys = new Set();
   currentPage = 1;
   renderRegisteredRoutingPanel();

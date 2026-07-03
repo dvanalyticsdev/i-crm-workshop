@@ -206,6 +206,7 @@ test("lead imports reject duplicates instead of merging", () => {
 test("public course registrations keep master CRM leads and independently refresh registered-section entries", () => {
   const server = read("server.js");
   const courses = read("courses.js");
+  const registeredCandidates = read("registered-candidates.js");
 
   assert.match(server, /alreadyRegistered: true/);
   assert.match(server, /You have already registered for this course\./);
@@ -225,8 +226,12 @@ test("public course registrations keep master CRM leads and independently refres
   assert.match(server, /function findDuplicateRegisteredLeadByEmailOrPhone/);
   assert.match(server, /if \(digits\.length === 12 && digits\.startsWith\("91"\)\)/);
   assert.match(server, /return digits\.slice\(-10\);/);
+  assert.match(server, /const isConfigured = typeof preference\?\.value\?\.isConfigured === "boolean"/);
+  assert.match(server, /const activeCounselors = routingConfig\.isConfigured/);
   assert.match(courses, /if \(data\?\.alreadyRegistered\)/);
   assert.match(courses, /setFormMessage\(data\?\.message \|\| "You have already registered for this course\.", false\)/);
+  assert.match(registeredCandidates, /let registeredRoutingConfig = \{ selectedCounselors: \[\], isConfigured: false \};/);
+  assert.match(registeredCandidates, /if \(registeredRoutingConfig\.isConfigured\) \{\s*return validSelected;\s*\}/);
 });
 
 test("meta duplicate blocking loads real leads and restore rejects duplicate snapshots", () => {
