@@ -608,6 +608,7 @@ function renderLeadTable(leads) {
             <th>Phone Number</th>
             <th>Email</th>
             <th>Course Name</th>
+            <th>Country</th>
             <th>Counselor</th>
             <th>Activity</th>
           </tr>
@@ -621,10 +622,11 @@ function renderLeadTable(leads) {
               <td>${escapeHtml(lead.phone || "-")}</td>
               <td>${escapeHtml(lead.email)}</td>
               <td>${escapeHtml(lead.courseName)}</td>
+              <td>${escapeHtml(lead.country || "India")}</td>
               <td>${escapeHtml(lead.counselor || "Unassigned")}</td>
               <td>${renderActivityPanel(lead)}</td>
             </tr>
-          `).join("") : `<tr><td colspan="${isAdmin ? 8 : 7}">No registered candidates available for current filters.</td></tr>`}
+          `).join("") : `<tr><td colspan="${isAdmin ? 9 : 8}">No registered candidates available for current filters.</td></tr>`}
         </tbody>
       </table>
     </div>

@@ -43,7 +43,8 @@ const PUBLIC_COURSE_CATALOG = [
   { id: "advanced-aiml-genai-agentic", code: "AIML + GenAI", name: "Advanced AIML with Gen AI & Agentic AI", duration: "4 Months" },
   { id: "master-genai-agentic", code: "GenAI Master", name: "Master Program in Gen AI & Agentic AI", duration: "3 Months" },
   { id: "data-analytics-specialist", code: "DAS", name: "Data Analytics Specialist", duration: "3 Months" },
-  { id: "apcs", code: "APCS", name: "Advanced Program in Cybersecurity & Forensics", duration: "3-4 Months" }
+  { id: "apcs", code: "APCS", name: "Advanced Program in Cybersecurity & Forensics", duration: "3-4 Months" },
+  { id: "days7_genai", code: "7DAYS_GENAI", name: "7 Days Gen AI & Agentic AI Hands-on Master Program", duration: "7 Days" }
 ];
 
 const ADMIN_USER = {
@@ -505,162 +506,181 @@ async function initMongo() {
     return;
   }
 
-  if (!MONGODB_URI) {
-    throw new Error("Missing MONGODB_URI in environment.");
-  }
-
   if (!mongoInitPromise) {
     mongoInitPromise = (async () => {
-      mongoClient = new MongoClient(MONGODB_URI, {
-        // Larger pool so concurrent serverless invocations don't queue waiting
-        // for a connection. In serverless, avoid forcing warm connections
-        // because they can create intermittent TLS/connect stalls.
-        maxPoolSize: 10,
-        minPoolSize: 0,
-        // Fail fast on cold starts rather than hanging for 30 s.
-        serverSelectionTimeoutMS: 8000,
-        connectTimeoutMS: 8000,
-        // Generous socket timeout for high-latency or slow-network writes.
-        socketTimeoutMS: 45000,
-        maxIdleTimeMS: 30000,
-        retryReads: false,
-        retryWrites: false
-      });
-      await mongoClient.connect();
-      const db = mongoClient.db(MONGODB_DB_NAME);
-      stateCollection      = db.collection(MONGODB_STATE_COLLECTION);
-      sessionCollection    = db.collection(MONGODB_SESSION_COLLECTION);
-      preferenceCollection = db.collection(MONGODB_PREFERENCE_COLLECTION);
-      metaConfigCollection = db.collection(MONGODB_META_CONFIG_COLLECTION);
-      metaLogsCollection   = db.collection(MONGODB_META_LOGS_COLLECTION);
-      metaRetryCollection  = db.collection(MONGODB_META_RETRY_COLLECTION);
-
-      leadsCollection      = db.collection("leads");
-      counselorsCollection = db.collection("counselors");
-      tasksCollection      = db.collection("tasks");
-      allocationCollection = db.collection("allocation");
-      notificationsCollection = db.collection("notifications");
-      activityLogsCollection  = db.collection("activity_logs");
-
-      // Ensure indexes for activity_logs
-      await activityLogsCollection.createIndex({ leadId: 1, timestamp: -1 }, { background: true }).catch(() => undefined);
-      await activityLogsCollection.createIndex({ counselorName: 1, timestamp: -1 }, { background: true }).catch(() => undefined);
-      await activityLogsCollection.createIndex({ activityType: 1, timestamp: -1 }, { background: true }).catch(() => undefined);
-      await activityLogsCollection.createIndex({ performedBy: 1, timestamp: -1 }, { background: true }).catch(() => undefined);
-      await activityLogsCollection.createIndex({ timestamp: -1 }, { background: true }).catch(() => undefined);
-
-      // Ensure indexes
-      await sessionCollection.createIndex(
-        { token: 1 },
-        { unique: true, background: true }
-      ).catch(() => undefined);
-      await metaLogsCollection.createIndex(
-        { receivedAt: -1 },
-        { background: true }
-      ).catch(() => undefined);
-      await metaRetryCollection.createIndex(
-        { leadgenId: 1 },
-        { unique: true, background: true }
-      ).catch(() => undefined);
-      await metaRetryCollection.createIndex(
-        { nextAttemptAt: 1 },
-        { background: true }
-      ).catch(() => undefined);
-
-      await leadsCollection.createIndex({ id: 1 }, { unique: true, background: true }).catch(() => undefined);
-      await leadsCollection.createIndex(
-        { metaLeadId: 1 },
-        {
-          unique: true,
-          background: true,
-          partialFilterExpression: { metaLeadId: { $exists: true, $type: "string" } }
-        }
-      ).catch(() => undefined);
-      await leadsCollection.dropIndex("normalizedEmail_1").catch(() => undefined);
-      await leadsCollection.dropIndex("normalizedPhone_1").catch(() => undefined);
-      await leadsCollection.createIndex(
-        { normalizedEmail: 1 },
-        {
-          name: "normalizedEmail_1",
-          unique: true,
-          background: true,
-          partialFilterExpression: {
-            normalizedEmail: { $exists: true, $type: "string" },
-            leadPipeline: { $ne: "course-registration" }
-          }
-        }
-      ).catch(() => undefined);
-      await leadsCollection.createIndex(
-        { normalizedPhone: 1 },
-        {
-          name: "normalizedPhone_1",
-          unique: true,
-          background: true,
-          partialFilterExpression: {
-            normalizedPhone: { $exists: true, $type: "string" },
-            leadPipeline: { $ne: "course-registration" }
-          }
-        }
-      ).catch(() => undefined);
-      await leadsCollection.createIndex({ email: 1 }, { background: true }).catch(() => undefined);
-      await leadsCollection.createIndex({ phone: 1 }, { background: true }).catch(() => undefined);
-      await tasksCollection.createIndex({ id: 1 }, { unique: true, background: true }).catch(() => undefined);
-      await counselorsCollection.createIndex({ email: 1 }, { unique: true, background: true }).catch(() => undefined);
-      await notificationsCollection.createIndex({ userId: 1, read: 1 }, { background: true }).catch(() => undefined);
-
-      // One-time automatic schema migration
       try {
-        const globalDoc = await stateCollection.findOne({ _id: STATE_DOC_ID });
-        if (globalDoc && (Array.isArray(globalDoc.leads) || Array.isArray(globalDoc.counselors) || Array.isArray(globalDoc.tasks) || Array.isArray(globalDoc.allocation))) {
-          console.log("Migrating database schema to normalized collections...");
-          
-          if (Array.isArray(globalDoc.leads) && globalDoc.leads.length) {
-            const leadsMap = new Map();
-            globalDoc.leads.forEach(lead => {
-              if (lead && lead.id) leadsMap.set(String(lead.id), lead);
-            });
-            const uniqueLeads = decorateLeadListForStorage(Array.from(leadsMap.values()));
-            await leadsCollection.insertMany(uniqueLeads, { ordered: false }).catch(() => undefined);
-          }
-          
-          if (Array.isArray(globalDoc.counselors) && globalDoc.counselors.length) {
-            const counselorsMap = new Map();
-            globalDoc.counselors.forEach(counselor => {
-              if (counselor && counselor.email) counselorsMap.set(counselor.email.toLowerCase(), counselor);
-            });
-            const uniqueCounselors = Array.from(counselorsMap.values());
-            await counselorsCollection.insertMany(uniqueCounselors, { ordered: false }).catch(() => undefined);
-          }
-          
-          if (Array.isArray(globalDoc.tasks) && globalDoc.tasks.length) {
-            const tasksMap = new Map();
-            globalDoc.tasks.forEach(task => {
-              if (task && task.id) tasksMap.set(String(task.id), task);
-            });
-            const uniqueTasks = Array.from(tasksMap.values());
-            await tasksCollection.insertMany(uniqueTasks, { ordered: false }).catch(() => undefined);
-          }
-          
-          if (Array.isArray(globalDoc.allocation) && globalDoc.allocation.length) {
-            await allocationCollection.insertMany(globalDoc.allocation).catch(() => undefined);
-          }
-          
-          await stateCollection.updateOne(
-            { _id: STATE_DOC_ID },
-            { $unset: { leads: "", counselors: "", tasks: "", allocation: "" } }
-          );
-          console.log("Database schema migration completed successfully!");
+        if (!MONGODB_URI) {
+          throw new Error("Missing MONGODB_URI in environment.");
         }
-      } catch (migrationError) {
-        console.error("Database schema migration failed:", migrationError.message);
-      }
+        mongoClient = new MongoClient(MONGODB_URI, {
+          // Larger pool so concurrent serverless invocations don't queue waiting
+          // for a connection. In serverless, avoid forcing warm connections
+          // because they can create intermittent TLS/connect stalls.
+          maxPoolSize: 10,
+          minPoolSize: 0,
+          // Fail fast on cold starts rather than hanging for 30 s.
+          serverSelectionTimeoutMS: 4000,
+          connectTimeoutMS: 4000,
+          // Generous socket timeout for high-latency or slow-network writes.
+          socketTimeoutMS: 45000,
+          maxIdleTimeMS: 30000,
+          retryReads: false,
+          retryWrites: false
+        });
+        await mongoClient.connect();
+        const db = mongoClient.db(MONGODB_DB_NAME);
+        stateCollection      = db.collection(MONGODB_STATE_COLLECTION);
+        sessionCollection    = db.collection(MONGODB_SESSION_COLLECTION);
+        preferenceCollection = db.collection(MONGODB_PREFERENCE_COLLECTION);
+        metaConfigCollection = db.collection(MONGODB_META_CONFIG_COLLECTION);
+        metaLogsCollection   = db.collection(MONGODB_META_LOGS_COLLECTION);
+        metaRetryCollection  = db.collection(MONGODB_META_RETRY_COLLECTION);
 
-      // Always ensure the lead ID sequence is in sync with the actual leads at startup
-      await syncLeadSequence().catch(() => undefined);
-    })().catch(async (error) => {
-      await resetMongoConnection();
-      throw error;
-    });
+        leadsCollection      = db.collection("leads");
+        counselorsCollection = db.collection("counselors");
+        tasksCollection      = db.collection("tasks");
+        allocationCollection = db.collection("allocation");
+        notificationsCollection = db.collection("notifications");
+        activityLogsCollection  = db.collection("activity_logs");
+
+        // Ensure indexes for activity_logs
+        await activityLogsCollection.createIndex({ leadId: 1, timestamp: -1 }, { background: true }).catch(() => undefined);
+        await activityLogsCollection.createIndex({ counselorName: 1, timestamp: -1 }, { background: true }).catch(() => undefined);
+        await activityLogsCollection.createIndex({ activityType: 1, timestamp: -1 }, { background: true }).catch(() => undefined);
+        await activityLogsCollection.createIndex({ performedBy: 1, timestamp: -1 }, { background: true }).catch(() => undefined);
+        await activityLogsCollection.createIndex({ timestamp: -1 }, { background: true }).catch(() => undefined);
+
+        // Ensure indexes
+        await sessionCollection.createIndex(
+          { token: 1 },
+          { unique: true, background: true }
+        ).catch(() => undefined);
+        await metaLogsCollection.createIndex(
+          { receivedAt: -1 },
+          { background: true }
+        ).catch(() => undefined);
+        await metaRetryCollection.createIndex(
+          { leadgenId: 1 },
+          { unique: true, background: true }
+        ).catch(() => undefined);
+        await metaRetryCollection.createIndex(
+          { nextAttemptAt: 1 },
+          { background: true }
+        ).catch(() => undefined);
+
+        await leadsCollection.createIndex({ id: 1 }, { unique: true, background: true }).catch(() => undefined);
+        await leadsCollection.createIndex(
+          { metaLeadId: 1 },
+          {
+            unique: true,
+            background: true,
+            partialFilterExpression: { metaLeadId: { $exists: true, $type: "string" } }
+          }
+        ).catch(() => undefined);
+        await leadsCollection.dropIndex("normalizedEmail_1").catch(() => undefined);
+        await leadsCollection.dropIndex("normalizedPhone_1").catch(() => undefined);
+        await leadsCollection.createIndex(
+          { normalizedEmail: 1 },
+          {
+            name: "normalizedEmail_1",
+            unique: true,
+            background: true,
+            partialFilterExpression: {
+              normalizedEmail: { $exists: true, $type: "string" },
+              leadPipeline: { $ne: "course-registration" }
+            }
+          }
+        ).catch(() => undefined);
+        await leadsCollection.createIndex(
+          { normalizedPhone: 1 },
+          {
+            name: "normalizedPhone_1",
+            unique: true,
+            background: true,
+            partialFilterExpression: {
+              normalizedPhone: { $exists: true, $type: "string" },
+              leadPipeline: { $ne: "course-registration" }
+            }
+          }
+        ).catch(() => undefined);
+        await leadsCollection.createIndex({ email: 1 }, { background: true }).catch(() => undefined);
+        await leadsCollection.createIndex({ phone: 1 }, { background: true }).catch(() => undefined);
+        await tasksCollection.createIndex({ id: 1 }, { unique: true, background: true }).catch(() => undefined);
+        await counselorsCollection.createIndex({ email: 1 }, { unique: true, background: true }).catch(() => undefined);
+        await notificationsCollection.createIndex({ userId: 1, read: 1 }, { background: true }).catch(() => undefined);
+
+        // One-time automatic schema migration
+        try {
+          const globalDoc = await stateCollection.findOne({ _id: STATE_DOC_ID });
+          if (globalDoc && (Array.isArray(globalDoc.leads) || Array.isArray(globalDoc.counselors) || Array.isArray(globalDoc.tasks) || Array.isArray(globalDoc.allocation))) {
+            console.log("Migrating database schema to normalized collections...");
+            
+            if (Array.isArray(globalDoc.leads) && globalDoc.leads.length) {
+              const leadsMap = new Map();
+              globalDoc.leads.forEach(lead => {
+                if (lead && lead.id) leadsMap.set(String(lead.id), lead);
+              });
+              const uniqueLeads = decorateLeadListForStorage(Array.from(leadsMap.values()));
+              await leadsCollection.insertMany(uniqueLeads, { ordered: false }).catch(() => undefined);
+            }
+            
+            if (Array.isArray(globalDoc.counselors) && globalDoc.counselors.length) {
+              const counselorsMap = new Map();
+              globalDoc.counselors.forEach(counselor => {
+                if (counselor && counselor.email) counselorsMap.set(counselor.email.toLowerCase(), counselor);
+              });
+              const uniqueCounselors = Array.from(counselorsMap.values());
+              await counselorsCollection.insertMany(uniqueCounselors, { ordered: false }).catch(() => undefined);
+            }
+            
+            if (Array.isArray(globalDoc.tasks) && globalDoc.tasks.length) {
+              const tasksMap = new Map();
+              globalDoc.tasks.forEach(task => {
+                if (task && task.id) tasksMap.set(String(task.id), task);
+              });
+              const uniqueTasks = Array.from(tasksMap.values());
+              await tasksCollection.insertMany(uniqueTasks, { ordered: false }).catch(() => undefined);
+            }
+            
+            if (Array.isArray(globalDoc.allocation) && globalDoc.allocation.length) {
+              await allocationCollection.insertMany(globalDoc.allocation).catch(() => undefined);
+            }
+            
+            await stateCollection.updateOne(
+              { _id: STATE_DOC_ID },
+              { $unset: { leads: "", counselors: "", tasks: "", allocation: "" } }
+            );
+            console.log("Database schema migration completed successfully!");
+          }
+        } catch (migrationError) {
+          console.error("Database schema migration failed:", migrationError.message);
+        }
+
+        // Always ensure the lead ID sequence is in sync with the actual leads at startup
+        await syncLeadSequence().catch(() => undefined);
+        console.log(`Connected to MongoDB database: ${MONGODB_DB_NAME}`);
+      } catch (err) {
+        console.warn(`\n⚠️ MongoDB connection failed: ${err.message}`);
+        console.warn("⚠️ Falling back to local file-based mock database in the ./tmp/ directory.\n");
+        
+        const { MockCollection } = require("./mock-db");
+        stateCollection      = new MockCollection("state");
+        sessionCollection    = new MockCollection("sessions");
+        preferenceCollection = new MockCollection("preferences");
+        metaConfigCollection = new MockCollection("metaConfig");
+        metaLogsCollection   = new MockCollection("metaLogs");
+        metaRetryCollection  = new MockCollection("metaRetry");
+        leadsCollection      = new MockCollection("leads");
+        counselorsCollection = new MockCollection("counselors");
+        tasksCollection      = new MockCollection("tasks");
+        allocationCollection = new MockCollection("allocation");
+        notificationsCollection = new MockCollection("notifications");
+        activityLogsCollection  = new MockCollection("activityLogs");
+        
+        // Sync lead sequence for mock db too
+        await syncLeadSequence().catch(() => undefined);
+      }
+    })();
   }
 
   await mongoInitPromise;
@@ -1605,6 +1625,7 @@ app.post("/api/public-course-registrations", async (req, res) => {
     const name = String(req.body?.name || "").trim();
     const phone = String(req.body?.phone || "").trim();
     const email = String(req.body?.email || "").trim().toLowerCase();
+    const country = String(req.body?.country || "").trim();
     const course = findPublicCourseDefinition(req.body?.courseId);
 
     if (!name || !phone || !email || !course) {
@@ -1635,7 +1656,8 @@ app.post("/api/public-course-registrations", async (req, res) => {
       phone,
       course,
       counselorName,
-      nextId
+      nextId,
+      country
     });
 
     const shouldReplaceExistingRegisteredLead = !!existingRegisteredLead && !isSameRegisteredCourse;
@@ -1856,12 +1878,13 @@ async function assignPublicCourseCounselorRoundRobin(counselors = []) {
   return activeCounselors[counselorIndex].name;
 }
 
-function buildPublicCourseLead({ name, email, phone, course, counselorName, nextId }) {
+function buildPublicCourseLead({ name, email, phone, course, counselorName, nextId, country }) {
   return {
     id: nextId,
     name: String(name || "").trim(),
     email: String(email || "").trim().toLowerCase(),
     phone: String(phone || "").trim(),
+    country: String(country || "India").trim(),
     workshop: "",
     courseId: course.id,
     courseName: course.name,
@@ -3801,6 +3824,14 @@ app.get("/dashboard", (_req, res) => {
 
 app.get("/meta-integration", (_req, res) => {
   res.sendFile(path.join(ROOT_DIR, "meta-integration.html"));
+});
+
+app.get("/crash-course", (_req, res) => {
+  res.sendFile(path.join(ROOT_DIR, "crash-course.html"));
+});
+
+app.get("/crash%20course", (_req, res) => {
+  res.sendFile(path.join(ROOT_DIR, "crash-course.html"));
 });
 
 async function start() {

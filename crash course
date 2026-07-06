@@ -1,0 +1,1529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>7 Days Gen AI & Agentic AI Hands-on Master Program | DV Analytics</title>
+  <link rel="icon" type="image/png" href="Logos/DV-Logo.png" />
+  <script src="theme-bootstrap.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Orbitron:wght@600;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    :root {
+      --primary-orange: #ef5323;
+      --primary-orange-rgb: 239, 83, 35;
+      --orange-glow: rgba(239, 83, 35, 0.15);
+      --bg-primary: #ffffff;
+      --bg-secondary: #f8fafc;
+      --text-primary: #051f40;
+      --text-secondary: #64748b;
+      --text-muted: #94a3b8;
+      --border-color: #e2e8f0;
+      --card-bg: #ffffff;
+      --font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    body.crash-course-body {
+      font-family: var(--font-family);
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+      line-height: 1.6;
+    }
+
+    .cc-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 2rem;
+    }
+
+    /* Header Nav */
+    .cc-header {
+      padding: 1.25rem 0;
+      border-bottom: 1px solid var(--border-color);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(255, 255, 255, 0.85);
+    }
+
+    .cc-header-wrap {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .cc-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .cc-logo img {
+      height: 48px;
+      width: auto;
+      object-fit: contain;
+      transition: transform 0.25s ease;
+    }
+    
+    .cc-logo img:hover {
+      transform: scale(1.02);
+    }
+
+    .cc-nav-btn {
+      background: linear-gradient(135deg, var(--primary-orange), #ff6b43);
+      color: #fff;
+      border: none;
+      padding: 0.65rem 1.5rem;
+      border-radius: 30px;
+      font-weight: 700;
+      font-size: 0.88rem;
+      cursor: pointer;
+      box-shadow: 0 4px 15px var(--orange-glow);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .cc-nav-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(239, 83, 35, 0.3);
+    }
+
+    /* Hero Section */
+    .cc-hero {
+      background: linear-gradient(135deg, #051f40 0%, #090d16 100%);
+      padding: 5rem 0 6.5rem;
+      text-align: center;
+      position: relative;
+      color: #ffffff;
+    }
+
+    .cc-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #f87e59;
+      padding: 0.4rem 1.15rem;
+      border-radius: 50px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      margin-bottom: 2rem;
+      letter-spacing: 0.5px;
+    }
+
+    .cc-hero h1 {
+      font-size: clamp(2.25rem, 5vw, 3.5rem);
+      font-weight: 800;
+      line-height: 1.12;
+      margin-bottom: 1.5rem;
+      color: #ffffff;
+      letter-spacing: -1px;
+    }
+
+    .cc-hero h1 span {
+      background: linear-gradient(135deg, var(--primary-orange), #ff9a76);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .cc-hero p.tagline {
+      font-size: clamp(1.05rem, 2vw, 1.25rem);
+      color: #cbd5e1;
+      max-width: 800px;
+      margin: 0 auto 2.5rem;
+      line-height: 1.6;
+      font-weight: 300;
+    }
+
+    .cc-hero-actions {
+      display: flex;
+      justify-content: center;
+      gap: 1.25rem;
+      flex-wrap: wrap;
+    }
+
+    .btn-main-enroll {
+      background: linear-gradient(135deg, var(--primary-orange), #ff6b43);
+      color: #ffffff;
+      border: none;
+      padding: 0.85rem 2.25rem;
+      font-size: 1rem;
+      font-weight: 700;
+      border-radius: 50px;
+      cursor: pointer;
+      box-shadow: 0 4px 15px var(--orange-glow);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .btn-main-enroll:hover {
+      transform: scale(1.02) translateY(-2px);
+      box-shadow: 0 6px 20px rgba(239, 83, 35, 0.35);
+    }
+
+    .btn-syllabus-download {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #e2e8f0;
+      padding: 0.85rem 2rem;
+      font-size: 1rem;
+      font-weight: 700;
+      border-radius: 50px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .btn-syllabus-download:hover {
+      background: rgba(255, 255, 255, 0.15);
+      border-color: rgba(255, 255, 255, 0.25);
+      color: #ffffff;
+      transform: translateY(-2px);
+    }
+
+    /* Stats Grid Sitting on the Transition */
+    .course-stats-section {
+      position: relative;
+      margin-top: -40px;
+      z-index: 10;
+    }
+
+    .cc-hero-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.5rem;
+    }
+
+    @media (max-width: 768px) {
+      .cc-hero-stats {
+        grid-template-columns: 1fr;
+      }
+      .course-stats-section {
+        margin-top: -20px;
+      }
+    }
+
+    .cc-stat-card {
+      background: #ffffff;
+      border: 1px solid var(--border-color);
+      padding: 1.5rem 1.75rem;
+      border-radius: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 10px 30px rgba(5, 31, 64, 0.04);
+      transition: all 0.3s ease;
+    }
+
+    .cc-stat-card:hover {
+      border-color: rgba(239, 83, 35, 0.2);
+      transform: translateY(-4px);
+      box-shadow: 0 15px 35px rgba(5, 31, 64, 0.08);
+    }
+
+    .cc-stat-val {
+      font-size: 1.75rem;
+      font-weight: 800;
+      color: #ef5323;
+      margin-bottom: 0.25rem;
+    }
+
+    .cc-stat-label {
+      color: #64748b;
+      font-size: 0.88rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* Sections Shared styling */
+    .cc-section {
+      padding: 6rem 0;
+    }
+
+    .cc-section-title {
+      text-align: center;
+      margin-bottom: 4rem;
+    }
+
+    .cc-section-title h2 {
+      font-size: 2rem;
+      font-weight: 800;
+      color: #051f40;
+      margin-bottom: 0.75rem;
+      letter-spacing: -0.5px;
+      position: relative;
+      display: inline-block;
+    }
+    
+    .cc-section-title h2::after {
+      content: '';
+      display: block;
+      width: 50px;
+      height: 4px;
+      background-color: var(--primary-orange);
+      margin: 0.5rem auto 0;
+      border-radius: 2px;
+    }
+
+    .cc-section-title h2 span {
+      color: var(--primary-orange);
+    }
+
+    .cc-section-title p {
+      color: #64748b;
+      font-size: 1.05rem;
+      font-weight: 500;
+    }
+
+    /* Program Highlights */
+    .highlights-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .highlight-card {
+      background: #ffffff;
+      border: 1px solid var(--border-color);
+      padding: 2.25rem 2rem;
+      border-radius: 20px;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02);
+    }
+
+    .highlight-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 4px;
+      height: 100%;
+      background: var(--primary-orange);
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .highlight-card:hover {
+      border-color: rgba(239, 83, 35, 0.2);
+      transform: translateY(-5px);
+      box-shadow: 0 15px 35px rgba(5, 31, 64, 0.06);
+    }
+
+    .highlight-card:hover::before {
+      opacity: 1;
+    }
+
+    .highlight-icon {
+      width: 52px;
+      height: 52px;
+      background: rgba(239, 83, 35, 0.08);
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--primary-orange);
+      font-size: 1.5rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .highlight-card h3 {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: #051f40;
+      margin-bottom: 0.5rem;
+    }
+
+    .highlight-card p {
+      color: #64748b;
+      font-size: 0.95rem;
+      line-height: 1.6;
+    }
+
+    /* Curriculum Accordion */
+    .curriculum-wrap {
+      max-width: 950px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .day-accordion {
+      background: #ffffff;
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02);
+      transition: all 0.3s ease;
+    }
+
+    .day-accordion.active {
+      box-shadow: 0 10px 30px rgba(5, 31, 64, 0.05);
+      border-color: rgba(239, 83, 35, 0.25);
+    }
+
+    .day-trigger {
+      width: 100%;
+      background: #ffffff;
+      border: none;
+      padding: 1.75rem 2.25rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      text-align: left;
+      transition: background-color 0.3s ease;
+    }
+
+    .day-trigger:hover {
+      background-color: #fafafa;
+    }
+
+    .day-info {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+    }
+
+    .day-num {
+      background: var(--primary-orange);
+      color: #fff;
+      font-weight: 800;
+      padding: 0.4rem 1rem;
+      border-radius: 50px;
+      font-size: 0.8rem;
+      letter-spacing: 0.5px;
+    }
+
+    .day-title {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: #051f40;
+    }
+
+    .day-toggle-icon {
+      color: #64748b;
+      font-size: 1.5rem;
+      font-weight: 300;
+      transition: transform 0.3s ease;
+    }
+
+    .day-accordion.active .day-toggle-icon {
+      transform: rotate(45deg);
+      color: var(--primary-orange);
+    }
+
+    .day-content {
+      display: none;
+      padding: 0 2.25rem 2.25rem 2.25rem;
+      border-top: 1px solid #f1f5f9;
+      background: #ffffff;
+    }
+
+    .day-summary-text {
+      color: #ef5323;
+      font-weight: 700;
+      font-size: 0.95rem;
+      margin: 1.5rem 0 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .day-topics {
+      list-style: none;
+      padding-left: 0;
+      margin: 0;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 0.75rem;
+    }
+
+    .day-topics li {
+      position: relative;
+      padding-left: 1.5rem;
+      color: #64748b;
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+
+    .day-topics li::before {
+      content: "✓";
+      position: absolute;
+      left: 0;
+      color: var(--primary-orange);
+      font-weight: 800;
+      font-size: 0.9rem;
+    }
+
+    /* Projects Section */
+    .projects-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .project-card {
+      background: #ffffff;
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      padding: 2.25rem 2rem;
+      transition: all 0.3s ease;
+      position: relative;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02);
+    }
+
+    .project-card:hover {
+      border-color: rgba(239, 83, 35, 0.2);
+      transform: translateY(-5px);
+      box-shadow: 0 15px 35px rgba(5, 31, 64, 0.06);
+    }
+
+    .project-badge {
+      background: rgba(239, 83, 35, 0.08);
+      border: 1px solid rgba(239, 83, 35, 0.2);
+      color: #ef5323;
+      padding: 0.35rem 0.85rem;
+      border-radius: 8px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      display: inline-block;
+      margin-bottom: 1.25rem;
+      text-transform: uppercase;
+    }
+
+    .project-card h3 {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: #051f40;
+      margin-bottom: 0.75rem;
+    }
+
+    .project-card p {
+      color: #64748b;
+      font-size: 0.95rem;
+      line-height: 1.6;
+    }
+
+    /* Outcomes Section */
+    .outcomes-box {
+      background: #ffffff;
+      border: 1px solid var(--border-color);
+      border-radius: 24px;
+      padding: 3rem;
+      box-shadow: 0 10px 30px rgba(5, 31, 64, 0.03);
+      position: relative;
+    }
+
+    .outcomes-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 2.5rem;
+    }
+
+    .outcomes-col h3 {
+      font-size: 1.35rem;
+      font-weight: 800;
+      color: #051f40;
+      margin-bottom: 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      border-bottom: 1px solid #f1f5f9;
+      padding-bottom: 0.75rem;
+    }
+
+    .outcomes-col h3 span {
+      color: var(--primary-orange);
+    }
+
+    .outcomes-list {
+      list-style: none;
+      padding-left: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .outcomes-list li {
+      position: relative;
+      padding-left: 1.75rem;
+      color: #64748b;
+      font-size: 0.98rem;
+      line-height: 1.5;
+    }
+
+    .outcomes-list li::before {
+      content: "✓";
+      position: absolute;
+      left: 0;
+      color: var(--primary-orange);
+      font-weight: 800;
+      font-size: 1rem;
+    }
+
+    /* Enrollment Modal styling */
+    .cc-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(5, 31, 64, 0.5);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 1.5rem;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+
+    .cc-modal.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .cc-modal-box {
+      background: #ffffff;
+      border: 1px solid var(--border-color);
+      max-width: 500px;
+      width: 100%;
+      border-radius: 24px;
+      padding: 2.5rem;
+      box-shadow: 0 20px 50px rgba(5, 31, 64, 0.12);
+      position: relative;
+      transform: translateY(20px);
+      transition: transform 0.3s ease;
+    }
+
+    .cc-modal.active .cc-modal-box {
+      transform: translateY(0);
+    }
+
+    .cc-modal-close {
+      position: absolute;
+      top: 1.25rem;
+      right: 1.25rem;
+      background: rgba(5, 31, 64, 0.05);
+      border: none;
+      color: #64748b;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 1.2rem;
+      transition: all 0.2s ease;
+    }
+
+    .cc-modal-close:hover {
+      background: rgba(239, 83, 35, 0.1);
+      color: var(--primary-orange);
+    }
+
+    .cc-modal h3 {
+      font-size: 1.65rem;
+      font-weight: 800;
+      color: #051f40;
+      margin-bottom: 0.5rem;
+    }
+
+    .cc-modal p.intro-text {
+      color: #64748b;
+      font-size: 0.95rem;
+      margin-bottom: 2rem;
+    }
+
+    .cc-form-group {
+      margin-bottom: 1.25rem;
+    }
+
+    .cc-form-group label {
+      display: block;
+      color: #051f40;
+      font-size: 0.9rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+
+    .cc-form-group input, .cc-form-group select {
+      width: 100%;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      color: #051f40;
+      padding: 0.85rem 1rem;
+      border-radius: 12px;
+      font-family: inherit;
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.2s ease;
+      box-sizing: border-box;
+    }
+
+    .cc-form-group input:focus, .cc-form-group select:focus {
+      border-color: var(--primary-orange);
+    }
+
+    .cc-form-group select option {
+      background: #ffffff;
+      color: #051f40;
+    }
+
+    .cc-modal-submit-btn {
+      width: 100%;
+      background: linear-gradient(135deg, var(--primary-orange), #ff6b43);
+      color: #fff;
+      border: none;
+      padding: 0.9rem;
+      border-radius: 12px;
+      font-size: 1.05rem;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 4px 15px var(--orange-glow);
+      transition: all 0.3s ease;
+      margin-top: 1rem;
+    }
+
+    .cc-modal-submit-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(239, 83, 35, 0.3);
+    }
+
+    .cc-modal-submit-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .cc-alert {
+      padding: 0.75rem 1rem;
+      border-radius: 10px;
+      font-size: 0.9rem;
+      margin-bottom: 1.5rem;
+      display: none;
+      line-height: 1.4;
+    }
+
+    .cc-alert-error {
+      background: rgba(239, 68, 68, 0.08);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      color: #b91c1c;
+    }
+
+    .cc-success-pane {
+      display: none;
+      text-align: center;
+      padding: 1rem 0;
+    }
+
+    .success-icon-wrap {
+      width: 64px;
+      height: 64px;
+      background: rgba(239, 83, 35, 0.08);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--primary-orange);
+      font-size: 2.25rem;
+      margin: 0 auto 1.5rem;
+    }
+
+    .cc-success-pane h2 {
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: #051f40;
+      margin-bottom: 0.75rem;
+    }
+
+    .cc-success-pane p {
+      color: #64748b;
+      font-size: 0.98rem;
+      line-height: 1.5;
+      margin-bottom: 2rem;
+    }
+
+    .btn-success-close {
+      background: rgba(5, 31, 64, 0.05);
+      border: 1px solid var(--border-color);
+      color: #64748b;
+      padding: 0.75rem 2rem;
+      border-radius: 30px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn-success-close:hover {
+      background: rgba(5, 31, 64, 0.1);
+    }
+
+    /* Centers Section */
+    .centers-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 2rem;
+      margin-top: 3rem;
+    }
+
+    .center-card {
+      background: #ffffff;
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 10px 30px rgba(5, 31, 64, 0.04);
+      transition: all 0.3s ease;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .center-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 15px 35px rgba(5, 31, 64, 0.08);
+      border-color: rgba(239, 83, 35, 0.2);
+    }
+
+    .center-img-wrapper {
+      width: 100%;
+      height: 200px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .center-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: transform 0.5s ease;
+    }
+
+    .center-card:hover .center-img {
+      transform: scale(1.05);
+    }
+
+    .center-info {
+      padding: 2rem;
+      display: flex;
+      flex-direction: column;
+      flex-grow: 1;
+      text-align: left;
+    }
+
+    .center-badge-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+
+    .center-location-badge {
+      background: rgba(239, 83, 35, 0.08);
+      color: var(--primary-orange);
+      padding: 0.35rem 0.85rem;
+      border-radius: 50px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .center-company-name {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: #051f40;
+      margin-bottom: 1rem;
+    }
+
+    .center-details-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+      font-size: 0.92rem;
+      color: #64748b;
+    }
+
+    .center-detail-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      line-height: 1.5;
+    }
+
+    .center-detail-icon {
+      color: var(--primary-orange);
+      flex-shrink: 0;
+      margin-top: 0.15rem;
+      width: 16px;
+      height: 16px;
+    }
+
+    /* Footer */
+    .cc-footer {
+      border-top: 1px solid var(--border-color);
+      padding: 3.5rem 0;
+      text-align: center;
+      background: #051f40;
+      color: #94a3b8;
+      font-size: 0.9rem;
+    }
+
+    .cc-footer p {
+      margin-bottom: 0.5rem;
+    }
+  </style>
+</head>
+<body class="crash-course-body">
+
+  <!-- Header -->
+  <header class="cc-header">
+    <div class="cc-container cc-header-wrap">
+      <a href="#" class="cc-logo" style="text-decoration: none;">
+        <img src="Logos/DV-Logo.png" alt="DV Logo" />
+      </a>
+      <button class="cc-nav-btn" onclick="openEnrollmentModal()">Enroll Now</button>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="cc-hero">
+    <div class="cc-container">
+      <div class="cc-badge">
+        <span>⚡ Crash Course 🚀</span>
+      </div>
+      <h1>7 Days <span>Gen AI &amp; Agentic AI</span><br>Hands-on Master Program</h1>
+      <p class="tagline">Become AI-Ready in Just 7 Days. Learn Python, Transformers, LLMs, Vector Databases, RAG, and Build Autonomous Multi-Agent AI Systems Using LangChain, LangGraph, CrewAI &amp; AutoGen.</p>
+
+      <div class="cc-hero-actions">
+        <button class="btn-main-enroll" onclick="openEnrollmentModal()">Enroll Now</button>
+        <button class="btn-syllabus-download" onclick="triggerBrochureDownload()">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          Download Syllabus
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Quick Stats Grid -->
+  <section class="course-stats-section cc-container">
+    <div class="cc-hero-stats">
+      <div class="cc-stat-card">
+        <div class="cc-stat-val">7 Days</div>
+        <div class="cc-stat-label">Intensive Duration</div>
+      </div>
+      <div class="cc-stat-card">
+        <div class="cc-stat-val">42 Hours</div>
+        <div class="cc-stat-label">Practical Live Training</div>
+      </div>
+      <div class="cc-stat-card">
+        <div class="cc-stat-val">3 Projects</div>
+        <div class="cc-stat-label">Portfolio AI Products</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Highlights -->
+  <section class="cc-section">
+    <div class="cc-container">
+      <div class="cc-section-title">
+        <h2>Program <span>Highlights</span></h2>
+        <p>A fast-paced curriculum designed to give you industry-ready capabilities</p>
+      </div>
+      <div class="highlights-grid">
+        <div class="highlight-card">
+          <div class="highlight-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+              <line x1="8" y1="21" x2="16" y2="21"></line>
+              <line x1="12" y1="17" x2="12" y2="21"></line>
+            </svg>
+          </div>
+          <h3>100% Practical &amp; Hands-on</h3>
+          <p>No boring slides. Build code from scratch in Google Colab and local environments throughout the course.</p>
+        </div>
+        <div class="highlight-card">
+          <div class="highlight-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+              <circle cx="9" cy="7" r="4"></circle>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+            </svg>
+          </div>
+          <h3>Live Instructor-Led</h3>
+          <p>Interactive sessions with senior AI engineers. Clear doubts instantly and brainstorm real-world designs.</p>
+        </div>
+        <div class="highlight-card">
+          <div class="highlight-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
+              <rect x="9" y="9" width="6" height="6"></rect>
+              <line x1="9" y1="1" x2="9" y2="4"></line>
+              <line x1="15" y1="1" x2="15" y2="4"></line>
+              <line x1="9" y1="20" x2="9" y2="23"></line>
+              <line x1="15" y1="20" x2="15" y2="23"></line>
+              <line x1="20" y1="9" x2="23" y2="9"></line>
+              <line x1="20" y1="15" x2="23" y2="15"></line>
+              <line x1="1" y1="9" x2="4" y2="9"></line>
+              <line x1="1" y1="15" x2="4" y2="15"></line>
+            </svg>
+          </div>
+          <h3>Advanced AI Frameworks</h3>
+          <p>Deep-dive into industry-standard frameworks: LangChain, LangGraph, CrewAI, AutoGen, and Model Context Protocol.</p>
+        </div>
+        <div class="highlight-card">
+          <div class="highlight-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            </svg>
+          </div>
+          <h3>AI Safety &amp; Guardrails</h3>
+          <p>Learn how to secure models against prompt injection, configure guardrails, and monitor systems in production.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Curriculum Accordions -->
+  <section class="cc-section" style="background: var(--bg-secondary);">
+    <div class="cc-container">
+      <div class="cc-section-title">
+        <h2>Day-by-Day <span>Syllabus</span></h2>
+        <p>Take the journey from foundations to production-grade AI systems</p>
+      </div>
+
+      <div class="curriculum-wrap">
+        <!-- Day 1 -->
+        <div class="day-accordion active" id="day-1">
+          <button class="day-trigger" onclick="toggleAccordion('day-1')">
+            <div class="day-info">
+              <span class="day-num">DAY 1</span>
+              <span class="day-title">Python &amp; Deep Learning Foundations</span>
+            </div>
+            <span class="day-toggle-icon">+</span>
+          </button>
+          <div class="day-content" style="display: block;">
+            <div class="day-summary-text">Core Foundations:</div>
+            <ul class="day-topics">
+              <li>Python programming from scratch</li>
+              <li>Python Programming constructs</li>
+              <li>NumPy &amp; Pandas library fundamentals</li>
+              <li>Data Visualization</li>
+              <li>Neural Networks foundations</li>
+              <li>Deep Learning architecture</li>
+              <li>NLP (Natural Language Processing) foundations</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Day 2 -->
+        <div class="day-accordion" id="day-2">
+          <button class="day-trigger" onclick="toggleAccordion('day-2')">
+            <div class="day-info">
+              <span class="day-num">DAY 2</span>
+              <span class="day-title">Transformers &amp; Large Language Models</span>
+            </div>
+            <span class="day-toggle-icon">+</span>
+          </button>
+          <div class="day-content">
+            <div class="day-summary-text">Large Language Models (LLMs):</div>
+            <ul class="day-topics">
+              <li>Understand the technology behind ChatGPT</li>
+              <li>Transformers architecture</li>
+              <li>Attention Mechanism</li>
+              <li>GPT models</li>
+              <li>BERT &amp; T5 models</li>
+              <li>Prompt Engineering techniques</li>
+              <li>Structured Outputs from LLMs</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Day 3 -->
+        <div class="day-accordion" id="day-3">
+          <button class="day-trigger" onclick="toggleAccordion('day-3')">
+            <div class="day-info">
+              <span class="day-num">DAY 3</span>
+              <span class="day-title">Agentic AI &amp; RAG</span>
+            </div>
+            <span class="day-toggle-icon">+</span>
+          </button>
+          <div class="day-content">
+            <div class="day-summary-text">RAG &amp; Cognitive Search:</div>
+            <ul class="day-topics">
+              <li>Move beyond simple chatbots</li>
+              <li>Build AI systems that Think, Plan, Retrieve Information, Use Tools, and Take Actions</li>
+              <li>Retrieval-Augmented Generation (RAG)</li>
+              <li>Vector Databases integration</li>
+              <li>AI Memory mechanisms</li>
+              <li>Retrieval Systems</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Day 4 -->
+        <div class="day-accordion" id="day-4">
+          <button class="day-trigger" onclick="toggleAccordion('day-4')">
+            <div class="day-info">
+              <span class="day-num">DAY 4</span>
+              <span class="day-title">Build Multi-Agent AI Systems</span>
+            </div>
+            <span class="day-toggle-icon">+</span>
+          </button>
+          <div class="day-content">
+            <div class="day-summary-text">Multi-Agent Frameworks:</div>
+            <ul class="day-topics">
+              <li>LangChain integration</li>
+              <li>LangGraph workflows</li>
+              <li>CrewAI agent setups</li>
+              <li>AutoGen agent systems</li>
+              <li>AI Orchestration &amp; Collaboration</li>
+              <li>AI Teams setups</li>
+              <li>Workflow Automation</li>
+              <li>Human-in-the-Loop practices</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Day 5 -->
+        <div class="day-accordion" id="day-5">
+          <button class="day-trigger" onclick="toggleAccordion('day-5')">
+            <div class="day-info">
+              <span class="day-num">DAY 5</span>
+              <span class="day-title">Fine-Tuning &amp; Multimodal AI</span>
+            </div>
+            <span class="day-toggle-icon">+</span>
+          </button>
+          <div class="day-content">
+            <div class="day-summary-text">Advanced AI Architectures:</div>
+            <ul class="day-topics">
+              <li>LoRA &amp; PEFT fine-tuning concepts</li>
+              <li>Vision AI &amp; Image Processing</li>
+              <li>OCR (Optical Character Recognition)</li>
+              <li>AI Memory enhancement</li>
+              <li>Multimodal AI integration</li>
+              <li>Cross-session Intelligence</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Day 6 -->
+        <div class="day-accordion" id="day-6">
+          <button class="day-trigger" onclick="toggleAccordion('day-6')">
+            <div class="day-info">
+              <span class="day-num">DAY 6</span>
+              <span class="day-title">Production AI</span>
+            </div>
+            <span class="day-toggle-icon">+</span>
+          </button>
+          <div class="day-content">
+            <div class="day-summary-text">AI Governance &amp; Observability:</div>
+            <ul class="day-topics">
+              <li>Deploy AI systems responsibly</li>
+              <li>AI Safety frameworks</li>
+              <li>Guardrails implementation</li>
+              <li>Prompt Security &amp; injection handling</li>
+              <li>Model Context Protocol (MCP)</li>
+              <li>AI Evaluation &amp; Metrics</li>
+              <li>Monitoring &amp; Observability in production</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Day 7 -->
+        <div class="day-accordion" id="day-7">
+          <button class="day-trigger" onclick="toggleAccordion('day-7')">
+            <div class="day-info">
+              <span class="day-num">DAY 7</span>
+              <span class="day-title">Build 3 Complete AI Products</span>
+            </div>
+            <span class="day-toggle-icon">+</span>
+          </button>
+          <div class="day-content">
+            <div class="day-summary-text">Hands-On Projects:</div>
+            <ul class="day-topics">
+              <li><strong>Banking AI Agent:</strong> Build an autonomous Loan Processing Agent</li>
+              <li><strong>Customer Support AI:</strong> Build a Multi-Agent Customer Support Platform</li>
+              <li><strong>Sales AI Agent:</strong> Build a Lead Qualification &amp; Lead Scoring AI System</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Projects Section -->
+  <section class="cc-section" style="background: var(--bg-primary);">
+    <div class="cc-container">
+      <div class="cc-section-title">
+        <h2>Portfolio-Ready <span>AI Projects</span></h2>
+        <p>Build and showcase real enterprise-grade projects during the program</p>
+      </div>
+      <div class="projects-grid">
+        <div class="project-card">
+          <span class="project-badge">Project 1</span>
+          <h3>Banking AI Agent</h3>
+          <p>Design and deploy an autonomous Loan Processing Agent. The system reads user requests, retrieves financial records, scores creditworthiness, and takes approval decisions automatically using safety guardrails.</p>
+        </div>
+        <div class="project-card">
+          <span class="project-badge">Project 2</span>
+          <h3>Customer Support AI</h3>
+          <p>Assemble a multi-agent team that answers client emails, routes technical complaints to support engineers, fetches real-time product specs, and maintains conversation context over multiple channels.</p>
+        </div>
+        <div class="project-card">
+          <span class="project-badge">Project 3</span>
+          <h3>Sales AI Agent</h3>
+          <p>Develop an automated lead qualification system. The agent scores prospective lead details, writes highly targeted emails, schedules follow-up tasks, and updates the CRM database dynamically.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Outcomes & Audience -->
+  <section class="cc-section" style="background: var(--bg-secondary);">
+    <div class="cc-container">
+      <div class="outcomes-box">
+        <div class="outcomes-grid">
+          <div class="outcomes-col">
+            <h3>Who <span>Should Join</span></h3>
+            <ul class="outcomes-list">
+              <li>Software Engineers &amp; Developers looking to specialize in GenAI</li>
+              <li>Data Scientists &amp; Analysts transitioning to Agentic architectures</li>
+              <li>Product &amp; Project Managers seeking AI strategy credentials</li>
+              <li>Entrepreneurs &amp; Consultants seeking to build automated solutions</li>
+              <li>Fresh Graduates wanting to showcase a modern AI portfolio</li>
+            </ul>
+          </div>
+          <div class="outcomes-col">
+            <h3>Program <span>Outcomes</span></h3>
+            <ul class="outcomes-list">
+              <li>Understand the inner mechanisms of transformers and modern LLMs</li>
+              <li>Build multi-agent workflows using CrewAI, AutoGen, and LangGraph</li>
+              <li>Implement production-grade RAG and Vector Databases</li>
+              <li>Deploy robust agents with safety guardrails and system observability</li>
+              <li>Graduate with 3 complete, recruiter-ready AI products on GitHub</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Our Centers Section -->
+  <section class="cc-section" style="background: var(--bg-primary);">
+    <div class="cc-container">
+      <div class="cc-section-title">
+        <h2>Our Learning <span>Centers</span></h2>
+        <p>Visit any of our global branches for career guidance and counseling</p>
+      </div>
+
+      <div class="centers-grid">
+        <!-- Bangalore -->
+        <div class="center-card">
+          <div class="center-img-wrapper">
+            <img src="office-bg/bangalore.png" alt="Bangalore Office" class="center-img" />
+          </div>
+          <div class="center-info">
+            <div class="center-badge-row">
+              <span class="center-location-badge">Bangalore, India</span>
+            </div>
+            <h3 class="center-company-name">DV Data &amp; Analytics Private Limited</h3>
+            <ul class="center-details-list">
+              <li class="center-detail-item">
+                <svg class="center-detail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                  <circle cx="12" cy="10" r="3"></circle>
+                </svg>
+                <span>No. 403, 4th Floor, 2nd Block, Koramangala, Bangalore 560034, India</span>
+              </li>
+              <li class="center-detail-item">
+                <svg class="center-detail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                </svg>
+                <span>(+91) 9019 030 033<br>(+91) 8095 881 188</span>
+              </li>
+              <li class="center-detail-item">
+                <svg class="center-detail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                  <polyline points="22,6 12,13 2,6"></polyline>
+                </svg>
+                <span>info@dvanalyticsmds.com</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Bhubaneswar -->
+        <div class="center-card">
+          <div class="center-img-wrapper">
+            <img src="office-bg/bhubneshwar.png" alt="Bhubaneswar Office" class="center-img" />
+          </div>
+          <div class="center-info">
+            <div class="center-badge-row">
+              <span class="center-location-badge">Bhubaneswar, India</span>
+            </div>
+            <h3 class="center-company-name">DV Data &amp; Analytics Private Limited</h3>
+            <ul class="center-details-list">
+              <li class="center-detail-item">
+                <svg class="center-detail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                  <circle cx="12" cy="10" r="3"></circle>
+                </svg>
+                <span>Plot No A/7, Adjacent to Maharaja Cine Complex, Bhoinagar, Acharya Vihar, Bhubaneswar 751022, India</span>
+              </li>
+              <li class="center-detail-item">
+                <svg class="center-detail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                </svg>
+                <span>+91 8095 881 188<br>+91 8249 430 414</span>
+              </li>
+              <li class="center-detail-item">
+                <svg class="center-detail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                  <polyline points="22,6 12,13 2,6"></polyline>
+                </svg>
+                <span>info@dvanalyticsmds.com</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Dubai -->
+        <div class="center-card">
+          <div class="center-img-wrapper">
+            <img src="office-bg/dubai.png" alt="Dubai Office" class="center-img" />
+          </div>
+          <div class="center-info">
+            <div class="center-badge-row">
+              <span class="center-location-badge">Dubai, UAE</span>
+            </div>
+            <h3 class="center-company-name">Agentify AI Global</h3>
+            <ul class="center-details-list">
+              <li class="center-detail-item">
+                <svg class="center-detail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                  <circle cx="12" cy="10" r="3"></circle>
+                </svg>
+                <span>Villa 335, Murooj al Furzan East 1, Near Gate 3 Jabel Ali First, Al Furjan, Dubai, UAE</span>
+              </li>
+              <li class="center-detail-item">
+                <svg class="center-detail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                </svg>
+                <span>+971 52 553 3211</span>
+              </li>
+              <li class="center-detail-item">
+                <svg class="center-detail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                  <polyline points="22,6 12,13 2,6"></polyline>
+                </svg>
+                <span>Sales@agentifyaiglobal.com</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Call to Action Banner -->
+  <section class="cc-section" style="background: linear-gradient(135deg, #051f40 0%, #090d16 100%); text-align: center; border-top: 1px solid rgba(255, 255, 255, 0.08); border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
+    <div class="cc-container">
+      <h2 style="font-size: 2.25rem; font-weight: 800; margin-bottom: 1rem; color: #fff;">Become an Agentic AI Developer</h2>
+      <p style="color: #d1d5db; font-size: 1.1rem; max-width: 600px; margin: 0 auto 2.5rem; line-height: 1.6;">Don't just read about AI. Build production-grade agents in 7 days and transform your engineering career.</p>
+      <button class="btn-main-enroll" onclick="openEnrollmentModal()">Enroll Now</button>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="cc-footer">
+    <div class="cc-container">
+      <p>&copy; 2026 DV Data &amp; Analytics Private Limited. All rights reserved.</p>
+      <p style="font-size: 0.85rem; color: #4b5563;">Bangalore | Bhubneshwar | Dubai</p>
+    </div>
+  </footer>
+
+  <!-- Enrollment Modal -->
+  <div class="cc-modal" id="enrollmentModal">
+    <div class="cc-modal-box">
+      <button class="cc-modal-close" onclick="closeEnrollmentModal()">&times;</button>
+      
+      <!-- Form Content Panel -->
+      <div id="modalFormPanel">
+        <h3>Secure Your Seat</h3>
+        <p class="intro-text">Fill in your information to register for the 7 Days Gen AI &amp; Agentic AI Master Program. Our career advisor will contact you within 24 hours.</p>
+        
+        <!-- Error Alert -->
+        <div class="cc-alert cc-alert-error" id="formErrorAlert"></div>
+
+        <form id="enrollmentForm" onsubmit="handleFormSubmit(event)">
+          <!-- Hidden Course ID -->
+          <input type="hidden" id="courseId" value="days7_genai" />
+          
+          <div class="cc-form-group">
+            <label for="studentName">Full Name *</label>
+            <input type="text" id="studentName" placeholder="e.g. John Doe" required />
+          </div>
+
+          <div class="cc-form-group">
+            <label for="studentPhone">Contact Number *</label>
+            <input type="tel" id="studentPhone" placeholder="e.g. +91 9019030033" required />
+          </div>
+
+          <div class="cc-form-group">
+            <label for="studentEmail">Mail ID *</label>
+            <input type="email" id="studentEmail" placeholder="e.g. john.doe@example.com" required />
+          </div>
+
+          <div class="cc-form-group">
+            <label for="studentCountry">Country *</label>
+            <select id="studentCountry" required>
+              <option value="" disabled selected>Select your country</option>
+              <option value="India">India</option>
+              <option value="Dubai">Dubai</option>
+            </select>
+          </div>
+
+          <button type="submit" class="cc-modal-submit-btn" id="submitBtn">Submit Enrollment</button>
+        </form>
+      </div>
+
+      <!-- Success Panel -->
+      <div id="modalSuccessPanel" class="cc-success-pane">
+        <div class="success-icon-wrap">✓</div>
+        <h2>Registration Successful!</h2>
+        <p>Thank you for enrolling in the <strong>7 Days Gen AI &amp; Agentic AI Hands-on Master Program</strong>. Your query has been logged. An admissions coordinator will contact you shortly.</p>
+        <button class="btn-success-close" onclick="closeEnrollmentModal()">Back to Page</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Accordion interaction
+    function toggleAccordion(dayId) {
+      const accordion = document.getElementById(dayId);
+      const content = accordion.querySelector('.day-content');
+      const isActive = accordion.classList.contains('active');
+
+      // Close all accordions first
+      document.querySelectorAll('.day-accordion').forEach(acc => {
+        acc.classList.remove('active');
+        acc.querySelector('.day-content').style.display = 'none';
+      });
+
+      // Toggle clicked
+      if (!isActive) {
+        accordion.classList.add('active');
+        content.style.display = 'block';
+      }
+    }
+
+    // Modal interaction
+    function openEnrollmentModal() {
+      document.getElementById('enrollmentModal').classList.add('active');
+      document.getElementById('modalFormPanel').style.display = 'block';
+      document.getElementById('modalSuccessPanel').style.display = 'none';
+      document.getElementById('formErrorAlert').style.display = 'none';
+      document.getElementById('enrollmentForm').reset();
+    }
+
+    function closeEnrollmentModal() {
+      document.getElementById('enrollmentModal').classList.remove('active');
+    }
+
+    // Form submission
+    async function handleFormSubmit(event) {
+      event.preventDefault();
+      
+      const name = document.getElementById('studentName').value.trim();
+      const phone = document.getElementById('studentPhone').value.trim();
+      const email = document.getElementById('studentEmail').value.trim();
+      const country = document.getElementById('studentCountry').value;
+      const courseId = document.getElementById('courseId').value;
+      const submitBtn = document.getElementById('submitBtn');
+      const errorAlert = document.getElementById('formErrorAlert');
+
+      errorAlert.style.display = 'none';
+      
+      if (!name || !phone || !email || !country) {
+        showError("All fields marked with * are required.");
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Registering...';
+
+      try {
+        const response = await fetch('/api/public-course-registrations', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({
+            courseId,
+            name,
+            phone,
+            email,
+            country
+          })
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          showError(data?.message || 'Failed to submit registration. Please try again.');
+          return;
+        }
+
+        // Show Success screen
+        document.getElementById('modalFormPanel').style.display = 'none';
+        document.getElementById('modalSuccessPanel').style.display = 'block';
+      } catch (err) {
+        showError('Network error occurred. Please verify your connection.');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Submit Enrollment';
+      }
+    }
+
+    function showError(message) {
+      const errorAlert = document.getElementById('formErrorAlert');
+      errorAlert.textContent = message;
+      errorAlert.style.display = 'block';
+    }
+
+    function triggerBrochureDownload() {
+      // Mock syllabus pdf trigger using same logic as courses page
+      const link = document.createElement("a");
+      link.href = "Logos/Brochure.pdf";
+      link.download = "7-Days-GenAI-Agentic-Syllabus.pdf";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  </script>
+</body>
+</html>

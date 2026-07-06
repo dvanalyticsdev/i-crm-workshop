@@ -557,6 +557,128 @@ export const PUBLIC_COURSES = [
         "Certification preparation support aligned to learners targeting cybersecurity, ethical hacking, and forensics careers"
       ])
     ]
+  },
+  {
+    id: "days7_genai",
+    shortName: "7DaysGenAI",
+    code: "7DAYS_GENAI",
+    poster: "Logos/7-days-genai.jpeg",
+    name: "7 Days Gen AI & Agentic AI Hands-on Master Program",
+    duration: "7 Days (42 Hours)",
+    price: buildPrice(25000, 1500),
+    badge: "Crash Course",
+    headline: "🚀 Become AI-Ready in Just 7 Days. Learn the Skills That Every Company Is Hiring For.",
+    sections: [
+      buildSection("Program Overview", [
+        "The 7 Days Generative AI & Agentic AI Hands-on Master Program is a crash course designed to take you from Python programming foundations all the way to deep learning, Large Language Models (LLMs), Agentic AI, and building real-world autonomous multi-agent systems.",
+        "Learn the latest frameworks including LangChain, LangGraph, CrewAI, and AutoGen. Graduate with three portfolio-ready AI applications built for real-world scenarios."
+      ]),
+      buildSection("Program Highlights", [], [
+        "100% Practical & Hands-on",
+        "Live Instructor-Led Sessions",
+        "42 Hours of Intensive Learning",
+        "Real-World Enterprise Use Cases",
+        "3 Complete Portfolio AI Products",
+        "LangChain, LangGraph, CrewAI & AutoGen Frameworks",
+        "AI Safety, Guardrails & Production Best Practices",
+        "Certificate of Completion"
+      ]),
+      buildCurriculumSection("Curriculum", [
+        "The curriculum is designed to take you from Python foundations to building production-grade autonomous agent systems in 7 days."
+      ], [
+        {
+          title: "Day 1: Python & Deep Learning Foundations",
+          summary: "Core Foundations",
+          topics: [
+            "Python programming from scratch",
+            "Python Programming constructs",
+            "NumPy & Pandas library fundamentals",
+            "Data Visualization",
+            "Neural Networks foundations",
+            "Deep Learning architecture",
+            "NLP (Natural Language Processing) foundations"
+          ]
+        },
+        {
+          title: "Day 2: Transformers & Large Language Models",
+          summary: "Large Language Models (LLMs)",
+          topics: [
+            "Understand the technology behind ChatGPT",
+            "Transformers architecture",
+            "Attention Mechanism",
+            "GPT models",
+            "BERT & T5 models",
+            "Prompt Engineering techniques",
+            "Structured Outputs from LLMs"
+          ]
+        },
+        {
+          title: "Day 3: Agentic AI & RAG",
+          summary: "RAG & Cognitive Search",
+          topics: [
+            "Move beyond simple chatbots",
+            "Build AI systems that Think, Plan, Retrieve Information, Use Tools, and Take Actions",
+            "Retrieval-Augmented Generation (RAG)",
+            "Vector Databases integration",
+            "AI Memory mechanisms",
+            "Retrieval Systems"
+          ]
+        },
+        {
+          title: "Day 4: Build Multi-Agent AI Systems",
+          summary: "Multi-Agent Frameworks",
+          topics: [
+            "LangChain integration",
+            "LangGraph workflows",
+            "CrewAI agent setups",
+            "AutoGen agent systems",
+            "AI Orchestration & Collaboration",
+            "AI Teams setups",
+            "Workflow Automation",
+            "Human-in-the-Loop practices"
+          ]
+        },
+        {
+          title: "Day 5: Fine-Tuning & Multimodal AI",
+          summary: "Advanced AI Architectures",
+          topics: [
+            "LoRA & PEFT fine-tuning concepts",
+            "Vision AI & Image Processing",
+            "OCR (Optical Character Recognition)",
+            "AI Memory enhancement",
+            "Multimodal AI integration",
+            "Cross-session Intelligence"
+          ]
+        },
+        {
+          title: "Day 6: Production AI",
+          summary: "AI Governance & Observability",
+          topics: [
+            "Deploy AI systems responsibly",
+            "AI Safety frameworks",
+            "Guardrails implementation",
+            "Prompt Security & injection handling",
+            "Model Context Protocol (MCP)",
+            "AI Evaluation & Metrics",
+            "Monitoring & Observability in production"
+          ]
+        },
+        {
+          title: "Day 7: Build 3 Complete AI Products",
+          summary: "Capstones & Projects",
+          topics: [
+            "Banking AI Agent: Build an autonomous Loan Processing Agent",
+            "Customer Support AI: Build a Multi-Agent Customer Support Platform",
+            "Sales AI Agent: Build a Lead Qualification & Lead Scoring AI System"
+          ]
+        }
+      ]),
+      buildSection("Career Support & Certification Readiness", [], [
+        "Develop three complete portfolio-ready AI applications on GitHub to showcase to employers.",
+        "Gain career advantages in AI Engineering, Gen AI Engineering, and AI Strategy roles.",
+        "Receive structured guidance on resume optimization and showcasing agentic AI skills."
+      ])
+    ]
   }
 ];
 
