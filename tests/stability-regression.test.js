@@ -203,6 +203,23 @@ test("lead imports reject duplicates instead of merging", () => {
   assert.match(server, /Duplicate lead rejected: \$\{duplicateViolation\.field\} already exists\./);
 });
 
+test("workshop re-entries migrate existing CRM leads into a fresh new-workshop state", () => {
+  const server = read("server.js");
+
+  assert.match(server, /function normalizeWorkshopName\(/);
+  assert.match(server, /function isSameWorkshopLead\(/);
+  assert.match(server, /function buildWorkshopMigrationSnapshot\(/);
+  assert.match(server, /function buildFreshWorkshopLead\(/);
+  assert.match(server, /async function replaceWorkshopLeadWithFreshLead\(/);
+  assert.match(server, /workshopMigrationHistory/);
+  assert.match(server, /leadNotes: \[\]/);
+  assert.match(server, /workshopActivityHistory: \[\]/);
+  assert.match(server, /admissionActivityHistory: \[\]/);
+  assert.match(server, /tasksCollection\.deleteMany\(\{ leadId: \{ \$in: leadIdCandidates\.map\(\(value\) => String\(value\)\) \} \}\)/);
+  assert.match(server, /activityType: "Lead Re-entered"/);
+  assert.match(server, /Lead moved from \$\{String\(existingLead\?\.workshop \|\| "Unknown workshop"\)/);
+});
+
 test("public course registrations keep master CRM leads and independently refresh registered-section entries", () => {
   const server = read("server.js");
   const courses = read("courses.js");
@@ -234,13 +251,17 @@ test("public course registrations keep master CRM leads and independently refres
   assert.match(registeredCandidates, /if \(registeredRoutingConfig\.isConfigured\) \{\s*return validSelected;\s*\}/);
 });
 
-test("meta duplicate blocking loads real leads and restore rejects duplicate snapshots", () => {
+test("meta duplicate handling migrates new-workshop re-entries and restore still rejects invalid duplicate snapshots", () => {
   const server = read("server.js");
 
   assert.match(server, /async function getMetaProcessingSnapshot\(\)/);
   assert.match(server, /leads: Array\.isArray\(cachedStateDoc\.leads\)/);
   assert.match(server, /Load Meta processing snapshot \(leads\)/);
   assert.match(server, /findDuplicateLeadByEmailOrPhone\(snapshot\.leads, newLead\)/);
+  assert.match(server, /!isPublicCourseRegistrationLead\(duplicateLead\) && !isSameWorkshopLead\(duplicateLead, newLead\)/);
+  assert.match(server, /await replaceWorkshopLeadWithFreshLead\(duplicateLead, newLead, \{/);
+  assert.match(server, /Delete migrated Meta retry job/);
+  assert.match(server, /Duplicate lead blocked by \$\{duplicateField\} match/);
   assert.match(server, /Restore blocked: duplicate \$\{duplicateViolation\.field\} already exists in the backup snapshot\./);
   assert.match(server, /createIndex\(\s*\{ metaLeadId: 1 \}/);
   assert.match(server, /createIndex\(\s*\{ normalizedEmail: 1 \}/);

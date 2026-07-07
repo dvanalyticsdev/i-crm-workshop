@@ -2016,6 +2016,88 @@ function decorateLeadListForStorage(leads = []) {
   return (Array.isArray(leads) ? leads : []).map((lead) => decorateLeadDuplicateKeys(lead));
 }
 
+function normalizeWorkshopName(workshopName) {
+  return String(workshopName || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function isSameWorkshopLead(existingLead, incomingLead) {
+  return normalizeWorkshopName(existingLead?.workshop) === normalizeWorkshopName(incomingLead?.workshop);
+}
+
+function buildWorkshopMigrationSnapshot(lead = {}) {
+  return {
+    migratedAt: new Date().toISOString(),
+    id: String(lead.id || "").trim(),
+    workshop: String(lead.workshop || "").trim(),
+    admissionWorkshop: String(lead.admissionWorkshop || "").trim(),
+    status: String(lead.status || "").trim(),
+    source: String(lead.source || "").trim(),
+    counselor: String(lead.counselor || "").trim(),
+    createdAt: String(lead.createdAt || "").trim(),
+    dialed: String(lead.dialed || "").trim(),
+    callStatus: String(lead.callStatus || "").trim(),
+    wsStatus: String(lead.wsStatus || "").trim(),
+    whatsappInvite: String(lead.whatsappInvite || "").trim(),
+    postDialed: String(lead.postDialed || "").trim(),
+    postCallStatus: String(lead.postCallStatus || "").trim(),
+    coursePitched: String(lead.coursePitched || "").trim(),
+    courseStatus: String(lead.courseStatus || "").trim(),
+    admissionStatus: String(lead.admissionStatus || "").trim(),
+    workshopJoiningStatus: String(lead.workshopJoiningStatus || "").trim(),
+    whatsappGroupStatus: String(lead.whatsappGroupStatus || "").trim(),
+    preActivityUpdates: Number(lead.preActivityUpdates) || 0,
+    postActivityUpdates: Number(lead.postActivityUpdates) || 0,
+    workshopActivityHistory: Array.isArray(lead.workshopActivityHistory) ? structuredClone(lead.workshopActivityHistory) : [],
+    admissionActivityHistory: Array.isArray(lead.admissionActivityHistory) ? structuredClone(lead.admissionActivityHistory) : [],
+    leadNotes: Array.isArray(lead.leadNotes) ? structuredClone(lead.leadNotes) : []
+  };
+}
+
+function buildFreshWorkshopLead(existingLead, incomingLead, options = {}) {
+  const now = new Date();
+  const createdAt = now.toISOString().slice(0, 10);
+  const workshopMigrationHistory = Array.isArray(existingLead?.workshopMigrationHistory)
+    ? structuredClone(existingLead.workshopMigrationHistory)
+    : [];
+
+  workshopMigrationHistory.push(buildWorkshopMigrationSnapshot(existingLead));
+
+  const preservedCounselor = String(existingLead?.counselor || incomingLead?.counselor || "").trim();
+  const nextLead = {
+    ...existingLead,
+    ...incomingLead,
+    id: existingLead.id,
+    counselor: preservedCounselor,
+    workshop: String(incomingLead?.workshop || "").trim() || String(existingLead?.workshop || "").trim(),
+    admissionWorkshop: String(incomingLead?.workshop || "").trim() || String(existingLead?.admissionWorkshop || existingLead?.workshop || "").trim(),
+    source: String(incomingLead?.source || existingLead?.source || "").trim(),
+    status: "New",
+    createdAt,
+    dialed: "",
+    callStatus: "",
+    wsStatus: "",
+    whatsappInvite: "",
+    postDialed: "",
+    postCallStatus: "",
+    coursePitched: "",
+    courseStatus: "",
+    admissionStatus: "",
+    workshopJoiningStatus: "",
+    postStatusUpdated: false,
+    preActivityUpdates: 0,
+    postActivityUpdates: 0,
+    workshopActivityHistory: [],
+    admissionActivityHistory: [],
+    whatsappGroupStatus: "",
+    leadNotes: [],
+    workshopMigrationHistory,
+    lastWorkshopMigrationAt: now.toISOString(),
+    lastWorkshopMigrationSource: String(options.source || incomingLead?.source || existingLead?.source || "").trim()
+  };
+
+  return decorateLeadDuplicateKeys(nextLead);
+}
+
 function buildLeadOwnerMap(leads, field) {
   const owners = new Map();
   (Array.isArray(leads) ? leads : []).forEach((lead) => {
@@ -2170,6 +2252,57 @@ function findDuplicateRegisteredLeadByEmailOrPhoneInSegment(leads, incomingLead,
     }
     return !!findDuplicateLeadByEmailOrPhone([lead], incomingLead);
   }) || null;
+}
+
+async function replaceWorkshopLeadWithFreshLead(existingLead, incomingLead, options = {}) {
+  const nextLead = buildFreshWorkshopLead(existingLead, incomingLead, options);
+  const leadIdCandidates = getLeadIdCandidates(existingLead?.id);
+
+  await withMongoRetry(
+    () => leadsCollection.replaceOne(
+      { id: { $in: leadIdCandidates } },
+      nextLead,
+      { upsert: false }
+    ),
+    { retries: 1, label: "Replace migrated workshop lead" }
+  );
+
+  await withMongoRetry(
+    () => tasksCollection.deleteMany({ leadId: { $in: leadIdCandidates.map((value) => String(value)) } }),
+    { retries: 1, label: "Remove migrated workshop lead tasks" }
+  );
+
+  await recordActivity({
+    leadId: nextLead.id,
+    leadName: nextLead.name,
+    counselorName: nextLead.counselor || "",
+    activityType: "Lead Re-entered",
+    actionDescription: `Lead moved from ${String(existingLead?.workshop || "Unknown workshop").trim() || "Unknown workshop"} to ${String(nextLead.workshop || "Unknown workshop").trim() || "Unknown workshop"} and reset as a fresh workshop lead`,
+    previousValue: String(existingLead?.workshop || "").trim() || "None",
+    newValue: String(nextLead.workshop || "").trim() || "None"
+  });
+
+  if (options.metaLeadId) {
+    await saveMetaLog({
+      type: "updated",
+      message: `Duplicate lead migrated to new workshop ${nextLead.workshop || "Unknown workshop"}`,
+      leadgenId: options.metaLeadId,
+      formId: options.formId,
+      leadId: nextLead.id
+    });
+  }
+
+  const now = new Date().toISOString();
+  await stateCollection.updateOne(
+    { _id: STATE_DOC_ID },
+    { $set: { updatedAt: now } },
+    { upsert: true }
+  );
+
+  cachedStateDoc = null;
+  cachedStateDocAt = 0;
+
+  return nextLead;
 }
 
 async function getStateDoc() {
@@ -4062,6 +4195,21 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
   );
   const duplicateLead = findDuplicateLeadByEmailOrPhone(snapshot.leads, newLead);
   if (duplicateLead) {
+    if (!isPublicCourseRegistrationLead(duplicateLead) && !isSameWorkshopLead(duplicateLead, newLead)) {
+      await replaceWorkshopLeadWithFreshLead(duplicateLead, newLead, {
+        source: "Meta",
+        metaLeadId: leadgenId,
+        formId
+      });
+      if (retryJobId) {
+        await withMongoRetry(
+          () => metaRetryCollection.deleteOne({ _id: retryJobId }),
+          { retries: 1, label: "Delete migrated Meta retry job" }
+        );
+      }
+      return;
+    }
+
     if (retryJobId) {
       await withMongoRetry(
         () => metaRetryCollection.deleteOne({ _id: retryJobId }),
