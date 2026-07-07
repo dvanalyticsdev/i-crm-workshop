@@ -33,9 +33,20 @@ const FORWARDED_WEBHOOK_SIGNATURE_HEADER = "x-dv-webhook-signature";
 const META_LEAD_FETCH_TIMEOUT_MS = 20000;
 const META_LEAD_FETCH_MAX_ATTEMPTS = 3;
 const META_RETRY_JOB_MAX_ATTEMPTS = 10;
-const PUBLIC_COURSE_ROUND_ROBIN_FIELD = "publicCourseRoundRobinIndex";
-const PUBLIC_COURSE_ROUTING_SCOPE = "public-course-routing";
-const PUBLIC_COURSE_ROUTING_OWNER = "system:public-course-routing";
+const PUBLIC_COURSE_DEFAULT_SEGMENT = "standard";
+const PUBLIC_COURSE_CRASH_SEGMENT = "crash-course";
+const PUBLIC_COURSE_SEGMENT_CONFIG = {
+  [PUBLIC_COURSE_DEFAULT_SEGMENT]: {
+    routingScope: "public-course-routing",
+    routingOwner: "system:public-course-routing",
+    roundRobinField: "publicCourseRoundRobinIndex"
+  },
+  [PUBLIC_COURSE_CRASH_SEGMENT]: {
+    routingScope: "public-course-routing:crash-course",
+    routingOwner: "system:public-course-routing:crash-course",
+    roundRobinField: "publicCourseCrashRoundRobinIndex"
+  }
+};
 
 const PUBLIC_COURSE_CATALOG = [
   { id: "apids", code: "APIDS", name: "Advanced Program in Industrial Data Science & AI", duration: "6-8 Months" },
@@ -1633,9 +1644,13 @@ app.post("/api/public-course-registrations", async (req, res) => {
     }
 
     const snapshot = await getStateDoc();
+    const publicCourseSegment = getPublicCourseSegment(course);
+    const isCrashCourseRegistration = publicCourseSegment === PUBLIC_COURSE_CRASH_SEGMENT;
     const masterLead = findDuplicateNonRegisteredLeadByEmailOrPhone(snapshot.leads, { email, phone });
-    const existingRegisteredLead = findDuplicateRegisteredLeadByEmailOrPhone(snapshot.leads, { email, phone });
+    const effectiveMasterLead = isCrashCourseRegistration ? null : masterLead;
+    const existingRegisteredLead = findDuplicateRegisteredLeadByEmailOrPhoneInSegment(snapshot.leads, { email, phone }, publicCourseSegment);
     const counselorSourceLead = masterLead || existingRegisteredLead || null;
+    const effectiveCounselorSourceLead = isCrashCourseRegistration ? (existingRegisteredLead || null) : counselorSourceLead;
     const isSameRegisteredCourse = !!existingRegisteredLead && publicCourseLeadMatchesCourse(existingRegisteredLead, course);
 
     if (isSameRegisteredCourse) {
@@ -1648,7 +1663,8 @@ app.post("/api/public-course-registrations", async (req, res) => {
       });
     }
 
-    const counselorName = String(counselorSourceLead?.counselor || "").trim() || await assignPublicCourseCounselorRoundRobin(snapshot.counselors);
+    // const counselorName = String(counselorSourceLead?.counselor || "").trim() || await assignPublicCourseCounselorRoundRobin(snapshot.counselors, publicCourseSegment);
+    const counselorName = String(effectiveCounselorSourceLead?.counselor || "").trim() || await assignPublicCourseCounselorRoundRobin(snapshot.counselors, publicCourseSegment);
     const nextId = await getNextMetaLeadId();
     const newLead = buildPublicCourseLead({
       name,
@@ -1657,7 +1673,8 @@ app.post("/api/public-course-registrations", async (req, res) => {
       course,
       counselorName,
       nextId,
-      country
+      country,
+      segment: publicCourseSegment
     });
 
     const shouldReplaceExistingRegisteredLead = !!existingRegisteredLead && !isSameRegisteredCourse;
@@ -1713,7 +1730,7 @@ app.post("/api/public-course-registrations", async (req, res) => {
       role: "admin",
       type: "public_course_registration",
       title: "New Course Registration",
-      message: `Lead: ${formatLeadNotificationLabel(newLead)}. Registered for ${course.name}. Assigned counselor: ${counselorName}${masterLead ? " (linked to existing CRM lead)" : ""}${shouldReplaceExistingRegisteredLead ? " (updated registered section)" : ""}`,
+      message: `Lead: ${formatLeadNotificationLabel(newLead)}. Registered for ${course.name}. Assigned counselor: ${counselorName}${!isCrashCourseRegistration && effectiveMasterLead ? " (linked to existing CRM lead)" : ""}${shouldReplaceExistingRegisteredLead ? " (updated registered section)" : ""}`,
       sound: true,
       leadId: nextId,
       leadName: newLead.name,
@@ -1757,8 +1774,9 @@ app.get("/api/public-course-routing", async (req, res) => {
     const session = await requireRole(req, res, "admin");
     if (!session) return;
 
-    const config = await getPublicCourseRoutingConfig();
-    return res.json({ ok: true, ...config });
+    const segment = normalizePublicCourseSegment(req.query?.segment);
+    const config = await getPublicCourseRoutingConfig(segment);
+    return res.json({ ok: true, segment, ...config });
   } catch (error) {
     return res.status(500).json({ message: "Failed to fetch public course routing", details: error.message });
   }
@@ -1769,6 +1787,9 @@ app.put("/api/public-course-routing", async (req, res) => {
     const session = await requireRole(req, res, "admin");
     if (!session) return;
 
+    const segment = normalizePublicCourseSegment(req.query?.segment || req.body?.segment);
+    const config = getPublicCourseSegmentConfig(segment);
+
     const selectedCounselors = Array.isArray(req.body?.selectedCounselors)
       ? req.body.selectedCounselors.map((name) => String(name || "").trim()).filter(Boolean)
       : [];
@@ -1778,22 +1799,22 @@ app.put("/api/public-course-routing", async (req, res) => {
 
     const now = new Date().toISOString();
     await preferenceCollection.updateOne(
-      { ownerKey: PUBLIC_COURSE_ROUTING_OWNER, scope: PUBLIC_COURSE_ROUTING_SCOPE },
+      { ownerKey: config.routingOwner, scope: config.routingScope },
       {
         $set: {
           value: { selectedCounselors, isConfigured },
           updatedAt: now
         },
         $setOnInsert: {
-          ownerKey: PUBLIC_COURSE_ROUTING_OWNER,
-          scope: PUBLIC_COURSE_ROUTING_SCOPE,
+          ownerKey: config.routingOwner,
+          scope: config.routingScope,
           createdAt: now
         }
       },
       { upsert: true }
     );
 
-    return res.json({ ok: true, selectedCounselors, isConfigured });
+    return res.json({ ok: true, segment, selectedCounselors, isConfigured });
   } catch (error) {
     return res.status(500).json({ message: "Failed to save public course routing", details: error.message });
   }
@@ -1825,14 +1846,32 @@ function normalizeLeadContactValue(value) {
   return String(value || "").trim();
 }
 
+function normalizePublicCourseSegment(segment) {
+  return String(segment || "").trim().toLowerCase() === PUBLIC_COURSE_CRASH_SEGMENT
+    ? PUBLIC_COURSE_CRASH_SEGMENT
+    : PUBLIC_COURSE_DEFAULT_SEGMENT;
+}
+
+function getPublicCourseSegmentConfig(segment) {
+  return PUBLIC_COURSE_SEGMENT_CONFIG[normalizePublicCourseSegment(segment)];
+}
+
+function getPublicCourseSegment(course) {
+  const courseId = String(course?.courseId || course?.id || "").trim();
+  return courseId === "days7_genai"
+    ? PUBLIC_COURSE_CRASH_SEGMENT
+    : PUBLIC_COURSE_DEFAULT_SEGMENT;
+}
+
 function findPublicCourseDefinition(courseId) {
   return PUBLIC_COURSE_CATALOG.find((course) => course.id === String(courseId || "").trim()) || null;
 }
 
-async function getPublicCourseRoutingConfig() {
+async function getPublicCourseRoutingConfig(segment = PUBLIC_COURSE_DEFAULT_SEGMENT) {
+  const config = getPublicCourseSegmentConfig(segment);
   const preference = await preferenceCollection.findOne({
-    ownerKey: PUBLIC_COURSE_ROUTING_OWNER,
-    scope: PUBLIC_COURSE_ROUTING_SCOPE
+    ownerKey: config.routingOwner,
+    scope: config.routingScope
   });
 
   const selectedCounselors = Array.isArray(preference?.value?.selectedCounselors)
@@ -1852,8 +1891,9 @@ function isCounselorEligibleForCourseRegistrations(counselor) {
   return !!counselor && !counselor.disabled;
 }
 
-async function assignPublicCourseCounselorRoundRobin(counselors = []) {
-  const routingConfig = await getPublicCourseRoutingConfig().catch(() => ({ selectedCounselors: [], isConfigured: false }));
+async function assignPublicCourseCounselorRoundRobin(counselors = [], segment = PUBLIC_COURSE_DEFAULT_SEGMENT) {
+  const routingSegmentConfig = getPublicCourseSegmentConfig(segment);
+  const routingConfig = await getPublicCourseRoutingConfig(segment).catch(() => ({ selectedCounselors: [], isConfigured: false }));
   const selectedCounselorSet = new Set(routingConfig.selectedCounselors.map((name) => name.toLowerCase()));
   const eligibleCounselors = (Array.isArray(counselors) ? counselors : [])
     .filter(isCounselorEligibleForCourseRegistrations);
@@ -1867,18 +1907,18 @@ async function assignPublicCourseCounselorRoundRobin(counselors = []) {
   const result = await withMongoRetry(
     () => stateCollection.findOneAndUpdate(
       { _id: STATE_DOC_ID },
-      { $inc: { [PUBLIC_COURSE_ROUND_ROBIN_FIELD]: 1 } },
+      { $inc: { [routingSegmentConfig.roundRobinField]: 1 } },
       { returnDocument: "after", upsert: true }
     ),
     { retries: 1, label: "Advance public course round robin" }
   );
 
-  const newIndex = Number(result?.[PUBLIC_COURSE_ROUND_ROBIN_FIELD]) || 1;
+  const newIndex = Number(result?.[routingSegmentConfig.roundRobinField]) || 1;
   const counselorIndex = ((newIndex - 1) % activeCounselors.length + activeCounselors.length) % activeCounselors.length;
   return activeCounselors[counselorIndex].name;
 }
 
-function buildPublicCourseLead({ name, email, phone, course, counselorName, nextId, country }) {
+function buildPublicCourseLead({ name, email, phone, course, counselorName, nextId, country, segment }) {
   return {
     id: nextId,
     name: String(name || "").trim(),
@@ -1893,6 +1933,7 @@ function buildPublicCourseLead({ name, email, phone, course, counselorName, next
     status: "New",
     source: "Public Course Registration",
     leadPipeline: "course-registration",
+    publicCourseSegment: normalizePublicCourseSegment(segment),
     createdAt: new Date().toISOString().slice(0, 10),
     counselor: counselorName,
     registeredDialed: "",
@@ -1911,6 +1952,11 @@ function buildPublicCourseLead({ name, email, phone, course, counselorName, next
 
 function isPublicCourseRegistrationLead(lead) {
   return String(lead?.leadPipeline || "").trim().toLowerCase() === "course-registration";
+}
+
+function isCrashCourseRegistrationLead(lead) {
+  return isPublicCourseRegistrationLead(lead)
+    && normalizePublicCourseSegment(lead?.publicCourseSegment || getPublicCourseSegment(lead)) === PUBLIC_COURSE_CRASH_SEGMENT;
 }
 
 function publicCourseLeadMatchesCourse(lead, course) {
@@ -2017,7 +2063,16 @@ function isAllowedRegisteredLeadDuplicateGroup(leads, owners) {
   }
 
   const registeredCount = groupedLeads.filter((lead) => isPublicCourseRegistrationLead(lead)).length;
-  return registeredCount === 1;
+  if (registeredCount === 1) {
+    return true;
+  }
+
+  if (registeredCount === 2) {
+    const segments = new Set(groupedLeads.map((lead) => normalizePublicCourseSegment(lead?.publicCourseSegment || getPublicCourseSegment(lead))));
+    return segments.size === 2;
+  }
+
+  return false;
 }
 
 function findLeadDuplicateViolation(nextLeads, currentLeads = []) {
@@ -2097,6 +2152,20 @@ function findDuplicateNonRegisteredLeadByEmailOrPhone(leads, incomingLead) {
 function findDuplicateRegisteredLeadByEmailOrPhone(leads, incomingLead) {
   return (Array.isArray(leads) ? leads : []).find((lead) => {
     if (!isPublicCourseRegistrationLead(lead)) {
+      return false;
+    }
+    return !!findDuplicateLeadByEmailOrPhone([lead], incomingLead);
+  }) || null;
+}
+
+function findDuplicateRegisteredLeadByEmailOrPhoneInSegment(leads, incomingLead, segment = PUBLIC_COURSE_DEFAULT_SEGMENT) {
+  const targetSegment = normalizePublicCourseSegment(segment);
+  return (Array.isArray(leads) ? leads : []).find((lead) => {
+    if (!isPublicCourseRegistrationLead(lead)) {
+      return false;
+    }
+    const leadSegment = normalizePublicCourseSegment(lead?.publicCourseSegment || getPublicCourseSegment(lead));
+    if (leadSegment !== targetSegment) {
       return false;
     }
     return !!findDuplicateLeadByEmailOrPhone([lead], incomingLead);

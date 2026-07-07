@@ -26,6 +26,7 @@ const registeredRoutingOptions = document.getElementById("registeredRoutingOptio
 const saveRegisteredRoutingBtn = document.getElementById("saveRegisteredRoutingBtn");
 const clearRegisteredCandidateDataBtn = document.getElementById("clearRegisteredCandidateDataBtn");
 const registeredRoutingMessage = document.getElementById("registeredRoutingMessage");
+const registeredSegmentSection = document.getElementById("registeredSegmentSection");
 const registeredKpiSection = document.getElementById("registeredKpiSection");
 const registeredFilterBar = document.getElementById("registeredFilterBar");
 const registeredActivityMessage = document.getElementById("registeredActivityMessage");
@@ -46,10 +47,29 @@ const registeredTaskMessage = document.getElementById("registeredTaskMessage");
 
 const FILTER_STORAGE_KEY = "dvRegisteredCandidatesFilters";
 const PUBLIC_COURSE_ROUTING_ENDPOINT = apiUrl("/api/public-course-routing");
+const DEFAULT_SEGMENT = "standard";
+const CRASH_SEGMENT = "crash-course";
+const SEGMENT_CONFIG = {
+  [DEFAULT_SEGMENT]: {
+    key: DEFAULT_SEGMENT,
+    label: "Main Registered Candidates",
+    description: "All standard public landing-page registrations except the 7-Day Crash Course.",
+    clearLabel: "Registered Candidate",
+    courseId: ""
+  },
+  [CRASH_SEGMENT]: {
+    key: CRASH_SEGMENT,
+    label: "7-Day Crash Course",
+    description: "Dedicated subsection for the 7 Days Gen AI & Agentic AI Hands-on Master Program.",
+    clearLabel: "7-Day Crash Course",
+    courseId: "days7_genai"
+  }
+};
 const DEFAULT_FILTER = {
   search: "",
   counselor: "",
   courseName: "",
+  location: "",
   registeredDialed: "",
   registeredCourseStatus: "",
   registeredAdmissionStatus: "",
@@ -66,6 +86,7 @@ let activeLeadRef = null;
 let notesLeadRef = null;
 let registeredRoutingConfig = { selectedCounselors: [], isConfigured: false };
 let registeredActivityModalMode = "edit";
+let activeSegment = DEFAULT_SEGMENT;
 
 function persistFilters() {
   void savePersistedValue(FILTER_STORAGE_KEY, filter);
@@ -97,6 +118,25 @@ function getCounselorIdentity() {
 
 function isRegisteredCandidateLead(lead) {
   return String(lead?.leadPipeline || "").trim().toLowerCase() === "course-registration";
+}
+
+function normalizeSegment(segment) {
+  return String(segment || "").trim().toLowerCase() === CRASH_SEGMENT ? CRASH_SEGMENT : DEFAULT_SEGMENT;
+}
+
+function getSegmentConfig(segment = activeSegment) {
+  return SEGMENT_CONFIG[normalizeSegment(segment)];
+}
+
+function getLeadSegment(lead) {
+  const publicCourseSegment = String(lead?.publicCourseSegment || "").trim().toLowerCase();
+  if (publicCourseSegment === CRASH_SEGMENT) {
+    return CRASH_SEGMENT;
+  }
+
+  return String(lead?.courseId || "").trim() === SEGMENT_CONFIG[CRASH_SEGMENT].courseId
+    ? CRASH_SEGMENT
+    : DEFAULT_SEGMENT;
 }
 
 function getActiveCounselorNames() {
@@ -131,7 +171,12 @@ function getStoredRegisteredCandidateLeads() {
   return leads;
 }
 
-function getAllLeads() {
+function getAllLeads(segment = activeSegment) {
+  const normalizedSegment = normalizeSegment(segment);
+  return getStoredRegisteredCandidateLeads().filter((lead) => getLeadSegment(lead) === normalizedSegment);
+}
+
+function getAllRegisteredCandidateLeads() {
   return getStoredRegisteredCandidateLeads();
 }
 
@@ -194,7 +239,7 @@ function buildLeadKey(lead) {
 }
 
 function findLeadByRef(leadRef) {
-  const leads = getAllLeads();
+  const leads = getAllRegisteredCandidateLeads();
   return leads.find((lead) => buildLeadKey(lead) === buildLeadKey(leadRef)) || null;
 }
 
@@ -216,6 +261,50 @@ function getEffectiveRegisteredRoutingSelection(counselorNames) {
   return validSelected.length ? validSelected : counselorNames;
 }
 
+function buildRoutingEndpoint(segment = activeSegment) {
+  return `${PUBLIC_COURSE_ROUTING_ENDPOINT}?segment=${encodeURIComponent(normalizeSegment(segment))}`;
+}
+
+function renderSegmentSection() {
+  if (!registeredSegmentSection) {
+    return;
+  }
+
+  registeredSegmentSection.innerHTML = `
+    <div class="card-head">
+      <h3>Registered Candidate Subsections</h3>
+      <p>Switch between the main landing-page registrations and the isolated 7-Day Crash Course pipeline.</p>
+    </div>
+    <div class="filter-actions" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+      ${Object.values(SEGMENT_CONFIG).map((segment) => `
+        <button
+          type="button"
+          class="${activeSegment === segment.key ? "btn-primary" : "btn-ghost"}"
+          data-registered-segment="${segment.key}"
+        >
+          ${escapeHtml(segment.label)}
+        </button>
+      `).join("")}
+    </div>
+    <p class="block-help">${escapeHtml(getSegmentConfig().description)}</p>
+  `;
+
+  registeredSegmentSection.querySelectorAll("[data-registered-segment]").forEach((button) => {
+    button.onclick = () => {
+      const nextSegment = normalizeSegment(button.getAttribute("data-registered-segment"));
+      if (nextSegment === activeSegment) {
+        return;
+      }
+      activeSegment = nextSegment;
+      selectedLeadKeys = new Set();
+      currentPage = 1;
+      setRoutingMessage("");
+      void loadRegisteredRoutingConfig();
+      renderAll();
+    };
+  });
+}
+
 function renderRegisteredRoutingPanel() {
   if (!registeredRoutingPanel || !registeredRoutingOptions) {
     return;
@@ -227,6 +316,19 @@ function renderRegisteredRoutingPanel() {
   }
 
   registeredRoutingPanel.classList.remove("hidden");
+  const segmentConfig = getSegmentConfig();
+  const panelTitle = registeredRoutingPanel.querySelector(".card-head h3");
+  const panelDescription = registeredRoutingPanel.querySelector(".card-head p");
+  const panelHelp = registeredRoutingPanel.querySelector(".block-help");
+  if (panelTitle) {
+    panelTitle.textContent = `${segmentConfig.label} Routing`;
+  }
+  if (panelDescription) {
+    panelDescription.textContent = `Choose which counselors receive ${segmentConfig.label.toLowerCase()} registrations. New registrations are assigned in round robin order only.`;
+  }
+  if (panelHelp) {
+    panelHelp.textContent = `Clear Data removes only ${segmentConfig.label} leads and resets this routing setup. Other CRM lead sections stay unchanged.`;
+  }
   const counselorNames = getActiveCounselorNames();
   const selectedCounselors = getEffectiveRegisteredRoutingSelection(counselorNames);
 
@@ -264,7 +366,7 @@ async function loadRegisteredRoutingConfig() {
   }
 
   try {
-    const response = await fetch(PUBLIC_COURSE_ROUTING_ENDPOINT, {
+    const response = await fetch(buildRoutingEndpoint(), {
       method: "GET",
       headers: { Accept: "application/json" }
     });
@@ -296,13 +398,13 @@ async function saveRegisteredRoutingConfig() {
   }
 
   try {
-    const response = await fetch(PUBLIC_COURSE_ROUTING_ENDPOINT, {
+    const response = await fetch(buildRoutingEndpoint(), {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json"
       },
-      body: JSON.stringify({ selectedCounselors, isConfigured: true })
+      body: JSON.stringify({ segment: activeSegment, selectedCounselors, isConfigured: true })
     });
     const json = await response.json().catch(() => ({}));
 
@@ -316,21 +418,27 @@ async function saveRegisteredRoutingConfig() {
       isConfigured: Boolean(json?.isConfigured ?? true)
     };
     renderRegisteredRoutingPanel();
-    setRoutingMessage("Registered candidate routing saved successfully.");
-    showToast("Registered candidate routing saved.");
+    setRoutingMessage(`${getSegmentConfig().label} routing saved successfully.`);
+    showToast(`${getSegmentConfig().label} routing saved.`);
   } catch {
     setRoutingMessage("Failed to save registered candidate routing.", true);
   }
 }
 
 async function clearRegisteredCandidateData() {
-  const registeredLeads = getStoredRegisteredCandidateLeads();
-  const confirmed = window.confirm("Clear only Registered Candidate data and reset its routing setup?");
+  const segmentConfig = getSegmentConfig();
+  const registeredLeads = getAllRegisteredCandidateLeads().filter((lead) => getLeadSegment(lead) === activeSegment);
+  const confirmed = window.confirm(`Clear only ${segmentConfig.label} data and reset its routing setup?`);
   if (!confirmed) {
     return;
   }
 
-  const remainingLeads = getStoredLeads().filter((lead) => !isRegisteredCandidateLead(lead));
+  const remainingLeads = getStoredLeads().filter((lead) => {
+    if (!isRegisteredCandidateLead(lead)) {
+      return true;
+    }
+    return getLeadSegment(lead) !== activeSegment;
+  });
   const saveResult = await persistLeads(remainingLeads);
   if (!saveResult || saveResult.ok === false) {
     setRoutingMessage(saveResult?.message || "Failed to clear Registered Candidate data.", true);
@@ -338,13 +446,13 @@ async function clearRegisteredCandidateData() {
   }
 
   try {
-    const response = await fetch(PUBLIC_COURSE_ROUTING_ENDPOINT, {
+    const response = await fetch(buildRoutingEndpoint(), {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json"
       },
-      body: JSON.stringify({ selectedCounselors: [], isConfigured: false })
+      body: JSON.stringify({ segment: activeSegment, selectedCounselors: [], isConfigured: false })
     });
     const json = await response.json().catch(() => ({}));
 
@@ -368,8 +476,8 @@ async function clearRegisteredCandidateData() {
   currentPage = 1;
   renderRegisteredRoutingPanel();
   renderAll();
-  setRoutingMessage(`Cleared ${registeredLeads.length} Registered Candidate lead${registeredLeads.length === 1 ? "" : "s"}.`);
-  showToast("Registered Candidate data cleared.");
+  setRoutingMessage(`Cleared ${registeredLeads.length} ${segmentConfig.clearLabel} lead${registeredLeads.length === 1 ? "" : "s"}.`);
+  showToast(`${segmentConfig.label} data cleared.`);
 }
 
 function renderKpis(leads) {
@@ -398,12 +506,14 @@ function renderKpis(leads) {
 }
 
 function renderFilters(leads) {
+  const segmentConfig = getSegmentConfig();
   const counselors = getUniqueValues(leads, "counselor");
   const courses = getUniqueValues(leads, "courseName");
+  const locations = getUniqueValues(leads, "country");
 
   registeredFilterBar.innerHTML = `
     <div class="filter-section">
-      <div class="filter-section-title">Registered Candidate Filters</div>
+      <div class="filter-section-title">${escapeHtml(segmentConfig.label)} Filters</div>
       <div class="filter-row">
         <div class="filter-item">
           <label for="registeredSearchInput">Search Lead</label>
@@ -418,11 +528,20 @@ function renderFilters(leads) {
           </select>
         </div>
         ` : ""}
+        ${activeSegment === DEFAULT_SEGMENT ? `
         <div class="filter-item">
           <label for="registeredCourseSelect">Course Name</label>
           <select id="registeredCourseSelect">
             <option value="">All</option>
             ${courses.map((item) => `<option value="${escapeHtml(item)}" ${filter.courseName === item ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
+          </select>
+        </div>
+        ` : ""}
+        <div class="filter-item">
+          <label for="registeredLocationSelect">${activeSegment === CRASH_SEGMENT ? "Location" : "Country"}</label>
+          <select id="registeredLocationSelect">
+            <option value="">All</option>
+            ${locations.map((item) => `<option value="${escapeHtml(item)}" ${filter.location === item ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
           </select>
         </div>
         <div class="filter-item">
@@ -492,8 +611,19 @@ function renderFilters(leads) {
       renderAll();
     };
   }
-  document.getElementById("registeredCourseSelect").onchange = (event) => {
-    filter.courseName = event.target.value;
+  const courseSelect = document.getElementById("registeredCourseSelect");
+  if (courseSelect) {
+    courseSelect.onchange = (event) => {
+      filter.courseName = event.target.value;
+      persistFilters();
+      currentPage = 1;
+      renderAll();
+    };
+  } else {
+    filter.courseName = "";
+  }
+  document.getElementById("registeredLocationSelect").onchange = (event) => {
+    filter.location = event.target.value;
     persistFilters();
     currentPage = 1;
     renderAll();
@@ -539,11 +669,12 @@ function renderFilters(leads) {
 function filterLeads(leads) {
   return leads.filter((lead) => {
     if (filter.search) {
-      const haystack = [lead.name, lead.email, lead.phone, lead.courseName, lead.counselor].join(" ").toLowerCase();
+      const haystack = [lead.name, lead.email, lead.phone, lead.courseName, lead.country, lead.counselor].join(" ").toLowerCase();
       if (!haystack.includes(filter.search.toLowerCase())) return false;
     }
     if (filter.counselor && filter.counselor !== lead.counselor) return false;
-    if (filter.courseName && filter.courseName !== lead.courseName) return false;
+    if (activeSegment === DEFAULT_SEGMENT && filter.courseName && filter.courseName !== lead.courseName) return false;
+    if (filter.location && filter.location !== (lead.country || "")) return false;
     if (filter.registeredDialed && filter.registeredDialed !== lead.registeredDialed) return false;
     if (filter.registeredCourseStatus && filter.registeredCourseStatus !== lead.registeredCourseStatus) return false;
     if (filter.registeredAdmissionStatus && filter.registeredAdmissionStatus !== lead.registeredAdmissionStatus) return false;
@@ -570,6 +701,7 @@ function renderActivityPanel(lead) {
 }
 
 function renderLeadTable(leads) {
+  const isCrashSegment = activeSegment === CRASH_SEGMENT;
   const totalPages = Math.ceil(leads.length / pageSize) || 1;
   if (currentPage > totalPages) currentPage = totalPages;
   const pageLeads = leads.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -604,11 +736,11 @@ function renderLeadTable(leads) {
           <tr>
             ${isAdmin ? "<th>Select</th>" : ""}
             <th>Lead Import Date</th>
-            <th>Name</th>
-            <th>Phone Number</th>
-            <th>Email</th>
+            <th>${isCrashSegment ? "Full Name" : "Name"}</th>
+            <th>${isCrashSegment ? "Contact Number" : "Phone Number"}</th>
+            <th>${isCrashSegment ? "Mail ID" : "Email"}</th>
             <th>Course Name</th>
-            <th>Country</th>
+            <th>${isCrashSegment ? "Location" : "Country"}</th>
             <th>Counselor</th>
             <th>Activity</th>
           </tr>
@@ -621,7 +753,7 @@ function renderLeadTable(leads) {
               <td>${escapeHtml(lead.name)}</td>
               <td>${escapeHtml(lead.phone || "-")}</td>
               <td>${escapeHtml(lead.email)}</td>
-              <td>${escapeHtml(lead.courseName)}</td>
+              <td>${escapeHtml(lead.courseName || "-")}</td>
               <td>${escapeHtml(lead.country || "India")}</td>
               <td>${escapeHtml(lead.counselor || "Unassigned")}</td>
               <td>${renderActivityPanel(lead)}</td>
@@ -989,6 +1121,7 @@ async function handleTaskSubmit(event) {
 }
 
 function setupRegisteredRoutingPanel() {
+  renderSegmentSection();
   renderRegisteredRoutingPanel();
 
   if (!isAdmin) {
@@ -1011,6 +1144,7 @@ function setupRegisteredRoutingPanel() {
 }
 
 function renderAll() {
+  renderSegmentSection();
   const allLeads = getScopedLeads(getAllLeads());
   const filteredLeads = filterLeads(allLeads);
   renderRegisteredRoutingPanel();
