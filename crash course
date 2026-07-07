@@ -897,7 +897,7 @@
   <header class="cc-header">
     <div class="cc-container cc-header-wrap">
       <a href="#" class="cc-logo" style="text-decoration: none;">
-        <img src="Logos/DV-Logo.png" alt="DV Logo" />
+        <img src="/Logos/DV-Logo.png" alt="DV Logo" />
       </a>
       <button class="cc-nav-btn" onclick="openEnrollmentModal()">Enroll Now</button>
     </div>
@@ -1243,7 +1243,7 @@
         <!-- Bangalore -->
         <div class="center-card">
           <div class="center-img-wrapper">
-            <img src="office-bg/bangalore.png" alt="Bangalore Office" class="center-img" />
+            <img src="/office-bg/bangalore.png" alt="Bangalore Office" class="center-img" />
           </div>
           <div class="center-info">
             <div class="center-badge-row">
@@ -1278,7 +1278,7 @@
         <!-- Bhubaneswar -->
         <div class="center-card">
           <div class="center-img-wrapper">
-            <img src="office-bg/bhubneshwar.png" alt="Bhubaneswar Office" class="center-img" />
+            <img src="/office-bg/bhubneshwar.png" alt="Bhubaneswar Office" class="center-img" />
           </div>
           <div class="center-info">
             <div class="center-badge-row">
@@ -1313,7 +1313,7 @@
         <!-- Dubai -->
         <div class="center-card">
           <div class="center-img-wrapper">
-            <img src="office-bg/dubai.png" alt="Dubai Office" class="center-img" />
+            <img src="/office-bg/dubai.png" alt="Dubai Office" class="center-img" />
           </div>
           <div class="center-info">
             <div class="center-badge-row">
