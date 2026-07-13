@@ -11,7 +11,6 @@ import {
   loadPersistedValue,
   replaceStateSnapshot,
   saveAllocation as persistAllocation,
-  saveLeads as persistLeads,
   savePersistedValue,
   startStatePolling,
   syncStateFromLocalAndVerify
@@ -20,6 +19,7 @@ import { createTask, TASK_CATEGORY } from "./task-service.js";
 import {
   addLeadNote,
   assignLeads as assignLeadsOnServer,
+  deleteLeads as deleteLeadsOnServer,
   deleteLeadNote,
   updateLeadActivity as updateLeadActivityOnServer
 } from "./lead-service.js";
@@ -128,9 +128,7 @@ async function deleteLead(leadId) {
     return false;
   }
 
-  const deletedLeadKey = buildLeadSelectionKey(allLeads[index]);
-  const remainingLeads = getStoredLeads().filter((lead) => buildLeadSelectionKey(lead) !== deletedLeadKey);
-  const deleteLeadResult = await saveAllLeads(remainingLeads);
+  const deleteLeadResult = await deleteLeadsOnServer([buildLeadSelectionRef(allLeads[index])]);
   if (!deleteLeadResult || deleteLeadResult.ok === false) {
     showToast("Failed to delete lead. Please check your connection and try again.", true);
     return false;
@@ -150,18 +148,15 @@ async function deleteSelectedLeads(leads) {
   }
 
   const allLeads = getAllLeads();
-  const deleteKeys = new Set(
-    allLeads
-      .filter((lead) => selectedLeadKeys.has(buildLeadSelectionKey(lead)))
-      .map((lead) => buildLeadSelectionKey(lead))
-  );
-  const remainingLeads = getStoredLeads().filter((lead) => !deleteKeys.has(buildLeadSelectionKey(lead)));
-  const removedCount = deleteKeys.size;
+  const deleteRefs = allLeads
+    .filter((lead) => selectedLeadKeys.has(buildLeadSelectionKey(lead)))
+    .map((lead) => buildLeadSelectionRef(lead));
+  const removedCount = deleteRefs.length;
   if (!removedCount) {
     return false;
   }
 
-  const deleteSelectedResult = await saveAllLeads(remainingLeads);
+  const deleteSelectedResult = await deleteLeadsOnServer(deleteRefs);
   if (!deleteSelectedResult || deleteSelectedResult.ok === false) {
     showToast("Failed to delete selected leads. Please check your connection and try again.", true);
     return false;
@@ -745,10 +740,6 @@ function getAllLeads() {
   const leads = getStoredLeads().filter((lead) => !isNonWorkshopPipelineLead(lead));
   normalizeLeadFields(leads);
   return leads;
-}
-
-function saveAllLeads(leads) {
-  return persistLeads(leads);
 }
 
 function showToast(message, isError = false) {

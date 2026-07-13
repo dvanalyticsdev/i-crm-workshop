@@ -2583,6 +2583,30 @@ function buildLeadIdentityMatchConditions(leadRefs) {
     .filter(Boolean);
 }
 
+function buildLiveLeadIdentityMatchConditions(leadRefs) {
+  return leadRefs
+    .map((ref) => {
+      const id = String(ref?.id || "").trim();
+      if (!id) {
+        return null;
+      }
+
+      const condition = { id: { $in: getLeadIdCandidates(id) } };
+      const email = String(ref?.email || "").trim().toLowerCase();
+      const phone = String(ref?.phone || "").trim();
+      const workshop = String(ref?.workshop || "").trim();
+      const createdAt = String(ref?.createdAt || "").trim();
+
+      if (email) condition.email = email;
+      if (phone) condition.phone = phone;
+      if (workshop) condition.workshop = workshop;
+      if (createdAt) condition.createdAt = createdAt;
+
+      return condition;
+    })
+    .filter(Boolean);
+}
+
 function findLeadById(state, leadId) {
   const candidates = new Set(getLeadIdCandidates(leadId).map((value) => String(value)));
   return (Array.isArray(state?.leads) ? state.leads : []).find(
@@ -3521,6 +3545,62 @@ app.delete("/api/leads/:leadId/notes/:noteIndex", async (req, res) => {
     return res.json({ ok: true, lead: updatedLead, state: buildStateResponse(nextState) });
   } catch (error) {
     return res.status(500).json({ message: "Failed to delete note", details: error.message });
+  }
+});
+
+app.delete("/api/leads", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, "admin");
+    if (!session) return;
+
+    const leadRefs = Array.isArray(req.body?.leadRefs) ? req.body.leadRefs : [];
+    const matchConditions = buildLiveLeadIdentityMatchConditions(leadRefs);
+    if (!matchConditions.length) {
+      return res.status(400).json({ message: "Lead references are required." });
+    }
+
+    const query = { $or: matchConditions };
+    const leadsToDelete = await leadsCollection.find(query).toArray();
+    if (!leadsToDelete.length) {
+      return res.status(404).json({ message: "No matching leads were deleted." });
+    }
+
+    const result = await leadsCollection.deleteMany(query);
+    if (!result.deletedCount) {
+      return res.status(409).json({ message: "Leads changed before they could be deleted. Please reload and retry." });
+    }
+
+    const deletedLeadIds = leadsToDelete
+      .map((lead) => String(lead?.id || "").trim())
+      .filter(Boolean);
+    if (deletedLeadIds.length) {
+      await tasksCollection.deleteMany({ leadId: { $in: deletedLeadIds } });
+    }
+
+    for (const lead of leadsToDelete) {
+      await recordActivity({
+        leadId: lead.id,
+        leadName: lead.name,
+        counselorName: lead.counselor || "",
+        activityType: "Lead Deleted",
+        actionDescription: `Lead deleted from CRM: ${formatLeadNotificationLabel(lead)}`,
+        previousValue: lead.workshop || lead.courseName || lead.source || "",
+        session
+      });
+    }
+
+    const now = new Date().toISOString();
+    await stateCollection.updateOne(
+      { _id: STATE_DOC_ID },
+      { $set: { updatedAt: now } },
+      { upsert: true }
+    );
+
+    const nextState = await refreshStateAfterAtomicUpdate();
+    res.setHeader("ETag", buildStateEtag(nextState));
+    return res.json({ ok: true, deletedCount: result.deletedCount, state: buildStateResponse(nextState) });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to delete leads", details: error.message });
   }
 });
 

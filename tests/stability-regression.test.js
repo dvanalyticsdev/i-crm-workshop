@@ -87,13 +87,21 @@ test("lead activity saves use atomic lead-service calls on workshop pages", () =
 test("bulk delete preserves leads outside the current filtered table", () => {
   const preWorkshop = read("pre-workshop.js");
   const postWorkshop = read("post-workshop.js");
+  const leadService = read("lead-service.js");
+  const server = read("server.js");
 
-  assert.match(getFunctionBody(preWorkshop, "deleteLead"), /getStoredLeads\(\)\.filter/);
-  assert.match(getFunctionBody(postWorkshop, "deleteLead"), /getStoredLeads\(\)\.filter/);
-  assert.match(getFunctionBody(preWorkshop, "deleteSelectedLeads"), /const deleteKeys = new Set/);
-  assert.match(getFunctionBody(postWorkshop, "deleteSelectedLeads"), /const deleteKeys = new Set/);
-  assert.match(getFunctionBody(preWorkshop, "deleteSelectedLeads"), /getStoredLeads\(\)\.filter/);
-  assert.match(getFunctionBody(postWorkshop, "deleteSelectedLeads"), /getStoredLeads\(\)\.filter/);
+  assert.match(preWorkshop, /deleteLeads as deleteLeadsOnServer/);
+  assert.match(postWorkshop, /deleteLeads as deleteLeadsOnServer/);
+  assert.match(getFunctionBody(preWorkshop, "deleteLead"), /deleteLeadsOnServer\(\[buildLeadSelectionRef/);
+  assert.match(getFunctionBody(postWorkshop, "deleteLead"), /deleteLeadsOnServer\(\[buildLeadSelectionRef/);
+  assert.match(getFunctionBody(preWorkshop, "deleteSelectedLeads"), /deleteLeadsOnServer\(deleteRefs\)/);
+  assert.match(getFunctionBody(postWorkshop, "deleteSelectedLeads"), /deleteLeadsOnServer\(deleteRefs\)/);
+  assert.doesNotMatch(getFunctionBody(preWorkshop, "deleteSelectedLeads"), /saveAllLeads/);
+  assert.doesNotMatch(getFunctionBody(postWorkshop, "deleteSelectedLeads"), /saveAllLeads/);
+  assert.match(leadService, /export function deleteLeads/);
+  assert.match(server, /app\.delete\("\/api\/leads"/);
+  assert.match(server, /buildLiveLeadIdentityMatchConditions/);
+  assert.match(server, /tasksCollection\.deleteMany\(\{ leadId: \{ \$in: deletedLeadIds \} \}\)/);
   assert.match(preWorkshop, /buildLeadSelectionKey/);
   assert.match(postWorkshop, /buildLeadSelectionKey/);
 });

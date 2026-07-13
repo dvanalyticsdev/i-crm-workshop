@@ -62,6 +62,13 @@ export function deleteLeadNote(leadId, noteIndex, leadEmail = "") {
   );
 }
 
+export function deleteLeads(leadRefs) {
+  return requestJson("/api/leads", {
+    method: "DELETE",
+    body: JSON.stringify({ leadRefs })
+  });
+}
+
 export function assignLeads(leadRefs, counselor) {
   return requestJson("/api/leads/assignment", {
     method: "PATCH",
