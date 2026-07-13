@@ -88,8 +88,12 @@ test("bulk delete preserves leads outside the current filtered table", () => {
   const preWorkshop = read("pre-workshop.js");
   const postWorkshop = read("post-workshop.js");
 
-  assert.match(getFunctionBody(preWorkshop, "deleteSelectedLeads"), /const allLeads = getAllLeads\(\)/);
-  assert.match(getFunctionBody(postWorkshop, "deleteSelectedLeads"), /const allLeads = getAllLeads\(\)/);
+  assert.match(getFunctionBody(preWorkshop, "deleteLead"), /getStoredLeads\(\)\.filter/);
+  assert.match(getFunctionBody(postWorkshop, "deleteLead"), /getStoredLeads\(\)\.filter/);
+  assert.match(getFunctionBody(preWorkshop, "deleteSelectedLeads"), /const deleteKeys = new Set/);
+  assert.match(getFunctionBody(postWorkshop, "deleteSelectedLeads"), /const deleteKeys = new Set/);
+  assert.match(getFunctionBody(preWorkshop, "deleteSelectedLeads"), /getStoredLeads\(\)\.filter/);
+  assert.match(getFunctionBody(postWorkshop, "deleteSelectedLeads"), /getStoredLeads\(\)\.filter/);
   assert.match(preWorkshop, /buildLeadSelectionKey/);
   assert.match(postWorkshop, /buildLeadSelectionKey/);
 });
@@ -426,6 +430,8 @@ test("incoming Meta leads route admission traffic into Main Admission Leads", ()
 
   assert.match(server, /const MAIN_ADMISSION_PIPELINE = "main-admission"/);
   assert.match(server, /function classifyIncomingMetaLead/);
+  assert.match(server, /adv ai ml/);
+  assert.match(server, /genai/);
   assert.match(server, /assignMainAdmissionCounselorRoundRobin/);
   assert.match(server, /admissionRoundRobinEnabled === true/);
   assert.match(server, /app\.get\("\/api\/main-admission-routing"/);

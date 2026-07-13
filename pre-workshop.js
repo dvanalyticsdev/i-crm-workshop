@@ -128,8 +128,9 @@ async function deleteLead(leadId) {
     return false;
   }
 
-  allLeads.splice(index, 1);
-  const deleteLeadResult = await saveAllLeads(allLeads);
+  const deletedLeadKey = buildLeadSelectionKey(allLeads[index]);
+  const remainingLeads = getStoredLeads().filter((lead) => buildLeadSelectionKey(lead) !== deletedLeadKey);
+  const deleteLeadResult = await saveAllLeads(remainingLeads);
   if (!deleteLeadResult || deleteLeadResult.ok === false) {
     showToast("Failed to delete lead. Please check your connection and try again.", true);
     return false;
@@ -149,8 +150,13 @@ async function deleteSelectedLeads(leads) {
   }
 
   const allLeads = getAllLeads();
-  const remainingLeads = allLeads.filter((lead) => !selectedLeadKeys.has(buildLeadSelectionKey(lead)));
-  const removedCount = allLeads.length - remainingLeads.length;
+  const deleteKeys = new Set(
+    allLeads
+      .filter((lead) => selectedLeadKeys.has(buildLeadSelectionKey(lead)))
+      .map((lead) => buildLeadSelectionKey(lead))
+  );
+  const remainingLeads = getStoredLeads().filter((lead) => !deleteKeys.has(buildLeadSelectionKey(lead)));
+  const removedCount = deleteKeys.size;
   if (!removedCount) {
     return false;
   }
