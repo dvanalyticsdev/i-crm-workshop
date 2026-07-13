@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Registered Candidates</title>
+  <title>Main Admission Leads</title>
   <link rel="icon" type="image/png" href="Logos/DV-Logo.png" />
   <script src="theme-bootstrap.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -45,8 +45,8 @@
     <div class="main-content">
       <header class="topbar">
         <div class="topbar-title">
-          <h1>Registered Candidates</h1>
-          <p>Manage public course registrations with dedicated counselor assignment workflows.</p>
+          <h1>Main Admission Leads</h1>
+          <p>Manage incoming admission leads with dedicated counselor assignment workflows.</p>
         </div>
         <div class="topbar-profile">
           <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">
@@ -70,43 +70,43 @@
         </div>
       </header>
 
-      <section class="card" id="registeredSegmentSection"></section>
+      <section class="card" id="mainAdmissionSegmentSection"></section>
 
-      <section class="card admin-panel hidden" id="registeredRoutingPanel" data-admin-only="true">
+      <section class="card admin-panel hidden" id="mainAdmissionRoutingPanel" data-admin-only="true">
         <div class="card-head">
-          <h3>Registered Candidate Routing</h3>
-          <p>Choose which counselors receive registered candidates. New registrations are assigned in round robin order only.</p>
+          <h3>Main Admission Lead Routing</h3>
+          <p>Admission counselor rotation is managed from the Meta Integration page.</p>
         </div>
-        <div id="registeredRoutingOptions" class="round-robin-config"></div>
+        <div id="mainAdmissionRoutingOptions" class="round-robin-config"></div>
         <div class="allocation-actions cleanup-actions">
-          <button id="saveRegisteredRoutingBtn" type="button" class="btn-ghost">Save Routing</button>
-          <button id="clearRegisteredCandidateDataBtn" type="button" class="btn-ghost">Clear Data</button>
+          <button id="saveMainAdmissionRoutingBtn" type="button" class="btn-ghost hidden">Save Routing</button>
+          <button id="clearMainAdmissionLeadDataBtn" type="button" class="btn-ghost">Clear Data</button>
         </div>
-        <p class="block-help">Clear Data removes only Registered Candidate leads and resets this routing setup. Other CRM lead sections stay unchanged.</p>
-        <p id="registeredRoutingMessage" class="message" aria-live="polite"></p>
+        <p class="block-help">Clear Data removes only Main Admission Leads data. Other CRM lead sections stay unchanged.</p>
+        <p id="mainAdmissionRoutingMessage" class="message" aria-live="polite"></p>
       </section>
 
-      <section class="kpi-grid" id="registeredKpiSection"></section>
-      <section class="card filter-bar" id="registeredFilterBar"></section>
-      <p id="registeredActivityMessage" class="message" aria-live="polite"></p>
-      <section class="card table-card" id="registeredLeadTableSection"></section>
-      <div id="registeredPaginationSection" class="pagination-bar"></div>
+      <section class="kpi-grid" id="mainAdmissionKpiSection"></section>
+      <section class="card filter-bar" id="mainAdmissionFilterBar"></section>
+      <p id="mainAdmissionActivityMessage" class="message" aria-live="polite"></p>
+      <section class="card table-card" id="mainAdmissionLeadTableSection"></section>
+      <div id="mainAdmissionPaginationSection" class="pagination-bar"></div>
 
-      <div id="registeredActivityModal" class="modal hidden">
+      <div id="mainAdmissionActivityModal" class="modal hidden">
         <div class="modal-content card">
-          <h3 id="registeredActivityModalTitle">Update Registered Candidate Activity</h3>
-          <form id="registeredActivityForm">
+          <h3 id="mainAdmissionActivityModalTitle">Update Main Admission Lead Activity</h3>
+          <form id="mainAdmissionActivityForm">
             <div class="modal-row">
-              <label for="modalRegisteredDialed">Dialed</label>
-              <select id="modalRegisteredDialed">
+              <label for="modalMainAdmissionDialed">Dialed</label>
+              <select id="modalMainAdmissionDialed">
                 <option value="">Select</option>
                 <option value="Yes">Yes</option>
                 <option value="No">No</option>
               </select>
             </div>
             <div class="modal-row">
-              <label for="modalRegisteredCoursePitched">Course Pitched</label>
-              <select id="modalRegisteredCoursePitched">
+              <label for="modalMainAdmissionCoursePitched">Course Pitched</label>
+              <select id="modalMainAdmissionCoursePitched">
                 <option value="">Select</option>
                 <option value="No">No</option>
                 <option value="APIDA">APIDA</option>
@@ -116,16 +116,16 @@
               </select>
             </div>
             <div class="modal-row">
-              <label for="modalRegisteredCourseStatus">Course Status</label>
-              <select id="modalRegisteredCourseStatus">
+              <label for="modalMainAdmissionCourseStatus">Course Status</label>
+              <select id="modalMainAdmissionCourseStatus">
                 <option value="">Select</option>
                 <option value="Interested">Interested</option>
                 <option value="Not Interested">Not Interested</option>
               </select>
             </div>
             <div class="modal-row">
-              <label for="modalRegisteredAdmissionStatus">Admission</label>
-              <select id="modalRegisteredAdmissionStatus">
+              <label for="modalMainAdmissionAdmissionStatus">Admission</label>
+              <select id="modalMainAdmissionAdmissionStatus">
                 <option value="">Select</option>
                 <option value="In-Conversation">In-Conversation</option>
                 <option value="Enrolled">Enrolled</option>
@@ -133,8 +133,8 @@
               </select>
             </div>
             <div class="modal-row">
-              <label for="modalRegisteredCallStatus">Call Status</label>
-              <select id="modalRegisteredCallStatus">
+              <label for="modalMainAdmissionCallStatus">Call Status</label>
+              <select id="modalMainAdmissionCallStatus">
                 <option value="">Select</option>
                 <option value="Connected">Connected</option>
                 <option value="CBL">CBL</option>
@@ -143,62 +143,62 @@
               </select>
             </div>
             <div class="modal-actions">
-              <button type="submit" id="saveRegisteredActivityBtn" class="btn-primary">Save</button>
-              <button type="button" id="closeRegisteredModalBtn" class="btn-ghost">Cancel</button>
+              <button type="submit" id="saveMainAdmissionActivityBtn" class="btn-primary">Save</button>
+              <button type="button" id="closeMainAdmissionModalBtn" class="btn-ghost">Cancel</button>
             </div>
           </form>
         </div>
       </div>
 
-      <div id="registeredNotesModal" class="modal hidden">
+      <div id="mainAdmissionNotesModal" class="modal hidden">
         <div class="modal-content card">
           <h3>Lead Notes</h3>
-          <div id="registeredNotesListSection"></div>
+          <div id="mainAdmissionNotesListSection"></div>
           <div class="modal-row">
-            <label for="registeredNewNoteInput">Add Note</label>
-            <textarea id="registeredNewNoteInput" rows="3" placeholder="Enter note..."></textarea>
+            <label for="mainAdmissionNewNoteInput">Add Note</label>
+            <textarea id="mainAdmissionNewNoteInput" rows="3" placeholder="Enter note..."></textarea>
           </div>
           <div class="modal-actions">
-            <button type="button" id="registeredSaveNoteBtn" class="btn-primary">Save Note</button>
-            <button type="button" id="closeRegisteredNotesModalBtn" class="btn-ghost">Close</button>
+            <button type="button" id="mainAdmissionSaveNoteBtn" class="btn-primary">Save Note</button>
+            <button type="button" id="closeMainAdmissionNotesModalBtn" class="btn-ghost">Close</button>
           </div>
         </div>
       </div>
 
-      <div id="registeredTaskModal" class="modal hidden">
+      <div id="mainAdmissionTaskModal" class="modal hidden">
         <div class="modal-content card">
-          <h3 id="registeredTaskModalTitle">Create Task</h3>
-          <form id="registeredTaskForm" class="task-form">
-            <input type="hidden" id="registeredTaskLeadId" />
-            <input type="hidden" id="registeredTaskCategory" />
+          <h3 id="mainAdmissionTaskModalTitle">Create Task</h3>
+          <form id="mainAdmissionTaskForm" class="task-form">
+            <input type="hidden" id="mainAdmissionTaskLeadId" />
+            <input type="hidden" id="mainAdmissionTaskCategory" />
             <div class="modal-row">
-              <label for="registeredTaskLeadName">Lead</label>
-              <input id="registeredTaskLeadName" type="text" disabled />
+              <label for="mainAdmissionTaskLeadName">Lead</label>
+              <input id="mainAdmissionTaskLeadName" type="text" disabled />
             </div>
             <div class="modal-row">
-              <label for="registeredTaskLeadPhone">Phone Number</label>
-              <input id="registeredTaskLeadPhone" type="text" disabled />
+              <label for="mainAdmissionTaskLeadPhone">Phone Number</label>
+              <input id="mainAdmissionTaskLeadPhone" type="text" disabled />
             </div>
             <div class="modal-row">
-              <label for="registeredTaskCounselor">Counselor</label>
-              <input id="registeredTaskCounselor" type="text" disabled />
+              <label for="mainAdmissionTaskCounselor">Counselor</label>
+              <input id="mainAdmissionTaskCounselor" type="text" disabled />
             </div>
             <div class="modal-row">
-              <label for="registeredTaskTitle">Task Title</label>
-              <input id="registeredTaskTitle" type="text" required />
+              <label for="mainAdmissionTaskTitle">Task Title</label>
+              <input id="mainAdmissionTaskTitle" type="text" required />
             </div>
             <div class="modal-row modal-row-span-2">
-              <label for="registeredTaskNotes">Notes</label>
-              <textarea id="registeredTaskNotes" rows="4" placeholder="Optional notes"></textarea>
+              <label for="mainAdmissionTaskNotes">Notes</label>
+              <textarea id="mainAdmissionTaskNotes" rows="4" placeholder="Optional notes"></textarea>
             </div>
             <div class="modal-row">
-              <label for="registeredTaskDueDate">Due Date</label>
-              <input id="registeredTaskDueDate" type="date" required />
+              <label for="mainAdmissionTaskDueDate">Due Date</label>
+              <input id="mainAdmissionTaskDueDate" type="date" required />
             </div>
-            <p id="registeredTaskMessage" class="message modal-row-span-2" aria-live="polite"></p>
+            <p id="mainAdmissionTaskMessage" class="message modal-row-span-2" aria-live="polite"></p>
             <div class="modal-actions modal-row-span-2">
               <button type="submit" class="btn-primary">Create Task</button>
-              <button type="button" id="closeRegisteredTaskModalBtn" class="btn-ghost">Cancel</button>
+              <button type="button" id="closeMainAdmissionTaskModalBtn" class="btn-ghost">Cancel</button>
             </div>
           </form>
         </div>
@@ -206,7 +206,7 @@
     </div>
   </div>
 
-  <script type="module" src="registered-candidates.js"></script>
+  <script type="module" src="main-admission-leads.js"></script>
   <script type="module" src="layouts.js"></script>
 </body>
 </html>

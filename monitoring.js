@@ -136,6 +136,14 @@ function isCourseRegistrationLead(lead) {
   return String(lead?.leadPipeline || "").trim().toLowerCase() === "course-registration";
 }
 
+function isMainAdmissionLead(lead) {
+  return String(lead?.leadPipeline || "").trim().toLowerCase() === "main-admission";
+}
+
+function isNonWorkshopPipelineLead(lead) {
+  return isCourseRegistrationLead(lead) || isMainAdmissionLead(lead);
+}
+
 function getAllLeads() {
   const leads = getStoredLeads();
   normalizeLeadFields(leads);
@@ -279,11 +287,11 @@ function isLostLead(lead) {
 }
 
 function getPreLeads(allLeads) {
-  return allLeads.filter((lead) => !isCourseRegistrationLead(lead) && !isLostLead(lead));
+  return allLeads.filter((lead) => !isNonWorkshopPipelineLead(lead) && !isLostLead(lead));
 }
 
 function getPostLeads(allLeads) {
-  return allLeads.filter((lead) => !isCourseRegistrationLead(lead));
+  return allLeads.filter((lead) => !isNonWorkshopPipelineLead(lead));
 }
 
 function getRegisteredCandidateLeads(allLeads) {
@@ -777,14 +785,14 @@ function renderKpis(allLeads, preLeads, postLeads, registeredLeads, rawAllLeads,
 
 function renderAll() {
   const range = getTimelineRange();
-  const rawAllLeads = getScopedLeads(getAllLeads());
-  const timelineLeads = applyTimelineFilter(getAllLeads());
+  const rawAllLeads = getScopedLeads(getAllLeads()).filter((lead) => !isMainAdmissionLead(lead));
+  const timelineLeads = applyTimelineFilter(getAllLeads()).filter((lead) => !isMainAdmissionLead(lead));
   const allLeads = getScopedLeads(timelineLeads);
   const preLeads = getPreLeads(allLeads);
   const postLeads = getPostLeads(allLeads);
   const registeredLeads = getRegisteredCandidateLeads(allLeads);
-  const rawPreLeads = rawAllLeads.filter((lead) => !isCourseRegistrationLead(lead) && !isLostLead(lead));
-  const rawPostLeads = rawAllLeads.filter((lead) => !isCourseRegistrationLead(lead));
+  const rawPreLeads = rawAllLeads.filter((lead) => !isNonWorkshopPipelineLead(lead) && !isLostLead(lead));
+  const rawPostLeads = rawAllLeads.filter((lead) => !isNonWorkshopPipelineLead(lead));
   const rawRegisteredLeads = rawAllLeads.filter(isCourseRegistrationLead);
   const counselors = getCounselorBuckets(allLeads);
 

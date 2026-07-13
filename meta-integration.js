@@ -32,6 +32,9 @@ const rrNextCounselor          = document.getElementById("rrNextCounselor");
 const rrCounselorCount         = document.getElementById("rrCounselorCount");
 const rrCounselorList          = document.getElementById("rrCounselorList");
 const rrRosterMessage          = document.getElementById("rrRosterMessage");
+const admissionRrCounselorCount = document.getElementById("admissionRrCounselorCount");
+const admissionRrCounselorList  = document.getElementById("admissionRrCounselorList");
+const admissionRrRosterMessage  = document.getElementById("admissionRrRosterMessage");
 const resetRrBtn               = document.getElementById("resetRrBtn");
 const rrMessage                = document.getElementById("rrMessage");
 const refreshLogsBtn           = document.getElementById("refreshLogsBtn");
@@ -90,6 +93,10 @@ function buildWebhookUrl() {
 
 function isCounselorInMetaRotation(counselor) {
   return counselor?.roundRobinEnabled !== false && !counselor?.disabled;
+}
+
+function isCounselorInAdmissionRotation(counselor) {
+  return counselor?.admissionRoundRobinEnabled === true && !counselor?.disabled;
 }
 
 // ── Config load / render ──────────────────────────────────────────────────────
@@ -157,8 +164,11 @@ function applyConfig(config) {
 }
 
 function updateRRDisplay(rrIdx) {
-  const counselors = getCounselors().filter(isCounselorInMetaRotation);
+  const allCounselors = getCounselors();
+  const counselors = allCounselors.filter(isCounselorInMetaRotation);
+  const admissionCounselors = allCounselors.filter(isCounselorInAdmissionRotation);
   if (rrCounselorCount) rrCounselorCount.textContent = counselors.length;
+  if (admissionRrCounselorCount) admissionRrCounselorCount.textContent = admissionCounselors.length;
   if (!counselors.length) {
     rrNextCounselor.textContent = "No counselors";
     return;
@@ -175,11 +185,39 @@ function renderRoundRobinCounselors() {
   const counselors = getCounselors();
   if (!counselors.length) {
     rrCounselorList.innerHTML = '<p class="rr-roster-empty">No counselors found yet. Add counselors in Counselor Management.</p>';
+    if (admissionRrCounselorList) {
+      admissionRrCounselorList.innerHTML = '<p class="rr-roster-empty">No counselors found yet. Add counselors in Counselor Management.</p>';
+    }
     return;
   }
 
-  rrCounselorList.innerHTML = counselors.map((counselor) => {
-    const checked = isCounselorInMetaRotation(counselor);
+  rrCounselorList.innerHTML = renderCounselorRotationRows(counselors, {
+    kind: "workshop",
+    field: "roundRobinEnabled",
+    isEnabled: isCounselorInMetaRotation,
+    label: "workshop"
+  });
+  if (admissionRrCounselorList) {
+    admissionRrCounselorList.innerHTML = renderCounselorRotationRows(counselors, {
+      kind: "admission",
+      field: "admissionRoundRobinEnabled",
+      isEnabled: isCounselorInAdmissionRotation,
+      label: "admission"
+    });
+  }
+
+  document.querySelectorAll(".rr-counselor-toggle").forEach((toggle) => {
+    toggle.addEventListener("change", () => {
+      const counselorId = toggle.getAttribute("data-counselor-id");
+      const field = toggle.getAttribute("data-rotation-field");
+      void updateCounselorRoundRobinStatus(counselorId, field, toggle.checked);
+    });
+  });
+}
+
+function renderCounselorRotationRows(counselors, options) {
+  return counselors.map((counselor) => {
+    const checked = options.isEnabled(counselor);
     const status = checked ? "In rotation" : "Paused";
     return `
       <div class="rr-roster-row">
@@ -189,25 +227,20 @@ function renderRoundRobinCounselors() {
         </div>
         <div class="rr-roster-control">
           <span class="rr-roster-status">${status}</span>
-          <label class="switch" aria-label="Toggle ${escapeHtml(counselor.name || "counselor")} in Meta round-robin">
-            <input type="checkbox" class="rr-counselor-toggle" data-counselor-id="${escapeHtml(counselor.id || counselor.email || "")}" ${checked ? "checked" : ""} ${session.role === "admin" ? "" : "disabled"} />
+          <label class="switch" aria-label="Toggle ${escapeHtml(counselor.name || "counselor")} in ${escapeHtml(options.label)} round-robin">
+            <input type="checkbox" class="rr-counselor-toggle" data-rotation-kind="${escapeHtml(options.kind)}" data-rotation-field="${escapeHtml(options.field)}" data-counselor-id="${escapeHtml(counselor.id || counselor.email || "")}" ${checked ? "checked" : ""} ${session.role === "admin" ? "" : "disabled"} />
             <span class="switch-slider"></span>
           </label>
         </div>
       </div>
     `;
   }).join("");
-
-  rrCounselorList.querySelectorAll(".rr-counselor-toggle").forEach((toggle) => {
-    toggle.addEventListener("change", () => {
-      const counselorId = toggle.getAttribute("data-counselor-id");
-      void updateCounselorRoundRobinStatus(counselorId, toggle.checked);
-    });
-  });
 }
 
-async function updateCounselorRoundRobinStatus(counselorId, enabled) {
+async function updateCounselorRoundRobinStatus(counselorId, field, enabled) {
   if (session.role !== "admin") return;
+  const safeField = field === "admissionRoundRobinEnabled" ? "admissionRoundRobinEnabled" : "roundRobinEnabled";
+  const targetMessage = safeField === "admissionRoundRobinEnabled" ? admissionRrRosterMessage : rrRosterMessage;
 
   const counselors = getCounselors();
   const nextCounselors = counselors.map((counselor) => {
@@ -215,21 +248,21 @@ async function updateCounselorRoundRobinStatus(counselorId, enabled) {
     if (id !== String(counselorId || "")) return counselor;
     return {
       ...counselor,
-      roundRobinEnabled: enabled
+      [safeField]: enabled
     };
   });
 
-  showMessage(rrRosterMessage, "Saving counselor rotation...");
+  showMessage(targetMessage, "Saving counselor rotation...");
   const result = await saveCounselors(nextCounselors);
   if (!result || result.ok === false) {
-    showMessage(rrRosterMessage, result?.message || "Failed to update counselor rotation.", true);
+    showMessage(targetMessage, result?.message || "Failed to update counselor rotation.", true);
     renderRoundRobinCounselors();
     return;
   }
 
   renderRoundRobinCounselors();
   updateRRDisplay(Number(rrIndexDisplay.textContent) || 0);
-  showMessage(rrRosterMessage, "Counselor rotation updated.");
+  showMessage(targetMessage, "Counselor rotation updated.");
 }
 
 function renderFormIds(ids) {

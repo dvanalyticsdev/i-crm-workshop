@@ -4,13 +4,15 @@ import { acceptServerState, getTasks as getStoredTasks } from "./state-sync.js";
 export const TASK_CATEGORY = {
   workshop: "workshop",
   admission: "admission",
-  registered: "registered"
+  registered: "registered",
+  mainAdmission: "main-admission"
 };
 
 const CATEGORY_LABELS = {
   [TASK_CATEGORY.workshop]: "Workshop Calling",
   [TASK_CATEGORY.admission]: "Admission Calling",
-  [TASK_CATEGORY.registered]: "Registered Candidates"
+  [TASK_CATEGORY.registered]: "Registered Candidates",
+  [TASK_CATEGORY.mainAdmission]: "Main Admission Leads"
 };
 
 function createTaskId() {
@@ -26,7 +28,9 @@ export function normalizeTask(task = {}) {
     ? TASK_CATEGORY.admission
     : task.category === TASK_CATEGORY.registered
       ? TASK_CATEGORY.registered
-      : TASK_CATEGORY.workshop;
+      : task.category === TASK_CATEGORY.mainAdmission
+        ? TASK_CATEGORY.mainAdmission
+        : TASK_CATEGORY.workshop;
   const createdAt = task.createdAt || new Date().toISOString();
 
   return {

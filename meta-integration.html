@@ -30,6 +30,7 @@
         <a href="pre-workshop.html" class="sidebar-link">Workshop Calling</a>
         <a href="post-workshop.html" class="sidebar-link">Admission Calling</a>
         <a href="registered-candidates.html" class="sidebar-link">Registered Candidates</a>
+        <a href="main-admission-leads.html" class="sidebar-link">Main Admission Leads</a>
         <a href="task-tracker.html" class="sidebar-link" data-counselor-only="true">Task Tracker</a>
         <a href="lost-leads.html" class="sidebar-link">Lost Leads</a>
         <a href="monitoring.html" class="sidebar-link">Monitoring</a>
@@ -280,7 +281,7 @@
         <section class="card">
           <div class="meta-section-title">
             <h3>Round-Robin Assignment</h3>
-            <p>Meta leads are distributed to counselors one by one in sequence</p>
+            <p>Workshop and admission leads use separate counselor rotations.</p>
           </div>
 
           <div class="note-callout" style="margin-bottom:1.25rem;">
@@ -296,21 +297,33 @@
             <div class="rr-kpi">
               <span class="rr-kpi__label">Next Assigned To</span>
               <span class="rr-kpi__value" id="rrNextCounselor">—</span>
-              <span class="rr-kpi__sub">next incoming lead</span>
+              <span class="rr-kpi__sub">next workshop lead</span>
             </div>
             <div class="rr-kpi">
-              <span class="rr-kpi__label">Active Counselors</span>
+              <span class="rr-kpi__label">Workshop Counselors</span>
               <span class="rr-kpi__value" id="rrCounselorCount">—</span>
-              <span class="rr-kpi__sub">in rotation</span>
+              <span class="rr-kpi__sub">active</span>
+            </div>
+            <div class="rr-kpi">
+              <span class="rr-kpi__label">Admission Counselors</span>
+              <span class="rr-kpi__value" id="admissionRrCounselorCount">â€”</span>
+              <span class="rr-kpi__sub">active</span>
             </div>
           </div>
 
           <div class="meta-section-title" style="margin-bottom:.75rem;">
-            <h3>Counselor Rotation</h3>
-            <p>Switch counselors on or off for Meta lead round-robin assignment.</p>
+            <h3>Workshop Lead Rotation</h3>
+            <p>Switch counselors on or off for workshop lead round-robin assignment.</p>
           </div>
           <span id="rrRosterMessage" class="rr-roster-message"></span>
           <div id="rrCounselorList" class="rr-roster"></div>
+
+          <div class="meta-section-title" style="margin:1.5rem 0 .75rem;">
+            <h3>Admission Lead Rotation</h3>
+            <p>Switch counselors on or off for admission leads routed to Main Admission Leads.</p>
+          </div>
+          <span id="admissionRrRosterMessage" class="rr-roster-message"></span>
+          <div id="admissionRrCounselorList" class="rr-roster"></div>
 
           <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;">
             <button type="button" class="btn-secondary" id="resetRrBtn">Reset Meta Lead Count</button>

@@ -731,12 +731,12 @@ function normalizeLeadFields(leads) {
   });
 }
 
-function isCourseRegistrationLead(lead) {
-  return String(lead?.leadPipeline || "").trim().toLowerCase() === "course-registration";
+function isNonWorkshopPipelineLead(lead) {
+  return ["course-registration", "main-admission"].includes(String(lead?.leadPipeline || "").trim().toLowerCase());
 }
 
 function getAllLeads() {
-  const leads = getStoredLeads().filter((lead) => !isCourseRegistrationLead(lead));
+  const leads = getStoredLeads().filter((lead) => !isNonWorkshopPipelineLead(lead));
   normalizeLeadFields(leads);
   return leads;
 }

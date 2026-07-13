@@ -51,7 +51,7 @@ function persistTimelineState() {
 }
 
 function getLeads() {
-  return getStoredLeads().filter((lead) => String(lead?.leadPipeline || "").trim().toLowerCase() !== "course-registration");
+  return getStoredLeads().filter((lead) => !["course-registration", "main-admission"].includes(String(lead?.leadPipeline || "").trim().toLowerCase()));
 }
 
 function buildKpis(leads) {

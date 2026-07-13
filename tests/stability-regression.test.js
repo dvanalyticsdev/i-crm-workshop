@@ -416,3 +416,62 @@ test("activity history endpoint and UI checks", () => {
   assert.match(styles, /\.timeline-track/);
   assert.match(styles, /\.timeline-badge/);
 });
+
+test("incoming Meta leads route admission traffic into Main Admission Leads", () => {
+  const server = read("server.js");
+  const mainAdmissionHtml = read("main-admission-leads.html");
+  const mainAdmission = read("main-admission-leads.js");
+  const taskService = read("task-service.js");
+  const taskTracker = read("task-tracker.js");
+
+  assert.match(server, /const MAIN_ADMISSION_PIPELINE = "main-admission"/);
+  assert.match(server, /function classifyIncomingMetaLead/);
+  assert.match(server, /assignMainAdmissionCounselorRoundRobin/);
+  assert.match(server, /admissionRoundRobinEnabled === true/);
+  assert.match(server, /app\.get\("\/api\/main-admission-routing"/);
+  assert.match(server, /app\.put\("\/api\/main-admission-routing"/);
+  assert.match(server, /leadPipeline: isAdmissionLead \? MAIN_ADMISSION_PIPELINE : ""/);
+  assert.match(server, /stage === "main-admission"/);
+  assert.match(server, /mainAdmissionActivityHistory/);
+  assert.match(server, /Admission and workshop records intentionally coexist/);
+  assert.match(mainAdmissionHtml, /<h1>Main Admission Leads<\/h1>/);
+  assert.match(mainAdmissionHtml, /mainAdmissionLeadTableSection/);
+  assert.match(mainAdmission, /leadPipeline \|\| ""\)\.trim\(\)\.toLowerCase\(\) === "main-admission"/);
+  assert.match(mainAdmission, /MAIN_ADMISSION_ROUTING_ENDPOINT = apiUrl\("\/api\/main-admission-routing"\)/);
+  assert.match(mainAdmission, /stage: "main-admission"/);
+  assert.match(mainAdmission, /TASK_CATEGORY\.mainAdmission/);
+  assert.match(mainAdmission, /Admission counselor rotation is managed from the Meta Integration page/);
+  assert.match(taskService, /mainAdmission: "main-admission"/);
+  assert.match(taskTracker, /mainAdmissionTaskSection/);
+});
+
+test("Meta integration exposes separate workshop and admission counselor rotations", () => {
+  const metaHtml = read("meta-integration.html");
+  const metaJs = read("meta-integration.js");
+
+  assert.match(metaHtml, /Workshop Lead Rotation/);
+  assert.match(metaHtml, /Admission Lead Rotation/);
+  assert.match(metaHtml, /admissionRrCounselorList/);
+  assert.match(metaHtml, /admissionRrCounselorCount/);
+  assert.match(metaJs, /function isCounselorInAdmissionRotation/);
+  assert.match(metaJs, /admissionRoundRobinEnabled === true/);
+  assert.match(metaJs, /data-rotation-field/);
+  assert.match(metaJs, /\[safeField\]: enabled/);
+});
+
+test("main admission leads stay out of legacy workshop and registered sections", () => {
+  const dashboard = read("dashboard.js");
+  const preWorkshop = read("pre-workshop.js");
+  const postWorkshop = read("post-workshop.js");
+  const lostLeads = read("lost-leads.js");
+  const leadControl = read("lead-control.js");
+  const monitoring = read("monitoring.js");
+
+  assert.match(dashboard, /\["course-registration", "main-admission"\]/);
+  assert.match(preWorkshop, /function isNonWorkshopPipelineLead/);
+  assert.match(postWorkshop, /function isNonWorkshopPipelineLead/);
+  assert.match(lostLeads, /function isNonWorkshopPipelineLead/);
+  assert.match(leadControl, /function isNonWorkshopPipelineLead/);
+  assert.match(monitoring, /function isMainAdmissionLead/);
+  assert.match(monitoring, /filter\(\(lead\) => !isMainAdmissionLead\(lead\)\)/);
+});

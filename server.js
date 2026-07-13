@@ -47,6 +47,12 @@ const PUBLIC_COURSE_SEGMENT_CONFIG = {
     roundRobinField: "publicCourseCrashRoundRobinIndex"
   }
 };
+const MAIN_ADMISSION_PIPELINE = "main-admission";
+const MAIN_ADMISSION_ROUTING_CONFIG = {
+  routingScope: "main-admission-routing",
+  routingOwner: "system:main-admission-routing",
+  roundRobinField: "mainAdmissionRoundRobinIndex"
+};
 
 const PUBLIC_COURSE_CATALOG = [
   { id: "apids", code: "APIDS", name: "Advanced Program in Industrial Data Science & AI", duration: "6-8 Months" },
@@ -598,7 +604,10 @@ async function initMongo() {
             background: true,
             partialFilterExpression: {
               normalizedEmail: { $exists: true, $type: "string" },
-              leadPipeline: { $ne: "course-registration" }
+              $and: [
+                { leadPipeline: { $ne: "course-registration" } },
+                { leadPipeline: { $ne: MAIN_ADMISSION_PIPELINE } }
+              ]
             }
           }
         ).catch(() => undefined);
@@ -610,7 +619,10 @@ async function initMongo() {
             background: true,
             partialFilterExpression: {
               normalizedPhone: { $exists: true, $type: "string" },
-              leadPipeline: { $ne: "course-registration" }
+              $and: [
+                { leadPipeline: { $ne: "course-registration" } },
+                { leadPipeline: { $ne: MAIN_ADMISSION_PIPELINE } }
+              ]
             }
           }
         ).catch(() => undefined);
@@ -852,6 +864,43 @@ function normalizeMetaLabel(value) {
     .trim();
 }
 
+function getMetaLeadFieldMap(fieldData = []) {
+  const fields = {};
+  (fieldData || []).forEach(({ name, values }) => {
+    fields[String(name).toLowerCase().replace(/[^a-z0-9]+/g, "_")] = (values || [])[0] ?? "";
+  });
+  return fields;
+}
+
+function getMetaLeadDescriptor(fields = {}, meta = {}) {
+  return [
+    fields.lead_type,
+    fields.type,
+    fields.intent,
+    fields.pipeline,
+    fields.source_type,
+    fields.form_type,
+    fields.workshop,
+    fields.workshop_name,
+    fields.workshop_title,
+    fields.workshop_topic,
+    fields.course,
+    fields.course_name,
+    fields.program,
+    meta.adName,
+    meta.adsetName,
+    meta.campaignName
+  ].map((value) => normalizeMetaLabel(value).toLowerCase()).filter(Boolean).join(" ");
+}
+
+function classifyIncomingMetaLead(fields = {}, meta = {}) {
+  const descriptor = getMetaLeadDescriptor(fields, meta);
+  const hasWorkshopSignal = /\b(workshop|webinar|masterclass|bootcamp|demo class|session)\b/i.test(descriptor);
+  const hasAdmissionSignal = /\b(admission|admissions|enroll|enrol|course|program|programme|counselling|counseling|brochure|fees|career|certification)\b/i.test(descriptor);
+
+  return hasAdmissionSignal && !hasWorkshopSignal ? "admission" : "workshop";
+}
+
 function isCounselorInMetaRotation(counselor) {
   return counselor?.roundRobinEnabled !== false && !counselor?.disabled;
 }
@@ -1008,19 +1057,15 @@ async function forwardMetaWebhook(req, fallbackBody) {
   }
 }
 
-function buildMetaLead(fieldData, meta, counselorName, nextId) {
-  const fields = {};
-  (fieldData || []).forEach(({ name, values }) => {
-    fields[String(name).toLowerCase().replace(/[^a-z0-9]+/g, "_")] = (values || [])[0] ?? "";
-  });
-
+function buildMetaLead(fieldData, meta, counselorName, nextId, options = {}) {
+  const fields = getMetaLeadFieldMap(fieldData);
   const firstName = String(fields.first_name || "").trim();
   const lastName = String(fields.last_name || "").trim();
   const fullName = String(fields.full_name || fields.name || "").trim();
   const name = fullName || (firstName ? `${firstName} ${lastName}`.trim() : "Unknown");
   const email = String(fields.email || fields.email_address || "").trim().toLowerCase();
   const phone = String(fields.phone_number || fields.phone || fields.mobile_phone || fields.mobile || "").trim();
-  const workshop = String(
+  const inferredProgram = String(
     fields.workshop ||
     fields.workshop_name ||
     fields.workshop_title ||
@@ -1030,6 +1075,10 @@ function buildMetaLead(fieldData, meta, counselorName, nextId) {
     fields.program ||
     normalizeMetaLabel(meta.adsetName || meta.adName || meta.campaignName || "")
   ).trim();
+  const leadType = String(options.leadType || "").trim().toLowerCase() === "admission" ? "admission" : "workshop";
+  const isAdmissionLead = leadType === "admission";
+  const workshop = isAdmissionLead ? "" : inferredProgram;
+  const courseName = isAdmissionLead ? inferredProgram : "";
 
   const knownKeys = new Set(["full_name", "name", "first_name", "last_name", "email", "email_address", "phone_number", "phone", "mobile_phone", "mobile", "workshop", "workshop_name", "workshop_title", "workshop_topic", "course", "course_name", "program"]);
   const extraEntries = Object.entries(fields).filter(([k]) => !knownKeys.has(k) && fields[k]);
@@ -1041,8 +1090,10 @@ function buildMetaLead(fieldData, meta, counselorName, nextId) {
     email: email || `meta-${meta.leadgenId}@noemail.lead`,
     phone,
     workshop,
+    courseName,
     status: "New",
-    source: "Meta",
+    source: isAdmissionLead ? "Meta Admission Lead" : "Meta",
+    leadPipeline: isAdmissionLead ? MAIN_ADMISSION_PIPELINE : "",
     metaLeadId: String(meta.leadgenId || ""),
     metaFormId: String(meta.formId || ""),
     metaAdId: String(meta.adId || ""),
@@ -1066,6 +1117,14 @@ function buildMetaLead(fieldData, meta, counselorName, nextId) {
     postActivityUpdates: 0,
     workshopActivityHistory: [],
     admissionActivityHistory: [],
+    mainAdmissionDialed: "",
+    mainAdmissionCoursePitched: "",
+    mainAdmissionCourseStatus: "",
+    mainAdmissionAdmissionStatus: "",
+    mainAdmissionCallStatus: "",
+    mainAdmissionActivityUpdated: false,
+    mainAdmissionActivityUpdates: 0,
+    mainAdmissionActivityHistory: [],
     whatsappGroupStatus: "",
     leadNotes: [],
     importSourceFiles: ["Meta Lead Ads"],
@@ -1820,6 +1879,53 @@ app.put("/api/public-course-routing", async (req, res) => {
   }
 });
 
+app.get("/api/main-admission-routing", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, "admin");
+    if (!session) return;
+
+    const config = await getMainAdmissionRoutingConfig();
+    return res.json({ ok: true, segment: "standard", ...config });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch main admission routing", details: error.message });
+  }
+});
+
+app.put("/api/main-admission-routing", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, "admin");
+    if (!session) return;
+
+    const selectedCounselors = Array.isArray(req.body?.selectedCounselors)
+      ? req.body.selectedCounselors.map((name) => String(name || "").trim()).filter(Boolean)
+      : [];
+    const isConfigured = typeof req.body?.isConfigured === "boolean"
+      ? req.body.isConfigured
+      : selectedCounselors.length > 0;
+
+    const now = new Date().toISOString();
+    await preferenceCollection.updateOne(
+      { ownerKey: MAIN_ADMISSION_ROUTING_CONFIG.routingOwner, scope: MAIN_ADMISSION_ROUTING_CONFIG.routingScope },
+      {
+        $set: {
+          value: { selectedCounselors, isConfigured },
+          updatedAt: now
+        },
+        $setOnInsert: {
+          ownerKey: MAIN_ADMISSION_ROUTING_CONFIG.routingOwner,
+          scope: MAIN_ADMISSION_ROUTING_CONFIG.routingScope,
+          createdAt: now
+        }
+      },
+      { upsert: true }
+    );
+
+    return res.json({ ok: true, segment: "standard", selectedCounselors, isConfigured });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to save main admission routing", details: error.message });
+  }
+});
+
 function sanitizeState(payload = {}) {
   const next = {};
 
@@ -1918,6 +2024,44 @@ async function assignPublicCourseCounselorRoundRobin(counselors = [], segment = 
   return activeCounselors[counselorIndex].name;
 }
 
+async function getMainAdmissionRoutingConfig() {
+  const preference = await preferenceCollection.findOne({
+    ownerKey: MAIN_ADMISSION_ROUTING_CONFIG.routingOwner,
+    scope: MAIN_ADMISSION_ROUTING_CONFIG.routingScope
+  });
+
+  const selectedCounselors = Array.isArray(preference?.value?.selectedCounselors)
+    ? preference.value.selectedCounselors.map((name) => String(name || "").trim()).filter(Boolean)
+    : [];
+  const isConfigured = typeof preference?.value?.isConfigured === "boolean"
+    ? preference.value.isConfigured
+    : selectedCounselors.length > 0;
+
+  return { selectedCounselors, isConfigured };
+}
+
+async function assignMainAdmissionCounselorRoundRobin(counselors = []) {
+  const activeCounselors = (Array.isArray(counselors) ? counselors : [])
+    .filter((counselor) => counselor?.admissionRoundRobinEnabled === true && !counselor?.disabled);
+
+  if (!activeCounselors.length) {
+    return "Unassigned";
+  }
+
+  const result = await withMongoRetry(
+    () => stateCollection.findOneAndUpdate(
+      { _id: STATE_DOC_ID },
+      { $inc: { [MAIN_ADMISSION_ROUTING_CONFIG.roundRobinField]: 1 } },
+      { returnDocument: "after", upsert: true }
+    ),
+    { retries: 1, label: "Advance main admission round robin" }
+  );
+
+  const newIndex = Number(result?.[MAIN_ADMISSION_ROUTING_CONFIG.roundRobinField]) || 1;
+  const counselorIndex = ((newIndex - 1) % activeCounselors.length + activeCounselors.length) % activeCounselors.length;
+  return activeCounselors[counselorIndex].name;
+}
+
 function buildPublicCourseLead({ name, email, phone, course, counselorName, nextId, country, segment }) {
   return {
     id: nextId,
@@ -1952,6 +2096,10 @@ function buildPublicCourseLead({ name, email, phone, course, counselorName, next
 
 function isPublicCourseRegistrationLead(lead) {
   return String(lead?.leadPipeline || "").trim().toLowerCase() === "course-registration";
+}
+
+function isMainAdmissionLead(lead) {
+  return String(lead?.leadPipeline || "").trim().toLowerCase() === MAIN_ADMISSION_PIPELINE;
 }
 
 function isCrashCourseRegistrationLead(lead) {
@@ -2142,6 +2290,11 @@ function isAllowedRegisteredLeadDuplicateGroup(leads, owners) {
 
   if (groupedLeads.length !== 2) {
     return false;
+  }
+
+  const mainAdmissionCount = groupedLeads.filter((lead) => isMainAdmissionLead(lead)).length;
+  if (mainAdmissionCount === 1) {
+    return true;
   }
 
   const registeredCount = groupedLeads.filter((lead) => isPublicCourseRegistrationLead(lead)).length;
@@ -2653,7 +2806,9 @@ function normalizeTaskDoc(task = {}) {
     ? "admission"
     : task.category === "registered"
       ? "registered"
-      : "workshop";
+      : task.category === "main-admission"
+        ? "main-admission"
+        : "workshop";
 
   return {
     id: String(task.id || createTaskId()),
@@ -3095,10 +3250,24 @@ app.post("/api/leads/:leadId/activity", async (req, res) => {
                 "registeredActivityUpdated"
               ]
             }
+        : stage === "main-admission"
+          ? {
+              source: "Main Admission Leads",
+              historyField: "mainAdmissionActivityHistory",
+              countField: "mainAdmissionActivityUpdates",
+              allowedFields: [
+                "mainAdmissionDialed",
+                "mainAdmissionCoursePitched",
+                "mainAdmissionCourseStatus",
+                "mainAdmissionAdmissionStatus",
+                "mainAdmissionCallStatus",
+                "mainAdmissionActivityUpdated"
+              ]
+            }
         : null;
 
     if (!config) {
-      return res.status(400).json({ message: "Activity stage must be workshop, admission, or registered-course." });
+      return res.status(400).json({ message: "Activity stage must be workshop, admission, registered-course, or main-admission." });
     }
 
     if (stage === "admission" && !req.body?.allowWithoutWorkshopActivity) {
@@ -3151,12 +3320,12 @@ app.post("/api/leads/:leadId/activity", async (req, res) => {
           let activityType = "Status Changed";
           let actionDescription = `Field '${field}' updated from '${oldVal || "None"}' to '${newVal || "None"}'`;
           
-          if (field === "dialed" || field === "postDialed" || field === "registeredDialed") {
+          if (field === "dialed" || field === "postDialed" || field === "registeredDialed" || field === "mainAdmissionDialed") {
             if (newVal === "Yes") {
               activityType = "Call Made";
               actionDescription = `Call marked as Dialed (stage: ${stage})`;
             }
-          } else if (field === "callStatus" || field === "postCallStatus" || field === "registeredCallStatus") {
+          } else if (field === "callStatus" || field === "postCallStatus" || field === "registeredCallStatus" || field === "mainAdmissionCallStatus") {
             activityType = "Call Made";
             actionDescription = `Call made, status changed to: ${newVal}`;
           } else if (field === "whatsappInvite") {
@@ -3164,13 +3333,13 @@ app.post("/api/leads/:leadId/activity", async (req, res) => {
               activityType = "WhatsApp Sent";
               actionDescription = `WhatsApp invitation sent`;
             }
-          } else if (field === "coursePitched" || field === "registeredCoursePitched") {
+          } else if (field === "coursePitched" || field === "registeredCoursePitched" || field === "mainAdmissionCoursePitched") {
             activityType = "Course Discussed";
             actionDescription = `Course pitched status: ${newVal}`;
-          } else if (field === "courseStatus" || field === "registeredCourseStatus") {
+          } else if (field === "courseStatus" || field === "registeredCourseStatus" || field === "mainAdmissionCourseStatus") {
             activityType = "Course Discussed";
             actionDescription = `Course status changed to: ${newVal}`;
-          } else if (field === "admissionStatus" || field === "registeredAdmissionStatus") {
+          } else if (field === "admissionStatus" || field === "registeredAdmissionStatus" || field === "mainAdmissionAdmissionStatus") {
             if (newVal === "Joined") {
               activityType = "Lead Converted";
               actionDescription = `Lead converted: admission completed!`;
@@ -4178,24 +4347,37 @@ async function insertMetaLeadIfNew(leadgenId, newLead) {
 
 async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retryJobId = null }) {
   const snapshot = await getMetaProcessingSnapshot();
-  const counselorName = await assignCounselorRoundRobin(snapshot.counselors);
+  const metaInfo = {
+    leadgenId,
+    formId,
+    adId: metaLead.ad_id,
+    adName: metaLead.ad_name,
+    adsetName: metaLead.adset_name,
+    campaignName: metaLead.campaign_name
+  };
+  const leadType = classifyIncomingMetaLead(getMetaLeadFieldMap(metaLead.field_data), metaInfo);
+  const isAdmissionLead = leadType === "admission";
+  const counselorName = isAdmissionLead
+    ? await assignMainAdmissionCounselorRoundRobin(snapshot.counselors)
+    : await assignCounselorRoundRobin(snapshot.counselors);
   const nextId = await getNextMetaLeadId();
   const newLead = buildMetaLead(
     metaLead.field_data,
-    {
-      leadgenId,
-      formId,
-      adId: metaLead.ad_id,
-      adName: metaLead.ad_name,
-      adsetName: metaLead.adset_name,
-      campaignName: metaLead.campaign_name
-    },
+    metaInfo,
     counselorName,
-    nextId
+    nextId,
+    { leadType }
   );
   const duplicateLead = findDuplicateLeadByEmailOrPhone(snapshot.leads, newLead);
   if (duplicateLead) {
-    if (!isPublicCourseRegistrationLead(duplicateLead) && !isSameWorkshopLead(duplicateLead, newLead)) {
+    let shouldBlockDuplicate = true;
+    if (isAdmissionLead && !isMainAdmissionLead(duplicateLead)) {
+      // Admission and workshop records intentionally coexist so each team keeps its own workflow.
+      shouldBlockDuplicate = false;
+    } else if (!isAdmissionLead && isMainAdmissionLead(duplicateLead)) {
+      // Workshop leads still flow into the established workshop calling setup even if admission has a matching contact.
+      shouldBlockDuplicate = false;
+    } else if (!isPublicCourseRegistrationLead(duplicateLead) && !isSameWorkshopLead(duplicateLead, newLead)) {
       await replaceWorkshopLeadWithFreshLead(duplicateLead, newLead, {
         source: "Meta",
         metaLeadId: leadgenId,
@@ -4210,23 +4392,25 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
       return;
     }
 
-    if (retryJobId) {
-      await withMongoRetry(
-        () => metaRetryCollection.deleteOne({ _id: retryJobId }),
-        { retries: 1, label: "Delete duplicate Meta retry job" }
-      );
+    if (shouldBlockDuplicate) {
+      if (retryJobId) {
+        await withMongoRetry(
+          () => metaRetryCollection.deleteOne({ _id: retryJobId }),
+          { retries: 1, label: "Delete duplicate Meta retry job" }
+        );
+      }
+      const duplicateField = normalizeLeadEmail(duplicateLead.email) === normalizeLeadEmail(newLead.email)
+        ? "email"
+        : "phone";
+      await saveMetaLog({
+        type: "ignored",
+        message: `Duplicate lead blocked by ${duplicateField} match`,
+        leadgenId,
+        formId,
+        leadId: duplicateLead.id
+      });
+      return;
     }
-    const duplicateField = normalizeLeadEmail(duplicateLead.email) === normalizeLeadEmail(newLead.email)
-      ? "email"
-      : "phone";
-    await saveMetaLog({
-      type: "ignored",
-      message: `Duplicate lead blocked by ${duplicateField} match`,
-      leadgenId,
-      formId,
-      leadId: duplicateLead.id
-    });
-    return;
   }
 
   const result = await insertMetaLeadIfNew(leadgenId, newLead);
@@ -4260,14 +4444,15 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
     leadId: nextId,
     leadName: newLead.name,
     counselor: counselorName,
+    leadPipeline: newLead.leadPipeline || "workshop",
     campaignName: newLead.metaCampaignName
   });
 
   await createNotification({
     userId: "admin",
     role: "admin",
-    type: "new_meta_lead",
-    title: "Lead Received",
+    type: isAdmissionLead ? "new_main_admission_lead" : "new_meta_lead",
+    title: isAdmissionLead ? "Main Admission Lead Received" : "Lead Received",
     message: `Lead: ${formatLeadNotificationLabel(newLead)}. Assigned counselor: ${counselorName}`,
     sound: true,
     leadId: nextId,
@@ -4284,8 +4469,8 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
       await createNotification({
         userId: counselorDoc.email,
         role: "counselor",
-        type: "new_lead",
-        title: "New Lead Received",
+        type: isAdmissionLead ? "new_main_admission_lead" : "new_lead",
+        title: isAdmissionLead ? "New Main Admission Lead" : "New Lead Received",
         message: `You received new lead ${formatLeadNotificationLabel(newLead)}.`,
         sound: true,
         leadId: nextId,

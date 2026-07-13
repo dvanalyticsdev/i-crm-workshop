@@ -97,8 +97,12 @@ function isPostWorkshopLead(lead) {
   return lead.wsStatus === "Interested" && lead.whatsappInvite === "Yes";
 }
 
+function isNonWorkshopPipelineLead(lead) {
+  return ["course-registration", "main-admission"].includes(String(lead?.leadPipeline || "").trim().toLowerCase());
+}
+
 function getPreWorkshopLeads(allLeads) {
-  return allLeads.filter((lead) => !isLostLead(lead));
+  return allLeads.filter((lead) => !isNonWorkshopPipelineLead(lead) && !isLostLead(lead));
 }
 
 function getUniqueWorkshops(leads) {

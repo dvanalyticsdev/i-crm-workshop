@@ -8,6 +8,7 @@ await bootstrapLocalState();
 const workshopTaskSection = document.getElementById("workshopTaskSection");
 const admissionTaskSection = document.getElementById("admissionTaskSection");
 const registeredTaskSection = document.getElementById("registeredTaskSection");
+const mainAdmissionTaskSection = document.getElementById("mainAdmissionTaskSection");
 
 const session = getSession();
 
@@ -177,7 +178,8 @@ async function rescheduleTask(taskId) {
   const task = [
     ...getTasksByCategory(TASK_CATEGORY.workshop),
     ...getTasksByCategory(TASK_CATEGORY.admission),
-    ...getTasksByCategory(TASK_CATEGORY.registered)
+    ...getTasksByCategory(TASK_CATEGORY.registered),
+    ...getTasksByCategory(TASK_CATEGORY.mainAdmission)
   ]
     .find((item) => String(item.id) === String(taskId));
 
@@ -250,10 +252,14 @@ function renderAll() {
   const workshopTasks = sortTasks(getScopedTasks(getTasksByCategory(TASK_CATEGORY.workshop)));
   const admissionTasks = sortTasks(getScopedTasks(getTasksByCategory(TASK_CATEGORY.admission)));
   const registeredTasks = sortTasks(getScopedTasks(getTasksByCategory(TASK_CATEGORY.registered)));
+  const mainAdmissionTasks = sortTasks(getScopedTasks(getTasksByCategory(TASK_CATEGORY.mainAdmission)));
 
   workshopTaskSection.innerHTML = renderTaskTable(workshopTasks, "No workshop tasks yet.");
   admissionTaskSection.innerHTML = renderTaskTable(admissionTasks, "No admission tasks yet.");
   registeredTaskSection.innerHTML = renderTaskTable(registeredTasks, "No registered candidate tasks yet.");
+  if (mainAdmissionTaskSection) {
+    mainAdmissionTaskSection.innerHTML = renderTaskTable(mainAdmissionTasks, "No main admission lead tasks yet.");
+  }
   bindTaskActions();
 }
 
