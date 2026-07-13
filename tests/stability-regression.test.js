@@ -432,6 +432,7 @@ test("incoming Meta leads route admission traffic into Main Admission Leads", ()
   assert.match(server, /function classifyIncomingMetaLead/);
   assert.match(server, /adv ai ml/);
   assert.match(server, /genai/);
+  assert.match(server, /return hasAdmissionSignal \|\| descriptor \? "admission" : "workshop"/);
   assert.match(server, /assignMainAdmissionCounselorRoundRobin/);
   assert.match(server, /admissionRoundRobinEnabled === true/);
   assert.match(server, /app\.get\("\/api\/main-admission-routing"/);
