@@ -18,14 +18,18 @@ const MONGODB_PREFERENCE_COLLECTION = process.env.MONGODB_PREFERENCE_COLLECTION 
 const MONGODB_META_CONFIG_COLLECTION = process.env.MONGODB_META_CONFIG_COLLECTION || "meta_config";
 const MONGODB_META_LOGS_COLLECTION = process.env.MONGODB_META_LOGS_COLLECTION || "meta_logs";
 const MONGODB_META_RETRY_COLLECTION = process.env.MONGODB_META_RETRY_COLLECTION || "meta_retry_jobs";
+const MONGODB_ELEMENTOR_CONFIG_COLLECTION = process.env.MONGODB_ELEMENTOR_CONFIG_COLLECTION || "elementor_config";
+const MONGODB_ELEMENTOR_LOGS_COLLECTION = process.env.MONGODB_ELEMENTOR_LOGS_COLLECTION || "elementor_logs";
 const META_WEBHOOK_FORWARD_URL = String(process.env.META_WEBHOOK_FORWARD_URL || "").trim();
 const ADMIN_LOGIN_ID = String(process.env.ADMIN_LOGIN_ID || "").trim();
 const ADMIN_LOGIN_PASSWORD = String(process.env.ADMIN_LOGIN_PASSWORD || "").trim();
 const STATE_DOC_ID = "global";
 const META_CONFIG_DOC_ID = "meta_integration";
+const ELEMENTOR_CONFIG_DOC_ID = "elementor_integration";
 const BACKUP_FORMAT = "dv-crm-manual-backup";
 const BACKUP_VERSION = 1;
 const MAX_META_LOGS = 200;
+const MAX_ELEMENTOR_LOGS = 200;
 const SESSION_COOKIE_NAME = "dvWorkshopSession";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const FORWARDED_WEBHOOK_HEADER = "x-dv-webhook-forwarded";
@@ -130,6 +134,10 @@ app.use("/api/meta/webhook", express.raw({
     req.rawBody = buf;
   }
 }));
+app.use("/api/webhook/elementor-lead", express.urlencoded({
+  extended: false,
+  limit: "1mb"
+}));
 app.use(express.json({
   limit: "25mb",
   verify: (req, _res, buf) => {
@@ -147,6 +155,8 @@ let preferenceCollection;
 let metaConfigCollection;
 let metaLogsCollection;
 let metaRetryCollection;
+let elementorConfigCollection;
+let elementorLogsCollection;
 let leadsCollection;
 let counselorsCollection;
 let tasksCollection;
@@ -202,6 +212,8 @@ async function resetMongoConnection() {
   metaConfigCollection = null;
   metaLogsCollection = null;
   metaRetryCollection = null;
+  elementorConfigCollection = null;
+  elementorLogsCollection = null;
   leadsCollection = null;
   counselorsCollection = null;
   tasksCollection = null;
@@ -552,6 +564,8 @@ async function initMongo() {
         metaConfigCollection = db.collection(MONGODB_META_CONFIG_COLLECTION);
         metaLogsCollection   = db.collection(MONGODB_META_LOGS_COLLECTION);
         metaRetryCollection  = db.collection(MONGODB_META_RETRY_COLLECTION);
+        elementorConfigCollection = db.collection(MONGODB_ELEMENTOR_CONFIG_COLLECTION);
+        elementorLogsCollection = db.collection(MONGODB_ELEMENTOR_LOGS_COLLECTION);
 
         leadsCollection      = db.collection("leads");
         counselorsCollection = db.collection("counselors");
@@ -573,6 +587,10 @@ async function initMongo() {
           { unique: true, background: true }
         ).catch(() => undefined);
         await metaLogsCollection.createIndex(
+          { receivedAt: -1 },
+          { background: true }
+        ).catch(() => undefined);
+        await elementorLogsCollection.createIndex(
           { receivedAt: -1 },
           { background: true }
         ).catch(() => undefined);
@@ -693,6 +711,8 @@ async function initMongo() {
         metaConfigCollection = new MockCollection("metaConfig");
         metaLogsCollection   = new MockCollection("metaLogs");
         metaRetryCollection  = new MockCollection("metaRetry");
+        elementorConfigCollection = new MockCollection("elementorConfig");
+        elementorLogsCollection = new MockCollection("elementorLogs");
         leadsCollection      = new MockCollection("leads");
         counselorsCollection = new MockCollection("counselors");
         tasksCollection      = new MockCollection("tasks");
@@ -801,6 +821,99 @@ async function saveMetaLog(entry) {
   }
 }
 
+async function getElementorConfig() {
+  const doc = await withMongoRetry(
+    () => elementorConfigCollection.findOne({ _id: ELEMENTOR_CONFIG_DOC_ID }),
+    { retries: 1, label: "Load Elementor config" }
+  );
+  const baseConfig = doc || {
+    _id: ELEMENTOR_CONFIG_DOC_ID,
+    enabled: false,
+    allowedFormIds: [],
+    workshopFormIds: [],
+    admissionFormIds: [],
+    workshopFormNames: [],
+    admissionFormNames: [],
+    workshopPagePatterns: [],
+    admissionPagePatterns: [],
+    roundRobinIndex: 0
+  };
+
+  return {
+    ...baseConfig,
+    logSummary: {
+      success: Number(baseConfig.logSummary?.success) || 0,
+      ignored: Number(baseConfig.logSummary?.ignored) || 0,
+      error: Number(baseConfig.logSummary?.error) || 0
+    }
+  };
+}
+
+let elementorLogWriteCount = 0;
+
+async function saveElementorLog(entry) {
+  const log = { ...entry, receivedAt: new Date().toISOString() };
+  const type = String(entry?.type || "").trim().toLowerCase();
+  const shouldTrackCount = type === "success" || type === "ignored" || type === "error";
+
+  try {
+    await withMongoRetry(
+      () => elementorLogsCollection.insertOne(log),
+      { retries: 1, label: "Write Elementor webhook log" }
+    );
+
+    if (shouldTrackCount) {
+      await withMongoRetry(
+        () => elementorConfigCollection.updateOne(
+          { _id: ELEMENTOR_CONFIG_DOC_ID },
+          {
+            $inc: { [`logSummary.${type}`]: 1 },
+            $set: { updatedAt: new Date().toISOString() },
+            $setOnInsert: {
+              enabled: false,
+              allowedFormIds: [],
+              workshopFormIds: [],
+              admissionFormIds: [],
+              workshopFormNames: [],
+              admissionFormNames: [],
+              workshopPagePatterns: [],
+              admissionPagePatterns: [],
+              roundRobinIndex: 0,
+              createdAt: new Date().toISOString()
+            }
+          },
+          { upsert: true }
+        ),
+        { retries: 1, label: "Update Elementor webhook log summary" }
+      );
+    }
+
+    elementorLogWriteCount += 1;
+    if (elementorLogWriteCount % 25 !== 0) {
+      return;
+    }
+
+    await withMongoRetry(async () => {
+      const count = await elementorLogsCollection.countDocuments();
+      if (count <= MAX_ELEMENTOR_LOGS) {
+        return;
+      }
+
+      const excess = count - MAX_ELEMENTOR_LOGS;
+      const oldest = await elementorLogsCollection
+        .find({}, { projection: { _id: 1 } })
+        .sort({ receivedAt: 1 })
+        .limit(excess)
+        .toArray();
+      if (oldest.length) {
+        await elementorLogsCollection.deleteMany({ _id: { $in: oldest.map((doc) => doc._id) } });
+      }
+    }, { retries: 1, label: "Prune Elementor webhook logs" });
+  } catch (error) {
+    console.error("Elementor log write skipped:", error.message);
+  }
+}
+
 function verifyWebhookSignature(rawBody, signatureHeader, appSecret) {
   if (!signatureHeader || !appSecret) return false;
   const parts = String(signatureHeader).split("=");
@@ -903,6 +1016,97 @@ function classifyIncomingMetaLead(fields = {}, meta = {}) {
   }
 
   return hasAdmissionSignal || descriptor ? "admission" : "workshop";
+}
+
+function getElementorFieldMap(body = {}) {
+  return Object.entries(body || {}).reduce((fields, [key, value]) => {
+    const normalizedKey = String(key || "").toLowerCase().replace(/[^a-z0-9]+/g, "_");
+    fields[normalizedKey] = Array.isArray(value) ? String(value[0] ?? "") : String(value ?? "");
+    return fields;
+  }, {});
+}
+
+function normalizeRuleList(values = []) {
+  return (Array.isArray(values) ? values : [])
+    .map((value) => normalizeMetaLabel(value).toLowerCase())
+    .filter(Boolean);
+}
+
+function matchNormalizedRule(value, rules = []) {
+  const normalizedValue = normalizeMetaLabel(value).toLowerCase();
+  if (!normalizedValue) {
+    return false;
+  }
+  return normalizeRuleList(rules).includes(normalizedValue);
+}
+
+function matchPatternRule(value, rules = []) {
+  const normalizedValue = normalizeMetaLabel(value).toLowerCase();
+  if (!normalizedValue) {
+    return false;
+  }
+  return normalizeRuleList(rules).some((rule) => normalizedValue.includes(rule));
+}
+
+function getElementorLeadDescriptor(fields = {}, meta = {}) {
+  return [
+    fields.lead_type,
+    fields.type,
+    fields.intent,
+    fields.pipeline,
+    fields.source_type,
+    fields.form_type,
+    fields.course,
+    fields.course_name,
+    fields.program,
+    fields.page_url,
+    fields.form_name,
+    meta.formName,
+    meta.pageUrl
+  ].map((value) => normalizeMetaLabel(value).toLowerCase()).filter(Boolean).join(" ");
+}
+
+function classifyIncomingElementorLead(fields = {}, meta = {}, config = {}) {
+  if (matchNormalizedRule(meta.formId, config.workshopFormIds) || matchNormalizedRule(meta.formName, config.workshopFormNames)) {
+    return "workshop";
+  }
+  if (matchNormalizedRule(meta.formId, config.admissionFormIds) || matchNormalizedRule(meta.formName, config.admissionFormNames)) {
+    return "admission";
+  }
+  if (matchPatternRule(meta.pageUrl, config.workshopPagePatterns)) {
+    return "workshop";
+  }
+  if (matchPatternRule(meta.pageUrl, config.admissionPagePatterns)) {
+    return "admission";
+  }
+
+  const descriptor = getElementorLeadDescriptor(fields, meta);
+  const hasWorkshopSignal = /\b(workshop|webinar|masterclass|bootcamp|demo class|session|crash course)\b/i.test(descriptor);
+  const hasAdmissionSignal = /\b(admission|admissions|enroll|enrol|course|program|programme|counselling|counseling|brochure|fees|career|certification|adv ai ml|advanced ai ml|ai ml|aiml|genai|gen ai|data analytics|data science|cybersecurity|cyber security|full stack|7days|7 days)\b/i.test(descriptor);
+
+  if (hasWorkshopSignal) {
+    return "workshop";
+  }
+
+  return hasAdmissionSignal || descriptor ? "admission" : "workshop";
+}
+
+function inferElementorProgram(fields = {}, meta = {}, leadType = "workshop") {
+  const rawProgram = [
+    fields.workshop,
+    fields.workshop_name,
+    fields.workshop_title,
+    fields.course,
+    fields.course_name,
+    fields.program,
+    fields.page_url,
+    meta.formName
+  ].find(Boolean);
+  const normalized = normalizeMetaLabel(rawProgram);
+  if (!normalized && leadType === "workshop") {
+    return "Elementor Workshop";
+  }
+  return normalized;
 }
 
 function isCounselorInMetaRotation(counselor) {
@@ -1136,6 +1340,81 @@ function buildMetaLead(fieldData, meta, counselorName, nextId, options = {}) {
   };
 }
 
+function buildElementorLead(fields, meta, counselorName, nextId, options = {}) {
+  const name = String(
+    fields.full_name ||
+    fields.name ||
+    [fields.first_name, fields.last_name].filter(Boolean).join(" ")
+  ).trim() || "Unknown";
+  const email = String(fields.email || fields.email_address || "").trim().toLowerCase();
+  const phone = String(fields.phone_number || fields.phone || fields.mobile_phone || fields.mobile || "").trim();
+  const leadType = String(options.leadType || "").trim().toLowerCase() === "admission" ? "admission" : "workshop";
+  const isAdmissionLead = leadType === "admission";
+  const inferredProgram = inferElementorProgram(fields, meta, leadType);
+  const workshop = isAdmissionLead ? "" : inferredProgram;
+  const courseName = isAdmissionLead ? inferredProgram : "";
+  const knownKeys = new Set([
+    "full_name", "name", "first_name", "last_name", "email", "email_address",
+    "phone_number", "phone", "mobile_phone", "mobile", "highest_qualification",
+    "page_url", "date", "time", "user_agent", "remote_ip", "powered_by",
+    "form_id", "form_name", "workshop", "workshop_name", "workshop_title",
+    "course", "course_name", "program", "lead_type", "type", "intent", "pipeline"
+  ]);
+  const extraEntries = Object.entries(fields).filter(([key]) => !knownKeys.has(key) && fields[key]);
+
+  return {
+    id: nextId,
+    name,
+    email: email || `elementor-${nextId}@noemail.lead`,
+    phone,
+    workshop,
+    courseName,
+    highestQualification: String(fields.highest_qualification || "").trim(),
+    status: "New",
+    source: isAdmissionLead ? "Elementor Admission Lead" : "Elementor",
+    leadPipeline: isAdmissionLead ? MAIN_ADMISSION_PIPELINE : "",
+    elementorFormId: String(meta.formId || ""),
+    elementorFormName: String(meta.formName || ""),
+    elementorPageUrl: String(meta.pageUrl || ""),
+    elementorSubmittedDate: String(meta.submittedDate || ""),
+    elementorSubmittedTime: String(meta.submittedTime || ""),
+    elementorRemoteIp: String(meta.remoteIp || ""),
+    elementorUserAgent: String(meta.userAgent || ""),
+    elementorExtraFields: {
+      ...Object.fromEntries(extraEntries),
+      poweredBy: String(fields.powered_by || meta.poweredBy || "").trim()
+    },
+    createdAt: new Date().toISOString().slice(0, 10),
+    dialed: "",
+    callStatus: "",
+    wsStatus: "",
+    whatsappInvite: "",
+    counselor: counselorName,
+    postDialed: "",
+    coursePitched: "",
+    courseStatus: "",
+    admissionStatus: "",
+    admissionWorkshop: workshop,
+    postStatusUpdated: false,
+    preActivityUpdates: 0,
+    postActivityUpdates: 0,
+    workshopActivityHistory: [],
+    admissionActivityHistory: [],
+    mainAdmissionDialed: "",
+    mainAdmissionCoursePitched: "",
+    mainAdmissionCourseStatus: "",
+    mainAdmissionAdmissionStatus: "",
+    mainAdmissionCallStatus: "",
+    mainAdmissionActivityUpdated: false,
+    mainAdmissionActivityUpdates: 0,
+    mainAdmissionActivityHistory: [],
+    whatsappGroupStatus: "",
+    leadNotes: [],
+    importSourceFiles: ["Elementor Webhook"],
+    importSourceSheets: []
+  };
+}
+
 // ─── Meta API Routes ──────────────────────────────────────────────────────────
 
 // Webhook verification (GET) — called once by Meta when you register the webhook.
@@ -1155,6 +1434,28 @@ async function assignCounselorRoundRobin(counselorSource) {
       { returnDocument: "after", upsert: true }
     ),
     { retries: 1, label: "Advance Meta round robin" }
+  );
+  const newIdx = Number(result?.roundRobinIndex) || 1;
+  const idx = ((newIdx - 1) % counselors.length + counselors.length) % counselors.length;
+  return counselors[idx].name;
+}
+
+async function assignElementorCounselorRoundRobin(counselorSource) {
+  const sourceList = Array.isArray(counselorSource)
+    ? counselorSource
+    : Array.isArray(counselorSource?.counselors)
+      ? counselorSource.counselors
+      : [];
+  const counselors = sourceList.filter(isCounselorInMetaRotation);
+  if (!counselors.length) return "Unassigned";
+
+  const result = await withMongoRetry(
+    () => elementorConfigCollection.findOneAndUpdate(
+      { _id: ELEMENTOR_CONFIG_DOC_ID },
+      { $inc: { roundRobinIndex: 1 } },
+      { returnDocument: "after", upsert: true }
+    ),
+    { retries: 1, label: "Advance Elementor round robin" }
   );
   const newIdx = Number(result?.roundRobinIndex) || 1;
   const idx = ((newIdx - 1) % counselors.length + counselors.length) % counselors.length;
@@ -1552,6 +1853,190 @@ app.post("/api/meta/rr-state/reset", async (req, res) => {
     return res.json({ ok: true, roundRobinIndex: 0 });
   } catch (err) {
     return res.status(500).json({ message: "Failed to reset round-robin.", details: err.message });
+  }
+});
+
+app.get("/api/elementor/config", async (req, res) => {
+  try {
+    await initMongo();
+    const activeSession = await getSessionFromRequest(req);
+    if (!activeSession || !["admin", "marketing"].includes(activeSession.session.role)) {
+      return res.status(403).json({ message: "Access required." });
+    }
+
+    const config = await getElementorConfig();
+    return res.json({
+      enabled: config.enabled ?? false,
+      allowedFormIds: Array.isArray(config.allowedFormIds) ? config.allowedFormIds : [],
+      workshopFormIds: Array.isArray(config.workshopFormIds) ? config.workshopFormIds : [],
+      admissionFormIds: Array.isArray(config.admissionFormIds) ? config.admissionFormIds : [],
+      workshopFormNames: Array.isArray(config.workshopFormNames) ? config.workshopFormNames : [],
+      admissionFormNames: Array.isArray(config.admissionFormNames) ? config.admissionFormNames : [],
+      workshopPagePatterns: Array.isArray(config.workshopPagePatterns) ? config.workshopPagePatterns : [],
+      admissionPagePatterns: Array.isArray(config.admissionPagePatterns) ? config.admissionPagePatterns : [],
+      roundRobinIndex: config.roundRobinIndex ?? 0,
+      logSummary: {
+        success: Number(config.logSummary?.success) || 0,
+        ignored: Number(config.logSummary?.ignored) || 0,
+        error: Number(config.logSummary?.error) || 0
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to fetch Elementor config.", details: err.message });
+  }
+});
+
+app.put("/api/elementor/config", async (req, res) => {
+  try {
+    await initMongo();
+    const activeSession = await getSessionFromRequest(req);
+    if (!activeSession || !["admin", "marketing"].includes(activeSession.session.role)) {
+      return res.status(403).json({ message: "Access required." });
+    }
+
+    const body = req.body || {};
+    const listFields = [
+      "allowedFormIds",
+      "workshopFormIds",
+      "admissionFormIds",
+      "workshopFormNames",
+      "admissionFormNames",
+      "workshopPagePatterns",
+      "admissionPagePatterns"
+    ];
+    const patch = {};
+
+    if (typeof body.enabled === "boolean") patch.enabled = body.enabled;
+    listFields.forEach((field) => {
+      if (Array.isArray(body[field])) {
+        patch[field] = body[field].map((value) => String(value).trim()).filter(Boolean);
+      }
+    });
+
+    const now = new Date().toISOString();
+    await elementorConfigCollection.updateOne(
+      { _id: ELEMENTOR_CONFIG_DOC_ID },
+      { $set: { ...patch, updatedAt: now }, $setOnInsert: { roundRobinIndex: 0, createdAt: now } },
+      { upsert: true }
+    );
+
+    const updated = await getElementorConfig();
+    return res.json({
+      ok: true,
+      enabled: updated.enabled ?? false,
+      allowedFormIds: Array.isArray(updated.allowedFormIds) ? updated.allowedFormIds : [],
+      workshopFormIds: Array.isArray(updated.workshopFormIds) ? updated.workshopFormIds : [],
+      admissionFormIds: Array.isArray(updated.admissionFormIds) ? updated.admissionFormIds : [],
+      workshopFormNames: Array.isArray(updated.workshopFormNames) ? updated.workshopFormNames : [],
+      admissionFormNames: Array.isArray(updated.admissionFormNames) ? updated.admissionFormNames : [],
+      workshopPagePatterns: Array.isArray(updated.workshopPagePatterns) ? updated.workshopPagePatterns : [],
+      admissionPagePatterns: Array.isArray(updated.admissionPagePatterns) ? updated.admissionPagePatterns : [],
+      roundRobinIndex: updated.roundRobinIndex ?? 0,
+      logSummary: {
+        success: Number(updated.logSummary?.success) || 0,
+        ignored: Number(updated.logSummary?.ignored) || 0,
+        error: Number(updated.logSummary?.error) || 0
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to save Elementor config.", details: err.message });
+  }
+});
+
+app.get("/api/elementor/logs", async (req, res) => {
+  try {
+    await initMongo();
+    const activeSession = await getSessionFromRequest(req);
+    if (!activeSession || !["admin", "marketing"].includes(activeSession.session.role)) {
+      return res.status(403).json({ message: "Access required." });
+    }
+    const limit = Math.min(Number(req.query.limit) || 50, MAX_ELEMENTOR_LOGS);
+    const logs = await elementorLogsCollection
+      .find({}, { projection: { _id: 0 } })
+      .sort({ receivedAt: -1 })
+      .limit(limit)
+      .toArray();
+    const config = await getElementorConfig();
+    return res.json({
+      logs,
+      summary: {
+        success: Number(config.logSummary?.success) || 0,
+        ignored: Number(config.logSummary?.ignored) || 0,
+        error: Number(config.logSummary?.error) || 0
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to fetch Elementor logs.", details: err.message });
+  }
+});
+
+app.delete("/api/elementor/logs", async (req, res) => {
+  try {
+    await initMongo();
+    const activeSession = await getSessionFromRequest(req);
+    if (!activeSession || activeSession.session.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required." });
+    }
+    await elementorLogsCollection.deleteMany({});
+    await elementorConfigCollection.updateOne(
+      { _id: ELEMENTOR_CONFIG_DOC_ID },
+      {
+        $set: {
+          logSummary: { success: 0, ignored: 0, error: 0 },
+          updatedAt: new Date().toISOString()
+        },
+        $setOnInsert: {
+          enabled: false,
+          allowedFormIds: [],
+          workshopFormIds: [],
+          admissionFormIds: [],
+          workshopFormNames: [],
+          admissionFormNames: [],
+          workshopPagePatterns: [],
+          admissionPagePatterns: [],
+          roundRobinIndex: 0,
+          createdAt: new Date().toISOString()
+        }
+      },
+      { upsert: true }
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to clear Elementor logs.", details: err.message });
+  }
+});
+
+app.post("/api/elementor/rr-state/reset", async (req, res) => {
+  try {
+    await initMongo();
+    const activeSession = await getSessionFromRequest(req);
+    if (!activeSession || activeSession.session.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required." });
+    }
+    await elementorConfigCollection.updateOne(
+      { _id: ELEMENTOR_CONFIG_DOC_ID },
+      { $set: { roundRobinIndex: 0, updatedAt: new Date().toISOString() } },
+      { upsert: true }
+    );
+    return res.json({ ok: true, roundRobinIndex: 0 });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to reset Elementor round-robin.", details: err.message });
+  }
+});
+
+app.post("/api/webhook/elementor-lead", async (req, res) => {
+  res.status(200).json({ success: true });
+
+  try {
+    const payload = req.body && typeof req.body === "object" ? req.body : {};
+    await processElementorWebhookPayload(payload);
+  } catch (err) {
+    try {
+      await saveElementorLog({
+        type: "error",
+        message: `Webhook processing error: ${err.message || "unknown error"}`
+      });
+    } catch {}
   }
 });
 
@@ -4281,6 +4766,10 @@ app.get("/meta-integration", (_req, res) => {
   res.sendFile(path.join(ROOT_DIR, "meta-integration.html"));
 });
 
+app.get("/elementor-integration", (_req, res) => {
+  res.sendFile(path.join(ROOT_DIR, "elementor-integration.html"));
+});
+
 app.get("/crash-course", (_req, res) => {
   res.sendFile(path.join(ROOT_DIR, "crash-course.html"));
 });
@@ -4562,6 +5051,217 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
       });
     }
   }
+}
+
+async function insertElementorLeadIfNew(newLead) {
+  return withMongoRetry(async () => {
+    try {
+      await leadsCollection.insertOne(decorateLeadDuplicateKeys(newLead));
+      await recordActivity({
+        leadId: newLead.id,
+        leadName: newLead.name,
+        counselorName: newLead.counselor || "",
+        activityType: "Lead Created",
+        actionDescription: `Lead created from Elementor webhook (Form: ${newLead.elementorFormName || newLead.elementorFormId || "Unknown"})`,
+        newValue: `Name: ${newLead.name}, Phone: ${newLead.phone}, Email: ${newLead.email}`
+      });
+      if (newLead.counselor) {
+        await recordActivity({
+          leadId: newLead.id,
+          leadName: newLead.name,
+          counselorName: newLead.counselor,
+          activityType: "Lead Assigned",
+          actionDescription: `Lead initially assigned to counselor ${newLead.counselor}`,
+          newValue: newLead.counselor
+        });
+      }
+    } catch (error) {
+      if (Number(error?.code) === 11000) {
+        return { modifiedCount: 0, upsertedCount: 0 };
+      }
+      throw error;
+    }
+
+    const now = new Date().toISOString();
+    await stateCollection.updateOne(
+      { _id: STATE_DOC_ID },
+      { $set: { updatedAt: now } },
+      { upsert: true }
+    );
+    return { modifiedCount: 1, upsertedCount: 1 };
+  }, { retries: 1, label: "Create Elementor lead" });
+}
+
+async function processElementorLeadRecord(payload, config) {
+  const fields = getElementorFieldMap(payload);
+  const formId = String(fields.form_id || "").trim();
+  const formName = String(fields.form_name || "").trim();
+  const pageUrl = String(fields.page_url || "").trim();
+  const email = String(fields.email || fields.email_address || "").trim().toLowerCase();
+  const phone = String(fields.phone_number || fields.phone || fields.mobile_phone || fields.mobile || "").trim();
+
+  if (!email && !phone) {
+    await saveElementorLog({
+      type: "error",
+      message: "Lead skipped because both email and phone are missing.",
+      formId,
+      formName,
+      pageUrl
+    });
+    return;
+  }
+
+  const snapshot = await getMetaProcessingSnapshot();
+  const metaInfo = {
+    formId,
+    formName,
+    pageUrl,
+    submittedDate: String(fields.date || "").trim(),
+    submittedTime: String(fields.time || "").trim(),
+    remoteIp: String(fields.remote_ip || "").trim(),
+    userAgent: String(fields.user_agent || "").trim(),
+    poweredBy: String(fields.powered_by || "").trim()
+  };
+  const leadType = classifyIncomingElementorLead(fields, metaInfo, config);
+  const isAdmissionLead = leadType === "admission";
+  const counselorName = isAdmissionLead
+    ? await assignMainAdmissionCounselorRoundRobin(snapshot.counselors)
+    : await assignElementorCounselorRoundRobin(snapshot.counselors);
+  const nextId = await getNextMetaLeadId();
+  const newLead = buildElementorLead(fields, metaInfo, counselorName, nextId, { leadType });
+  const duplicateLead = findDuplicateLeadByEmailOrPhone(snapshot.leads, newLead);
+
+  if (duplicateLead) {
+    let shouldBlockDuplicate = true;
+    if (isAdmissionLead && !isMainAdmissionLead(duplicateLead)) {
+      shouldBlockDuplicate = false;
+    } else if (!isAdmissionLead && isMainAdmissionLead(duplicateLead)) {
+      shouldBlockDuplicate = false;
+    } else if (!isPublicCourseRegistrationLead(duplicateLead) && !isSameWorkshopLead(duplicateLead, newLead)) {
+      await replaceWorkshopLeadWithFreshLead(duplicateLead, newLead, {
+        source: "Elementor"
+      });
+      await saveElementorLog({
+        type: "success",
+        message: `Lead migrated into fresh workshop record: ${newLead.name}`,
+        formId,
+        formName,
+        pageUrl,
+        leadId: newLead.id,
+        leadName: newLead.name,
+        counselor: counselorName,
+        leadPipeline: newLead.leadPipeline || "workshop"
+      });
+      return;
+    }
+
+    if (shouldBlockDuplicate) {
+      const duplicateField = normalizeLeadEmail(duplicateLead.email) === normalizeLeadEmail(newLead.email)
+        ? "email"
+        : "phone";
+      await saveElementorLog({
+        type: "ignored",
+        message: `Duplicate lead blocked by ${duplicateField} match`,
+        formId,
+        formName,
+        pageUrl,
+        leadId: duplicateLead.id
+      });
+      return;
+    }
+  }
+
+  const result = await insertElementorLeadIfNew(newLead);
+
+  cachedStateDoc = null;
+  cachedStateDocAt = 0;
+
+  if (!result?.modifiedCount && !result?.upsertedCount) {
+    await saveElementorLog({
+      type: "ignored",
+      message: "Duplicate lead (already imported)",
+      formId,
+      formName,
+      pageUrl
+    });
+    return;
+  }
+
+  await saveElementorLog({
+    type: "success",
+    message: `Lead created: ${newLead.name} → ${counselorName}`,
+    formId,
+    formName,
+    pageUrl,
+    leadId: nextId,
+    leadName: newLead.name,
+    counselor: counselorName,
+    leadPipeline: newLead.leadPipeline || "workshop"
+  });
+
+  await createNotification({
+    userId: "admin",
+    role: "admin",
+    type: isAdmissionLead ? "new_main_admission_lead" : "new_elementor_lead",
+    title: isAdmissionLead ? "Main Admission Lead Received" : "Elementor Lead Received",
+    message: `Lead: ${formatLeadNotificationLabel(newLead)}. Assigned counselor: ${counselorName}`,
+    sound: true,
+    leadId: nextId,
+    leadName: newLead.name,
+    assignedCounselor: counselorName
+  });
+
+  if (counselorName && counselorName.toLowerCase() !== "unassigned") {
+    const escapedName = counselorName.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+    const counselorDoc = await counselorsCollection.findOne({
+      name: { $regex: new RegExp(`^${escapedName}$`, "i") }
+    });
+    if (counselorDoc?.email) {
+      await createNotification({
+        userId: counselorDoc.email,
+        role: "counselor",
+        type: isAdmissionLead ? "new_main_admission_lead" : "new_lead",
+        title: isAdmissionLead ? "New Main Admission Lead" : "New Lead Received",
+        message: `You received new lead ${formatLeadNotificationLabel(newLead)}.`,
+        sound: true,
+        leadId: nextId,
+        leadName: newLead.name
+      });
+    }
+  }
+}
+
+async function processElementorWebhookPayload(payload) {
+  const config = await getElementorConfig();
+  const fields = getElementorFieldMap(payload);
+  const formId = String(fields.form_id || "").trim();
+  const formName = String(fields.form_name || "").trim();
+  const pageUrl = String(fields.page_url || "").trim();
+
+  if (!config.enabled) {
+    await saveElementorLog({
+      type: "ignored",
+      message: "Integration disabled",
+      formId,
+      formName,
+      pageUrl
+    });
+    return;
+  }
+
+  const allowedFormIds = Array.isArray(config.allowedFormIds) ? config.allowedFormIds.filter(Boolean) : [];
+  if (allowedFormIds.length && !allowedFormIds.includes(formId)) {
+    await saveElementorLog({
+      type: "ignored",
+      message: `Form ID ${formId || "unknown"} not in allowed list`,
+      formId,
+      formName,
+      pageUrl
+    });
+    return;
+  }
+
+  await processElementorLeadRecord(payload, config);
 }
 
 async function processPendingMetaRetryJobs({ limit = 3 } = {}) {

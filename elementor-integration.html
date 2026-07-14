@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Elementor Integration | DV Workshop Lead Platform</title>
+  <link rel="icon" type="image/png" href="Logos/DV-Logo.png" />
+  <script src="theme-bootstrap.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="dashboard-body">
+  <div class="layout-root">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="icrm-logo-wrap">
+          <div class="icrm-text-wrap">
+            <span class="icrm-logo-text">i-CRM</span>
+          </div>
+          <div class="icrm-dv-badge">
+            <span class="icrm-dv-by">by</span>
+            <img src="Logos/DV-Logo.png" alt="DV Analytics" class="icrm-dv-img" />
+          </div>
+        </div>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="dashboard.html" class="sidebar-link">Dashboard</a>
+        <a href="pre-workshop.html" class="sidebar-link">Workshop Calling</a>
+        <a href="post-workshop.html" class="sidebar-link">Admission Calling</a>
+        <a href="registered-candidates.html" class="sidebar-link">Registered Candidates</a>
+        <a href="main-admission-leads.html" class="sidebar-link">Main Admission Leads</a>
+        <a href="task-tracker.html" class="sidebar-link" data-counselor-only="true">Task Tracker</a>
+        <a href="lost-leads.html" class="sidebar-link">Lost Leads</a>
+        <a href="monitoring.html" class="sidebar-link">Monitoring</a>
+      </nav>
+      <div class="sidebar-bottom-links" style="display:flex;flex-direction:column;gap:0;">
+        <a href="counselor-management.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Counselor Management</a>
+        <a href="lead-control.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Lead & Data Control</a>
+        <a href="meta-integration.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Meta Integration</a>
+        <a href="elementor-integration.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Elementor Integration</a>
+      </div>
+    </aside>
+
+    <div class="main-content">
+      <header class="topbar">
+        <div class="topbar-title">
+          <h1>Elementor Lead Integration</h1>
+          <p>Receive Elementor form leads, classify them like Meta, and auto-route them into the CRM.</p>
+        </div>
+        <div class="topbar-profile">
+          <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">
+            <span class="theme-toggle__stack" aria-hidden="true">
+              <span class="theme-toggle__icon theme-toggle__icon--sun" aria-hidden="true">
+                <svg viewBox="0 0 24 24" role="presentation" focusable="false">
+                  <circle cx="12" cy="12" r="4.5"></circle>
+                  <path d="M12 1.8v2.4M12 19.8v2.4M4.2 4.2l1.7 1.7M18.1 18.1l1.7 1.7M1.8 12h2.4M19.8 12h2.4M4.2 19.8l1.7-1.7M18.1 5.9l1.7-1.7"></path>
+                </svg>
+              </span>
+              <span class="theme-toggle__icon theme-toggle__icon--moon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" role="presentation" focusable="false">
+                  <path d="M20.2 14.7A8.2 8.2 0 0 1 9.3 3.8a8.5 8.5 0 1 0 10.9 10.9Z"></path>
+                </svg>
+              </span>
+            </span>
+            <span class="theme-toggle__label" data-theme-label>Light</span>
+          </button>
+          <span class="role-tag" data-role-tag></span>
+          <button data-logout class="btn-ghost" type="button">Log out</button>
+        </div>
+      </header>
+
+      <div class="meta-page">
+        <section class="card">
+          <div class="meta-section-title">
+            <h3>Connection Status</h3>
+            <p>Elementor intake status and CRM routing readiness.</p>
+          </div>
+
+          <div class="meta-status-bar">
+            <div class="status-pill" id="statusPillIntegration">
+              <div class="status-pill__dot"></div>
+              <div class="status-pill__body">
+                <div class="status-pill__label">Integration</div>
+                <div class="status-pill__value" id="statusValIntegration">Disabled</div>
+              </div>
+            </div>
+            <div class="status-pill" id="statusPillAllowedForms">
+              <div class="status-pill__dot"></div>
+              <div class="status-pill__body">
+                <div class="status-pill__label">Allowed Forms</div>
+                <div class="status-pill__value" id="statusValAllowedForms">All forms</div>
+              </div>
+            </div>
+            <div class="status-pill" id="statusPillWorkshopRules">
+              <div class="status-pill__dot"></div>
+              <div class="status-pill__body">
+                <div class="status-pill__label">Workshop Rules</div>
+                <div class="status-pill__value" id="statusValWorkshopRules">Fallback only</div>
+              </div>
+            </div>
+            <div class="status-pill" id="statusPillAdmissionRules">
+              <div class="status-pill__dot"></div>
+              <div class="status-pill__body">
+                <div class="status-pill__label">Admission Rules</div>
+                <div class="status-pill__value" id="statusValAdmissionRules">Fallback only</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="meta-section-title">
+            <h3>Setup Guide</h3>
+            <p>Configure Elementor to POST directly into this CRM endpoint.</p>
+          </div>
+
+          <div class="setup-steps">
+            <div class="setup-step">
+              <div class="setup-step__num">1</div>
+              <div class="setup-step__body">
+                <div class="setup-step__title">Use the Webhook action in Elementor</div>
+                <div class="setup-step__desc">
+                  In your Elementor form, add the <strong>Webhook</strong> action and paste the Webhook URL from this page.
+                </div>
+              </div>
+            </div>
+            <div class="setup-step">
+              <div class="setup-step__num">2</div>
+              <div class="setup-step__body">
+                <div class="setup-step__title">Send stable form identifiers</div>
+                <div class="setup-step__desc">
+                  Keep <code>form_id</code> and <code>form_name</code> stable. The CRM will use them to decide whether a lead is a workshop or main-admission lead.
+                </div>
+              </div>
+            </div>
+            <div class="setup-step">
+              <div class="setup-step__num">3</div>
+              <div class="setup-step__body">
+                <div class="setup-step__title">Add explicit lead-type hints when possible</div>
+                <div class="setup-step__desc">
+                  If you can, include hidden fields such as <code>lead_type</code>, <code>intent</code>, or a distinctive page URL. This makes classification safer than relying on fuzzy text alone.
+                </div>
+              </div>
+            </div>
+            <div class="setup-step">
+              <div class="setup-step__num">4</div>
+              <div class="setup-step__body">
+                <div class="setup-step__title">Save rules and enable</div>
+                <div class="setup-step__desc">
+                  Add your allow-list and routing rules below, save them, then enable the integration.
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="meta-section-title">
+            <h3>Configuration</h3>
+            <p>Webhook endpoint, allow-lists, and lead classification rules.</p>
+          </div>
+
+          <div class="meta-config-grid">
+            <div>
+              <p style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;opacity:.5;margin:0 0 .9rem;">Webhook Settings</p>
+
+              <div class="form-group">
+                <label>Webhook URL</label>
+                <div class="input-btn-row">
+                  <input id="webhookUrl" type="text" readonly />
+                  <button type="button" class="btn-secondary" id="copyWebhookUrlBtn">Copy</button>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label>Allowed Form IDs</label>
+                <div id="allowedFormIdsList" class="form-ids-list"></div>
+                <button type="button" class="btn-secondary" id="addAllowedFormIdBtn" style="font-size:.82rem;padding:.4rem .8rem;">+ Add Form ID</button>
+                <p class="field-hint">Leave empty to accept leads from any Elementor form that points to this endpoint.</p>
+              </div>
+
+              <div class="field-divider"></div>
+
+              <p style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;opacity:.5;margin:0 0 .9rem;">Field Mapping</p>
+              <div class="note-callout">
+                <span>
+                  Expected fields: <code>Full_Name</code>, <code>Email_Address</code>, <code>Phone_Number</code>,
+                  <code>Highest_Qualification</code>, <code>Page_URL</code>, <code>Date</code>, <code>Time</code>,
+                  <code>User_Agent</code>, <code>Remote_IP</code>, <code>form_id</code>, <code>form_name</code>.
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <p style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;opacity:.5;margin:0 0 .75rem;">Activation</p>
+              <div class="enable-row" style="margin-bottom:1rem;">
+                <div class="enable-row__left">
+                  <span class="enable-row__label">Enable Elementor Integration</span>
+                  <span class="enable-row__hint">Incoming form submissions will be classified and routed automatically.</span>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="enabledToggle" />
+                  <span class="switch-slider"></span>
+                </label>
+              </div>
+
+              <div class="field-divider"></div>
+
+              <p style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;opacity:.5;margin:0 0 .9rem;">Workshop Rules</p>
+              <div id="workshopFormIdsList" class="form-ids-list"></div>
+              <button type="button" class="btn-secondary" id="addWorkshopFormIdBtn" style="font-size:.82rem;padding:.4rem .8rem;margin-bottom:.75rem;">+ Add Workshop Form ID</button>
+              <div id="workshopFormNamesList" class="form-ids-list"></div>
+              <button type="button" class="btn-secondary" id="addWorkshopFormNameBtn" style="font-size:.82rem;padding:.4rem .8rem;margin-bottom:.75rem;">+ Add Workshop Form Name</button>
+              <div id="workshopPagePatternsList" class="form-ids-list"></div>
+              <button type="button" class="btn-secondary" id="addWorkshopPagePatternBtn" style="font-size:.82rem;padding:.4rem .8rem;">+ Add Workshop URL Pattern</button>
+
+              <div class="field-divider"></div>
+
+              <p style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;opacity:.5;margin:0 0 .9rem;">Admission Rules</p>
+              <div id="admissionFormIdsList" class="form-ids-list"></div>
+              <button type="button" class="btn-secondary" id="addAdmissionFormIdBtn" style="font-size:.82rem;padding:.4rem .8rem;margin-bottom:.75rem;">+ Add Admission Form ID</button>
+              <div id="admissionFormNamesList" class="form-ids-list"></div>
+              <button type="button" class="btn-secondary" id="addAdmissionFormNameBtn" style="font-size:.82rem;padding:.4rem .8rem;margin-bottom:.75rem;">+ Add Admission Form Name</button>
+              <div id="admissionPagePatternsList" class="form-ids-list"></div>
+              <button type="button" class="btn-secondary" id="addAdmissionPagePatternBtn" style="font-size:.82rem;padding:.4rem .8rem;">+ Add Admission URL Pattern</button>
+
+              <div class="save-bar">
+                <button type="button" class="btn-primary" id="saveConfigBtn">Save Settings</button>
+                <span id="saveConfigMessage" style="font-size:.85rem;"></span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="meta-section-title">
+            <h3>Routing Snapshot</h3>
+            <p>Workshop leads use Elementor rotation. Admission leads use the shared main-admission rotation.</p>
+          </div>
+
+          <div class="rr-stats-grid">
+            <div class="rr-kpi">
+              <span class="rr-kpi__label">Total Elementor Leads Assigned</span>
+              <span class="rr-kpi__value" id="rrIndexDisplay">—</span>
+              <span class="rr-kpi__sub">since last reset</span>
+            </div>
+            <div class="rr-kpi">
+              <span class="rr-kpi__label">Next Workshop Lead To</span>
+              <span class="rr-kpi__value" id="rrNextCounselor">—</span>
+              <span class="rr-kpi__sub">Elementor workshop rotation</span>
+            </div>
+            <div class="rr-kpi">
+              <span class="rr-kpi__label">Workshop Counselors</span>
+              <span class="rr-kpi__value" id="rrCounselorCount">—</span>
+              <span class="rr-kpi__sub">active</span>
+            </div>
+            <div class="rr-kpi">
+              <span class="rr-kpi__label">Admission Counselors</span>
+              <span class="rr-kpi__value" id="admissionRrCounselorCount">—</span>
+              <span class="rr-kpi__sub">shared with main admission</span>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;">
+            <button type="button" class="btn-secondary" id="resetRrBtn">Reset Elementor Lead Count</button>
+            <span id="rrMessage" style="font-size:.85rem;"></span>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="meta-section-title">
+            <h3>Webhook Logs</h3>
+            <p>Recent Elementor submissions and routing outcomes.</p>
+          </div>
+
+          <div class="log-toolbar">
+            <div class="log-filter-group">
+              <label for="logTypeFilter" style="font-size:.82rem;font-weight:600;opacity:.65;">Filter:</label>
+              <select id="logTypeFilter">
+                <option value="all">All events</option>
+                <option value="success">Success</option>
+                <option value="error">Error</option>
+                <option value="ignored">Ignored</option>
+              </select>
+            </div>
+            <div style="display:flex;gap:.5rem;">
+              <button type="button" class="btn-secondary" id="refreshLogsBtn" style="font-size:.82rem;padding:.4rem .8rem;">Refresh</button>
+              <button type="button" class="btn-danger" id="clearLogsBtn" style="font-size:.82rem;padding:.4rem .8rem;">Clear All</button>
+            </div>
+          </div>
+
+          <div class="log-summary">
+            <div class="log-summary-card log-summary-card--success">
+              <span class="log-summary-card__label">Success</span>
+              <span class="log-summary-card__value" id="logSummarySuccess">0</span>
+            </div>
+            <div class="log-summary-card log-summary-card--ignored">
+              <span class="log-summary-card__label">Ignored</span>
+              <span class="log-summary-card__value" id="logSummaryIgnored">0</span>
+            </div>
+            <div class="log-summary-card log-summary-card--error">
+              <span class="log-summary-card__label">Error</span>
+              <span class="log-summary-card__value" id="logSummaryError">0</span>
+            </div>
+          </div>
+
+          <div class="log-table-wrap">
+            <table class="log-table">
+              <thead>
+                <tr>
+                  <th style="width:140px;">Time</th>
+                  <th style="width:90px;">Status</th>
+                  <th>Message</th>
+                  <th>Lead → Counselor</th>
+                  <th>Form / Page</th>
+                </tr>
+              </thead>
+              <tbody id="logsTableBody">
+                <tr><td colspan="5" class="log-empty">Loading logs…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="elementor-integration.js"></script>
+  <script type="module" src="layouts.js"></script>
+</body>
+</html>

@@ -46,6 +46,28 @@ function applyActiveSidebarState() {
   });
 }
 
+function ensureIntegrationSidebarLinks() {
+  const bottomLinkContainer = document.querySelector(".sidebar-bottom-links");
+  if (!bottomLinkContainer) {
+    return;
+  }
+
+  const ensureLink = (href, label) => {
+    let link = bottomLinkContainer.querySelector(`a[href="${href}"]`);
+    if (!link) {
+      link = document.createElement("a");
+      link.href = href;
+      link.className = "sidebar-link sidebar-link-bottom admin-only";
+      link.setAttribute("data-admin-only", "true");
+      link.textContent = label;
+      bottomLinkContainer.appendChild(link);
+    }
+  };
+
+  ensureLink("meta-integration.html", "Meta Integration");
+  ensureLink("elementor-integration.html", "Elementor Integration");
+}
+
 const prefetchedRoutes = new Set();
 
 function prefetchRoute(href) {
@@ -146,6 +168,7 @@ function getFirstAllowedPage(permissions) {
 }
 
 function applyRoleVisibility(session) {
+  ensureIntegrationSidebarLinks();
   const adminOnlyElements = document.querySelectorAll("[data-admin-only='true']");
   const counselorOnlyElements = document.querySelectorAll("[data-counselor-only='true']");
   const isAdmin = session.role === "admin";
@@ -157,21 +180,23 @@ function applyRoleVisibility(session) {
   counselorOnlyElements.forEach((element) => {
     element.classList.toggle("hidden", !isCounselor);
   });
-  // Hide the entire sidebar for marketing users — they only have meta-integration.html
+  // Marketing users only need the integration links in the sidebar.
   if (isMarketing) {
-    const sidebar = document.querySelector(".sidebar");
-    if (sidebar) sidebar.style.display = "none";
-    const mainContent = document.querySelector(".main-content");
-    if (mainContent) mainContent.style.marginLeft = "0";
-    const layoutRoot = document.querySelector(".layout-root");
-    if (layoutRoot) layoutRoot.style.gridTemplateColumns = "1fr";
+    document.querySelectorAll(".sidebar-link").forEach((link) => {
+      const href = link.getAttribute("href") || "";
+      const isIntegrationLink = href === "meta-integration.html" || href === "elementor-integration.html";
+      link.classList.toggle("hidden", !isIntegrationLink);
+      if (isIntegrationLink) {
+        link.classList.remove("hidden");
+      }
+    });
   }
 }
 
 function enforceAccess(session) {
-  // Marketing users: only allowed on meta-integration.html
+  // Marketing users: only allowed on integration pages.
   if (session.role === "marketing") {
-    if (currentRoute !== "meta-integration.html") {
+    if (currentRoute !== "meta-integration.html" && currentRoute !== "elementor-integration.html") {
       window.location.href = "meta-integration.html";
       return false;
     }
@@ -184,7 +209,7 @@ function enforceAccess(session) {
   }
 
   if (
-    (currentRoute === "counselor-management.html" || currentRoute === "meta-integration.html" || currentRoute === "lead-control.html") &&
+    (currentRoute === "counselor-management.html" || currentRoute === "meta-integration.html" || currentRoute === "elementor-integration.html" || currentRoute === "lead-control.html") &&
     session.role !== "admin"
   ) {
     const fallback =
@@ -465,7 +490,7 @@ function bindClientRouter() {
     }
 
     event.preventDefault();
-    // Marketing users cannot navigate to other pages via the sidebar
+    // Marketing users can only use the integration links.
     if (activeSession?.role === "marketing") return;
     void navigateToRoute(href);
   });
