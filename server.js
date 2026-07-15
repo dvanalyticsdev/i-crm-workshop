@@ -1081,8 +1081,13 @@ function classifyIncomingElementorLead(fields = {}, meta = {}, config = {}) {
   }
 
   const descriptor = getElementorLeadDescriptor(fields, meta);
-  const hasWorkshopSignal = /\b(workshop|webinar|masterclass|bootcamp|demo class|session|crash course)\b/i.test(descriptor);
+  const hasCrashCourseSignal = /\b(crash course|crash-course)\b/i.test(descriptor);
+  const hasWorkshopSignal = /\b(workshop|webinar|masterclass|bootcamp|demo class|session)\b/i.test(descriptor);
   const hasAdmissionSignal = /\b(admission|admissions|enroll|enrol|course|program|programme|counselling|counseling|brochure|fees|career|certification|adv ai ml|advanced ai ml|ai ml|aiml|genai|gen ai|data analytics|data science|cybersecurity|cyber security|full stack|7days|7 days)\b/i.test(descriptor);
+
+  if (hasCrashCourseSignal) {
+    return "admission";
+  }
 
   if (hasWorkshopSignal) {
     return "workshop";
