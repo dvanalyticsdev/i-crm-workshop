@@ -1557,6 +1557,73 @@ tbody tr:hover {
   white-space: nowrap;
 }
 
+.modal-content.main-admission-details-modal {
+  width: min(1280px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  padding: var(--space-5);
+  overflow: auto;
+}
+
+.main-admission-details-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.main-admission-details-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.main-admission-details-card {
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  min-height: 100%;
+}
+
+.main-admission-details-card h4 {
+  margin: 0 0 var(--space-3);
+  color: var(--heading);
+}
+
+.main-admission-details-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.main-admission-details-item {
+  display: grid;
+  gap: 4px;
+}
+
+.main-admission-details-item dt {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.main-admission-details-item dd {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+@media (max-width: 1100px) {
+  .main-admission-details-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .task-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2078,6 +2145,22 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
 
   .modal-actions button {
     width: 100%;
+  }
+
+  .modal-content.main-admission-details-modal {
+    width: 100%;
+    max-height: calc(100vh - 24px);
+    padding: var(--space-4);
+  }
+
+  .main-admission-details-modal__header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .main-admission-details-grid {
+    grid-template-columns: 1fr;
+    gap: var(--space-3);
   }
 
   #taskModal .modal-content,

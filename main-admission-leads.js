@@ -45,6 +45,10 @@ const mainAdmissionTaskTitleInput = document.getElementById("mainAdmissionTaskTi
 const mainAdmissionTaskNotesInput = document.getElementById("mainAdmissionTaskNotes");
 const mainAdmissionTaskDueDateInput = document.getElementById("mainAdmissionTaskDueDate");
 const mainAdmissionTaskMessage = document.getElementById("mainAdmissionTaskMessage");
+const mainAdmissionDetailsModal = document.getElementById("mainAdmissionDetailsModal");
+const mainAdmissionDetailsModalTitle = document.getElementById("mainAdmissionDetailsModalTitle");
+const mainAdmissionDetailsModalSubtitle = document.getElementById("mainAdmissionDetailsModalSubtitle");
+const mainAdmissionDetailsModalBody = document.getElementById("mainAdmissionDetailsModalBody");
 
 const FILTER_STORAGE_KEY = "dvMainAdmissionLeadFilters";
 const MAIN_ADMISSION_ROUTING_ENDPOINT = apiUrl("/api/main-admission-routing");
@@ -77,6 +81,7 @@ const pageSize = 50;
 let selectedLeadKeys = new Set();
 let activeLeadRef = null;
 let notesLeadRef = null;
+let detailsLeadRef = null;
 let mainAdmissionRoutingConfig = { selectedCounselors: [], isConfigured: false };
 let mainAdmissionActivityModalMode = "edit";
 let activeSegment = DEFAULT_SEGMENT;
@@ -92,6 +97,19 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function formatDetailValue(value, fallback = "-") {
+  const normalized = String(value ?? "").trim();
+  return normalized ? escapeHtml(normalized) : fallback;
+}
+
+function formatFieldLabel(value) {
+  return String(value || "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
 function isCounselorSession() {
@@ -148,6 +166,8 @@ function normalizeLeadFields(leads) {
     lead.mainAdmissionActivityUpdates = lead.mainAdmissionActivityHistory.length
       || (Number.isFinite(Number(lead.mainAdmissionActivityUpdates)) ? Number(lead.mainAdmissionActivityUpdates) : 0);
     lead.leadNotes = Array.isArray(lead.leadNotes) ? lead.leadNotes : [];
+    lead.metaExtraFields = lead.metaExtraFields && typeof lead.metaExtraFields === "object" ? lead.metaExtraFields : {};
+    lead.elementorExtraFields = lead.elementorExtraFields && typeof lead.elementorExtraFields === "object" ? lead.elementorExtraFields : {};
   });
 }
 
@@ -671,12 +691,127 @@ function filterLeads(leads) {
   });
 }
 
+function getLeadExtraFields(lead) {
+  if (lead?.metaExtraFields && typeof lead.metaExtraFields === "object") {
+    return lead.metaExtraFields;
+  }
+  if (lead?.elementorExtraFields && typeof lead.elementorExtraFields === "object") {
+    return lead.elementorExtraFields;
+  }
+  return {};
+}
+
+function getLeadWhatsappNumber(lead) {
+  const extraFields = getLeadExtraFields(lead);
+  const candidateKeys = [
+    "whatsapp_phone_number",
+    "whatsapp_number",
+    "whatsapp_phone",
+    "whatsapp",
+    "wa_number",
+    "wa_phone",
+    "mobile_whatsapp"
+  ];
+
+  for (const key of candidateKeys) {
+    const value = String(extraFields[key] || "").trim();
+    if (value) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
+function buildLeadDetailSections(lead) {
+  const extraFields = getLeadExtraFields(lead);
+  const whatsappPhone = getLeadWhatsappNumber(lead);
+  const metaSource = String(lead.source || "").toLowerCase();
+  const isMetaLead = metaSource.includes("meta");
+  const city = String(extraFields.city || "").trim();
+  const state = String(extraFields.state || "").trim();
+  const extraFieldEntries = Object.entries(extraFields)
+    .filter(([key]) => ![
+      "whatsapp_phone_number",
+      "whatsapp_number",
+      "whatsapp_phone",
+      "whatsapp",
+      "wa_number",
+      "wa_phone",
+      "mobile_whatsapp",
+      "city",
+      "state"
+    ].includes(String(key || "").trim().toLowerCase()))
+    .filter(([, value]) => String(value ?? "").trim());
+
+  return [
+    {
+      title: "CRM Details",
+      items: [
+        ["CRM ID", lead.id],
+        ["Lead Created Date", lead.createdAt],
+        ["Lead Source", lead.source]
+      ]
+    },
+    {
+      title: "Meta Details",
+      items: [
+        ["Ad Name", isMetaLead ? lead.metaAdName : ""],
+        ["Adset Name", isMetaLead ? lead.metaAdsetName : ""],
+        ["Campaign Name", isMetaLead ? lead.metaCampaignName : ""]
+      ]
+    },
+    {
+      title: "Lead Details",
+      items: [
+        ["Name", lead.name],
+        ["Phone Number", lead.phone],
+        ["WhatsApp Phone Number", whatsappPhone],
+        ["Email", lead.email],
+        ["Course Name", lead.courseName],
+        ["City", city],
+        ["State", state]
+      ]
+    },
+    extraFieldEntries.length
+      ? {
+          title: "Lead Qualification Details",
+          items: extraFieldEntries.map(([key, value]) => [formatFieldLabel(key), value])
+        }
+      : null
+  ].filter(Boolean);
+}
+
+function renderLeadDetailsModal(lead) {
+  if (!mainAdmissionDetailsModalBody || !mainAdmissionDetailsModalTitle || !mainAdmissionDetailsModalSubtitle) {
+    return;
+  }
+
+  const sections = buildLeadDetailSections(lead);
+  mainAdmissionDetailsModalTitle.textContent = `${lead.name || "Lead"} Details`;
+  mainAdmissionDetailsModalSubtitle.textContent = `CRM record ${lead.id || "-"} • ${lead.source || "Unknown source"}`;
+  mainAdmissionDetailsModalBody.innerHTML = sections.map((section) => `
+    <section class="main-admission-details-card">
+      <h4>${escapeHtml(section.title)}</h4>
+      <dl class="main-admission-details-list">
+        ${section.items.map(([label, value]) => `
+          <div class="main-admission-details-item">
+            <dt>${escapeHtml(label)}</dt>
+            <dd>${formatDetailValue(value)}</dd>
+          </div>
+        `).join("")}
+      </dl>
+    </section>
+  `).join("");
+}
+
 function renderActivityPanel(lead) {
   const hasActivity = lead.mainAdmissionActivityUpdates > 0;
   const leadKey = escapeHtml(buildLeadKey(lead));
   const noteCount = lead.leadNotes.length;
   return `
     <div class="activity-panel">
+      <button type="button" class="btn-ghost" data-main-admission-action="details" data-lead-key="${leadKey}">View Details</button>
       <button type="button" class="btn-update-status${hasActivity ? " btn-update-status--active" : ""}" data-main-admission-action="update" data-lead-key="${leadKey}">Update</button>
       <button type="button" class="btn-ghost btn-notes" data-main-admission-action="notes" data-lead-key="${leadKey}">Notes${noteCount ? ` (${noteCount})` : ""}</button>
       ${canCreateTasks ? `<button type="button" class="btn-ghost btn-task" data-main-admission-action="task" data-lead-key="${leadKey}">Task</button>` : ""}
@@ -750,6 +885,9 @@ function renderLeadTable(leads) {
     </div>
   `;
 
+  document.querySelectorAll("[data-main-admission-action='details']").forEach((button) => {
+    button.onclick = () => openDetailsModal(button.getAttribute("data-lead-key"));
+  });
   document.querySelectorAll("[data-main-admission-action='update']").forEach((button) => {
     button.onclick = () => openActivityModal(button.getAttribute("data-lead-key"));
   });
@@ -856,6 +994,24 @@ function openActivityModal(leadKey) {
   setRegisteredActivityModalMode("edit");
   populateActivityModal(lead);
   document.getElementById("mainAdmissionActivityModal").classList.remove("hidden");
+}
+
+function openDetailsModal(leadKey) {
+  const lead = getAllLeads().find((item) => buildLeadKey(item) === leadKey);
+  if (!lead || !mainAdmissionDetailsModal) {
+    return;
+  }
+
+  detailsLeadRef = buildLeadRef(lead);
+  renderLeadDetailsModal(lead);
+  mainAdmissionDetailsModal.classList.remove("hidden");
+}
+
+function closeDetailsModal() {
+  if (mainAdmissionDetailsModal) {
+    mainAdmissionDetailsModal.classList.add("hidden");
+  }
+  detailsLeadRef = null;
 }
 
 
@@ -1124,6 +1280,14 @@ function setupRegisteredRoutingPanel() {
 function renderAll() {
   renderAdmissionSectionNav();
   renderSegmentSection();
+  if (detailsLeadRef) {
+    const liveLead = findLeadByRef(detailsLeadRef);
+    if (liveLead) {
+      renderLeadDetailsModal(liveLead);
+    } else {
+      closeDetailsModal();
+    }
+  }
   const allLeads = getScopedLeads(getAllLeads());
   const filteredLeads = filterLeads(allLeads);
   renderRegisteredRoutingPanel();
@@ -1138,6 +1302,9 @@ document.getElementById("closeMainAdmissionNotesModalBtn").onclick = closeNotesM
 document.getElementById("mainAdmissionSaveNoteBtn").onclick = () => {
   void saveNote();
 };
+if (mainAdmissionDetailsModal) {
+  document.getElementById("closeMainAdmissionDetailsModalBtn").onclick = closeDetailsModal;
+}
 if (mainAdmissionTaskModal && mainAdmissionTaskForm) {
   document.getElementById("closeMainAdmissionTaskModalBtn").onclick = closeTaskModal;
   mainAdmissionTaskForm.onsubmit = handleTaskSubmit;
