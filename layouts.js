@@ -41,8 +41,116 @@ const DEFAULT_PERMISSIONS = {
 function applyActiveSidebarState() {
   const sidebarLinks = document.querySelectorAll(".sidebar-link");
   sidebarLinks.forEach((link) => {
-    const isActive = link.getAttribute("href") === currentRoute;
+    const activeRoutes = String(link.getAttribute("data-active-routes") || "")
+      .split(",")
+      .map((route) => route.trim())
+      .filter(Boolean);
+    const isActive = link.getAttribute("href") === currentRoute || activeRoutes.includes(currentRoute);
     link.classList.toggle("active", isActive);
+  });
+}
+
+function rebuildSidebarSections() {
+  const sidebar = document.querySelector(".sidebar");
+  const navContainer = document.querySelector(".sidebar-nav");
+  const bottomLinkContainer = document.querySelector(".sidebar-bottom-links");
+  if (!sidebar || !navContainer || !bottomLinkContainer) {
+    return;
+  }
+
+  const allLinks = [
+    ...Array.from(navContainer.querySelectorAll(".sidebar-link")),
+    ...Array.from(bottomLinkContainer.querySelectorAll(".sidebar-link"))
+  ];
+
+  const linkMap = new Map(
+    allLinks
+      .map((link) => [link.getAttribute("href") || "", link])
+      .filter(([href]) => href)
+  );
+
+  const generalRoutes = ["dashboard.html", "lost-leads.html", "monitoring.html", "task-tracker.html"];
+  const adminRoutes = ["counselor-management.html", "lead-control.html", "meta-integration.html", "elementor-integration.html"];
+
+  const routeLabels = {
+    "dashboard.html": "Dashboard",
+    "pre-workshop.html": "Workshop",
+    "registered-candidates.html": "Admission",
+    "task-tracker.html": "Task Tracker",
+    "lost-leads.html": "Lost Leads",
+    "monitoring.html": "Monitoring",
+    "counselor-management.html": "Counselor Management",
+    "lead-control.html": "Lead & Data Control",
+    "meta-integration.html": "Meta Integration",
+    "elementor-integration.html": "Elementor Integration"
+  };
+
+  const ensureLink = (route, options = {}) => {
+    const existing = linkMap.get(route);
+    if (existing) {
+      existing.textContent = routeLabels[route] || existing.textContent;
+      if (options.activeRoutes) {
+        existing.setAttribute("data-active-routes", options.activeRoutes.join(","));
+      }
+      return existing;
+    }
+
+    const link = document.createElement("a");
+    link.href = route;
+    link.className = `sidebar-link${options.bottom ? " sidebar-link-bottom" : ""}${options.adminOnly ? " admin-only" : ""}`;
+    if (options.adminOnly) {
+      link.setAttribute("data-admin-only", "true");
+    }
+    if (options.counselorOnly) {
+      link.setAttribute("data-counselor-only", "true");
+    }
+    if (options.activeRoutes) {
+      link.setAttribute("data-active-routes", options.activeRoutes.join(","));
+    }
+    link.textContent = routeLabels[route] || route;
+    linkMap.set(route, link);
+    return link;
+  };
+
+  navContainer.innerHTML = "";
+  bottomLinkContainer.innerHTML = "";
+
+  const primaryRoutes = ["dashboard.html"];
+  const remainingRoutes = generalRoutes.filter((route) => !primaryRoutes.includes(route));
+
+  primaryRoutes.forEach((route) => {
+    const link = ensureLink(route, { counselorOnly: route === "task-tracker.html" });
+    if (link) {
+      navContainer.appendChild(link);
+    }
+  });
+
+  const workshopLink = ensureLink("pre-workshop.html", {
+    activeRoutes: ["post-workshop.html"]
+  });
+  if (workshopLink) {
+    navContainer.appendChild(workshopLink);
+  }
+
+  const admissionLink = ensureLink("registered-candidates.html", {
+    activeRoutes: ["main-admission-leads.html", "crash-course.html"]
+  });
+  if (admissionLink) {
+    navContainer.appendChild(admissionLink);
+  }
+
+  remainingRoutes.forEach((route) => {
+    const link = ensureLink(route, { counselorOnly: route === "task-tracker.html" });
+    if (link) {
+      navContainer.appendChild(link);
+    }
+  });
+
+  adminRoutes.forEach((route) => {
+    const link = ensureLink(route, { bottom: true, adminOnly: true });
+    if (link) {
+      bottomLinkContainer.appendChild(link);
+    }
   });
 }
 
@@ -169,6 +277,7 @@ function getFirstAllowedPage(permissions) {
 
 function applyRoleVisibility(session) {
   ensureIntegrationSidebarLinks();
+  rebuildSidebarSections();
   const adminOnlyElements = document.querySelectorAll("[data-admin-only='true']");
   const counselorOnlyElements = document.querySelectorAll("[data-counselor-only='true']");
   const isAdmin = session.role === "admin";

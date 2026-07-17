@@ -26,6 +26,7 @@ const registeredRoutingOptions = document.getElementById("registeredRoutingOptio
 const saveRegisteredRoutingBtn = document.getElementById("saveRegisteredRoutingBtn");
 const clearRegisteredCandidateDataBtn = document.getElementById("clearRegisteredCandidateDataBtn");
 const registeredRoutingMessage = document.getElementById("registeredRoutingMessage");
+const admissionSectionNav = document.getElementById("admissionSectionNav");
 const registeredSegmentSection = document.getElementById("registeredSegmentSection");
 const registeredKpiSection = document.getElementById("registeredKpiSection");
 const registeredFilterBar = document.getElementById("registeredFilterBar");
@@ -86,7 +87,7 @@ let activeLeadRef = null;
 let notesLeadRef = null;
 let registeredRoutingConfig = { selectedCounselors: [], isConfigured: false };
 let registeredActivityModalMode = "edit";
-let activeSegment = DEFAULT_SEGMENT;
+let activeSegment = normalizeSegment(window.location.hash.replace(/^#/, "")) || DEFAULT_SEGMENT;
 
 function persistFilters() {
   void savePersistedValue(FILTER_STORAGE_KEY, filter);
@@ -269,38 +270,80 @@ function renderSegmentSection() {
   if (!registeredSegmentSection) {
     return;
   }
+  registeredSegmentSection.innerHTML = "";
+  registeredSegmentSection.classList.add("hidden");
+}
 
-  registeredSegmentSection.innerHTML = `
+function renderAdmissionSectionNav(activeRoute = "registered-candidates.html") {
+  if (!admissionSectionNav) {
+    return;
+  }
+
+  const sections = [
+    {
+      route: "main-admission-leads.html",
+      label: "Main Admission Calling",
+      description: "Handle direct admission enquiries that bypass the workshop flow."
+    },
+    {
+      route: "registered-candidates.html",
+      segment: DEFAULT_SEGMENT,
+      label: "Main Registered Candidates",
+      description: "Manage standard public landing-page registrations except the 7-Day Crash Course."
+    },
+    {
+      route: "registered-candidates.html",
+      segment: CRASH_SEGMENT,
+      label: "7-Day Crash Course",
+      description: "Manage the isolated 7-Day Crash Course registration pipeline."
+    }
+  ];
+
+  const activeDescription = activeSegment === CRASH_SEGMENT
+    ? sections.find((section) => section.segment === CRASH_SEGMENT)?.description
+    : sections.find((section) => section.segment === DEFAULT_SEGMENT)?.description;
+
+  admissionSectionNav.innerHTML = `
     <div class="card-head">
-      <h3>Registered Candidate Subsections</h3>
-      <p>Switch between the main landing-page registrations and the isolated 7-Day Crash Course pipeline.</p>
+      <h3>Admission Subsections</h3>
+      <p>Use this section to switch between admission-related pages and registered-candidate pipelines.</p>
     </div>
     <div class="filter-actions" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
-      ${Object.values(SEGMENT_CONFIG).map((segment) => `
+      ${sections.map((section) => `
         <button
           type="button"
-          class="${activeSegment === segment.key ? "btn-primary" : "btn-ghost"}"
-          data-registered-segment="${segment.key}"
+          class="${(section.route === "main-admission-leads.html" && activeRoute === section.route) || (section.segment && activeSegment === section.segment) ? "btn-primary" : "btn-ghost"}"
+          data-admission-section="${section.route}"
+          ${section.segment ? `data-admission-segment="${section.segment}"` : ""}
         >
-          ${escapeHtml(segment.label)}
+          ${escapeHtml(section.label)}
         </button>
       `).join("")}
     </div>
-    <p class="block-help">${escapeHtml(getSegmentConfig().description)}</p>
+    <p class="block-help">${escapeHtml(activeDescription || "")}</p>
   `;
 
-  registeredSegmentSection.querySelectorAll("[data-registered-segment]").forEach((button) => {
+  admissionSectionNav.querySelectorAll("[data-admission-section]").forEach((button) => {
     button.onclick = () => {
-      const nextSegment = normalizeSegment(button.getAttribute("data-registered-segment"));
-      if (nextSegment === activeSegment) {
+      const route = button.getAttribute("data-admission-section");
+      const segment = button.getAttribute("data-admission-segment");
+      if (segment) {
+        const nextSegment = normalizeSegment(segment);
+        if (nextSegment === activeSegment) {
+          return;
+        }
+        activeSegment = nextSegment;
+        window.location.hash = nextSegment;
+        selectedLeadKeys = new Set();
+        currentPage = 1;
+        setRoutingMessage("");
+        void loadRegisteredRoutingConfig();
+        renderAll();
         return;
       }
-      activeSegment = nextSegment;
-      selectedLeadKeys = new Set();
-      currentPage = 1;
-      setRoutingMessage("");
-      void loadRegisteredRoutingConfig();
-      renderAll();
+      if (route && route !== window.location.pathname.split("/").pop()) {
+        window.location.href = route;
+      }
     };
   });
 }
@@ -1144,6 +1187,7 @@ function setupRegisteredRoutingPanel() {
 }
 
 function renderAll() {
+  renderAdmissionSectionNav();
   renderSegmentSection();
   const allLeads = getScopedLeads(getAllLeads());
   const filteredLeads = filterLeads(allLeads);

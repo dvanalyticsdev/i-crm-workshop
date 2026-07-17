@@ -24,6 +24,7 @@ const postKpiSection = document.getElementById("postKpiSection");
 const postFilterBar = document.getElementById("postFilterBar");
 const postActivityMessage = document.getElementById("postActivityMessage");
 const postLeadTableSection = document.getElementById("postLeadTableSection");
+const workshopSectionNav = document.getElementById("workshopSectionNav");
 const taskModal = document.getElementById("taskModal");
 const taskModalTitle = document.getElementById("taskModalTitle");
 const taskForm = document.getElementById("taskForm");
@@ -506,6 +507,53 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function renderWorkshopSectionNav(activeRoute = "post-workshop.html") {
+  if (!workshopSectionNav) {
+    return;
+  }
+
+  const sections = [
+    {
+      route: "pre-workshop.html",
+      label: "Workshop Calling",
+      description: "Manage the first-stage workshop outreach and calling activity."
+    },
+    {
+      route: "post-workshop.html",
+      label: "Admission Calling",
+      description: "Continue follow-ups after workshop engagement and push toward admission conversion."
+    }
+  ];
+
+  workshopSectionNav.innerHTML = `
+    <div class="card-head">
+      <h3>Workshop Subsections</h3>
+      <p>Open the workshop-stage pages from here instead of keeping both links in the sidebar.</p>
+    </div>
+    <div class="filter-actions" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+      ${sections.map((section) => `
+        <button
+          type="button"
+          class="${activeRoute === section.route ? "btn-primary" : "btn-ghost"}"
+          data-workshop-section="${section.route}"
+        >
+          ${escapeHtml(section.label)}
+        </button>
+      `).join("")}
+    </div>
+    <p class="block-help">${escapeHtml(sections.find((section) => section.route === activeRoute)?.description || "")}</p>
+  `;
+
+  workshopSectionNav.querySelectorAll("[data-workshop-section]").forEach((button) => {
+    button.onclick = () => {
+      const route = button.getAttribute("data-workshop-section");
+      if (route && route !== window.location.pathname.split("/").pop()) {
+        window.location.href = route;
+      }
+    };
+  });
 }
 
 function isLostLead(lead) {
@@ -1737,6 +1785,7 @@ function initPostWorkshopPage() {
 initPostWorkshopPage();
 
 function renderAll() {
+  renderWorkshopSectionNav();
   const allLeads = getAllLeads();
   normalizeLeadFields(allLeads);
 

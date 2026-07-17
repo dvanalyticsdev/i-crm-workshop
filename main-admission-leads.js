@@ -26,6 +26,7 @@ const mainAdmissionRoutingOptions = document.getElementById("mainAdmissionRoutin
 const saveMainAdmissionRoutingBtn = document.getElementById("saveMainAdmissionRoutingBtn");
 const clearMainAdmissionLeadDataBtn = document.getElementById("clearMainAdmissionLeadDataBtn");
 const mainAdmissionRoutingMessage = document.getElementById("mainAdmissionRoutingMessage");
+const admissionSectionNav = document.getElementById("admissionSectionNav");
 const mainAdmissionSegmentSection = document.getElementById("mainAdmissionSegmentSection");
 const mainAdmissionKpiSection = document.getElementById("mainAdmissionKpiSection");
 const mainAdmissionFilterBar = document.getElementById("mainAdmissionFilterBar");
@@ -262,6 +263,58 @@ function renderSegmentSection() {
     </div>
     <p class="block-help">${escapeHtml(getSegmentConfig().description)}</p>
   `;
+}
+
+function renderAdmissionSectionNav(activeRoute = "main-admission-leads.html") {
+  if (!admissionSectionNav) {
+    return;
+  }
+
+  const sections = [
+    {
+      route: "main-admission-leads.html",
+      label: "Main Admission Calling",
+      description: "Handle direct admission enquiries that bypass the workshop flow."
+    },
+    {
+      route: "registered-candidates.html#standard",
+      label: "Main Registered Candidates",
+      description: "Manage standard public landing-page registrations except the 7-Day Crash Course."
+    },
+    {
+      route: "registered-candidates.html#crash-course",
+      label: "7-Day Crash Course",
+      description: "Manage the isolated 7-Day Crash Course registration pipeline."
+    }
+  ];
+
+  admissionSectionNav.innerHTML = `
+    <div class="card-head">
+      <h3>Admission Subsections</h3>
+      <p>Use this section to switch between the admission-related pages instead of keeping each one in the sidebar.</p>
+    </div>
+    <div class="filter-actions" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+      ${sections.map((section) => `
+        <button
+          type="button"
+          class="${activeRoute === section.route ? "btn-primary" : "btn-ghost"}"
+          data-admission-section="${section.route}"
+        >
+          ${escapeHtml(section.label)}
+        </button>
+      `).join("")}
+    </div>
+    <p class="block-help">${escapeHtml(sections.find((section) => section.route === activeRoute)?.description || "")}</p>
+  `;
+
+  admissionSectionNav.querySelectorAll("[data-admission-section]").forEach((button) => {
+    button.onclick = () => {
+      const route = button.getAttribute("data-admission-section");
+      if (route && route !== `${window.location.pathname.split("/").pop()}${window.location.hash}`) {
+        window.location.href = route;
+      }
+    };
+  });
 }
 
 function renderRegisteredRoutingPanel() {
@@ -1069,6 +1122,7 @@ function setupRegisteredRoutingPanel() {
 }
 
 function renderAll() {
+  renderAdmissionSectionNav();
   renderSegmentSection();
   const allLeads = getScopedLeads(getAllLeads());
   const filteredLeads = filterLeads(allLeads);
