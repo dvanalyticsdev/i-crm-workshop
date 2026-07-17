@@ -70,19 +70,35 @@
         </div>
       </header>
 
+      <section class="management-summary-grid" id="managementSummarySection"></section>
+
       <section class="card admin-panel">
+        <div class="management-section-head">
+          <div>
+            <h3>Counselors</h3>
+            <p>Create counselor accounts, assign permissions, and manage existing team members.</p>
+          </div>
+        </div>
         <div class="management-grid">
-          <div class="import-block">
-            <h4>Create Counselor</h4>
+          <div class="import-block management-form-card">
+            <div class="management-card-head">
+              <h4>Create Counselor</h4>
+              <p>Add a new counselor with workspace access and calling permissions.</p>
+            </div>
             <form id="counselorForm" class="auth-form">
-              <label for="counselorName">Name</label>
-              <input id="counselorName" type="text" required />
+              <div class="management-form-row management-form-row--two">
+                <div>
+                  <label for="counselorName">Name</label>
+                  <input id="counselorName" type="text" required />
+                </div>
+                <div>
+                  <label for="counselorPhone">Phone Number</label>
+                  <input id="counselorPhone" type="tel" required />
+                </div>
+              </div>
 
               <label for="counselorEmail">Email</label>
               <input id="counselorEmail" type="email" required />
-
-              <label for="counselorPhone">Phone Number</label>
-              <input id="counselorPhone" type="tel" required />
 
               <label for="counselorPassword">Password</label>
               <input id="counselorPassword" type="password" required />
@@ -96,23 +112,41 @@
               </div>
 
               <div class="management-actions">
-                <button type="submit" class="btn-primary">Create Counselor</button>
+                <button type="submit" class="btn-primary management-submit-btn">Create Counselor</button>
               </div>
             </form>
             <p id="counselorFormMessage" class="message" aria-live="polite"></p>
           </div>
 
-          <div class="import-block">
-            <h4>Existing Counselors</h4>
+          <div class="import-block management-list-card">
+            <div class="management-card-head">
+              <div>
+                <h4>Existing Counselors</h4>
+                <p>Search counselors quickly and manage access without leaving the page.</p>
+              </div>
+              <div class="management-search-wrap">
+                <label for="counselorSearchInput" class="sr-only">Search counselors</label>
+                <input id="counselorSearchInput" type="search" placeholder="Search counselors" />
+              </div>
+            </div>
             <div id="counselorList"></div>
           </div>
         </div>
       </section>
 
       <section class="card admin-panel" style="margin-top:1.5rem;">
+        <div class="management-section-head">
+          <div>
+            <h3>Marketing Users</h3>
+            <p>Manage lighter-access marketing accounts used for campaign and lead-source workflows.</p>
+          </div>
+        </div>
         <div class="management-grid">
-          <div class="import-block">
-            <h4>Create Marketing User</h4>
+          <div class="import-block management-form-card">
+            <div class="management-card-head">
+              <h4>Create Marketing User</h4>
+              <p>Add marketing-only users without counselor permissions.</p>
+            </div>
             <form id="marketingForm" class="auth-form">
               <label for="marketingName">Name</label>
               <input id="marketingName" type="text" required />
@@ -124,18 +158,41 @@
               <input id="marketingPassword" type="password" required />
 
               <div class="management-actions">
-                <button type="submit" class="btn-primary">Create Marketing User</button>
+                <button type="submit" class="btn-primary management-submit-btn">Create Marketing User</button>
               </div>
             </form>
             <p id="marketingFormMessage" class="message" aria-live="polite"></p>
           </div>
 
-          <div class="import-block">
-            <h4>Existing Marketing Users</h4>
+          <div class="import-block management-list-card">
+            <div class="management-card-head">
+              <div>
+                <h4>Existing Marketing Users</h4>
+                <p>Keep campaign-access accounts clean and easy to audit.</p>
+              </div>
+              <div class="management-search-wrap">
+                <label for="marketingSearchInput" class="sr-only">Search marketing users</label>
+                <input id="marketingSearchInput" type="search" placeholder="Search marketing users" />
+              </div>
+            </div>
             <div id="marketingList"></div>
           </div>
         </div>
       </section>
+
+      <div id="userDetailsModal" class="modal hidden">
+        <div class="modal-content card management-details-modal">
+          <div class="management-details-head">
+            <div>
+              <h3 id="userDetailsTitle">User Details</h3>
+              <p id="userDetailsSubtitle" class="block-help">View account details and quick actions.</p>
+            </div>
+            <button type="button" id="closeUserDetailsModalBtn" class="btn-ghost">Close</button>
+          </div>
+          <div id="userDetailsBody" class="management-details-grid"></div>
+          <div class="management-details-actions" id="userDetailsActions"></div>
+        </div>
+      </div>
 
       <div id="passwordChangeModal" class="modal hidden">
         <div class="modal-content card">

@@ -26,6 +26,14 @@ const DEFAULT_PERMISSIONS = {
 const counselorForm = document.getElementById("counselorForm");
 const counselorFormMessage = document.getElementById("counselorFormMessage");
 const counselorList = document.getElementById("counselorList");
+const counselorSearchInput = document.getElementById("counselorSearchInput");
+const marketingSearchInput = document.getElementById("marketingSearchInput");
+const managementSummarySection = document.getElementById("managementSummarySection");
+const userDetailsModal = document.getElementById("userDetailsModal");
+const userDetailsTitle = document.getElementById("userDetailsTitle");
+const userDetailsSubtitle = document.getElementById("userDetailsSubtitle");
+const userDetailsBody = document.getElementById("userDetailsBody");
+const userDetailsActions = document.getElementById("userDetailsActions");
 const passwordChangeModal = document.getElementById("passwordChangeModal");
 const passwordChangeForm = document.getElementById("passwordChangeForm");
 const passwordChangeTitle = document.getElementById("passwordChangeTitle");
@@ -45,6 +53,9 @@ const userEditPhone = document.getElementById("userEditPhone");
 const userEditPhoneRow = document.getElementById("userEditPhoneRow");
 const userEditPermissionsRow = document.getElementById("userEditPermissionsRow");
 const userEditMessage = document.getElementById("userEditMessage");
+let counselorSearchTerm = "";
+let marketingSearchTerm = "";
+let activeDetailsUser = null;
 
 function setPasswordChangeMessage(text, isError = true) {
   if (!passwordChangeMessage) {
@@ -66,6 +77,15 @@ function closePasswordChangeModal() {
   passwordChangeUserName.value = "";
   setPasswordChangeMessage("");
   passwordChangeModal.classList.add("hidden");
+}
+
+function closeUserDetailsModal() {
+  if (!userDetailsModal) {
+    return;
+  }
+
+  activeDetailsUser = null;
+  userDetailsModal.classList.add("hidden");
 }
 
 function setUserEditMessage(text, isError = true) {
@@ -321,95 +341,178 @@ function permissionText(permissions) {
   return names.length ? names.join(", ") : "No access";
 }
 
-function renderCounselorList() {
-  const counselors = getCounselors();
+function renderPermissionBadges(permissions) {
+  const items = [];
+  if (permissions.preWorkshop) items.push("Workshop");
+  if (permissions.postWorkshop) items.push("Admission");
+  if (permissions.lostLeads) items.push("Lost Leads");
+  if (permissions.monitoring) items.push("Monitoring");
 
-  counselorList.innerHTML = `
-    <div class="table-scroll">
-      <table class="compact-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Email</th>
-            <th>Phone</th>
-            <th>Permissions</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${counselors
-            .map(
-              (counselor) => `
-                <tr>
-                  <td>${escapeHtml(counselor.name)}</td>
-                  <td>${escapeHtml(counselor.email)}</td>
-                  <td>${escapeHtml(counselor.phone || "-")}</td>
-                  <td>${escapeHtml(permissionText(counselor.permissions || DEFAULT_PERMISSIONS))}</td>
-                  <td>
-                    <button
-                      type="button"
-                      class="btn-ghost edit-counselor-btn"
-                      data-counselor-id="${counselor.id}"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      class="btn-ghost change-counselor-password-btn"
-                      data-counselor-id="${counselor.id}"
-                    >
-                      Change Password
-                    </button>
-                    <button
-                      type="button"
-                      class="btn-ghost remove-counselor-btn"
-                      data-counselor-id="${counselor.id}"
-                    >
-                      Remove
-                    </button>
-                  </td>
-                </tr>
-              `
-            )
-            .join("")}
-        </tbody>
-      </table>
+  return items.length
+    ? `<div class="permission-badge-row">${items.map((item) => `<span class="permission-badge">${escapeHtml(item)}</span>`).join("")}</div>`
+    : `<span class="management-muted">No access</span>`;
+}
+
+function buildDetailsRows(details) {
+  return details.map(([label, value]) => `
+    <div class="management-details-item">
+      <dt>${escapeHtml(label)}</dt>
+      <dd>${escapeHtml(value || "-")}</dd>
     </div>
+  `).join("");
+}
+
+function openUserDetailsModal({ userType, user }) {
+  if (!userDetailsModal || !user) {
+    return;
+  }
+
+  activeDetailsUser = { userType, userId: user.id };
+  const isCounselor = userType === "counselor";
+  userDetailsTitle.textContent = user.name || "User";
+  userDetailsSubtitle.textContent = isCounselor
+    ? "Counselor account details, assigned access, and quick management actions."
+    : "Marketing account details and quick management actions.";
+
+  const detailsMarkup = isCounselor
+    ? [
+        {
+          title: "Profile",
+          rows: [
+            ["Name", user.name],
+            ["Email", user.email],
+            ["Phone Number", user.phone]
+          ]
+        },
+        {
+          title: "Access Permissions",
+          rows: [
+            ["Permissions", permissionText(user.permissions || DEFAULT_PERMISSIONS)]
+          ]
+        }
+      ]
+    : [
+        {
+          title: "Profile",
+          rows: [
+            ["Name", user.name],
+            ["Email", user.email]
+          ]
+        }
+      ];
+
+  userDetailsBody.innerHTML = detailsMarkup.map((section) => `
+    <section class="management-details-card">
+      <h4>${escapeHtml(section.title)}</h4>
+      <dl class="management-details-list">
+        ${buildDetailsRows(section.rows)}
+      </dl>
+      ${section.title === "Access Permissions" && isCounselor ? renderPermissionBadges(user.permissions || DEFAULT_PERMISSIONS) : ""}
+    </section>
+  `).join("");
+
+  userDetailsActions.innerHTML = `
+    <button type="button" class="btn-primary" id="userDetailsEditBtn">Edit</button>
+    <button type="button" class="btn-ghost" id="userDetailsPasswordBtn">Change Password</button>
+    <button type="button" class="btn-ghost" id="userDetailsRemoveBtn">Remove</button>
   `;
 
-  document.querySelectorAll(".edit-counselor-btn").forEach((button) => {
+  document.getElementById("userDetailsEditBtn").onclick = () => {
+    closeUserDetailsModal();
+    openUserEditModal({ userType, user });
+  };
+  document.getElementById("userDetailsPasswordBtn").onclick = () => {
+    closeUserDetailsModal();
+    openPasswordChangeModal({
+      userType,
+      userId: user.id,
+      name: user.name
+    });
+  };
+  document.getElementById("userDetailsRemoveBtn").onclick = () => {
+    closeUserDetailsModal();
+    if (isCounselor) {
+      void removeCounselor(user.id);
+    } else {
+      void removeMarketingUser(user.id);
+    }
+  };
+
+  userDetailsModal.classList.remove("hidden");
+}
+
+function renderManagementSummary() {
+  if (!managementSummarySection) {
+    return;
+  }
+
+  const counselors = getCounselors();
+  const marketingUsers = getMarketingUsers();
+  const workshopAccess = counselors.filter((item) => item.permissions?.preWorkshop).length;
+  const monitoringAccess = counselors.filter((item) => item.permissions?.monitoring).length;
+
+  managementSummarySection.innerHTML = `
+    <article class="card management-summary-card">
+      <p>Total Counselors</p>
+      <h2>${counselors.length}</h2>
+    </article>
+    <article class="card management-summary-card">
+      <p>Total Marketing Users</p>
+      <h2>${marketingUsers.length}</h2>
+    </article>
+    <article class="card management-summary-card">
+      <p>Workshop Access Enabled</p>
+      <h2>${workshopAccess}</h2>
+    </article>
+    <article class="card management-summary-card">
+      <p>Monitoring Access Enabled</p>
+      <h2>${monitoringAccess}</h2>
+    </article>
+  `;
+}
+
+function renderCounselorList() {
+  const counselors = getCounselors();
+  const filteredCounselors = counselors.filter((counselor) => {
+    if (!counselorSearchTerm) {
+      return true;
+    }
+
+    const haystack = [
+      counselor.name,
+      counselor.email,
+      counselor.phone,
+      permissionText(counselor.permissions || DEFAULT_PERMISSIONS)
+    ].join(" ").toLowerCase();
+    return haystack.includes(counselorSearchTerm);
+  });
+
+  counselorList.innerHTML = `
+    ${filteredCounselors.length
+      ? `<div class="management-name-list">
+          ${filteredCounselors.map((counselor) => `
+            <button
+              type="button"
+              class="management-name-card open-counselor-details-btn"
+              data-counselor-id="${counselor.id}"
+            >
+              <span class="management-name-card__title">${escapeHtml(counselor.name)}</span>
+              <span class="management-name-card__meta">${escapeHtml(counselor.email)}</span>
+            </button>
+          `).join("")}
+        </div>`
+      : `<p class="management-empty-state">No counselors match the current search.</p>`
+    }
+  `;
+
+  document.querySelectorAll(".open-counselor-details-btn").forEach((button) => {
     button.addEventListener("click", () => {
       const counselorId = button.getAttribute("data-counselor-id");
       const counselor = counselors.find((item) => item.id === counselorId);
       if (!counselor) {
         return;
       }
-      openUserEditModal({ userType: "counselor", user: counselor });
-    });
-  });
-
-  document.querySelectorAll(".change-counselor-password-btn").forEach((button) => {
-    button.addEventListener("click", () => {
-      const counselorId = button.getAttribute("data-counselor-id");
-      const counselor = counselors.find((item) => item.id === counselorId);
-      if (!counselor) {
-        return;
-      }
-      openPasswordChangeModal({
-        userType: "counselor",
-        userId: counselor.id,
-        name: counselor.name
-      });
-    });
-  });
-
-  document.querySelectorAll(".remove-counselor-btn").forEach((button) => {
-    button.addEventListener("click", () => {
-      const counselorId = button.getAttribute("data-counselor-id");
-      if (!counselorId) {
-        return;
-      }
-      void removeCounselor(counselorId);
+      openUserDetailsModal({ userType: "counselor", user: counselor });
     });
   });
 }
@@ -488,7 +591,9 @@ counselorForm.addEventListener("submit", async (event) => {
 });
 
 renderCounselorList();
+renderManagementSummary();
 const stopStatePolling = startStatePolling(() => {
+  renderManagementSummary();
   renderCounselorList();
   renderMarketingList();
 });
@@ -543,6 +648,14 @@ async function removeMarketingUser(userId) {
 
 function renderMarketingList() {
   const users = getMarketingUsers();
+  const filteredUsers = users.filter((user) => {
+    if (!marketingSearchTerm) {
+      return true;
+    }
+
+    const haystack = [user.name, user.email].join(" ").toLowerCase();
+    return haystack.includes(marketingSearchTerm);
+  });
 
   if (!users.length) {
     marketingList.innerHTML = "<p style=\"opacity:0.5;font-size:0.85rem;\">No marketing users yet.</p>";
@@ -550,62 +663,31 @@ function renderMarketingList() {
   }
 
   marketingList.innerHTML = `
-    <div class="table-scroll">
-      <table class="compact-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Email</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${users.map((u) => `
-            <tr>
-              <td>${escapeHtml(u.name)}</td>
-              <td>${escapeHtml(u.email)}</td>
-              <td>
-                <button type="button" class="btn-ghost edit-marketing-btn" data-user-id="${u.id}">Edit</button>
-                <button type="button" class="btn-ghost change-marketing-password-btn" data-user-id="${u.id}">Change Password</button>
-                <button type="button" class="btn-ghost remove-marketing-btn" data-user-id="${u.id}">Remove</button>
-              </td>
-            </tr>
+    ${filteredUsers.length
+      ? `<div class="management-name-list">
+          ${filteredUsers.map((u) => `
+            <button
+              type="button"
+              class="management-name-card open-marketing-details-btn"
+              data-user-id="${u.id}"
+            >
+              <span class="management-name-card__title">${escapeHtml(u.name)}</span>
+              <span class="management-name-card__meta">${escapeHtml(u.email)}</span>
+            </button>
           `).join("")}
-        </tbody>
-      </table>
-    </div>
+        </div>`
+      : `<p class="management-empty-state">No marketing users match the current search.</p>`
+    }
   `;
 
-  document.querySelectorAll(".edit-marketing-btn").forEach((btn) => {
+  document.querySelectorAll(".open-marketing-details-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       const id = btn.getAttribute("data-user-id");
       const user = users.find((item) => item.id === id);
       if (!user) {
         return;
       }
-      openUserEditModal({ userType: "marketing", user });
-    });
-  });
-
-  document.querySelectorAll(".change-marketing-password-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = btn.getAttribute("data-user-id");
-      const user = users.find((item) => item.id === id);
-      if (!user) {
-        return;
-      }
-      openPasswordChangeModal({
-        userType: "marketing",
-        userId: user.id,
-        name: user.name
-      });
-    });
-  });
-
-  document.querySelectorAll(".remove-marketing-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = btn.getAttribute("data-user-id");
-      if (id) void removeMarketingUser(id);
+      openUserDetailsModal({ userType: "marketing", user });
     });
   });
 }
@@ -816,4 +898,24 @@ if (userEditForm) {
   document.getElementById("closeUserEditModalBtn").onclick = closeUserEditModal;
 }
 
+const closeUserDetailsModalBtn = document.getElementById("closeUserDetailsModalBtn");
+if (closeUserDetailsModalBtn) {
+  closeUserDetailsModalBtn.onclick = closeUserDetailsModal;
+}
+
 renderMarketingList();
+renderManagementSummary();
+
+if (counselorSearchInput) {
+  counselorSearchInput.addEventListener("input", (event) => {
+    counselorSearchTerm = String(event.target.value || "").trim().toLowerCase();
+    renderCounselorList();
+  });
+}
+
+if (marketingSearchInput) {
+  marketingSearchInput.addEventListener("input", (event) => {
+    marketingSearchTerm = String(event.target.value || "").trim().toLowerCase();
+    renderMarketingList();
+  });
+}
