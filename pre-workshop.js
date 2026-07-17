@@ -378,6 +378,34 @@ const EMPTY_FILTER_VALUE = "__EMPTY_FILTER__";
 const EMPTY_FILTER_LABEL = "Use Filter";
 const SELECT_ALL_FILTER_VALUE = "__SELECT_ALL__";
 const BLANK_FILTER_VALUE = "__BLANK_FILTER__";
+const WORKSHOP_REFERENCE_DATE = new Date(2026, 6, 17);
+const WORKSHOP_RECENT_DAYS = 30;
+const WORKSHOP_MONTH_LOOKUP = {
+  jan: 0,
+  january: 0,
+  feb: 1,
+  february: 1,
+  mar: 2,
+  march: 2,
+  apr: 3,
+  april: 3,
+  may: 4,
+  jun: 5,
+  june: 5,
+  jul: 6,
+  july: 6,
+  aug: 7,
+  august: 7,
+  sep: 8,
+  sept: 8,
+  september: 8,
+  oct: 9,
+  october: 9,
+  nov: 10,
+  november: 10,
+  dec: 11,
+  december: 11
+};
 
 function getSelectedFilterValues(value) {
   const rawValues = Array.isArray(value) ? value : [value];
@@ -419,6 +447,92 @@ function getCoreWorkshopName(workshopName) {
   }
   
   return String(workshopName).trim().replace(/[_\s]+(imp|od|ind)$/i, "").trim();
+}
+
+function extractWorkshopDate(workshopName) {
+  const coreName = getCoreWorkshopName(workshopName);
+  const match = coreName.match(/(\d{1,2})(?:st|nd|rd|th)\s+([A-Za-z]+)/i);
+  if (!match) {
+    return null;
+  }
+
+  const day = Number(match[1]);
+  const monthIndex = WORKSHOP_MONTH_LOOKUP[String(match[2] || "").toLowerCase()];
+  if (!Number.isFinite(day) || monthIndex == null) {
+    return null;
+  }
+
+  return new Date(WORKSHOP_REFERENCE_DATE.getFullYear(), monthIndex, day);
+}
+
+function formatWorkshopDate(workshopDate) {
+  if (!(workshopDate instanceof Date) || Number.isNaN(workshopDate.getTime())) {
+    return "Date unavailable";
+  }
+
+  return workshopDate.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short"
+  });
+}
+
+function shortenWorkshopLabel(workshopName) {
+  const coreName = getCoreWorkshopName(workshopName);
+  const cleaned = coreName.replace(/\bworkshop\b/gi, "").replace(/\s{2,}/g, " ").trim();
+  return cleaned || coreName;
+}
+
+function getWorkshopDateBucket(workshopDate) {
+  if (!(workshopDate instanceof Date) || Number.isNaN(workshopDate.getTime())) {
+    return "recent";
+  }
+
+  const recentCutoff = new Date(WORKSHOP_REFERENCE_DATE);
+  recentCutoff.setDate(recentCutoff.getDate() - WORKSHOP_RECENT_DAYS);
+
+  if (workshopDate > WORKSHOP_REFERENCE_DATE) {
+    return "upcoming";
+  }
+  if (workshopDate >= recentCutoff) {
+    return "recent";
+  }
+  return "archived";
+}
+
+function buildWorkshopGroups(leads) {
+  const workshopMap = new Map();
+
+  leads.forEach((lead) => {
+    const coreName = getCoreWorkshopName(lead.workshop);
+    if (!coreName) {
+      return;
+    }
+
+    const existing = workshopMap.get(coreName) || {
+      name: coreName,
+      shortLabel: shortenWorkshopLabel(coreName),
+      workshopDate: extractWorkshopDate(coreName),
+      count: 0
+    };
+    existing.count += 1;
+    workshopMap.set(coreName, existing);
+  });
+
+  const sections = {
+    upcoming: [],
+    recent: [],
+    archived: []
+  };
+
+  Array.from(workshopMap.values()).forEach((item) => {
+    sections[getWorkshopDateBucket(item.workshopDate)].push(item);
+  });
+
+  sections.upcoming.sort((a, b) => a.workshopDate - b.workshopDate || b.count - a.count);
+  sections.recent.sort((a, b) => b.workshopDate - a.workshopDate || b.count - a.count);
+  sections.archived.sort((a, b) => b.workshopDate - a.workshopDate || b.count - a.count);
+
+  return sections;
 }
 
 function getUniqueCoreWorkshops(leads) {
@@ -1049,36 +1163,83 @@ function filterLeads(leads) {
 }
 
 function renderKpis(leads) {
-  const overall = leads.length;
+  const workshopGroups = buildWorkshopGroups(leads);
+  const activeWorkshopCount = workshopGroups.upcoming.length + workshopGroups.recent.length;
+  const recentLeadCount = workshopGroups.recent.reduce((sum, item) => sum + item.count, 0);
+  const upcomingLeadCount = workshopGroups.upcoming.reduce((sum, item) => sum + item.count, 0);
 
-  let html = `
-    <article class="card kpi-card">
-      <p>Overall Leads</p>
-      <h2>${overall}</h2>
-    </article>
-  `;
-
-  const coreWorkshopCounts = {};
-  leads.forEach((lead) => {
-    const coreName = getCoreWorkshopName(lead.workshop);
-    if (coreName) {
-      coreWorkshopCounts[coreName] = (coreWorkshopCounts[coreName] || 0) + 1;
+  const renderWorkshopCards = (items, emptyText) => {
+    if (!items.length) {
+      return `<div class="workshop-card-empty">${escapeHtml(emptyText)}</div>`;
     }
-  });
 
-  const coreWorkshops = Object.keys(coreWorkshopCounts).sort((a, b) => a.localeCompare(b));
+    return items
+      .map((item) => `
+        <article class="card workshop-date-card">
+          <div class="workshop-date-card__meta">
+            <span class="workshop-date-pill">${escapeHtml(formatWorkshopDate(item.workshopDate))}</span>
+            <span class="workshop-date-card__count">${item.count} leads</span>
+          </div>
+          <h3 title="${escapeHtml(item.name)}">${escapeHtml(item.shortLabel)}</h3>
+        </article>
+      `)
+      .join("");
+  };
 
-  coreWorkshops.forEach((coreName) => {
-    const count = coreWorkshopCounts[coreName];
-    html += `
-      <article class="card kpi-card">
-        <p>${escapeHtml(coreName)}</p>
-        <h2>${count}</h2>
-      </article>
-    `;
-  });
-
-  preKpiSection.innerHTML = html;
+  preKpiSection.innerHTML = `
+    <article class="card kpi-card kpi-card--hero">
+      <p>Overall Active Leads</p>
+      <h2>${leads.length}</h2>
+      <div class="kpi-card__meta">
+        <span>${activeWorkshopCount} current workshops</span>
+        <span>${upcomingLeadCount} upcoming leads</span>
+        <span>${recentLeadCount} recent leads</span>
+      </div>
+    </article>
+    <article class="card kpi-card">
+      <p>Upcoming Workshops</p>
+      <h2>${workshopGroups.upcoming.length}</h2>
+    </article>
+    <article class="card kpi-card">
+      <p>Recent Workshops</p>
+      <h2>${workshopGroups.recent.length}</h2>
+    </article>
+    <article class="card kpi-card">
+      <p>Archived Workshops</p>
+      <h2>${workshopGroups.archived.length}</h2>
+    </article>
+    <section class="card workshop-date-section">
+      <div class="workshop-date-section__head">
+        <div>
+          <h3>Upcoming Workshops</h3>
+          <p>Workshops after Friday, July 17, 2026 are surfaced first for faster follow-up.</p>
+        </div>
+      </div>
+      <div class="workshop-date-section__grid">
+        ${renderWorkshopCards(workshopGroups.upcoming, "No upcoming workshops in the current lead scope.")}
+      </div>
+    </section>
+    <section class="card workshop-date-section">
+      <div class="workshop-date-section__head">
+        <div>
+          <h3>Recent Workshops</h3>
+          <p>Completed within the last 30 days, so they still stay easy to reach from the top of the page.</p>
+        </div>
+      </div>
+      <div class="workshop-date-section__grid">
+        ${renderWorkshopCards(workshopGroups.recent, "No recent workshops in the current lead scope.")}
+      </div>
+    </section>
+    <details class="card workshop-date-section workshop-date-section--archive">
+      <summary class="workshop-date-section__summary">
+        Archived Workshops
+        <span>${workshopGroups.archived.length}</span>
+      </summary>
+      <div class="workshop-date-section__grid">
+        ${renderWorkshopCards(workshopGroups.archived, "No archived workshops in the current lead scope.")}
+      </div>
+    </details>
+  `;
 }
 
 function renderFilters(leads) {

@@ -25,6 +25,8 @@ let timelineFilter = {
   endDate: ""
 };
 
+const MONITORING_REFERENCE_DATE = new Date(2026, 6, 17);
+
 const TIMELINE_STORAGE_KEY = "dvWorkshopMonitoringTimeline";
 
 timelineFilter = {
@@ -155,7 +157,7 @@ function getTimelineRange() {
     return null;
   }
 
-  const now = new Date();
+  const now = new Date(MONITORING_REFERENCE_DATE);
 
   if (timelineFilter.type === "today") {
     const start = new Date(now);
@@ -165,19 +167,18 @@ function getTimelineRange() {
     return { start, end };
   }
 
-  if (timelineFilter.type === "yesterday") {
-    const d = new Date(now);
-    d.setDate(d.getDate() - 1);
-    const start = new Date(d);
+  if (timelineFilter.type === "week") {
+    const start = new Date(now);
+    start.setDate(start.getDate() - 6);
     start.setHours(0, 0, 0, 0);
-    const end = new Date(d);
+    const end = new Date(now);
     end.setHours(23, 59, 59, 999);
     return { start, end };
   }
 
-  if (timelineFilter.type === "week") {
+  if (timelineFilter.type === "recent") {
     const start = new Date(now);
-    start.setDate(start.getDate() - 6);
+    start.setDate(start.getDate() - 29);
     start.setHours(0, 0, 0, 0);
     const end = new Date(now);
     end.setHours(23, 59, 59, 999);
@@ -351,6 +352,27 @@ function formatBreakdown(items, key, options = {}) {
     .join(", ");
 }
 
+function formatBreakdownEntries(items, key, options = {}) {
+  const { exclude = [] } = options;
+  const counts = new Map();
+
+  items.forEach((item) => {
+    let value = String(item[key] || "").trim();
+    if (key === "workshop") {
+      value = getCoreWorkshopName(value);
+    }
+    if (!value || exclude.includes(value)) {
+      return;
+    }
+
+    counts.set(value, (counts.get(value) || 0) + 1);
+  });
+
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, count]) => ({ name, count }));
+}
+
 function formatAdmissionWorkshopBreakdown(items, options = {}) {
   const normalizedItems = items.map((lead) => ({
     ...lead,
@@ -358,6 +380,56 @@ function formatAdmissionWorkshopBreakdown(items, options = {}) {
   }));
 
   return formatBreakdown(normalizedItems, "workshop", options);
+}
+
+function formatAdmissionWorkshopBreakdownEntries(items, options = {}) {
+  const normalizedItems = items.map((lead) => ({
+    ...lead,
+    workshop: getAdmissionWorkshopName(lead)
+  }));
+
+  return formatBreakdownEntries(normalizedItems, "workshop", options);
+}
+
+function renderBreakdownCell(entries, emptyLabel) {
+  if (!entries.length) {
+    return `<span class="monitoring-breakdown monitoring-breakdown--empty">${escapeHtml(emptyLabel)}</span>`;
+  }
+
+  const preview = entries.slice(0, 2);
+  const hiddenCount = Math.max(entries.length - preview.length, 0);
+  const previewHtml = preview
+    .map((entry) => `<span class="monitoring-breakdown__pill">${escapeHtml(entry.name)} (${entry.count})</span>`)
+    .join("");
+  const detailHtml = entries
+    .map((entry) => `<li>${escapeHtml(entry.name)} <strong>${entry.count}</strong></li>`)
+    .join("");
+
+  return `
+    <div class="monitoring-breakdown">
+      <div class="monitoring-breakdown__preview">${previewHtml}</div>
+      ${hiddenCount ? `
+        <details class="monitoring-breakdown__details">
+          <summary>View ${hiddenCount} more</summary>
+          <ul>${detailHtml}</ul>
+        </details>
+      ` : ""}
+    </div>
+  `;
+}
+
+function sortRowsByPriority(rows) {
+  return [...rows].sort((a, b) => {
+    if (b.activities !== a.activities) {
+      return b.activities - a.activities;
+    }
+
+    if (b.freshActivities !== a.freshActivities) {
+      return b.freshActivities - a.freshActivities;
+    }
+
+    return String(a.counselor).localeCompare(String(b.counselor));
+  });
 }
 
 function getCounselorBuckets(allLeads) {
@@ -369,7 +441,7 @@ function getCounselorBuckets(allLeads) {
 }
 
 function buildPreRows(counselors, preLeads, rawAllLeads, range) {
-  return counselors.map((counselor) => {
+  return sortRowsByPriority(counselors.map((counselor) => {
     const leads = preLeads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
     const rawLeads = rawAllLeads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
     const activityLeads = leads.filter((lead) => (Number(lead.preActivityUpdates) || 0) > 0);
@@ -398,7 +470,7 @@ function buildPreRows(counselors, preLeads, rawAllLeads, range) {
     return {
       counselor,
       activities,
-      workshops: formatBreakdown(activityLeads, "workshop"),
+      workshopEntries: formatBreakdownEntries(activityLeads, "workshop"),
       interested,
       notInterested,
       whatsappJoined,
@@ -406,15 +478,16 @@ function buildPreRows(counselors, preLeads, rawAllLeads, range) {
       freshActivities,
       oldLeadActivities
     };
-  });
+  }));
 }
 
 function buildPostRows(counselors, postLeads, rawAllLeads, range) {
-  return counselors.map((counselor) => {
+  return sortRowsByPriority(counselors.map((counselor) => {
     const leads = postLeads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
     const rawLeads = rawAllLeads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
     const activityLeads = leads.filter((lead) => (Number(lead.postActivityUpdates) || 0) > 0);
     const activities = activityLeads.reduce((sum, lead) => sum + (Number(lead.postActivityUpdates) || 0), 0);
+    const workshops = formatAdmissionWorkshopBreakdown(activityLeads);
     const interested = activityLeads.filter((lead) => lead.courseStatus === "Interested").length;
     const notInterested = leads.filter((lead) => lead.courseStatus === "Not Interested").length;
     const enrolled = activityLeads.filter((lead) => lead.admissionStatus === "Enrolled").length;
@@ -440,7 +513,8 @@ function buildPostRows(counselors, postLeads, rawAllLeads, range) {
     return {
       counselor,
       activities,
-      workshops: formatAdmissionWorkshopBreakdown(activityLeads),
+      workshops,
+      workshopEntries: formatAdmissionWorkshopBreakdownEntries(activityLeads),
       interested,
       notInterested,
       enrolled,
@@ -449,11 +523,11 @@ function buildPostRows(counselors, postLeads, rawAllLeads, range) {
       freshActivities,
       oldLeadActivities
     };
-  });
+  }));
 }
 
 function buildRegisteredRows(counselors, registeredLeads, rawAllLeads, range) {
-  return counselors.map((counselor) => {
+  return sortRowsByPriority(counselors.map((counselor) => {
     const leads = registeredLeads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
     const rawLeads = rawAllLeads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
     const activityLeads = leads.filter((lead) => (Number(lead.registeredCourseActivityUpdates) || 0) > 0);
@@ -484,7 +558,7 @@ function buildRegisteredRows(counselors, registeredLeads, rawAllLeads, range) {
     return {
       counselor,
       activities,
-      courseBreakdown: formatBreakdown(activityLeads, "courseName"),
+      courseEntries: formatBreakdownEntries(activityLeads, "courseName"),
       newLeads,
       freshActivities,
       oldLeadActivities,
@@ -492,7 +566,7 @@ function buildRegisteredRows(counselors, registeredLeads, rawAllLeads, range) {
       interested,
       notInterested
     };
-  });
+  }));
 }
 
 function renderPreMonitoringTable(container, rows) {
@@ -521,7 +595,7 @@ function renderPreMonitoringTable(container, rows) {
                     <tr>
                       <td>${escapeHtml(row.counselor)}</td>
                       <td>${row.activities}</td>
-                      <td>${escapeHtml(row.workshops)}</td>
+                      <td>${renderBreakdownCell(row.workshopEntries, "No workshop activity")}</td>
                       <td>${row.interested}</td>
                       <td>${row.notInterested}</td>
                       <td>${row.whatsappJoined}</td>
@@ -569,7 +643,7 @@ function renderPostMonitoringTable(container, rows) {
                     <tr>
                       <td>${escapeHtml(row.counselor)}</td>
                       <td>${row.activities}</td>
-                      <td>${escapeHtml(row.workshops)}</td>
+                      <td>${renderBreakdownCell(row.workshopEntries, "No workshop activity")}</td>
                       <td>${row.interested}</td>
                       <td>${row.notInterested}</td>
                       <td>${row.enrolled}</td>
@@ -617,7 +691,7 @@ function renderRegisteredMonitoringTable(container, rows) {
                     <tr>
                       <td>${escapeHtml(row.counselor)}</td>
                       <td>${row.activities}</td>
-                      <td>${escapeHtml(row.courseBreakdown)}</td>
+                      <td>${renderBreakdownCell(row.courseEntries, "No course activity")}</td>
                       <td>${row.newLeads}</td>
                       <td>${row.freshActivities}</td>
                       <td>${row.oldLeadActivities}</td>
@@ -647,12 +721,12 @@ function getTimelineLabel() {
     return "Today";
   }
 
-  if (timelineFilter.type === "yesterday") {
-    return "Yesterday";
-  }
-
   if (timelineFilter.type === "week") {
     return "Week";
+  }
+
+  if (timelineFilter.type === "recent") {
+    return "Last 30 Days";
   }
 
   if (timelineFilter.type === "custom") {

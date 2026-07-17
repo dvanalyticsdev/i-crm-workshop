@@ -13,23 +13,49 @@ const startDateInput = document.getElementById("startDate");
 const endDateInput = document.getElementById("endDate");
 const activeRangeLabel = document.getElementById("activeRangeLabel");
 
-const overallLeadsEl = document.getElementById("overallLeads");
-const newLeadsEl = document.getElementById("newLeads");
-const interestedLeadsEl = document.getElementById("interestedLeads");
-const convertedLeadsEl = document.getElementById("convertedLeads");
+const activeWorkshopsEl = document.getElementById("activeWorkshops");
+const upcomingWorkshopsEl = document.getElementById("upcomingWorkshops");
+const recentWorkshopsEl = document.getElementById("recentWorkshops");
+const scopedLeadsEl = document.getElementById("scopedLeads");
 
 const session = getSession();
 if (!session || !session.role) {
   window.location.href = "index.html";
 }
 
-const isAdmin = session.role === "admin";
-
 const TIMELINE_STORAGE_KEY = "dvWorkshopDashboardTimeline";
 const DEFAULT_TIMELINE_STATE = {
   preset: "weekly",
   startDate: "",
   endDate: ""
+};
+const REFERENCE_TODAY = new Date(2026, 6, 17);
+const RECENT_WINDOW_DAYS = 30;
+const MONTH_LOOKUP = {
+  jan: 0,
+  january: 0,
+  feb: 1,
+  february: 1,
+  mar: 2,
+  march: 2,
+  apr: 3,
+  april: 3,
+  may: 4,
+  jun: 5,
+  june: 5,
+  jul: 6,
+  july: 6,
+  aug: 7,
+  august: 7,
+  sep: 8,
+  sept: 8,
+  september: 8,
+  oct: 9,
+  october: 9,
+  nov: 10,
+  november: 10,
+  dec: 11,
+  december: 11
 };
 
 const persistedTimelineState = {
@@ -54,22 +80,6 @@ function getLeads() {
   return getStoredLeads().filter((lead) => !["course-registration", "main-admission"].includes(String(lead?.leadPipeline || "").trim().toLowerCase()));
 }
 
-function buildKpis(leads) {
-  let interested = 0;
-  let converted = 0;
-
-  leads.forEach((lead) => {
-    if (String(lead.courseStatus || "").trim() === "Interested") interested += 1;
-    const admStatus = String(lead.admissionStatus || "").trim();
-    if (admStatus === "Enrolled" || admStatus === "Won") converted += 1;
-  });
-
-  overallLeadsEl.textContent = leads.length;
-  newLeadsEl.textContent = leads.length;
-  interestedLeadsEl.textContent = interested;
-  convertedLeadsEl.textContent = converted;
-}
-
 function toDateKey(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -77,18 +87,9 @@ function toDateKey(date) {
   return `${year}-${month}-${day}`;
 }
 
-function getLeadStatus(lead) {
-  const status = String(lead?.status || "").trim();
-  if (!status || status.toLowerCase() === "select") {
-    return "New";
-  }
-
-  return status;
-}
-
 function parseDateKey(dateKey) {
-  const [year, month, day] = dateKey.split("-").map(Number);
-  return new Date(year, month - 1, day);
+  const [year, month, day] = String(dateKey || "").split("-").map(Number);
+  return new Date(year, (month || 1) - 1, day || 1);
 }
 
 function formatReadableDate(date) {
@@ -101,7 +102,7 @@ function formatReadableDate(date) {
 
 function getLatestLeadDate(leads) {
   if (!leads.length) {
-    return new Date();
+    return new Date(REFERENCE_TODAY);
   }
 
   return leads
@@ -220,12 +221,12 @@ function filterLeadsByTimeline(leads, range) {
 }
 
 let trendChart;
-let workshopPieChart;
+let workshopBreakdownChart;
 
 function getCoreWorkshopName(workshopName) {
   if (!workshopName) return "";
   const name = String(workshopName).toLowerCase();
-  
+
   if (name.includes("gen") && name.includes("11")) {
     return "Gen AI Workshop 11th June";
   }
@@ -241,13 +242,112 @@ function getCoreWorkshopName(workshopName) {
   if (name.includes("sql") && name.includes("13")) {
     return "SQL Workshop 13th June";
   }
-  
+
   return String(workshopName).trim().replace(/[_\s]+(imp|od|ind)$/i, "").trim();
+}
+
+function extractWorkshopDate(workshopName) {
+  const coreName = getCoreWorkshopName(workshopName);
+  const match = coreName.match(/(\d{1,2})(?:st|nd|rd|th)\s+([A-Za-z]+)/i);
+  if (!match) {
+    return null;
+  }
+
+  const day = Number(match[1]);
+  const monthIndex = MONTH_LOOKUP[String(match[2] || "").toLowerCase()];
+  if (!Number.isFinite(day) || monthIndex == null) {
+    return null;
+  }
+
+  return new Date(REFERENCE_TODAY.getFullYear(), monthIndex, day);
+}
+
+function getWorkshopBucket(workshopDate) {
+  if (!(workshopDate instanceof Date) || Number.isNaN(workshopDate.getTime())) {
+    return "recent";
+  }
+
+  const today = new Date(REFERENCE_TODAY);
+  today.setHours(0, 0, 0, 0);
+  const recentCutoff = new Date(today);
+  recentCutoff.setDate(recentCutoff.getDate() - RECENT_WINDOW_DAYS);
+
+  if (workshopDate > today) {
+    return "upcoming";
+  }
+  if (workshopDate >= recentCutoff) {
+    return "recent";
+  }
+  return "archived";
+}
+
+function buildWorkshopSummary(leads) {
+  const workshopMap = new Map();
+
+  leads.forEach((lead) => {
+    const coreName = getCoreWorkshopName(lead.workshop);
+    if (!coreName) {
+      return;
+    }
+
+    const existing = workshopMap.get(coreName) || {
+      name: coreName,
+      workshopDate: extractWorkshopDate(coreName),
+      leadCount: 0
+    };
+    existing.leadCount += 1;
+    workshopMap.set(coreName, existing);
+  });
+
+  const workshops = Array.from(workshopMap.values());
+  const sections = {
+    upcoming: [],
+    recent: [],
+    archived: []
+  };
+
+  workshops.forEach((workshop) => {
+    sections[getWorkshopBucket(workshop.workshopDate)].push(workshop);
+  });
+
+  sections.upcoming.sort((a, b) => a.workshopDate - b.workshopDate || b.leadCount - a.leadCount);
+  sections.recent.sort((a, b) => b.workshopDate - a.workshopDate || b.leadCount - a.leadCount);
+  sections.archived.sort((a, b) => b.workshopDate - a.workshopDate || b.leadCount - a.leadCount);
+
+  return {
+    workshops,
+    sections
+  };
+}
+
+function buildKpis(leads) {
+  const summary = buildWorkshopSummary(leads);
+  const activeWorkshops = summary.sections.upcoming.length + summary.sections.recent.length;
+
+  activeWorkshopsEl.textContent = activeWorkshops;
+  upcomingWorkshopsEl.textContent = summary.sections.upcoming.length;
+  recentWorkshopsEl.textContent = summary.sections.recent.length;
+  scopedLeadsEl.textContent = leads.length;
+}
+
+function getChartBreakdown(workshops) {
+  const ranked = [...workshops].sort((a, b) => b.leadCount - a.leadCount);
+  const topItems = ranked.slice(0, 8);
+  const otherCount = ranked.slice(8).reduce((sum, item) => sum + item.leadCount, 0);
+
+  const labels = topItems.map((item) => item.name);
+  const values = topItems.map((item) => item.leadCount);
+  if (otherCount) {
+    labels.push("Others");
+    values.push(otherCount);
+  }
+
+  return { labels, values };
 }
 
 function renderCharts(leads, range) {
   const trendCanvas = document.getElementById("newLeadsTrendChart");
-  const pieCanvas = document.getElementById("workshopBreakdownChart");
+  const breakdownCanvas = document.getElementById("workshopBreakdownChart");
   const palette = readThemePalette();
 
   const trendDates = range.start && range.end ? getDateSequence(range.start, range.end) : [];
@@ -256,27 +356,21 @@ function renderCharts(leads, range) {
     trendCountMap.set(lead.createdAt, (trendCountMap.get(lead.createdAt) || 0) + 1);
   });
 
-  const trendCounts = trendDates.map((day) => {
-    return trendCountMap.get(day) || 0;
-  });
-
-  const workshopMap = leads.reduce((acc, lead) => {
-    const coreName = getCoreWorkshopName(lead.workshop);
-    acc[coreName] = (acc[coreName] || 0) + 1;
-    return acc;
-  }, {});
+  const trendCounts = trendDates.map((day) => trendCountMap.get(day) || 0);
+  const workshopSummary = buildWorkshopSummary(leads);
+  const chartBreakdown = getChartBreakdown(workshopSummary.workshops);
 
   if (trendChart) {
     trendChart.destroy();
   }
-  if (workshopPieChart) {
-    workshopPieChart.destroy();
+  if (workshopBreakdownChart) {
+    workshopBreakdownChart.destroy();
   }
 
   trendChart = new Chart(trendCanvas, {
     type: "line",
     data: {
-      labels: trendDates.map((d) => d.slice(5)),
+      labels: trendDates.map((day) => day.slice(5)),
       datasets: [
         {
           label: "New Leads",
@@ -315,35 +409,49 @@ function renderCharts(leads, range) {
     }
   });
 
-  workshopPieChart = new Chart(pieCanvas, {
-    type: "pie",
+  workshopBreakdownChart = new Chart(breakdownCanvas, {
+    type: "bar",
     data: {
-      labels: Object.keys(workshopMap),
+      labels: chartBreakdown.labels,
       datasets: [
         {
-          data: Object.values(workshopMap),
-          backgroundColor: palette.chartSeries,
-          borderWidth: 1,
-          borderColor: "rgba(255,255,255,0.72)"
+          label: "Leads",
+          data: chartBreakdown.values,
+          backgroundColor: chartBreakdown.labels.map((_, index) => palette.chartSeries[index % palette.chartSeries.length]),
+          borderRadius: 8,
+          borderSkipped: false
         }
       ]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      indexAxis: "y",
       plugins: {
         legend: {
-          position: "bottom"
+          display: false
+        }
+      },
+      scales: {
+        x: {
+          beginAtZero: true,
+          ticks: { precision: 0 },
+          grid: {
+            color: palette.chartGrid
+          }
+        },
+        y: {
+          grid: {
+            display: false
+          }
         }
       }
     }
   });
 
   trendRangeText.textContent = range.label;
-  pieRangeText.textContent = `${range.label} breakdown`;
+  pieRangeText.textContent = `${range.label} | Top workshops`;
 }
-
-
 
 function hydrate(leads) {
   const range = getTimelineRange(leads);
@@ -369,9 +477,9 @@ registerPageCleanup(() => {
     trendChart.destroy();
     trendChart = null;
   }
-  if (workshopPieChart) {
-    workshopPieChart.destroy();
-    workshopPieChart = null;
+  if (workshopBreakdownChart) {
+    workshopBreakdownChart.destroy();
+    workshopBreakdownChart = null;
   }
 });
 

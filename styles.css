@@ -810,6 +810,12 @@ textarea:focus {
   padding: var(--space-4);
 }
 
+.kpi-card--hero {
+  grid-column: span 12;
+  display: grid;
+  gap: var(--space-2);
+}
+
 .kpi-card p {
   color: var(--text-muted);
   font-size: 0.9rem;
@@ -820,6 +826,15 @@ textarea:focus {
   margin-top: var(--space-2);
   font-size: clamp(1.4rem, 2.8vw, 1.95rem);
   color: var(--heading);
+}
+
+.kpi-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
 }
 
 .chart-card {
@@ -890,6 +905,120 @@ textarea:focus {
 
 .empty-state {
   grid-column: 1 / -1;
+}
+
+.workshop-date-section {
+  grid-column: span 12;
+  padding: var(--space-4);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.workshop-date-section__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.workshop-date-section__head h3 {
+  color: var(--heading);
+  font-size: 1rem;
+}
+
+.workshop-date-section__head p {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.workshop-date-section__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+
+.workshop-date-card {
+  padding: var(--space-3);
+  display: grid;
+  gap: 10px;
+  min-height: 136px;
+  background: var(--surface-elevated);
+}
+
+.workshop-date-card__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.workshop-date-pill,
+.workshop-date-card__count {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.workshop-date-pill {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.workshop-date-card__count {
+  background: var(--surface-muted);
+  color: var(--text-muted);
+}
+
+.workshop-date-card h3 {
+  margin: 0;
+  color: var(--heading);
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.workshop-card-empty {
+  padding: var(--space-4);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  text-align: center;
+  background: var(--surface-muted);
+}
+
+.workshop-date-section--archive summary {
+  list-style: none;
+}
+
+.workshop-date-section--archive summary::-webkit-details-marker {
+  display: none;
+}
+
+.workshop-date-section__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  cursor: pointer;
+  color: var(--heading);
+  font-weight: 700;
+}
+
+.workshop-date-section__summary span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--text-muted);
 }
 
 /* Filters + table */
@@ -1116,6 +1245,51 @@ textarea:focus {
 .table-card {
   position: relative;
   z-index: 1;
+}
+
+.monitoring-breakdown {
+  display: grid;
+  gap: 8px;
+  text-align: left;
+}
+
+.monitoring-breakdown__preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.monitoring-breakdown__pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+
+.monitoring-breakdown__details summary {
+  cursor: pointer;
+  color: var(--primary);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.monitoring-breakdown__details ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+}
+
+.monitoring-breakdown__details li {
+  margin: 4px 0;
+}
+
+.monitoring-breakdown--empty {
+  color: var(--text-muted);
+  font-size: 0.86rem;
 }
 
 table {
