@@ -1,12 +1,22 @@
 import { registerPageCleanup } from "./page-runtime.js";
-import { bootstrapLocalState, getCounselors, getLeads as getStoredLeads, getSession, loadPersistedValue, savePersistedValue, startStatePolling } from "./state-sync.js";
+import {
+  bootstrapLocalState,
+  getCounselors,
+  getLeads as getStoredLeads,
+  getSession,
+  loadPersistedValue,
+  savePersistedValue,
+  startStatePolling
+} from "./state-sync.js";
 
 await bootstrapLocalState();
 
+const monitoringSectionNav = document.getElementById("monitoringSectionNav");
+const monitoringSubsectionNav = document.getElementById("monitoringSubsectionNav");
+const monitoringActiveTitle = document.getElementById("monitoringActiveTitle");
+const monitoringActiveDescription = document.getElementById("monitoringActiveDescription");
 const monitoringKpiSection = document.getElementById("monitoringKpiSection");
-const preMonitoringTable = document.getElementById("preMonitoringTable");
-const postMonitoringTable = document.getElementById("postMonitoringTable");
-const registeredMonitoringTable = document.getElementById("registeredMonitoringTable");
+const monitoringActiveTable = document.getElementById("monitoringActiveTable");
 
 const monitoringTimelineSelect = document.getElementById("monitoringTimelineSelect");
 const monitoringStartDate = document.getElementById("monitoringStartDate");
@@ -19,20 +29,84 @@ const monitoringExportMessage = document.getElementById("monitoringExportMessage
 
 const session = getSession();
 
+const TIMELINE_STORAGE_KEY = "dvWorkshopMonitoringTimeline";
+const VIEW_STORAGE_KEY = "dvMonitoringActiveView";
+const MONITORING_REFERENCE_DATE = new Date(2026, 6, 17);
+const CRASH_SEGMENT = "crash-course";
+
+const VIEW_CONFIG = {
+  workshop: {
+    label: "Workshop",
+    description: "Monitor the workshop-stage pipelines and post-workshop follow-up activity.",
+    subsections: {
+      "workshop-calling": {
+        label: "Workshop Calling",
+        title: "Workshop Calling Monitoring",
+        description: "Track pre-workshop calling performance, interest response, and WhatsApp group movement."
+      },
+      "admission-calling": {
+        label: "Admission Calling",
+        title: "Admission Calling Monitoring",
+        description: "Track post-workshop counselor follow-up, conversion progress, and workshop-to-admission movement."
+      }
+    }
+  },
+  admission: {
+    label: "Admission",
+    description: "Monitor direct admission leads, registered candidates, and the 7-Day Crash Course pipeline.",
+    subsections: {
+      "main-admission": {
+        label: "Main Admission",
+        title: "Main Admission Monitoring",
+        description: "Track direct Meta and website admission enquiries handled outside the workshop calling flow."
+      },
+      "registered-candidates": {
+        label: "Registered Candidates",
+        title: "Registered Candidates Monitoring",
+        description: "Track the standard public-course registration pipeline and counselor follow-up activity."
+      },
+      "crash-course": {
+        label: "7 Days Crash Course",
+        title: "7 Days Crash Course Monitoring",
+        description: "Track the isolated 7-Day Crash Course registration pipeline separately from standard registered candidates."
+      }
+    }
+  }
+};
+
 let timelineFilter = {
   type: "week",
   startDate: "",
   endDate: ""
 };
 
-const MONITORING_REFERENCE_DATE = new Date(2026, 6, 17);
-
-const TIMELINE_STORAGE_KEY = "dvWorkshopMonitoringTimeline";
+let activeView = {
+  group: "workshop",
+  subsection: "workshop-calling"
+};
 
 timelineFilter = {
   ...timelineFilter,
   ...await loadPersistedValue(TIMELINE_STORAGE_KEY, {})
 };
+
+activeView = {
+  ...activeView,
+  ...await loadPersistedValue(VIEW_STORAGE_KEY, {})
+};
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function normalizeText(value) {
+  return String(value || "").trim().toLowerCase();
+}
 
 function isCounselorSession() {
   return session?.role === "counselor";
@@ -57,6 +131,10 @@ function persistTimelineFilter() {
   void savePersistedValue(TIMELINE_STORAGE_KEY, timelineFilter);
 }
 
+function persistActiveView() {
+  void savePersistedValue(VIEW_STORAGE_KEY, activeView);
+}
+
 function setExportMessage(text, isError = true) {
   if (!monitoringExportMessage) {
     return;
@@ -64,15 +142,6 @@ function setExportMessage(text, isError = true) {
 
   monitoringExportMessage.textContent = text;
   monitoringExportMessage.style.color = isError ? "var(--danger)" : "var(--success)";
-}
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
 }
 
 function getScopedLeads(allLeads) {
@@ -90,66 +159,81 @@ function getScopedLeads(allLeads) {
   );
 }
 
+function normalizePublicCourseSegment(value) {
+  return normalizeText(value) === CRASH_SEGMENT ? CRASH_SEGMENT : "standard";
+}
+
 function normalizeLeadFields(leads) {
   leads.forEach((lead) => {
     lead.name = lead.name || "";
-    lead.email = (lead.email || "").toLowerCase();
+    lead.email = String(lead.email || "").toLowerCase();
     lead.workshop = lead.workshop || "";
+    lead.courseName = lead.courseName || "";
     lead.createdAt = lead.createdAt || new Date().toISOString().slice(0, 10);
+    lead.counselor = lead.counselor || "Unassigned";
 
     lead.dialed = lead.dialed || "";
     lead.callStatus = lead.callStatus || "";
     lead.wsStatus = lead.wsStatus || "";
     lead.whatsappInvite = lead.whatsappInvite || "";
-    lead.counselor = lead.counselor || "Unassigned";
+    lead.whatsappGroupStatus = lead.whatsappGroupStatus || "";
+    lead.workshopActivityHistory = Array.isArray(lead.workshopActivityHistory) ? lead.workshopActivityHistory : [];
+    lead.admissionActivityHistory = Array.isArray(lead.admissionActivityHistory) ? lead.admissionActivityHistory : [];
+    lead.registeredCourseActivityHistory = Array.isArray(lead.registeredCourseActivityHistory) ? lead.registeredCourseActivityHistory : [];
+    lead.mainAdmissionActivityHistory = Array.isArray(lead.mainAdmissionActivityHistory) ? lead.mainAdmissionActivityHistory : [];
 
     lead.postDialed = lead.postDialed || "";
     lead.coursePitched = lead.coursePitched || "";
     lead.courseStatus = lead.courseStatus || "";
     lead.admissionStatus = lead.admissionStatus || "";
     lead.postStatusUpdated = typeof lead.postStatusUpdated === "boolean" ? lead.postStatusUpdated : false;
-    lead.workshopActivityHistory = Array.isArray(lead.workshopActivityHistory) ? lead.workshopActivityHistory : [];
-    lead.admissionActivityHistory = Array.isArray(lead.admissionActivityHistory) ? lead.admissionActivityHistory : [];
-    lead.registeredCourseActivityHistory = Array.isArray(lead.registeredCourseActivityHistory) ? lead.registeredCourseActivityHistory : [];
+
     lead.registeredDialed = lead.registeredDialed || "";
     lead.registeredCourseStatus = lead.registeredCourseStatus || "";
     lead.registeredAdmissionStatus = lead.registeredAdmissionStatus || "";
     lead.registeredCallStatus = lead.registeredCallStatus || "";
-    lead.whatsappGroupStatus = lead.whatsappGroupStatus || "";
-    lead.preActivityUpdates = new Set(
-      lead.workshopActivityHistory
-        .map((entry) => (entry.at ? new Date(entry.at).toISOString().slice(0, 10) : null))
-        .filter(Boolean)
-    ).size;
-    lead.postActivityUpdates = new Set(
-      lead.admissionActivityHistory
-        .map((entry) => (entry.at ? new Date(entry.at).toISOString().slice(0, 10) : null))
-        .filter(Boolean)
-    ).size;
-    lead.registeredCourseActivityUpdates = new Set(
-      lead.registeredCourseActivityHistory
-        .map((entry) => (entry.at ? new Date(entry.at).toISOString().slice(0, 10) : null))
-        .filter(Boolean)
-    ).size;
+
+    lead.mainAdmissionDialed = lead.mainAdmissionDialed || "";
+    lead.mainAdmissionCourseStatus = lead.mainAdmissionCourseStatus || "";
+    lead.mainAdmissionAdmissionStatus = lead.mainAdmissionAdmissionStatus || "";
+    lead.mainAdmissionCallStatus = lead.mainAdmissionCallStatus || "";
+
+    lead.preActivityUpdates = lead.workshopActivityHistory.length;
+    lead.postActivityUpdates = lead.admissionActivityHistory.length;
+    lead.registeredCourseActivityUpdates = lead.registeredCourseActivityHistory.length;
+    lead.mainAdmissionActivityUpdates = lead.mainAdmissionActivityHistory.length;
   });
-}
-
-function isCourseRegistrationLead(lead) {
-  return String(lead?.leadPipeline || "").trim().toLowerCase() === "course-registration";
-}
-
-function isMainAdmissionLead(lead) {
-  return String(lead?.leadPipeline || "").trim().toLowerCase() === "main-admission";
-}
-
-function isNonWorkshopPipelineLead(lead) {
-  return isCourseRegistrationLead(lead) || isMainAdmissionLead(lead);
 }
 
 function getAllLeads() {
   const leads = getStoredLeads();
   normalizeLeadFields(leads);
   return leads;
+}
+
+function isCourseRegistrationLead(lead) {
+  return normalizeText(lead?.leadPipeline) === "course-registration";
+}
+
+function isCrashCourseRegistrationLead(lead) {
+  return isCourseRegistrationLead(lead)
+    && normalizePublicCourseSegment(lead?.publicCourseSegment) === CRASH_SEGMENT;
+}
+
+function isStandardRegisteredLead(lead) {
+  return isCourseRegistrationLead(lead) && !isCrashCourseRegistrationLead(lead);
+}
+
+function isMainAdmissionLead(lead) {
+  return normalizeText(lead?.leadPipeline) === "main-admission";
+}
+
+function isNonWorkshopPipelineLead(lead) {
+  return isCourseRegistrationLead(lead) || isMainAdmissionLead(lead);
+}
+
+function isLostLead(lead) {
+  return lead.postStatusUpdated && lead.courseStatus === "Not Interested";
 }
 
 function getTimelineRange() {
@@ -200,10 +284,15 @@ function getTimelineRange() {
   return null;
 }
 
+function filterHistoryInRange(history, start, end) {
+  return history.filter((entry) => {
+    const date = new Date(entry.at);
+    return date >= start && date <= end;
+  });
+}
+
 function applyTimelineFilter(leads) {
   const range = getTimelineRange();
-
-  // "overall" — return all leads with their full activity counts unchanged
   if (!range) {
     return leads;
   }
@@ -212,31 +301,25 @@ function applyTimelineFilter(leads) {
 
   return leads
     .map((lead) => {
-      const workshopHistory = Array.isArray(lead.workshopActivityHistory) ? lead.workshopActivityHistory : [];
-      const admissionHistory = Array.isArray(lead.admissionActivityHistory) ? lead.admissionActivityHistory : [];
-      const registeredHistory = Array.isArray(lead.registeredCourseActivityHistory) ? lead.registeredCourseActivityHistory : [];
-
-      const workshopInRange = workshopHistory.filter((entry) => {
-        const d = new Date(entry.at);
-        return d >= start && d <= end;
-      });
-      const admissionInRange = admissionHistory.filter((entry) => {
-        const d = new Date(entry.at);
-        return d >= start && d <= end;
-      });
-      const registeredInRange = registeredHistory.filter((entry) => {
-        const d = new Date(entry.at);
-        return d >= start && d <= end;
-      });
+      const workshopInRange = filterHistoryInRange(lead.workshopActivityHistory, start, end);
+      const admissionInRange = filterHistoryInRange(lead.admissionActivityHistory, start, end);
+      const registeredInRange = filterHistoryInRange(lead.registeredCourseActivityHistory, start, end);
+      const mainAdmissionInRange = filterHistoryInRange(lead.mainAdmissionActivityHistory, start, end);
 
       return {
         ...lead,
-        preActivityUpdates: new Set(workshopInRange.map((e) => new Date(e.at).toISOString().slice(0, 10))).size,
-        postActivityUpdates: new Set(admissionInRange.map((e) => new Date(e.at).toISOString().slice(0, 10))).size,
-        registeredCourseActivityUpdates: new Set(registeredInRange.map((e) => new Date(e.at).toISOString().slice(0, 10))).size
+        preActivityUpdates: workshopInRange.length,
+        postActivityUpdates: admissionInRange.length,
+        registeredCourseActivityUpdates: registeredInRange.length,
+        mainAdmissionActivityUpdates: mainAdmissionInRange.length
       };
     })
-    .filter((lead) => lead.preActivityUpdates > 0 || lead.postActivityUpdates > 0 || lead.registeredCourseActivityUpdates > 0);
+    .filter((lead) =>
+      lead.preActivityUpdates > 0
+      || lead.postActivityUpdates > 0
+      || lead.registeredCourseActivityUpdates > 0
+      || lead.mainAdmissionActivityUpdates > 0
+    );
 }
 
 function bindTimelineControls() {
@@ -279,30 +362,10 @@ function bindTimelineControls() {
   };
 }
 
-function isPostWorkshopLead(lead) {
-  return lead.wsStatus === "Interested" && lead.whatsappInvite === "Yes";
-}
-
-function isLostLead(lead) {
-  return lead.postStatusUpdated && lead.courseStatus === "Not Interested";
-}
-
-function getPreLeads(allLeads) {
-  return allLeads.filter((lead) => !isNonWorkshopPipelineLead(lead) && !isLostLead(lead));
-}
-
-function getPostLeads(allLeads) {
-  return allLeads.filter((lead) => !isNonWorkshopPipelineLead(lead));
-}
-
-function getRegisteredCandidateLeads(allLeads) {
-  return allLeads.filter((lead) => isCourseRegistrationLead(lead));
-}
-
 function getCoreWorkshopName(workshopName) {
   if (!workshopName) return "";
   const name = String(workshopName).toLowerCase();
-  
+
   if (name.includes("gen") && name.includes("11")) {
     return "Gen AI Workshop 11th June";
   }
@@ -318,7 +381,7 @@ function getCoreWorkshopName(workshopName) {
   if (name.includes("sql") && name.includes("13")) {
     return "SQL Workshop 13th June";
   }
-  
+
   return String(workshopName).trim().replace(/[_\s]+(imp|od|ind)$/i, "").trim();
 }
 
@@ -326,8 +389,7 @@ function getAdmissionWorkshopName(lead) {
   return String(lead?.admissionWorkshop || lead?.workshop || "").trim();
 }
 
-function formatBreakdown(items, key, options = {}) {
-  const { exclude = [] } = options;
+function formatBreakdownEntries(items, key) {
   const counts = new Map();
 
   items.forEach((item) => {
@@ -335,36 +397,9 @@ function formatBreakdown(items, key, options = {}) {
     if (key === "workshop") {
       value = getCoreWorkshopName(value);
     }
-    if (!value || exclude.includes(value)) {
+    if (!value) {
       return;
     }
-
-    counts.set(value, (counts.get(value) || 0) + 1);
-  });
-
-  if (!counts.size) {
-    return "-";
-  }
-
-  return Array.from(counts.entries())
-    .sort((a, b) => b[1] - a[1])
-    .map(([name, count]) => `${name} (${count})`)
-    .join(", ");
-}
-
-function formatBreakdownEntries(items, key, options = {}) {
-  const { exclude = [] } = options;
-  const counts = new Map();
-
-  items.forEach((item) => {
-    let value = String(item[key] || "").trim();
-    if (key === "workshop") {
-      value = getCoreWorkshopName(value);
-    }
-    if (!value || exclude.includes(value)) {
-      return;
-    }
-
     counts.set(value, (counts.get(value) || 0) + 1);
   });
 
@@ -373,22 +408,17 @@ function formatBreakdownEntries(items, key, options = {}) {
     .map(([name, count]) => ({ name, count }));
 }
 
-function formatAdmissionWorkshopBreakdown(items, options = {}) {
-  const normalizedItems = items.map((lead) => ({
-    ...lead,
-    workshop: getAdmissionWorkshopName(lead)
-  }));
-
-  return formatBreakdown(normalizedItems, "workshop", options);
+function formatAdmissionWorkshopBreakdownEntries(items) {
+  return formatBreakdownEntries(
+    items.map((lead) => ({ ...lead, workshop: getAdmissionWorkshopName(lead) })),
+    "workshop"
+  );
 }
 
-function formatAdmissionWorkshopBreakdownEntries(items, options = {}) {
-  const normalizedItems = items.map((lead) => ({
-    ...lead,
-    workshop: getAdmissionWorkshopName(lead)
-  }));
-
-  return formatBreakdownEntries(normalizedItems, "workshop", options);
+function formatAdmissionWorkshopBreakdown(items) {
+  return formatAdmissionWorkshopBreakdownEntries(items)
+    .map((entry) => `${entry.name} (${entry.count})`)
+    .join(", ");
 }
 
 function renderBreakdownCell(entries, emptyLabel) {
@@ -423,321 +453,182 @@ function sortRowsByPriority(rows) {
     if (b.activities !== a.activities) {
       return b.activities - a.activities;
     }
-
     if (b.freshActivities !== a.freshActivities) {
       return b.freshActivities - a.freshActivities;
     }
-
     return String(a.counselor).localeCompare(String(b.counselor));
   });
 }
 
-function getCounselorBuckets(allLeads) {
-  const names = [...new Set(allLeads.map((lead) => lead.counselor || "Unassigned"))]
-    .filter((name) => name && name.trim())
+function getCounselorBuckets(leads) {
+  const names = [...new Set(leads.map((lead) => lead.counselor || "Unassigned"))]
+    .filter((name) => String(name || "").trim())
     .sort((a, b) => a.localeCompare(b));
 
   return names.length ? names : ["Unassigned"];
 }
 
-function buildPreRows(counselors, preLeads, rawAllLeads, range) {
-  return sortRowsByPriority(counselors.map((counselor) => {
-    const leads = preLeads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
-    const rawLeads = rawAllLeads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
-    const activityLeads = leads.filter((lead) => (Number(lead.preActivityUpdates) || 0) > 0);
-    const activities = activityLeads.reduce((sum, lead) => sum + (Number(lead.preActivityUpdates) || 0), 0);
-    const interested = activityLeads.filter((lead) => lead.wsStatus === "Interested").length;
-    const notInterested = activityLeads.filter((lead) => lead.wsStatus === "Not Interested").length;
-    const whatsappJoined = leads.filter((lead) => lead.whatsappGroupStatus === "Joined").length;
+function countNewLeads(rawLeads, range) {
+  if (!range) {
+    return rawLeads.length;
+  }
 
-    let newLeads, freshActivities, oldLeadActivities;
-    if (!range) {
-      newLeads = rawLeads.length;
-      freshActivities = activities;
-      oldLeadActivities = 0;
-    } else {
-      const { start, end } = range;
-      newLeads = rawLeads.filter((lead) => {
-        const created = new Date(lead.createdAt);
-        return created >= start && created <= end;
-      }).length;
-      const freshActivityLeads = activityLeads.filter((lead) => new Date(lead.createdAt) >= start);
-      freshActivities = freshActivityLeads.reduce((sum, lead) => sum + (Number(lead.preActivityUpdates) || 0), 0);
-      const oldActivityLeads = activityLeads.filter((lead) => new Date(lead.createdAt) < start);
-      oldLeadActivities = oldActivityLeads.reduce((sum, lead) => sum + (Number(lead.preActivityUpdates) || 0), 0);
-    }
+  const { start, end } = range;
+  return rawLeads.filter((lead) => {
+    const created = new Date(lead.createdAt);
+    return created >= start && created <= end;
+  }).length;
+}
+
+function splitFreshAndOldActivities(activityLeads, countField, range) {
+  const totalActivities = activityLeads.reduce((sum, lead) => sum + (Number(lead[countField]) || 0), 0);
+
+  if (!range) {
+    return {
+      activities: totalActivities,
+      freshActivities: totalActivities,
+      oldLeadActivities: 0
+    };
+  }
+
+  const { start } = range;
+  const freshActivityLeads = activityLeads.filter((lead) => new Date(lead.createdAt) >= start);
+  const oldActivityLeads = activityLeads.filter((lead) => new Date(lead.createdAt) < start);
+
+  return {
+    activities: totalActivities,
+    freshActivities: freshActivityLeads.reduce((sum, lead) => sum + (Number(lead[countField]) || 0), 0),
+    oldLeadActivities: oldActivityLeads.reduce((sum, lead) => sum + (Number(lead[countField]) || 0), 0)
+  };
+}
+
+function buildWorkshopRows(counselors, leads, rawLeads, range) {
+  return sortRowsByPriority(counselors.map((counselor) => {
+    const counselorLeads = leads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
+    const counselorRawLeads = rawLeads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
+    const activityLeads = counselorLeads.filter((lead) => (Number(lead.preActivityUpdates) || 0) > 0);
+    const activitySummary = splitFreshAndOldActivities(activityLeads, "preActivityUpdates", range);
 
     return {
       counselor,
-      activities,
+      ...activitySummary,
       workshopEntries: formatBreakdownEntries(activityLeads, "workshop"),
-      interested,
-      notInterested,
-      whatsappJoined,
-      newLeads,
-      freshActivities,
-      oldLeadActivities
+      interested: activityLeads.filter((lead) => lead.wsStatus === "Interested").length,
+      notInterested: activityLeads.filter((lead) => lead.wsStatus === "Not Interested").length,
+      whatsappJoined: counselorLeads.filter((lead) => lead.whatsappGroupStatus === "Joined").length,
+      newLeads: countNewLeads(counselorRawLeads, range)
     };
   }));
 }
 
-function buildPostRows(counselors, postLeads, rawAllLeads, range) {
+function buildPostWorkshopRows(counselors, leads, rawLeads, range) {
   return sortRowsByPriority(counselors.map((counselor) => {
-    const leads = postLeads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
-    const rawLeads = rawAllLeads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
-    const activityLeads = leads.filter((lead) => (Number(lead.postActivityUpdates) || 0) > 0);
-    const activities = activityLeads.reduce((sum, lead) => sum + (Number(lead.postActivityUpdates) || 0), 0);
+    const counselorLeads = leads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
+    const counselorRawLeads = rawLeads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
+    const activityLeads = counselorLeads.filter((lead) => (Number(lead.postActivityUpdates) || 0) > 0);
+    const activitySummary = splitFreshAndOldActivities(activityLeads, "postActivityUpdates", range);
     const workshops = formatAdmissionWorkshopBreakdown(activityLeads);
-    const interested = activityLeads.filter((lead) => lead.courseStatus === "Interested").length;
-    const notInterested = leads.filter((lead) => lead.courseStatus === "Not Interested").length;
-    const enrolled = activityLeads.filter((lead) => lead.admissionStatus === "Enrolled").length;
-    const won = activityLeads.filter((lead) => lead.admissionStatus === "Won").length;
-
-    let newLeads, freshActivities, oldLeadActivities;
-    if (!range) {
-      newLeads = rawLeads.length;
-      freshActivities = activities;
-      oldLeadActivities = 0;
-    } else {
-      const { start, end } = range;
-      newLeads = rawLeads.filter((lead) => {
-        const created = new Date(lead.createdAt);
-        return created >= start && created <= end;
-      }).length;
-      const freshActivityLeads = activityLeads.filter((lead) => new Date(lead.createdAt) >= start);
-      freshActivities = freshActivityLeads.reduce((sum, lead) => sum + (Number(lead.postActivityUpdates) || 0), 0);
-      const oldActivityLeads = activityLeads.filter((lead) => new Date(lead.createdAt) < start);
-      oldLeadActivities = oldActivityLeads.reduce((sum, lead) => sum + (Number(lead.postActivityUpdates) || 0), 0);
-    }
 
     return {
       counselor,
-      activities,
+      ...activitySummary,
       workshops,
       workshopEntries: formatAdmissionWorkshopBreakdownEntries(activityLeads),
-      interested,
-      notInterested,
-      enrolled,
-      won,
-      newLeads,
-      freshActivities,
-      oldLeadActivities
+      interested: activityLeads.filter((lead) => lead.courseStatus === "Interested").length,
+      notInterested: counselorLeads.filter((lead) => lead.courseStatus === "Not Interested").length,
+      enrolled: activityLeads.filter((lead) => lead.admissionStatus === "Enrolled").length,
+      won: activityLeads.filter((lead) => lead.admissionStatus === "Won").length,
+      newLeads: countNewLeads(counselorRawLeads, range)
     };
   }));
 }
 
-function buildRegisteredRows(counselors, registeredLeads, rawAllLeads, range) {
+function buildMainAdmissionRows(counselors, leads, rawLeads, range) {
   return sortRowsByPriority(counselors.map((counselor) => {
-    const leads = registeredLeads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
-    const rawLeads = rawAllLeads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
-    const activityLeads = leads.filter((lead) => (Number(lead.registeredCourseActivityUpdates) || 0) > 0);
-    const activities = activityLeads.reduce((sum, lead) => sum + (Number(lead.registeredCourseActivityUpdates) || 0), 0);
-    const dialed = activityLeads.filter((lead) => lead.registeredDialed === "Yes").length;
-    const interested = activityLeads.filter((lead) => lead.registeredCourseStatus === "Interested").length;
-    const notInterested = leads.filter((lead) => lead.registeredCourseStatus === "Not Interested").length;
-
-    let newLeads;
-    let freshActivities;
-    let oldLeadActivities;
-    if (!range) {
-      newLeads = rawLeads.length;
-      freshActivities = activities;
-      oldLeadActivities = 0;
-    } else {
-      const { start, end } = range;
-      newLeads = rawLeads.filter((lead) => {
-        const created = new Date(lead.createdAt);
-        return created >= start && created <= end;
-      }).length;
-      const freshActivityLeads = activityLeads.filter((lead) => new Date(lead.createdAt) >= start);
-      freshActivities = freshActivityLeads.reduce((sum, lead) => sum + (Number(lead.registeredCourseActivityUpdates) || 0), 0);
-      const oldActivityLeads = activityLeads.filter((lead) => new Date(lead.createdAt) < start);
-      oldLeadActivities = oldActivityLeads.reduce((sum, lead) => sum + (Number(lead.registeredCourseActivityUpdates) || 0), 0);
-    }
+    const counselorLeads = leads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
+    const counselorRawLeads = rawLeads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
+    const activityLeads = counselorLeads.filter((lead) => (Number(lead.mainAdmissionActivityUpdates) || 0) > 0);
+    const activitySummary = splitFreshAndOldActivities(activityLeads, "mainAdmissionActivityUpdates", range);
 
     return {
       counselor,
-      activities,
+      ...activitySummary,
       courseEntries: formatBreakdownEntries(activityLeads, "courseName"),
-      newLeads,
-      freshActivities,
-      oldLeadActivities,
-      dialed,
-      interested,
-      notInterested
+      interested: activityLeads.filter((lead) => lead.mainAdmissionCourseStatus === "Interested").length,
+      notInterested: counselorLeads.filter((lead) => lead.mainAdmissionCourseStatus === "Not Interested").length,
+      enrolled: activityLeads.filter((lead) => lead.mainAdmissionAdmissionStatus === "Enrolled").length,
+      won: activityLeads.filter((lead) => lead.mainAdmissionAdmissionStatus === "Won").length,
+      newLeads: countNewLeads(counselorRawLeads, range)
     };
   }));
 }
 
-function renderPreMonitoringTable(container, rows) {
-  const html = `
+function buildRegisteredRows(counselors, leads, rawLeads, range) {
+  return sortRowsByPriority(counselors.map((counselor) => {
+    const counselorLeads = leads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
+    const counselorRawLeads = rawLeads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
+    const activityLeads = counselorLeads.filter((lead) => (Number(lead.registeredCourseActivityUpdates) || 0) > 0);
+    const activitySummary = splitFreshAndOldActivities(activityLeads, "registeredCourseActivityUpdates", range);
+
+    return {
+      counselor,
+      ...activitySummary,
+      courseEntries: formatBreakdownEntries(activityLeads, "courseName"),
+      newLeads: countNewLeads(counselorRawLeads, range),
+      dialed: activityLeads.filter((lead) => lead.registeredDialed === "Yes").length,
+      interested: activityLeads.filter((lead) => lead.registeredCourseStatus === "Interested").length,
+      notInterested: counselorLeads.filter((lead) => lead.registeredCourseStatus === "Not Interested").length
+    };
+  }));
+}
+
+function buildMetricCards(metrics) {
+  monitoringKpiSection.innerHTML = metrics.map((metric) => `
+    <article class="card kpi-card">
+      <p>${escapeHtml(metric.label)}</p>
+      <h2>${escapeHtml(metric.value)}</h2>
+    </article>
+  `).join("");
+}
+
+function renderTable(columns, rows, emptyColspan) {
+  monitoringActiveTable.innerHTML = `
     <div class="table-scroll">
       <table>
         <thead>
           <tr>
-            <th>Counselor Name</th>
-            <th>Total Activities Completed</th>
-            <th>Workshop-wise Activity Breakdown</th>
-            <th>Interested Leads</th>
-            <th>Not Interested Leads</th>
-            <th>WhatsApp Group Joined</th>
-            <th>New Leads Received</th>
-            <th>Fresh Lead Activities</th>
-            <th>Old Lead Activities</th>
+            ${columns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join("")}
           </tr>
         </thead>
         <tbody>
-          ${
-            rows.length
-              ? rows
-                  .map(
-                    (row) => `
-                    <tr>
-                      <td>${escapeHtml(row.counselor)}</td>
-                      <td>${row.activities}</td>
-                      <td>${renderBreakdownCell(row.workshopEntries, "No workshop activity")}</td>
-                      <td>${row.interested}</td>
-                      <td>${row.notInterested}</td>
-                      <td>${row.whatsappJoined}</td>
-                      <td>${row.newLeads}</td>
-                      <td>${row.freshActivities}</td>
-                      <td>${row.oldLeadActivities}</td>
-                    </tr>
-                  `
-                  )
-                  .join("")
-              : `<tr><td colspan="9">No monitoring data available.</td></tr>`
+          ${rows.length
+            ? rows.map((row) => `
+              <tr>
+                ${columns.map((column) => `<td>${column.render(row)}</td>`).join("")}
+              </tr>
+            `).join("")
+            : `<tr><td colspan="${emptyColspan}">No monitoring data available.</td></tr>`
           }
         </tbody>
       </table>
     </div>
   `;
-
-  container.innerHTML = html;
 }
 
-function renderPostMonitoringTable(container, rows) {
-  const html = `
-    <div class="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th>Counselor Name</th>
-            <th>Total Activities Completed</th>
-            <th>Workshop-wise Activity Breakdown</th>
-            <th>Interested Leads</th>
-            <th>Not Interested Leads</th>
-            <th>Enrolled</th>
-            <th>Won</th>
-            <th>New Leads Received</th>
-            <th>Fresh Lead Activities</th>
-            <th>Old Lead Activities</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${
-            rows.length
-              ? rows
-                  .map(
-                    (row) => `
-                    <tr>
-                      <td>${escapeHtml(row.counselor)}</td>
-                      <td>${row.activities}</td>
-                      <td>${renderBreakdownCell(row.workshopEntries, "No workshop activity")}</td>
-                      <td>${row.interested}</td>
-                      <td>${row.notInterested}</td>
-                      <td>${row.enrolled}</td>
-                      <td>${row.won}</td>
-                      <td>${row.newLeads}</td>
-                      <td>${row.freshActivities}</td>
-                      <td>${row.oldLeadActivities}</td>
-                    </tr>
-                  `
-                  )
-                  .join("")
-              : `<tr><td colspan="10">No monitoring data available.</td></tr>`
-          }
-        </tbody>
-      </table>
-    </div>
-  `;
-
-  container.innerHTML = html;
-}
-
-function renderRegisteredMonitoringTable(container, rows) {
-  const html = `
-    <div class="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th>Counselor Name</th>
-            <th>Overall Activity</th>
-            <th>Course-wise Activity Breakdown</th>
-            <th>Fresh Leads Received</th>
-            <th>Fresh Lead Activities</th>
-            <th>Old Lead Activities</th>
-            <th>Dialed Leads</th>
-            <th>Interested Leads</th>
-            <th>Not Interested Leads</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${
-            rows.length
-              ? rows
-                  .map(
-                    (row) => `
-                    <tr>
-                      <td>${escapeHtml(row.counselor)}</td>
-                      <td>${row.activities}</td>
-                      <td>${renderBreakdownCell(row.courseEntries, "No course activity")}</td>
-                      <td>${row.newLeads}</td>
-                      <td>${row.freshActivities}</td>
-                      <td>${row.oldLeadActivities}</td>
-                      <td>${row.dialed}</td>
-                      <td>${row.interested}</td>
-                      <td>${row.notInterested}</td>
-                    </tr>
-                  `
-                  )
-                  .join("")
-              : `<tr><td colspan="9">No monitoring data available.</td></tr>`
-          }
-        </tbody>
-      </table>
-    </div>
-  `;
-
-  container.innerHTML = html;
-}
-
-function getTimelineLabel() {
-  if (timelineFilter.type === "overall") {
-    return "Overall";
+function getVisibleTableSnapshot() {
+  const table = monitoringActiveTable?.querySelector("table");
+  if (!table) {
+    return { headers: [], rows: [] };
   }
 
-  if (timelineFilter.type === "today") {
-    return "Today";
-  }
+  const headers = Array.from(table.querySelectorAll("thead th"))
+    .map((header) => header.textContent.trim())
+    .filter(Boolean);
+  const rows = Array.from(table.querySelectorAll("tbody tr")).map((row) =>
+    Array.from(row.querySelectorAll("td")).map((cell) => cell.textContent.trim())
+  );
 
-  if (timelineFilter.type === "week") {
-    return "Week";
-  }
-
-  if (timelineFilter.type === "recent") {
-    return "Last 30 Days";
-  }
-
-  if (timelineFilter.type === "custom") {
-    if (!timelineFilter.startDate || !timelineFilter.endDate) {
-      return "Custom Range";
-    }
-
-    return `${timelineFilter.startDate} to ${timelineFilter.endDate}`;
-  }
-
-  return "Monitoring Report";
+  return { headers, rows };
 }
 
 function getVisibleKpiSnapshot() {
@@ -747,21 +638,18 @@ function getVisibleKpiSnapshot() {
   }));
 }
 
-function getVisibleTableSnapshot(container) {
-  const table = container?.querySelector("table");
-  if (!table) {
-    return { headers: [], rows: [] };
+function getTimelineLabel() {
+  if (timelineFilter.type === "overall") return "Overall";
+  if (timelineFilter.type === "today") return "Today";
+  if (timelineFilter.type === "week") return "Week";
+  if (timelineFilter.type === "recent") return "Last 30 Days";
+  if (timelineFilter.type === "custom") {
+    if (!timelineFilter.startDate || !timelineFilter.endDate) {
+      return "Custom Range";
+    }
+    return `${timelineFilter.startDate} to ${timelineFilter.endDate}`;
   }
-
-  const headers = Array.from(table.querySelectorAll("thead th"))
-    .map((header) => header.textContent.trim())
-    .filter(Boolean);
-
-  const rows = Array.from(table.querySelectorAll("tbody tr")).map((row) =>
-    Array.from(row.querySelectorAll("td")).map((cell) => cell.textContent.trim())
-  );
-
-  return { headers, rows };
+  return "Monitoring Report";
 }
 
 function exportMonitoringExcel() {
@@ -773,113 +661,321 @@ function exportMonitoringExcel() {
   const workbook = XLSX.utils.book_new();
   const summaryRows = [
     { Metric: "Timeline", Value: getTimelineLabel() },
+    { Metric: "Section", Value: getActiveSubsectionConfig().title },
     ...getVisibleKpiSnapshot()
   ];
-
   const summarySheet = XLSX.utils.json_to_sheet(summaryRows);
   XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
 
-  const workshopTable = getVisibleTableSnapshot(preMonitoringTable);
-  const workshopSheet = XLSX.utils.aoa_to_sheet([workshopTable.headers, ...workshopTable.rows]);
-  XLSX.utils.book_append_sheet(workbook, workshopSheet, "Workshop Monitoring");
+  const activeTable = getVisibleTableSnapshot();
+  const activeSheet = XLSX.utils.aoa_to_sheet([activeTable.headers, ...activeTable.rows]);
+  XLSX.utils.book_append_sheet(workbook, activeSheet, "Monitoring");
 
-  const admissionTable = getVisibleTableSnapshot(postMonitoringTable);
-  const admissionSheet = XLSX.utils.aoa_to_sheet([admissionTable.headers, ...admissionTable.rows]);
-  XLSX.utils.book_append_sheet(workbook, admissionSheet, "Admission Monitoring");
-
-  const registeredTable = getVisibleTableSnapshot(registeredMonitoringTable);
-  const registeredSheet = XLSX.utils.aoa_to_sheet([registeredTable.headers, ...registeredTable.rows]);
-  XLSX.utils.book_append_sheet(workbook, registeredSheet, "Registered Candidates");
-
-  const fileName = `monitoring-report-${timelineFilter.type}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  const fileName = `monitoring-${activeView.group}-${activeView.subsection}-${new Date().toISOString().slice(0, 10)}.xlsx`;
   XLSX.writeFile(workbook, fileName);
   setExportMessage("Excel report exported successfully.", false);
 }
 
-function renderKpis(allLeads, preLeads, postLeads, registeredLeads, rawAllLeads, range) {
-  const preActivity = preLeads.reduce((sum, lead) => sum + (Number(lead.preActivityUpdates) || 0), 0);
-  const postActivity = postLeads.reduce((sum, lead) => sum + (Number(lead.postActivityUpdates) || 0), 0);
-  const registeredActivity = registeredLeads.reduce((sum, lead) => sum + (Number(lead.registeredCourseActivityUpdates) || 0), 0);
-  const overallActivity = preActivity + postActivity + registeredActivity;
+function getActiveGroupConfig() {
+  return VIEW_CONFIG[activeView.group] || VIEW_CONFIG.workshop;
+}
 
-  let totalNewLeads, totalFreshActivities, totalOldTouched;
-  if (!range) {
-    totalNewLeads = rawAllLeads.length;
-    totalFreshActivities = "-";
-    totalOldTouched = "-";
-  } else {
-    const { start, end } = range;
-    totalNewLeads = rawAllLeads.filter((lead) => {
-      const created = new Date(lead.createdAt);
-      return created >= start && created <= end;
-    }).length;
-    const freshLeads = allLeads.filter((lead) => new Date(lead.createdAt) >= start);
-    totalFreshActivities = freshLeads.reduce(
-      (sum, lead) => sum + (Number(lead.preActivityUpdates) || 0) + (Number(lead.postActivityUpdates) || 0) + (Number(lead.registeredCourseActivityUpdates) || 0),
-      0
-    );
-    const oldLeadsInRange = allLeads.filter((lead) => new Date(lead.createdAt) < start);
-    totalOldTouched = oldLeadsInRange.reduce(
-      (sum, lead) => sum + (Number(lead.preActivityUpdates) || 0) + (Number(lead.postActivityUpdates) || 0) + (Number(lead.registeredCourseActivityUpdates) || 0),
-      0
-    );
+function getActiveSubsectionConfig() {
+  return getActiveGroupConfig().subsections[activeView.subsection]
+    || VIEW_CONFIG.workshop.subsections["workshop-calling"];
+}
+
+function renderSectionNav() {
+  if (!monitoringSectionNav) {
+    return;
   }
 
-  monitoringKpiSection.innerHTML = `
-    <article class="card kpi-card">
-      <p>Overall Activity</p>
-      <h2>${overallActivity}</h2>
-    </article>
-    <article class="card kpi-card">
-      <p>Workshop Calling Activity</p>
-      <h2>${preActivity}</h2>
-    </article>
-    <article class="card kpi-card">
-      <p>Admission Calling Activity</p>
-      <h2>${postActivity}</h2>
-    </article>
-    <article class="card kpi-card">
-      <p>Registered Candidate Activity</p>
-      <h2>${registeredActivity}</h2>
-    </article>
-    <article class="card kpi-card">
-      <p>New Leads Received</p>
-      <h2>${totalNewLeads}</h2>
-    </article>
-    <article class="card kpi-card">
-      <p>Fresh Lead Activities</p>
-      <h2>${totalFreshActivities}</h2>
-    </article>
-    <article class="card kpi-card">
-      <p>Old Lead Activities</p>
-      <h2>${totalOldTouched}</h2>
-    </article>
+  const groups = Object.entries(VIEW_CONFIG);
+  const activeGroup = getActiveGroupConfig();
+
+  monitoringSectionNav.innerHTML = `
+    <div class="card-head">
+      <h3>Monitoring Sections</h3>
+      <p>Switch between the main monitoring groups instead of stacking every report on one page.</p>
+    </div>
+    <div class="filter-actions" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+      ${groups.map(([groupKey, group]) => `
+        <button
+          type="button"
+          class="${activeView.group === groupKey ? "btn-primary" : "btn-ghost"}"
+          data-monitoring-group="${groupKey}"
+        >
+          ${escapeHtml(group.label)}
+        </button>
+      `).join("")}
+    </div>
+    <p class="block-help">${escapeHtml(activeGroup.description)}</p>
   `;
+
+  monitoringSectionNav.querySelectorAll("[data-monitoring-group]").forEach((button) => {
+    button.onclick = () => {
+      const nextGroup = button.getAttribute("data-monitoring-group");
+      if (!nextGroup || nextGroup === activeView.group) {
+        return;
+      }
+      const groupConfig = VIEW_CONFIG[nextGroup];
+      const firstSubsection = Object.keys(groupConfig.subsections)[0];
+      activeView = {
+        group: nextGroup,
+        subsection: firstSubsection
+      };
+      persistActiveView();
+      renderAll();
+    };
+  });
+}
+
+function renderSubsectionNav() {
+  if (!monitoringSubsectionNav) {
+    return;
+  }
+
+  const activeGroup = getActiveGroupConfig();
+  const activeSubsection = getActiveSubsectionConfig();
+  const subsections = Object.entries(activeGroup.subsections);
+
+  monitoringSubsectionNav.innerHTML = `
+    <div class="card-head">
+      <h3>${escapeHtml(activeGroup.label)} Monitoring Views</h3>
+      <p>Open one focused monitoring report at a time so the page stays cleaner and easier to read.</p>
+    </div>
+    <div class="filter-actions" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+      ${subsections.map(([subsectionKey, subsection]) => `
+        <button
+          type="button"
+          class="${activeView.subsection === subsectionKey ? "btn-primary" : "btn-ghost"}"
+          data-monitoring-subsection="${subsectionKey}"
+        >
+          ${escapeHtml(subsection.label)}
+        </button>
+      `).join("")}
+    </div>
+    <p class="block-help">${escapeHtml(activeSubsection.description)}</p>
+  `;
+
+  monitoringSubsectionNav.querySelectorAll("[data-monitoring-subsection]").forEach((button) => {
+    button.onclick = () => {
+      const nextSubsection = button.getAttribute("data-monitoring-subsection");
+      if (!nextSubsection || nextSubsection === activeView.subsection) {
+        return;
+      }
+      activeView = {
+        ...activeView,
+        subsection: nextSubsection
+      };
+      persistActiveView();
+      renderAll();
+    };
+  });
+}
+
+function renderWorkshopCallingView(counselors, leads, rawLeads, range) {
+  const rows = buildWorkshopRows(counselors, leads, rawLeads, range);
+  const totalActivity = rows.reduce((sum, row) => sum + row.activities, 0);
+  const newLeads = rows.reduce((sum, row) => sum + row.newLeads, 0);
+  const interested = rows.reduce((sum, row) => sum + row.interested, 0);
+  const notInterested = rows.reduce((sum, row) => sum + row.notInterested, 0);
+  const whatsappJoined = rows.reduce((sum, row) => sum + row.whatsappJoined, 0);
+  const freshActivities = rows.reduce((sum, row) => sum + row.freshActivities, 0);
+  const oldLeadActivities = rows.reduce((sum, row) => sum + row.oldLeadActivities, 0);
+
+  buildMetricCards([
+    { label: "Overall Activity", value: totalActivity },
+    { label: "New Leads Received", value: newLeads },
+    { label: "Interested Leads", value: interested },
+    { label: "Not Interested Leads", value: notInterested },
+    { label: "WhatsApp Group Joined", value: whatsappJoined },
+    { label: "Fresh Lead Activities", value: freshActivities },
+    { label: "Old Lead Activities", value: oldLeadActivities }
+  ]);
+
+  renderTable([
+    { label: "Counselor Name", render: (row) => escapeHtml(row.counselor) },
+    { label: "Total Activities Completed", render: (row) => String(row.activities) },
+    { label: "Workshop-wise Activity Breakdown", render: (row) => renderBreakdownCell(row.workshopEntries, "No workshop activity") },
+    { label: "Interested Leads", render: (row) => String(row.interested) },
+    { label: "Not Interested Leads", render: (row) => String(row.notInterested) },
+    { label: "WhatsApp Group Joined", render: (row) => String(row.whatsappJoined) },
+    { label: "New Leads Received", render: (row) => String(row.newLeads) },
+    { label: "Fresh Lead Activities", render: (row) => String(row.freshActivities) },
+    { label: "Old Lead Activities", render: (row) => String(row.oldLeadActivities) }
+  ], rows, 9);
+}
+
+function renderAdmissionCallingView(counselors, leads, rawLeads, range) {
+  const rows = buildPostWorkshopRows(counselors, leads, rawLeads, range);
+  const totalActivity = rows.reduce((sum, row) => sum + row.activities, 0);
+  const newLeads = rows.reduce((sum, row) => sum + row.newLeads, 0);
+  const interested = rows.reduce((sum, row) => sum + row.interested, 0);
+  const notInterested = rows.reduce((sum, row) => sum + row.notInterested, 0);
+  const enrolled = rows.reduce((sum, row) => sum + row.enrolled, 0);
+  const won = rows.reduce((sum, row) => sum + row.won, 0);
+  const freshActivities = rows.reduce((sum, row) => sum + row.freshActivities, 0);
+  const oldLeadActivities = rows.reduce((sum, row) => sum + row.oldLeadActivities, 0);
+
+  buildMetricCards([
+    { label: "Overall Activity", value: totalActivity },
+    { label: "New Leads Received", value: newLeads },
+    { label: "Interested Leads", value: interested },
+    { label: "Not Interested Leads", value: notInterested },
+    { label: "Enrolled", value: enrolled },
+    { label: "Won", value: won },
+    { label: "Fresh Lead Activities", value: freshActivities },
+    { label: "Old Lead Activities", value: oldLeadActivities }
+  ]);
+
+  renderTable([
+    { label: "Counselor Name", render: (row) => escapeHtml(row.counselor) },
+    { label: "Total Activities Completed", render: (row) => String(row.activities) },
+    { label: "Workshop-wise Activity Breakdown", render: (row) => renderBreakdownCell(row.workshopEntries, "No workshop activity") },
+    { label: "Interested Leads", render: (row) => String(row.interested) },
+    { label: "Not Interested Leads", render: (row) => String(row.notInterested) },
+    { label: "Enrolled", render: (row) => String(row.enrolled) },
+    { label: "Won", render: (row) => String(row.won) },
+    { label: "New Leads Received", render: (row) => String(row.newLeads) },
+    { label: "Fresh Lead Activities", render: (row) => String(row.freshActivities) },
+    { label: "Old Lead Activities", render: (row) => String(row.oldLeadActivities) }
+  ], rows, 10);
+}
+
+function renderMainAdmissionView(counselors, leads, rawLeads, range) {
+  const rows = buildMainAdmissionRows(counselors, leads, rawLeads, range);
+  const totalActivity = rows.reduce((sum, row) => sum + row.activities, 0);
+  const newLeads = rows.reduce((sum, row) => sum + row.newLeads, 0);
+  const interested = rows.reduce((sum, row) => sum + row.interested, 0);
+  const notInterested = rows.reduce((sum, row) => sum + row.notInterested, 0);
+  const enrolled = rows.reduce((sum, row) => sum + row.enrolled, 0);
+  const won = rows.reduce((sum, row) => sum + row.won, 0);
+  const freshActivities = rows.reduce((sum, row) => sum + row.freshActivities, 0);
+  const oldLeadActivities = rows.reduce((sum, row) => sum + row.oldLeadActivities, 0);
+
+  buildMetricCards([
+    { label: "Overall Activity", value: totalActivity },
+    { label: "New Leads Received", value: newLeads },
+    { label: "Interested Leads", value: interested },
+    { label: "Not Interested Leads", value: notInterested },
+    { label: "Enrolled", value: enrolled },
+    { label: "Won", value: won },
+    { label: "Fresh Lead Activities", value: freshActivities },
+    { label: "Old Lead Activities", value: oldLeadActivities }
+  ]);
+
+  renderTable([
+    { label: "Counselor Name", render: (row) => escapeHtml(row.counselor) },
+    { label: "Total Activities Completed", render: (row) => String(row.activities) },
+    { label: "Course-wise Activity Breakdown", render: (row) => renderBreakdownCell(row.courseEntries, "No course activity") },
+    { label: "Interested Leads", render: (row) => String(row.interested) },
+    { label: "Not Interested Leads", render: (row) => String(row.notInterested) },
+    { label: "Enrolled", render: (row) => String(row.enrolled) },
+    { label: "Won", render: (row) => String(row.won) },
+    { label: "New Leads Received", render: (row) => String(row.newLeads) },
+    { label: "Fresh Lead Activities", render: (row) => String(row.freshActivities) },
+    { label: "Old Lead Activities", render: (row) => String(row.oldLeadActivities) }
+  ], rows, 10);
+}
+
+function renderRegisteredView(counselors, leads, rawLeads, range) {
+  const rows = buildRegisteredRows(counselors, leads, rawLeads, range);
+  const totalActivity = rows.reduce((sum, row) => sum + row.activities, 0);
+  const newLeads = rows.reduce((sum, row) => sum + row.newLeads, 0);
+  const dialed = rows.reduce((sum, row) => sum + row.dialed, 0);
+  const interested = rows.reduce((sum, row) => sum + row.interested, 0);
+  const notInterested = rows.reduce((sum, row) => sum + row.notInterested, 0);
+  const freshActivities = rows.reduce((sum, row) => sum + row.freshActivities, 0);
+  const oldLeadActivities = rows.reduce((sum, row) => sum + row.oldLeadActivities, 0);
+
+  buildMetricCards([
+    { label: "Overall Activity", value: totalActivity },
+    { label: "Fresh Leads Received", value: newLeads },
+    { label: "Dialed Leads", value: dialed },
+    { label: "Interested Leads", value: interested },
+    { label: "Not Interested Leads", value: notInterested },
+    { label: "Fresh Lead Activities", value: freshActivities },
+    { label: "Old Lead Activities", value: oldLeadActivities }
+  ]);
+
+  renderTable([
+    { label: "Counselor Name", render: (row) => escapeHtml(row.counselor) },
+    { label: "Overall Activity", render: (row) => String(row.activities) },
+    { label: "Course-wise Activity Breakdown", render: (row) => renderBreakdownCell(row.courseEntries, "No course activity") },
+    { label: "Fresh Leads Received", render: (row) => String(row.newLeads) },
+    { label: "Fresh Lead Activities", render: (row) => String(row.freshActivities) },
+    { label: "Old Lead Activities", render: (row) => String(row.oldLeadActivities) },
+    { label: "Dialed Leads", render: (row) => String(row.dialed) },
+    { label: "Interested Leads", render: (row) => String(row.interested) },
+    { label: "Not Interested Leads", render: (row) => String(row.notInterested) }
+  ], rows, 9);
+}
+
+function renderActiveMonitoringView() {
+  const range = getTimelineRange();
+  const rawAllLeads = getScopedLeads(getAllLeads());
+  const timelineLeads = getScopedLeads(applyTimelineFilter(getAllLeads()));
+  const legacyNonMainAdmissionRawLeads = rawAllLeads.filter((lead) => !isMainAdmissionLead(lead));
+  const legacyNonMainAdmissionTimelineLeads = timelineLeads.filter((lead) => !isMainAdmissionLead(lead));
+  const subsectionConfig = getActiveSubsectionConfig();
+
+  monitoringActiveTitle.textContent = subsectionConfig.title;
+  monitoringActiveDescription.textContent = subsectionConfig.description;
+
+  if (activeView.subsection === "workshop-calling") {
+    const leads = legacyNonMainAdmissionTimelineLeads.filter((lead) => !isNonWorkshopPipelineLead(lead) && !isLostLead(lead));
+    const rawLeads = legacyNonMainAdmissionRawLeads.filter((lead) => !isNonWorkshopPipelineLead(lead) && !isLostLead(lead));
+    const counselors = getCounselorBuckets(leads);
+    renderWorkshopCallingView(counselors, leads, rawLeads, range);
+    return;
+  }
+
+  if (activeView.subsection === "admission-calling") {
+    const leads = legacyNonMainAdmissionTimelineLeads.filter((lead) => !isNonWorkshopPipelineLead(lead));
+    const rawLeads = legacyNonMainAdmissionRawLeads.filter((lead) => !isNonWorkshopPipelineLead(lead));
+    const counselors = getCounselorBuckets(leads);
+    renderAdmissionCallingView(counselors, leads, rawLeads, range);
+    return;
+  }
+
+  if (activeView.subsection === "main-admission") {
+    const leads = timelineLeads.filter(isMainAdmissionLead);
+    const rawLeads = rawAllLeads.filter(isMainAdmissionLead);
+    const counselors = getCounselorBuckets(leads);
+    renderMainAdmissionView(counselors, leads, rawLeads, range);
+    return;
+  }
+
+  if (activeView.subsection === "registered-candidates") {
+    const leads = timelineLeads.filter(isStandardRegisteredLead);
+    const rawLeads = rawAllLeads.filter(isStandardRegisteredLead);
+    const counselors = getCounselorBuckets(leads);
+    renderRegisteredView(counselors, leads, rawLeads, range);
+    return;
+  }
+
+  const leads = timelineLeads.filter(isCrashCourseRegistrationLead);
+  const rawLeads = rawAllLeads.filter(isCrashCourseRegistrationLead);
+  const counselors = getCounselorBuckets(leads);
+  renderRegisteredView(counselors, leads, rawLeads, range);
+}
+
+function ensureValidActiveView() {
+  if (!VIEW_CONFIG[activeView.group]) {
+    activeView.group = "workshop";
+  }
+
+  if (!VIEW_CONFIG[activeView.group].subsections[activeView.subsection]) {
+    activeView.subsection = Object.keys(VIEW_CONFIG[activeView.group].subsections)[0];
+  }
 }
 
 function renderAll() {
-  const range = getTimelineRange();
-  const rawAllLeads = getScopedLeads(getAllLeads()).filter((lead) => !isMainAdmissionLead(lead));
-  const timelineLeads = applyTimelineFilter(getAllLeads()).filter((lead) => !isMainAdmissionLead(lead));
-  const allLeads = getScopedLeads(timelineLeads);
-  const preLeads = getPreLeads(allLeads);
-  const postLeads = getPostLeads(allLeads);
-  const registeredLeads = getRegisteredCandidateLeads(allLeads);
-  const rawPreLeads = rawAllLeads.filter((lead) => !isNonWorkshopPipelineLead(lead) && !isLostLead(lead));
-  const rawPostLeads = rawAllLeads.filter((lead) => !isNonWorkshopPipelineLead(lead));
-  const rawRegisteredLeads = rawAllLeads.filter(isCourseRegistrationLead);
-  const counselors = getCounselorBuckets(allLeads);
-
-  renderKpis(allLeads, preLeads, postLeads, registeredLeads, rawAllLeads, range);
-
-  const preRows = buildPreRows(counselors, preLeads, rawPreLeads, range);
-  renderPreMonitoringTable(preMonitoringTable, preRows);
-
-  const postRows = buildPostRows(counselors, postLeads, rawPostLeads, range);
-  renderPostMonitoringTable(postMonitoringTable, postRows);
-
-  const registeredRows = buildRegisteredRows(counselors, registeredLeads, rawRegisteredLeads, range);
-  renderRegisteredMonitoringTable(registeredMonitoringTable, registeredRows);
+  ensureValidActiveView();
+  renderSectionNav();
+  renderSubsectionNav();
+  renderActiveMonitoringView();
 
   if (exportMonitoringBtn) {
     exportMonitoringBtn.onclick = () => {
