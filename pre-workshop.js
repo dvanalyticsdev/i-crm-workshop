@@ -1219,17 +1219,20 @@ function renderKpis(leads) {
         ${renderWorkshopCards(workshopGroups.upcoming, "No upcoming workshops in the current lead scope.")}
       </div>
     </section>
-    <section class="card workshop-date-section">
+    <details class="card workshop-date-section workshop-date-section--archive">
+      <summary class="workshop-date-section__summary">
+        Recent Workshops
+        <span>${workshopGroups.recent.length}</span>
+      </summary>
       <div class="workshop-date-section__head">
         <div>
-          <h3>Recent Workshops</h3>
-          <p>Completed within the last 30 days, so they still stay easy to reach from the top of the page.</p>
+          <p>Completed within the last 30 days, so they still stay easy to reach when you need them without crowding the page.</p>
         </div>
       </div>
       <div class="workshop-date-section__grid">
         ${renderWorkshopCards(workshopGroups.recent, "No recent workshops in the current lead scope.")}
       </div>
-    </section>
+    </details>
     <details class="card workshop-date-section workshop-date-section--archive">
       <summary class="workshop-date-section__summary">
         Archived Workshops
