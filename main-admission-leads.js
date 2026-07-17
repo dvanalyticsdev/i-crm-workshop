@@ -27,7 +27,6 @@ const saveMainAdmissionRoutingBtn = document.getElementById("saveMainAdmissionRo
 const clearMainAdmissionLeadDataBtn = document.getElementById("clearMainAdmissionLeadDataBtn");
 const mainAdmissionRoutingMessage = document.getElementById("mainAdmissionRoutingMessage");
 const admissionSectionNav = document.getElementById("admissionSectionNav");
-const mainAdmissionSegmentSection = document.getElementById("mainAdmissionSegmentSection");
 const mainAdmissionKpiSection = document.getElementById("mainAdmissionKpiSection");
 const mainAdmissionFilterBar = document.getElementById("mainAdmissionFilterBar");
 const mainAdmissionActivityMessage = document.getElementById("mainAdmissionActivityMessage");
@@ -249,20 +248,6 @@ function getEffectiveRegisteredRoutingSelection(counselorNames) {
 
 function buildRoutingEndpoint(segment = activeSegment) {
   return `${MAIN_ADMISSION_ROUTING_ENDPOINT}?segment=${encodeURIComponent(normalizeSegment(segment))}`;
-}
-
-function renderSegmentSection() {
-  if (!mainAdmissionSegmentSection) {
-    return;
-  }
-
-  mainAdmissionSegmentSection.innerHTML = `
-    <div class="card-head">
-      <h3>Main Admission Leads</h3>
-      <p>Admission-type incoming leads are routed here automatically for direct counselor follow-up.</p>
-    </div>
-    <p class="block-help">${escapeHtml(getSegmentConfig().description)}</p>
-  `;
 }
 
 function renderAdmissionSectionNav(activeRoute = "main-admission-leads.html") {
@@ -1123,7 +1108,6 @@ function setupRegisteredRoutingPanel() {
 
 function renderAll() {
   renderAdmissionSectionNav();
-  renderSegmentSection();
   const allLeads = getScopedLeads(getAllLeads());
   const filteredLeads = filterLeads(allLeads);
   renderRegisteredRoutingPanel();
