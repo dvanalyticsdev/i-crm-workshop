@@ -441,10 +441,6 @@ test("incoming Meta leads route admission traffic into Main Admission Leads", ()
   assert.match(server, /adv ai ml/);
   assert.match(server, /genai/);
   assert.match(server, /return hasAdmissionSignal \|\| descriptor \? "admission" : "workshop"/);
-  assert.match(server, /assignMainAdmissionCounselorRoundRobin/);
-  assert.match(server, /admissionRoundRobinEnabled === true/);
-  assert.match(server, /app\.get\("\/api\/main-admission-routing"/);
-  assert.match(server, /app\.put\("\/api\/main-admission-routing"/);
   assert.match(server, /leadPipeline: isAdmissionLead \? MAIN_ADMISSION_PIPELINE : ""/);
   assert.match(server, /stage === "main-admission"/);
   assert.match(server, /mainAdmissionActivityHistory/);
@@ -452,24 +448,21 @@ test("incoming Meta leads route admission traffic into Main Admission Leads", ()
   assert.match(mainAdmissionHtml, /<h1>Main Admission Leads<\/h1>/);
   assert.match(mainAdmissionHtml, /mainAdmissionLeadTableSection/);
   assert.match(mainAdmission, /leadPipeline \|\| ""\)\.trim\(\)\.toLowerCase\(\) === "main-admission"/);
-  assert.match(mainAdmission, /MAIN_ADMISSION_ROUTING_ENDPOINT = apiUrl\("\/api\/main-admission-routing"\)/);
   assert.match(mainAdmission, /stage: "main-admission"/);
   assert.match(mainAdmission, /TASK_CATEGORY\.mainAdmission/);
-  assert.match(mainAdmission, /Admission counselor rotation is managed from the Meta Integration page/);
+  assert.match(mainAdmission, /New main admission leads stay with the system until an admin assigns them manually/);
   assert.match(taskService, /mainAdmission: "main-admission"/);
   assert.match(taskTracker, /mainAdmissionTaskSection/);
 });
 
-test("Meta integration exposes separate workshop and admission counselor rotations", () => {
+test("Meta integration exposes workshop counselor rotation only", () => {
   const metaHtml = read("meta-integration.html");
   const metaJs = read("meta-integration.js");
 
   assert.match(metaHtml, /Workshop Lead Rotation/);
-  assert.match(metaHtml, /Admission Lead Rotation/);
-  assert.match(metaHtml, /admissionRrCounselorList/);
-  assert.match(metaHtml, /admissionRrCounselorCount/);
-  assert.match(metaJs, /function isCounselorInAdmissionRotation/);
-  assert.match(metaJs, /admissionRoundRobinEnabled === true/);
+  assert.doesNotMatch(metaHtml, /Admission Lead Rotation/);
+  assert.doesNotMatch(metaJs, /function isCounselorInAdmissionRotation/);
+  assert.doesNotMatch(metaJs, /admissionRoundRobinEnabled === true/);
   assert.match(metaJs, /data-rotation-field/);
   assert.match(metaJs, /\[safeField\]: enabled/);
 });
@@ -478,15 +471,27 @@ test("main admission leads stay out of legacy workshop and registered sections",
   const dashboard = read("dashboard.js");
   const preWorkshop = read("pre-workshop.js");
   const postWorkshop = read("post-workshop.js");
-  const lostLeads = read("lost-leads.js");
   const leadControl = read("lead-control.js");
   const monitoring = read("monitoring.js");
 
   assert.match(dashboard, /\["course-registration", "main-admission"\]/);
   assert.match(preWorkshop, /function isNonWorkshopPipelineLead/);
   assert.match(postWorkshop, /function isNonWorkshopPipelineLead/);
-  assert.match(lostLeads, /function isNonWorkshopPipelineLead/);
   assert.match(leadControl, /function isNonWorkshopPipelineLead/);
   assert.match(monitoring, /function isMainAdmissionLead/);
   assert.match(monitoring, /filter\(\(lead\) => !isMainAdmissionLead\(lead\)\)/);
+});
+
+test("lost leads include not interested statuses across all lead pipelines", () => {
+  const lostLeads = read("lost-leads.js");
+
+  assert.match(lostLeads, /lead\.mainAdmissionActivityUpdated && lead\.mainAdmissionCourseStatus === "Not Interested"/);
+  assert.match(lostLeads, /lead\.registeredActivityUpdated && lead\.registeredCourseStatus === "Not Interested"/);
+  assert.match(lostLeads, /lead\.wsStatus === "Not Interested"/);
+  assert.match(lostLeads, /lead\.postStatusUpdated && lead\.courseStatus === "Not Interested"/);
+  assert.match(lostLeads, /return "Main Admission Leads"/);
+  assert.match(lostLeads, /\? "7-Day Crash Course"/);
+  assert.match(lostLeads, /: "Registered Candidates"/);
+  assert.match(lostLeads, /return "Workshop Calling"/);
+  assert.match(lostLeads, /return "Admission Calling"/);
 });

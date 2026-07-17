@@ -52,12 +52,6 @@ const PUBLIC_COURSE_SEGMENT_CONFIG = {
   }
 };
 const MAIN_ADMISSION_PIPELINE = "main-admission";
-const MAIN_ADMISSION_ROUTING_CONFIG = {
-  routingScope: "main-admission-routing",
-  routingOwner: "system:main-admission-routing",
-  roundRobinField: "mainAdmissionRoundRobinIndex"
-};
-
 const PUBLIC_COURSE_CATALOG = [
   { id: "apids", code: "APIDS", name: "Advanced Program in Industrial Data Science & AI", duration: "6-8 Months" },
   { id: "apida", code: "APIDA", name: "Advanced Program in Industrial Data Analytics & AI", duration: "4-5 Months" },
@@ -2373,53 +2367,6 @@ app.put("/api/public-course-routing", async (req, res) => {
   }
 });
 
-app.get("/api/main-admission-routing", async (req, res) => {
-  try {
-    const session = await requireRole(req, res, "admin");
-    if (!session) return;
-
-    const config = await getMainAdmissionRoutingConfig();
-    return res.json({ ok: true, segment: "standard", ...config });
-  } catch (error) {
-    return res.status(500).json({ message: "Failed to fetch main admission routing", details: error.message });
-  }
-});
-
-app.put("/api/main-admission-routing", async (req, res) => {
-  try {
-    const session = await requireRole(req, res, "admin");
-    if (!session) return;
-
-    const selectedCounselors = Array.isArray(req.body?.selectedCounselors)
-      ? req.body.selectedCounselors.map((name) => String(name || "").trim()).filter(Boolean)
-      : [];
-    const isConfigured = typeof req.body?.isConfigured === "boolean"
-      ? req.body.isConfigured
-      : selectedCounselors.length > 0;
-
-    const now = new Date().toISOString();
-    await preferenceCollection.updateOne(
-      { ownerKey: MAIN_ADMISSION_ROUTING_CONFIG.routingOwner, scope: MAIN_ADMISSION_ROUTING_CONFIG.routingScope },
-      {
-        $set: {
-          value: { selectedCounselors, isConfigured },
-          updatedAt: now
-        },
-        $setOnInsert: {
-          ownerKey: MAIN_ADMISSION_ROUTING_CONFIG.routingOwner,
-          scope: MAIN_ADMISSION_ROUTING_CONFIG.routingScope,
-          createdAt: now
-        }
-      },
-      { upsert: true }
-    );
-
-    return res.json({ ok: true, segment: "standard", selectedCounselors, isConfigured });
-  } catch (error) {
-    return res.status(500).json({ message: "Failed to save main admission routing", details: error.message });
-  }
-});
-
 function sanitizeState(payload = {}) {
   const next = {};
 
@@ -2518,42 +2465,9 @@ async function assignPublicCourseCounselorRoundRobin(counselors = [], segment = 
   return activeCounselors[counselorIndex].name;
 }
 
-async function getMainAdmissionRoutingConfig() {
-  const preference = await preferenceCollection.findOne({
-    ownerKey: MAIN_ADMISSION_ROUTING_CONFIG.routingOwner,
-    scope: MAIN_ADMISSION_ROUTING_CONFIG.routingScope
-  });
-
-  const selectedCounselors = Array.isArray(preference?.value?.selectedCounselors)
-    ? preference.value.selectedCounselors.map((name) => String(name || "").trim()).filter(Boolean)
-    : [];
-  const isConfigured = typeof preference?.value?.isConfigured === "boolean"
-    ? preference.value.isConfigured
-    : selectedCounselors.length > 0;
-
-  return { selectedCounselors, isConfigured };
-}
-
-async function assignMainAdmissionCounselorRoundRobin(counselors = []) {
-  const activeCounselors = (Array.isArray(counselors) ? counselors : [])
-    .filter((counselor) => counselor?.admissionRoundRobinEnabled === true && !counselor?.disabled);
-
-  if (!activeCounselors.length) {
-    return "Unassigned";
-  }
-
-  const result = await withMongoRetry(
-    () => stateCollection.findOneAndUpdate(
-      { _id: STATE_DOC_ID },
-      { $inc: { [MAIN_ADMISSION_ROUTING_CONFIG.roundRobinField]: 1 } },
-      { returnDocument: "after", upsert: true }
-    ),
-    { retries: 1, label: "Advance main admission round robin" }
-  );
-
-  const newIndex = Number(result?.[MAIN_ADMISSION_ROUTING_CONFIG.roundRobinField]) || 1;
-  const counselorIndex = ((newIndex - 1) % activeCounselors.length + activeCounselors.length) % activeCounselors.length;
-  return activeCounselors[counselorIndex].name;
+function shouldTreatLeadAsAssigned(counselorName) {
+  const normalized = String(counselorName || "").trim().toLowerCase();
+  return !!normalized && normalized !== "unassigned";
 }
 
 function buildPublicCourseLead({ name, email, phone, course, counselorName, nextId, country, segment }) {
@@ -4897,7 +4811,7 @@ async function insertMetaLeadIfNew(leadgenId, newLead) {
         actionDescription: `Lead created from Meta Webhook (Leadgen ID: ${leadgenId})`,
         newValue: `Name: ${newLead.name}, Phone: ${newLead.phone}, Email: ${newLead.email}`
       });
-      if (newLead.counselor) {
+      if (shouldTreatLeadAsAssigned(newLead.counselor)) {
         await recordActivity({
           leadId: newLead.id,
           leadName: newLead.name,
@@ -4936,7 +4850,7 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
   const leadType = classifyIncomingMetaLead(getMetaLeadFieldMap(metaLead.field_data), metaInfo);
   const isAdmissionLead = leadType === "admission";
   const counselorName = isAdmissionLead
-    ? await assignMainAdmissionCounselorRoundRobin(snapshot.counselors)
+    ? "Unassigned"
     : await assignCounselorRoundRobin(snapshot.counselors);
   const nextId = await getNextMetaLeadId();
   const newLead = buildMetaLead(
@@ -5031,14 +4945,14 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
     role: "admin",
     type: isAdmissionLead ? "new_main_admission_lead" : "new_meta_lead",
     title: isAdmissionLead ? "Main Admission Lead Received" : "Lead Received",
-    message: `Lead: ${formatLeadNotificationLabel(newLead)}. Assigned counselor: ${counselorName}`,
+    message: `Lead: ${formatLeadNotificationLabel(newLead)}. ${shouldTreatLeadAsAssigned(counselorName) ? `Assigned counselor: ${counselorName}` : "Awaiting manual counselor assignment."}`,
     sound: true,
     leadId: nextId,
     leadName: newLead.name,
     assignedCounselor: counselorName
   });
 
-  if (counselorName && counselorName.toLowerCase() !== "unassigned") {
+  if (shouldTreatLeadAsAssigned(counselorName)) {
     const escapedName = counselorName.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
     const counselorDoc = await counselorsCollection.findOne({
       name: { $regex: new RegExp(`^${escapedName}$`, "i") }
@@ -5070,7 +4984,7 @@ async function insertElementorLeadIfNew(newLead) {
         actionDescription: `Lead created from Elementor webhook (Form: ${newLead.elementorFormName || newLead.elementorFormId || "Unknown"})`,
         newValue: `Name: ${newLead.name}, Phone: ${newLead.phone}, Email: ${newLead.email}`
       });
-      if (newLead.counselor) {
+      if (shouldTreatLeadAsAssigned(newLead.counselor)) {
         await recordActivity({
           leadId: newLead.id,
           leadName: newLead.name,
@@ -5130,7 +5044,7 @@ async function processElementorLeadRecord(payload, config) {
   const leadType = classifyIncomingElementorLead(fields, metaInfo, config);
   const isAdmissionLead = leadType === "admission";
   const counselorName = isAdmissionLead
-    ? await assignMainAdmissionCounselorRoundRobin(snapshot.counselors)
+    ? "Unassigned"
     : await assignElementorCounselorRoundRobin(snapshot.counselors);
   const nextId = await getNextMetaLeadId();
   const newLead = buildElementorLead(fields, metaInfo, counselorName, nextId, { leadType });
@@ -5209,14 +5123,14 @@ async function processElementorLeadRecord(payload, config) {
     role: "admin",
     type: isAdmissionLead ? "new_main_admission_lead" : "new_elementor_lead",
     title: isAdmissionLead ? "Main Admission Lead Received" : "Elementor Lead Received",
-    message: `Lead: ${formatLeadNotificationLabel(newLead)}. Assigned counselor: ${counselorName}`,
+    message: `Lead: ${formatLeadNotificationLabel(newLead)}. ${shouldTreatLeadAsAssigned(counselorName) ? `Assigned counselor: ${counselorName}` : "Awaiting manual counselor assignment."}`,
     sound: true,
     leadId: nextId,
     leadName: newLead.name,
     assignedCounselor: counselorName
   });
 
-  if (counselorName && counselorName.toLowerCase() !== "unassigned") {
+  if (shouldTreatLeadAsAssigned(counselorName)) {
     const escapedName = counselorName.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
     const counselorDoc = await counselorsCollection.findOne({
       name: { $regex: new RegExp(`^${escapedName}$`, "i") }

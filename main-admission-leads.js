@@ -1,5 +1,4 @@
 import { registerPageCleanup } from "./page-runtime.js";
-import { apiUrl } from "./api-client.js";
 import { openActivityHistory } from "./activity-history.js";
 import { exportLeadRowsToExcel } from "./lead-export.js";
 import {
@@ -52,7 +51,6 @@ const mainAdmissionDetailsModalSubtitle = document.getElementById("mainAdmission
 const mainAdmissionDetailsModalBody = document.getElementById("mainAdmissionDetailsModalBody");
 
 const FILTER_STORAGE_KEY = "dvMainAdmissionLeadFilters";
-const MAIN_ADMISSION_ROUTING_ENDPOINT = apiUrl("/api/main-admission-routing");
 const DEFAULT_SEGMENT = "standard";
 const SEGMENT_CONFIG = {
   [DEFAULT_SEGMENT]: {
@@ -83,7 +81,6 @@ let selectedLeadKeys = new Set();
 let activeLeadRef = null;
 let notesLeadRef = null;
 let detailsLeadRef = null;
-let mainAdmissionRoutingConfig = { selectedCounselors: [], isConfigured: false };
 let mainAdmissionActivityModalMode = "edit";
 let activeSegment = DEFAULT_SEGMENT;
 
@@ -258,22 +255,24 @@ function getUniqueValues(leads, key) {
   return [...new Set(leads.map((lead) => String(lead[key] || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }
 
-function getEffectiveRegisteredRoutingSelection(counselorNames) {
-  const selectedCounselors = Array.isArray(mainAdmissionRoutingConfig.selectedCounselors)
-    ? mainAdmissionRoutingConfig.selectedCounselors.map((name) => String(name || "").trim()).filter(Boolean)
-    : [];
-  const selectedCounselorSet = new Set(selectedCounselors.map((name) => name.toLowerCase()));
-  const validSelected = counselorNames.filter((name) => selectedCounselorSet.has(String(name || "").trim().toLowerCase()));
+function getLeadLocation(lead) {
+  const extraFields = getLeadExtraFields(lead);
+  const cityCandidates = [
+    extraFields.city,
+    extraFields.current_city,
+    extraFields.city_name,
+    extraFields.town,
+    extraFields.location
+  ];
 
-  if (mainAdmissionRoutingConfig.isConfigured) {
-    return validSelected;
+  for (const candidate of cityCandidates) {
+    const normalized = String(candidate || "").trim();
+    if (normalized) {
+      return normalized;
+    }
   }
 
-  return validSelected.length ? validSelected : counselorNames;
-}
-
-function buildRoutingEndpoint(segment = activeSegment) {
-  return `${MAIN_ADMISSION_ROUTING_ENDPOINT}?segment=${encodeURIComponent(normalizeSegment(segment))}`;
+  return String(lead?.country || "").trim() || "India";
 }
 
 function renderSegmentSection() {
@@ -361,85 +360,20 @@ function renderRegisteredRoutingPanel() {
     panelTitle.textContent = `${segmentConfig.label} Routing`;
   }
   if (panelDescription) {
-    panelDescription.textContent = "Admission counselor rotation is managed from the Meta Integration page.";
+    panelDescription.textContent = "New main admission leads stay with the system until an admin assigns them manually.";
   }
   if (panelHelp) {
     panelHelp.textContent = `Clear Data removes only ${segmentConfig.label} data. Other CRM lead sections stay unchanged.`;
   }
-  mainAdmissionRoutingOptions.innerHTML = `<p class="block-help">Open Meta Integration and use the Admission Lead Rotation list to turn counselors on or off.</p>`;
+  mainAdmissionRoutingOptions.innerHTML = `<p class="block-help">Use the bulk assign controls on this page when you want to hand these leads to a counselor.</p>`;
   if (saveMainAdmissionRoutingBtn) saveMainAdmissionRoutingBtn.classList.add("hidden");
   if (clearMainAdmissionLeadDataBtn) clearMainAdmissionLeadDataBtn.disabled = false;
-}
-
-async function loadRegisteredRoutingConfig() {
-  if (!isAdmin) {
-    return;
-  }
-
-  try {
-    const response = await fetch(buildRoutingEndpoint(), {
-      method: "GET",
-      headers: { Accept: "application/json" }
-    });
-    const json = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      setRoutingMessage(json?.message || "Failed to load main admission lead routing.", true);
-      return;
-    }
-
-    mainAdmissionRoutingConfig = {
-      selectedCounselors: Array.isArray(json?.selectedCounselors) ? json.selectedCounselors : [],
-      isConfigured: Boolean(json?.isConfigured)
-    };
-    renderRegisteredRoutingPanel();
-  } catch {
-    setRoutingMessage("Failed to load main admission lead routing.", true);
-  }
-}
-
-async function saveRegisteredRoutingConfig() {
-  const selectedCounselors = Array.from(document.querySelectorAll(".registered-routing-checkbox:checked"))
-    .map((input) => String(input.value || "").trim())
-    .filter(Boolean);
-
-  if (!selectedCounselors.length) {
-    setRoutingMessage("Select at least one counselor for main admission lead routing.", true);
-    return;
-  }
-
-  try {
-    const response = await fetch(buildRoutingEndpoint(), {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json"
-      },
-      body: JSON.stringify({ segment: activeSegment, selectedCounselors, isConfigured: true })
-    });
-    const json = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      setRoutingMessage(json?.message || "Failed to save main admission lead routing.", true);
-      return;
-    }
-
-    mainAdmissionRoutingConfig = {
-      selectedCounselors: Array.isArray(json?.selectedCounselors) ? json.selectedCounselors : selectedCounselors,
-      isConfigured: Boolean(json?.isConfigured ?? true)
-    };
-    renderRegisteredRoutingPanel();
-    setRoutingMessage(`${getSegmentConfig().label} routing saved successfully.`);
-    showToast(`${getSegmentConfig().label} routing saved.`);
-  } catch {
-    setRoutingMessage("Failed to save main admission lead routing.", true);
-  }
 }
 
 async function clearRegisteredCandidateData() {
   const segmentConfig = getSegmentConfig();
   const registeredLeads = getAllRegisteredCandidateLeads().filter((lead) => getLeadSegment(lead) === activeSegment);
-  const confirmed = window.confirm(`Clear only ${segmentConfig.label} data and reset its routing setup?`);
+  const confirmed = window.confirm(`Clear only ${segmentConfig.label} data?`);
   if (!confirmed) {
     return;
   }
@@ -456,33 +390,12 @@ async function clearRegisteredCandidateData() {
     return;
   }
 
-  try {
-    const response = await fetch(buildRoutingEndpoint(), {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json"
-      },
-      body: JSON.stringify({ segment: activeSegment, selectedCounselors: [], isConfigured: false })
-    });
-    const json = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      setRoutingMessage(json?.message || "Main Admission Leads data was cleared, but routing reset failed.", true);
-      return;
-    }
-  } catch {
-    setRoutingMessage("Main Admission Leads data was cleared, but routing reset failed.", true);
-    return;
-  }
-
   const syncResult = await syncStateFromLocalAndVerify();
   if (!syncResult.ok) {
     setRoutingMessage(syncResult.message || "Main Admission Lead data was updated locally, but backend verification failed.", true);
     return;
   }
 
-  mainAdmissionRoutingConfig = { selectedCounselors: [], isConfigured: false };
   selectedLeadKeys = new Set();
   currentPage = 1;
   renderRegisteredRoutingPanel();
@@ -520,7 +433,7 @@ function renderFilters(leads) {
   const segmentConfig = getSegmentConfig();
   const counselors = getUniqueValues(leads, "counselor");
   const courses = getUniqueValues(leads, "courseName");
-  const locations = getUniqueValues(leads, "country");
+  const locations = [...new Set(leads.map((lead) => getLeadLocation(lead)).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 
   mainAdmissionFilterBar.innerHTML = `
     <div class="filter-section">
@@ -549,7 +462,7 @@ function renderFilters(leads) {
         </div>
         ` : ""}
         <div class="filter-item">
-          <label for="mainAdmissionLocationSelect">Country</label>
+          <label for="mainAdmissionLocationSelect">Location</label>
           <select id="mainAdmissionLocationSelect">
             <option value="">All</option>
             ${locations.map((item) => `<option value="${escapeHtml(item)}" ${filter.location === item ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
@@ -699,7 +612,7 @@ function exportFilteredLeads() {
       { label: "Phone Number", getter: (lead) => lead.phone || "-" },
       { label: "Email", getter: (lead) => lead.email },
       { label: "Course Name", getter: (lead) => lead.courseName || "-" },
-      { label: "Country", getter: (lead) => lead.country || "India" },
+      { label: "Location", getter: (lead) => getLeadLocation(lead) },
       { label: "Counselor", getter: (lead) => lead.counselor || "Unassigned" },
       { label: "Lead Source", getter: (lead) => getDisplayLeadSource(lead) },
       { label: "Dialed", getter: (lead) => lead.mainAdmissionDialed || "" },
@@ -727,13 +640,14 @@ function exportFilteredLeads() {
 
 function filterLeads(leads) {
   return leads.filter((lead) => {
+    const location = getLeadLocation(lead);
     if (filter.search) {
-      const haystack = [lead.name, lead.email, lead.phone, lead.courseName, lead.country, lead.counselor].join(" ").toLowerCase();
+      const haystack = [lead.name, lead.email, lead.phone, lead.courseName, location, lead.country, lead.counselor].join(" ").toLowerCase();
       if (!haystack.includes(filter.search.toLowerCase())) return false;
     }
     if (filter.counselor && filter.counselor !== lead.counselor) return false;
     if (activeSegment === DEFAULT_SEGMENT && filter.courseName && filter.courseName !== lead.courseName) return false;
-    if (filter.location && filter.location !== (lead.country || "")) return false;
+    if (filter.location && filter.location !== location) return false;
     if (filter.mainAdmissionDialed && filter.mainAdmissionDialed !== lead.mainAdmissionDialed) return false;
     if (filter.mainAdmissionCourseStatus && filter.mainAdmissionCourseStatus !== lead.mainAdmissionCourseStatus) return false;
     if (filter.mainAdmissionAdmissionStatus && filter.mainAdmissionAdmissionStatus !== lead.mainAdmissionAdmissionStatus) return false;
@@ -958,7 +872,7 @@ function renderLeadTable(leads) {
             <th>${isCrashSegment ? "Contact Number" : "Phone Number"}</th>
             <th>${isCrashSegment ? "Mail ID" : "Email"}</th>
             <th>Course Name</th>
-            <th>${isCrashSegment ? "Location" : "Country"}</th>
+            <th>Location</th>
             <th>Counselor</th>
             <th>Activity</th>
           </tr>
@@ -972,7 +886,7 @@ function renderLeadTable(leads) {
               <td>${escapeHtml(lead.phone || "-")}</td>
               <td>${escapeHtml(lead.email)}</td>
               <td>${escapeHtml(lead.courseName || "-")}</td>
-              <td>${escapeHtml(lead.country || "India")}</td>
+              <td>${escapeHtml(getLeadLocation(lead))}</td>
               <td>${escapeHtml(lead.counselor || "Unassigned")}</td>
               <td>${renderActivityPanel(lead)}</td>
             </tr>

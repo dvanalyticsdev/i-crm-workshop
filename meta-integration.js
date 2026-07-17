@@ -32,9 +32,6 @@ const rrNextCounselor          = document.getElementById("rrNextCounselor");
 const rrCounselorCount         = document.getElementById("rrCounselorCount");
 const rrCounselorList          = document.getElementById("rrCounselorList");
 const rrRosterMessage          = document.getElementById("rrRosterMessage");
-const admissionRrCounselorCount = document.getElementById("admissionRrCounselorCount");
-const admissionRrCounselorList  = document.getElementById("admissionRrCounselorList");
-const admissionRrRosterMessage  = document.getElementById("admissionRrRosterMessage");
 const resetRrBtn               = document.getElementById("resetRrBtn");
 const rrMessage                = document.getElementById("rrMessage");
 const refreshLogsBtn           = document.getElementById("refreshLogsBtn");
@@ -93,10 +90,6 @@ function buildWebhookUrl() {
 
 function isCounselorInMetaRotation(counselor) {
   return counselor?.roundRobinEnabled !== false && !counselor?.disabled;
-}
-
-function isCounselorInAdmissionRotation(counselor) {
-  return counselor?.admissionRoundRobinEnabled === true && !counselor?.disabled;
 }
 
 // ── Config load / render ──────────────────────────────────────────────────────
@@ -166,9 +159,7 @@ function applyConfig(config) {
 function updateRRDisplay(rrIdx) {
   const allCounselors = getCounselors();
   const counselors = allCounselors.filter(isCounselorInMetaRotation);
-  const admissionCounselors = allCounselors.filter(isCounselorInAdmissionRotation);
   if (rrCounselorCount) rrCounselorCount.textContent = counselors.length;
-  if (admissionRrCounselorCount) admissionRrCounselorCount.textContent = admissionCounselors.length;
   if (!counselors.length) {
     rrNextCounselor.textContent = "No counselors";
     return;
@@ -185,9 +176,6 @@ function renderRoundRobinCounselors() {
   const counselors = getCounselors();
   if (!counselors.length) {
     rrCounselorList.innerHTML = '<p class="rr-roster-empty">No counselors found yet. Add counselors in Counselor Management.</p>';
-    if (admissionRrCounselorList) {
-      admissionRrCounselorList.innerHTML = '<p class="rr-roster-empty">No counselors found yet. Add counselors in Counselor Management.</p>';
-    }
     return;
   }
 
@@ -197,15 +185,6 @@ function renderRoundRobinCounselors() {
     isEnabled: isCounselorInMetaRotation,
     label: "workshop"
   });
-  if (admissionRrCounselorList) {
-    admissionRrCounselorList.innerHTML = renderCounselorRotationRows(counselors, {
-      kind: "admission",
-      field: "admissionRoundRobinEnabled",
-      isEnabled: isCounselorInAdmissionRotation,
-      label: "admission"
-    });
-  }
-
   document.querySelectorAll(".rr-counselor-toggle").forEach((toggle) => {
     toggle.addEventListener("change", () => {
       const counselorId = toggle.getAttribute("data-counselor-id");
@@ -239,8 +218,8 @@ function renderCounselorRotationRows(counselors, options) {
 
 async function updateCounselorRoundRobinStatus(counselorId, field, enabled) {
   if (session.role !== "admin") return;
-  const safeField = field === "admissionRoundRobinEnabled" ? "admissionRoundRobinEnabled" : "roundRobinEnabled";
-  const targetMessage = safeField === "admissionRoundRobinEnabled" ? admissionRrRosterMessage : rrRosterMessage;
+  const safeField = "roundRobinEnabled";
+  const targetMessage = rrRosterMessage;
 
   const counselors = getCounselors();
   const nextCounselors = counselors.map((counselor) => {

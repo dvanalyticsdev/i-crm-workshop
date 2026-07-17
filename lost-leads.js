@@ -83,23 +83,32 @@ function normalizeLeadFields(leads) {
     lead.courseStatus = lead.courseStatus || "";
     lead.admissionStatus = lead.admissionStatus || "";
     lead.postStatusUpdated = typeof lead.postStatusUpdated === "boolean" ? lead.postStatusUpdated : false;
+    lead.courseName = lead.courseName || "";
+    lead.registeredCourseStatus = lead.registeredCourseStatus || "";
+    lead.registeredAdmissionStatus = lead.registeredAdmissionStatus || "";
+    lead.registeredActivityUpdated = typeof lead.registeredActivityUpdated === "boolean" ? lead.registeredActivityUpdated : false;
+    lead.mainAdmissionCourseStatus = lead.mainAdmissionCourseStatus || "";
+    lead.mainAdmissionAdmissionStatus = lead.mainAdmissionAdmissionStatus || "";
+    lead.mainAdmissionActivityUpdated = typeof lead.mainAdmissionActivityUpdated === "boolean" ? lead.mainAdmissionActivityUpdated : false;
     lead.workshopActivityHistory = Array.isArray(lead.workshopActivityHistory) ? lead.workshopActivityHistory : [];
     lead.admissionActivityHistory = Array.isArray(lead.admissionActivityHistory) ? lead.admissionActivityHistory : [];
+    lead.registeredCourseActivityHistory = Array.isArray(lead.registeredCourseActivityHistory) ? lead.registeredCourseActivityHistory : [];
+    lead.mainAdmissionActivityHistory = Array.isArray(lead.mainAdmissionActivityHistory) ? lead.mainAdmissionActivityHistory : [];
     lead.preActivityUpdates = lead.workshopActivityHistory.length
       || (Number.isFinite(Number(lead.preActivityUpdates)) ? Number(lead.preActivityUpdates) : 0);
     lead.postActivityUpdates = lead.admissionActivityHistory.length
       || (Number.isFinite(Number(lead.postActivityUpdates)) ? Number(lead.postActivityUpdates) : 0);
+    lead.registeredCourseActivityUpdates = lead.registeredCourseActivityHistory.length
+      || (Number.isFinite(Number(lead.registeredCourseActivityUpdates)) ? Number(lead.registeredCourseActivityUpdates) : 0);
+    lead.mainAdmissionActivityUpdates = lead.mainAdmissionActivityHistory.length
+      || (Number.isFinite(Number(lead.mainAdmissionActivityUpdates)) ? Number(lead.mainAdmissionActivityUpdates) : 0);
     lead.whatsappGroupStatus = lead.whatsappGroupStatus || "";
     lead.leadNotes = Array.isArray(lead.leadNotes) ? lead.leadNotes : [];
   });
 }
 
-function isNonWorkshopPipelineLead(lead) {
-  return ["course-registration", "main-admission"].includes(String(lead?.leadPipeline || "").trim().toLowerCase());
-}
-
 function getAllLeads() {
-  const leads = getStoredLeads().filter((lead) => !isNonWorkshopPipelineLead(lead));
+  const leads = getStoredLeads();
   normalizeLeadFields(leads);
   return leads;
 }
@@ -115,16 +124,39 @@ async function restoreLead(leadId) {
     return;
   }
 
-  const confirmed = window.confirm("Restore this lead back to Admission Calling?");
+  const restoreTarget = getLostSource(allLeads[index]);
+  const confirmed = window.confirm(`Restore this lead back to ${restoreTarget}?`);
   if (!confirmed) {
     return;
   }
 
-  allLeads[index] = {
-    ...allLeads[index],
-    courseStatus: "",
-    postStatusUpdated: false
-  };
+  const lead = allLeads[index];
+  const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
+
+  if (pipeline === "main-admission") {
+    allLeads[index] = {
+      ...lead,
+      mainAdmissionCourseStatus: "",
+      mainAdmissionActivityUpdated: false
+    };
+  } else if (pipeline === "course-registration") {
+    allLeads[index] = {
+      ...lead,
+      registeredCourseStatus: "",
+      registeredActivityUpdated: false
+    };
+  } else if (lead.wsStatus === "Not Interested") {
+    allLeads[index] = {
+      ...lead,
+      wsStatus: ""
+    };
+  } else {
+    allLeads[index] = {
+      ...lead,
+      courseStatus: "",
+      postStatusUpdated: false
+    };
+  }
 
   const restoreResult = await saveAllLeads(allLeads);
   if (!restoreResult || restoreResult.ok === false) {
@@ -134,20 +166,51 @@ async function restoreLead(leadId) {
   renderAll();
 }
 
-function isPostWorkshopLead(lead) {
-  return lead.wsStatus === "Interested" && lead.whatsappInvite === "Yes";
-}
-
 function isLostLead(lead) {
-  return lead.postStatusUpdated && lead.courseStatus === "Not Interested";
+  const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
+
+  if (pipeline === "main-admission") {
+    return lead.mainAdmissionActivityUpdated && lead.mainAdmissionCourseStatus === "Not Interested";
+  }
+
+  if (pipeline === "course-registration") {
+    return lead.registeredActivityUpdated && lead.registeredCourseStatus === "Not Interested";
+  }
+
+  return lead.wsStatus === "Not Interested"
+    || (lead.postStatusUpdated && lead.courseStatus === "Not Interested");
 }
 
 function getLostSource(lead) {
+  const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
+
+  if (pipeline === "main-admission" && lead.mainAdmissionActivityUpdated && lead.mainAdmissionCourseStatus === "Not Interested") {
+    return "Main Admission Leads";
+  }
+
+  if (pipeline === "course-registration" && lead.registeredActivityUpdated && lead.registeredCourseStatus === "Not Interested") {
+    return String(lead.publicCourseSegment || "").trim().toLowerCase() === "crash-course"
+      ? "7-Day Crash Course"
+      : "Registered Candidates";
+  }
+
+  if (lead.wsStatus === "Not Interested") {
+    return "Workshop Calling";
+  }
+
   if (lead.postStatusUpdated && lead.courseStatus === "Not Interested") {
     return "Admission Calling";
   }
 
   return "Unknown";
+}
+
+function getLostProgramName(lead) {
+  const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
+  if (pipeline === "main-admission" || pipeline === "course-registration") {
+    return String(lead.courseName || lead.courseCode || "").trim() || "-";
+  }
+  return String(lead.workshop || "").trim() || "-";
 }
 
 function renderKpi(lostLeads) {
@@ -170,7 +233,7 @@ function renderTable(lostLeads) {
             <th>Name</th>
             <th>Phone Number</th>
             <th>Email</th>
-            <th>Workshop Name</th>
+            <th>Program</th>
             <th>Counselor</th>
             <th>Lost Stage</th>
             <th>Actions</th>
@@ -190,7 +253,7 @@ function renderTable(lostLeads) {
         <td>${escapeHtml(lead.name)}</td>
         <td>${escapeHtml(lead.phone || "-")}</td>
         <td>${escapeHtml(lead.email)}</td>
-        <td>${escapeHtml(lead.workshop)}</td>
+        <td>${escapeHtml(getLostProgramName(lead))}</td>
         <td>${escapeHtml(lead.counselor || "Unassigned")}</td>
         <td>${escapeHtml(getLostSource(lead))}</td>
         <td>
@@ -246,7 +309,7 @@ function renderAll() {
         lead.name,
         lead.email,
         lead.phone,
-        lead.workshop,
+        getLostProgramName(lead),
         lead.counselor
       ]
         .map((value) => String(value || "").toLowerCase())

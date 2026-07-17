@@ -281,7 +281,7 @@
         <section class="card">
           <div class="meta-section-title">
             <h3>Round-Robin Assignment</h3>
-            <p>Workshop and admission leads use separate counselor rotations.</p>
+            <p>Workshop leads use counselor rotation. Admission leads now stay unassigned until an admin assigns them manually.</p>
           </div>
 
           <div class="note-callout" style="margin-bottom:1.25rem;">
@@ -304,8 +304,8 @@
               <span class="rr-kpi__value" id="rrCounselorCount">—</span>
               <span class="rr-kpi__sub">active</span>
             </div>
-            <div class="rr-kpi">
-              <span class="rr-kpi__label">Admission Counselors</span>
+            <div class="rr-kpi hidden">
+              <span class="rr-kpi__label">Admission Counselors (Legacy)</span>
               <span class="rr-kpi__value" id="admissionRrCounselorCount">â€”</span>
               <span class="rr-kpi__sub">active</span>
             </div>
@@ -318,12 +318,12 @@
           <span id="rrRosterMessage" class="rr-roster-message"></span>
           <div id="rrCounselorList" class="rr-roster"></div>
 
-          <div class="meta-section-title" style="margin:1.5rem 0 .75rem;">
-            <h3>Admission Lead Rotation</h3>
-            <p>Switch counselors on or off for admission leads routed to Main Admission Leads.</p>
+          <div class="meta-section-title hidden" style="margin:1.5rem 0 .75rem;">
+            <h3>Legacy Manual Admission Section</h3>
+            <p>Deprecated: admission leads now stay unassigned until an admin assigns them manually.</p>
           </div>
-          <span id="admissionRrRosterMessage" class="rr-roster-message"></span>
-          <div id="admissionRrCounselorList" class="rr-roster"></div>
+          <span id="admissionRrRosterMessage" class="rr-roster-message hidden"></span>
+          <div id="admissionRrCounselorList" class="rr-roster hidden"></div>
 
           <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;">
             <button type="button" class="btn-secondary" id="resetRrBtn">Reset Meta Lead Count</button>
