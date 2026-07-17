@@ -112,6 +112,10 @@ function formatFieldLabel(value) {
     .replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
+function normalizeText(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 function isCounselorSession() {
   return session?.role === "counselor";
 }
@@ -723,9 +727,53 @@ function getLeadWhatsappNumber(lead) {
   return "";
 }
 
+function getDisplayLeadSource(lead) {
+  const extraFields = getLeadExtraFields(lead);
+  const sourceSignals = [
+    extraFields.source_type,
+    extraFields.platform,
+    extraFields.utm_source,
+    extraFields.referrer,
+    extraFields.lead_source,
+    extraFields.source,
+    lead.metaAdName,
+    lead.metaAdsetName,
+    lead.metaCampaignName,
+    lead.elementorPageUrl,
+    lead.elementorFormName,
+    lead.source
+  ]
+    .map((value) => normalizeText(value))
+    .filter(Boolean)
+    .join(" ");
+
+  if (/\b(instagram|insta|ig)\b/.test(sourceSignals)) {
+    return "Instagram Lead";
+  }
+
+  if (/\b(facebook|fb)\b/.test(sourceSignals)) {
+    return "Facebook Lead";
+  }
+
+  if (normalizeText(lead.elementorPageUrl) || /\b(elementor|website|web|landing page|site)\b/.test(sourceSignals)) {
+    return "Website Lead";
+  }
+
+  if (/\b(meta)\b/.test(sourceSignals)) {
+    return "Meta Lead";
+  }
+
+  if (/\b(public course)\b/.test(sourceSignals)) {
+    return "Website Lead";
+  }
+
+  return String(lead.source || "").trim() || "Unknown";
+}
+
 function buildLeadDetailSections(lead) {
   const extraFields = getLeadExtraFields(lead);
   const whatsappPhone = getLeadWhatsappNumber(lead);
+  const displayLeadSource = getDisplayLeadSource(lead);
   const metaSource = String(lead.source || "").toLowerCase();
   const isMetaLead = metaSource.includes("meta");
   const city = String(extraFields.city || "").trim();
@@ -750,7 +798,7 @@ function buildLeadDetailSections(lead) {
       items: [
         ["CRM ID", lead.id],
         ["Lead Created Date", lead.createdAt],
-        ["Lead Source", lead.source]
+        ["Lead Source", displayLeadSource]
       ]
     },
     {
