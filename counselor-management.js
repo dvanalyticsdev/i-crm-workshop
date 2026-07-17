@@ -26,6 +26,133 @@ const DEFAULT_PERMISSIONS = {
 const counselorForm = document.getElementById("counselorForm");
 const counselorFormMessage = document.getElementById("counselorFormMessage");
 const counselorList = document.getElementById("counselorList");
+const passwordChangeModal = document.getElementById("passwordChangeModal");
+const passwordChangeForm = document.getElementById("passwordChangeForm");
+const passwordChangeTitle = document.getElementById("passwordChangeTitle");
+const passwordChangeUserType = document.getElementById("passwordChangeUserType");
+const passwordChangeUserId = document.getElementById("passwordChangeUserId");
+const passwordChangeUserName = document.getElementById("passwordChangeUserName");
+const passwordChangeNewPassword = document.getElementById("passwordChangeNewPassword");
+const passwordChangeMessage = document.getElementById("passwordChangeMessage");
+const userEditModal = document.getElementById("userEditModal");
+const userEditForm = document.getElementById("userEditForm");
+const userEditTitle = document.getElementById("userEditTitle");
+const userEditType = document.getElementById("userEditType");
+const userEditId = document.getElementById("userEditId");
+const userEditName = document.getElementById("userEditName");
+const userEditEmail = document.getElementById("userEditEmail");
+const userEditPhone = document.getElementById("userEditPhone");
+const userEditPhoneRow = document.getElementById("userEditPhoneRow");
+const userEditPermissionsRow = document.getElementById("userEditPermissionsRow");
+const userEditMessage = document.getElementById("userEditMessage");
+
+function setPasswordChangeMessage(text, isError = true) {
+  if (!passwordChangeMessage) {
+    return;
+  }
+
+  passwordChangeMessage.textContent = text;
+  passwordChangeMessage.style.color = isError ? "var(--danger)" : "var(--success)";
+}
+
+function closePasswordChangeModal() {
+  if (!passwordChangeModal || !passwordChangeForm) {
+    return;
+  }
+
+  passwordChangeForm.reset();
+  passwordChangeUserType.value = "";
+  passwordChangeUserId.value = "";
+  passwordChangeUserName.value = "";
+  setPasswordChangeMessage("");
+  passwordChangeModal.classList.add("hidden");
+}
+
+function setUserEditMessage(text, isError = true) {
+  if (!userEditMessage) {
+    return;
+  }
+
+  userEditMessage.textContent = text;
+  userEditMessage.style.color = isError ? "var(--danger)" : "var(--success)";
+}
+
+function getSelectedEditPermissions() {
+  const checked = Array.from(
+    document.querySelectorAll("input[name='editPermission']:checked")
+  ).map((item) => item.value);
+
+  return {
+    dashboard: false,
+    preWorkshop: checked.includes("preWorkshop"),
+    postWorkshop: checked.includes("postWorkshop"),
+    lostLeads: checked.includes("lostLeads"),
+    monitoring: checked.includes("monitoring")
+  };
+}
+
+function closeUserEditModal() {
+  if (!userEditModal || !userEditForm) {
+    return;
+  }
+
+  userEditForm.reset();
+  userEditType.value = "";
+  userEditId.value = "";
+  setUserEditMessage("");
+  userEditPhoneRow.classList.add("hidden");
+  userEditPermissionsRow.classList.add("hidden");
+  userEditModal.classList.add("hidden");
+}
+
+function openUserEditModal({ userType, user }) {
+  if (!userEditModal || !user) {
+    return;
+  }
+
+  userEditType.value = userType;
+  userEditId.value = user.id || "";
+  userEditName.value = user.name || "";
+  userEditEmail.value = user.email || "";
+  setUserEditMessage("");
+
+  const isCounselor = userType === "counselor";
+  userEditTitle.textContent = isCounselor ? "Edit Counselor" : "Edit Marketing User";
+  userEditPhoneRow.classList.toggle("hidden", !isCounselor);
+  userEditPermissionsRow.classList.toggle("hidden", !isCounselor);
+
+  if (isCounselor) {
+    userEditPhone.value = user.phone || "";
+    const permissions = {
+      ...DEFAULT_PERMISSIONS,
+      ...(user.permissions || {})
+    };
+    document.querySelectorAll("input[name='editPermission']").forEach((item) => {
+      item.checked = Boolean(permissions[item.value]);
+    });
+  } else {
+    userEditPhone.value = "";
+    document.querySelectorAll("input[name='editPermission']").forEach((item) => {
+      item.checked = false;
+    });
+  }
+
+  userEditModal.classList.remove("hidden");
+}
+
+function openPasswordChangeModal({ userType, userId, name }) {
+  if (!passwordChangeModal) {
+    return;
+  }
+
+  passwordChangeUserType.value = userType;
+  passwordChangeUserId.value = userId;
+  passwordChangeUserName.value = name || "";
+  passwordChangeTitle.textContent = userType === "marketing" ? "Change Marketing User Password" : "Change Counselor Password";
+  passwordChangeNewPassword.value = "";
+  setPasswordChangeMessage("");
+  passwordChangeModal.classList.remove("hidden");
+}
 
 function setMessage(text, isError = true) {
   counselorFormMessage.textContent = text;
@@ -221,6 +348,20 @@ function renderCounselorList() {
                   <td>
                     <button
                       type="button"
+                      class="btn-ghost edit-counselor-btn"
+                      data-counselor-id="${counselor.id}"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      class="btn-ghost change-counselor-password-btn"
+                      data-counselor-id="${counselor.id}"
+                    >
+                      Change Password
+                    </button>
+                    <button
+                      type="button"
                       class="btn-ghost remove-counselor-btn"
                       data-counselor-id="${counselor.id}"
                     >
@@ -235,6 +376,32 @@ function renderCounselorList() {
       </table>
     </div>
   `;
+
+  document.querySelectorAll(".edit-counselor-btn").forEach((button) => {
+    button.addEventListener("click", () => {
+      const counselorId = button.getAttribute("data-counselor-id");
+      const counselor = counselors.find((item) => item.id === counselorId);
+      if (!counselor) {
+        return;
+      }
+      openUserEditModal({ userType: "counselor", user: counselor });
+    });
+  });
+
+  document.querySelectorAll(".change-counselor-password-btn").forEach((button) => {
+    button.addEventListener("click", () => {
+      const counselorId = button.getAttribute("data-counselor-id");
+      const counselor = counselors.find((item) => item.id === counselorId);
+      if (!counselor) {
+        return;
+      }
+      openPasswordChangeModal({
+        userType: "counselor",
+        userId: counselor.id,
+        name: counselor.name
+      });
+    });
+  });
 
   document.querySelectorAll(".remove-counselor-btn").forEach((button) => {
     button.addEventListener("click", () => {
@@ -398,6 +565,8 @@ function renderMarketingList() {
               <td>${escapeHtml(u.name)}</td>
               <td>${escapeHtml(u.email)}</td>
               <td>
+                <button type="button" class="btn-ghost edit-marketing-btn" data-user-id="${u.id}">Edit</button>
+                <button type="button" class="btn-ghost change-marketing-password-btn" data-user-id="${u.id}">Change Password</button>
                 <button type="button" class="btn-ghost remove-marketing-btn" data-user-id="${u.id}">Remove</button>
               </td>
             </tr>
@@ -406,6 +575,32 @@ function renderMarketingList() {
       </table>
     </div>
   `;
+
+  document.querySelectorAll(".edit-marketing-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-user-id");
+      const user = users.find((item) => item.id === id);
+      if (!user) {
+        return;
+      }
+      openUserEditModal({ userType: "marketing", user });
+    });
+  });
+
+  document.querySelectorAll(".change-marketing-password-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-user-id");
+      const user = users.find((item) => item.id === id);
+      if (!user) {
+        return;
+      }
+      openPasswordChangeModal({
+        userType: "marketing",
+        userId: user.id,
+        name: user.name
+      });
+    });
+  });
 
   document.querySelectorAll(".remove-marketing-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -456,5 +651,169 @@ marketingForm.addEventListener("submit", async (event) => {
   setMarketingMessage("Marketing user created successfully.", false);
   renderMarketingList();
 });
+
+if (passwordChangeForm) {
+  passwordChangeForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const userType = passwordChangeUserType.value;
+    const userId = passwordChangeUserId.value;
+    const newPassword = passwordChangeNewPassword.value.trim();
+
+    if (!userType || !userId || !newPassword) {
+      setPasswordChangeMessage("Enter a new password to continue.", true);
+      return;
+    }
+
+    if (userType === "counselor") {
+      const counselors = getCounselors();
+      const target = counselors.find((item) => item.id === userId);
+      if (!target) {
+        setPasswordChangeMessage("Counselor not found.", true);
+        return;
+      }
+
+      const nextCounselors = counselors.map((item) => (
+        item.id === userId
+          ? { ...item, password: newPassword }
+          : item
+      ));
+      const result = await saveCounselors(nextCounselors);
+      if (!result || result.ok === false) {
+        setPasswordChangeMessage(result?.message || "Failed to change counselor password.", true);
+        return;
+      }
+    } else if (userType === "marketing") {
+      const users = getMarketingUsers();
+      const target = users.find((item) => item.id === userId);
+      if (!target) {
+        setPasswordChangeMessage("Marketing user not found.", true);
+        return;
+      }
+
+      const nextUsers = users.map((item) => (
+        item.id === userId
+          ? { ...item, password: newPassword }
+          : item
+      ));
+      const result = await saveMarketingUsers(nextUsers);
+      if (!result || result.ok === false) {
+        setPasswordChangeMessage(result?.message || "Failed to change marketing user password.", true);
+        return;
+      }
+    } else {
+      setPasswordChangeMessage("Unsupported account type.", true);
+      return;
+    }
+
+    const syncResult = await syncStateFromLocalAndVerify();
+    if (!syncResult.ok) {
+      setPasswordChangeMessage(syncResult.message || "Backend confirmation failed after changing the password.", true);
+      return;
+    }
+
+    closePasswordChangeModal();
+    if (userType === "marketing") {
+      setMarketingMessage("Password changed successfully.", false);
+      renderMarketingList();
+    } else {
+      setMessage("Password changed successfully.", false);
+      renderCounselorList();
+    }
+  });
+
+  document.getElementById("closePasswordChangeModalBtn").onclick = closePasswordChangeModal;
+}
+
+if (userEditForm) {
+  userEditForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const userType = userEditType.value;
+    const id = userEditId.value;
+    const name = userEditName.value.trim();
+    const email = userEditEmail.value.trim().toLowerCase();
+    const phone = userEditPhone.value.trim();
+
+    if (!userType || !id || !name || !email) {
+      setUserEditMessage("All required fields must be filled.", true);
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setUserEditMessage("Enter a valid email address.", true);
+      return;
+    }
+
+    if (userType === "counselor") {
+      if (!phone) {
+        setUserEditMessage("Phone number is required for counselors.", true);
+        return;
+      }
+
+      const permissions = getSelectedEditPermissions();
+      if (!Object.values(permissions).some(Boolean)) {
+        setUserEditMessage("Select at least one access permission.", true);
+        return;
+      }
+
+      const counselors = getCounselors();
+      if (counselors.some((item) => item.id !== id && item.email === email)) {
+        setUserEditMessage("Another counselor already uses this email.", true);
+        return;
+      }
+
+      const nextCounselors = counselors.map((item) => (
+        item.id === id
+          ? { ...item, name, email, phone, permissions }
+          : item
+      ));
+
+      const result = await saveCounselors(nextCounselors);
+      if (!result || result.ok === false) {
+        setUserEditMessage(result?.message || "Failed to save counselor changes.", true);
+        return;
+      }
+    } else if (userType === "marketing") {
+      const users = getMarketingUsers();
+      if (users.some((item) => item.id !== id && item.email === email)) {
+        setUserEditMessage("Another marketing user already uses this email.", true);
+        return;
+      }
+
+      const nextUsers = users.map((item) => (
+        item.id === id
+          ? { ...item, name, email }
+          : item
+      ));
+
+      const result = await saveMarketingUsers(nextUsers);
+      if (!result || result.ok === false) {
+        setUserEditMessage(result?.message || "Failed to save marketing user changes.", true);
+        return;
+      }
+    } else {
+      setUserEditMessage("Unsupported account type.", true);
+      return;
+    }
+
+    const syncResult = await syncStateFromLocalAndVerify();
+    if (!syncResult.ok) {
+      setUserEditMessage(syncResult.message || "Backend confirmation failed after saving changes.", true);
+      return;
+    }
+
+    closeUserEditModal();
+    if (userType === "marketing") {
+      setMarketingMessage("Marketing user updated successfully.", false);
+      renderMarketingList();
+    } else {
+      setMessage("Counselor updated successfully.", false);
+      renderCounselorList();
+    }
+  });
+
+  document.getElementById("closeUserEditModalBtn").onclick = closeUserEditModal;
+}
 
 renderMarketingList();

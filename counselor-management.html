@@ -136,6 +136,65 @@
           </div>
         </div>
       </section>
+
+      <div id="passwordChangeModal" class="modal hidden">
+        <div class="modal-content card">
+          <h3 id="passwordChangeTitle">Change Password</h3>
+          <form id="passwordChangeForm">
+            <input id="passwordChangeUserType" type="hidden" />
+            <input id="passwordChangeUserId" type="hidden" />
+            <div class="modal-row">
+              <label for="passwordChangeUserName">User</label>
+              <input id="passwordChangeUserName" type="text" disabled />
+            </div>
+            <div class="modal-row">
+              <label for="passwordChangeNewPassword">New Password</label>
+              <input id="passwordChangeNewPassword" type="password" required />
+            </div>
+            <p id="passwordChangeMessage" class="message" aria-live="polite"></p>
+            <div class="modal-actions">
+              <button type="submit" class="btn-primary">Save Password</button>
+              <button type="button" id="closePasswordChangeModalBtn" class="btn-ghost">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div id="userEditModal" class="modal hidden">
+        <div class="modal-content card">
+          <h3 id="userEditTitle">Edit User</h3>
+          <form id="userEditForm">
+            <input id="userEditType" type="hidden" />
+            <input id="userEditId" type="hidden" />
+            <div class="modal-row">
+              <label for="userEditName">Name</label>
+              <input id="userEditName" type="text" required />
+            </div>
+            <div class="modal-row">
+              <label for="userEditEmail">Email</label>
+              <input id="userEditEmail" type="email" required />
+            </div>
+            <div class="modal-row hidden" id="userEditPhoneRow">
+              <label for="userEditPhone">Phone Number</label>
+              <input id="userEditPhone" type="tel" />
+            </div>
+            <div class="modal-row hidden" id="userEditPermissionsRow">
+              <label>Access Permissions</label>
+              <div class="permissions-grid">
+                <label class="permission-option"><input type="checkbox" name="editPermission" value="preWorkshop" /> Workshop Calling</label>
+                <label class="permission-option"><input type="checkbox" name="editPermission" value="postWorkshop" /> Admission Calling</label>
+                <label class="permission-option"><input type="checkbox" name="editPermission" value="lostLeads" /> Lost Leads</label>
+                <label class="permission-option"><input type="checkbox" name="editPermission" value="monitoring" /> Monitoring</label>
+              </div>
+            </div>
+            <p id="userEditMessage" class="message" aria-live="polite"></p>
+            <div class="modal-actions">
+              <button type="submit" class="btn-primary">Save Changes</button>
+              <button type="button" id="closeUserEditModalBtn" class="btn-ghost">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
     </div>
   </div>
 
