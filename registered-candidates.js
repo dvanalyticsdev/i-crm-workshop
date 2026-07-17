@@ -27,6 +27,7 @@ const saveRegisteredRoutingBtn = document.getElementById("saveRegisteredRoutingB
 const clearRegisteredCandidateDataBtn = document.getElementById("clearRegisteredCandidateDataBtn");
 const registeredRoutingMessage = document.getElementById("registeredRoutingMessage");
 const admissionSectionNav = document.getElementById("admissionSectionNav");
+const registeredSegmentSection = document.getElementById("registeredSegmentSection");
 const registeredKpiSection = document.getElementById("registeredKpiSection");
 const registeredFilterBar = document.getElementById("registeredFilterBar");
 const registeredActivityMessage = document.getElementById("registeredActivityMessage");
@@ -263,6 +264,14 @@ function getEffectiveRegisteredRoutingSelection(counselorNames) {
 
 function buildRoutingEndpoint(segment = activeSegment) {
   return `${PUBLIC_COURSE_ROUTING_ENDPOINT}?segment=${encodeURIComponent(normalizeSegment(segment))}`;
+}
+
+function renderSegmentSection() {
+  if (!registeredSegmentSection) {
+    return;
+  }
+  registeredSegmentSection.innerHTML = "";
+  registeredSegmentSection.classList.add("hidden");
 }
 
 function renderAdmissionSectionNav(activeRoute = "registered-candidates.html") {
@@ -1179,6 +1188,7 @@ function setupRegisteredRoutingPanel() {
 
 function renderAll() {
   renderAdmissionSectionNav();
+  renderSegmentSection();
   const allLeads = getScopedLeads(getAllLeads());
   const filteredLeads = filterLeads(allLeads);
   renderRegisteredRoutingPanel();
