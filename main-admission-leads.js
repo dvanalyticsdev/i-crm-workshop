@@ -1,6 +1,7 @@
 import { registerPageCleanup } from "./page-runtime.js";
 import { apiUrl } from "./api-client.js";
 import { openActivityHistory } from "./activity-history.js";
+import { exportLeadRowsToExcel } from "./lead-export.js";
 import {
   bootstrapLocalState,
   getCounselors as getStoredCounselors,
@@ -600,6 +601,7 @@ function renderFilters(leads) {
         <div class="filter-item filter-item-cta">
           <label>&nbsp;</label>
           <div class="filter-actions">
+            <button id="mainAdmissionExportBtn" type="button" class="btn-primary">Export Leads</button>
             <button id="mainAdmissionResetFiltersBtn" type="button" class="btn-ghost">Reset</button>
           </div>
         </div>
@@ -674,6 +676,53 @@ function renderFilters(leads) {
     currentPage = 1;
     renderAll();
   };
+
+  document.getElementById("mainAdmissionExportBtn").onclick = () => {
+    exportFilteredLeads();
+  };
+}
+
+function getMainAdmissionExportRows() {
+  const allLeads = getScopedLeads(getAllLeads());
+  return filterLeads(allLeads);
+}
+
+function exportFilteredLeads() {
+  const segmentConfig = getSegmentConfig();
+  const filteredLeads = getMainAdmissionExportRows();
+  const result = exportLeadRowsToExcel({
+    rows: filteredLeads,
+    columns: [
+      { label: "Lead Import Date", getter: (lead) => lead.createdAt },
+      { label: "CRM ID", getter: (lead) => lead.id },
+      { label: "Name", getter: (lead) => lead.name },
+      { label: "Phone Number", getter: (lead) => lead.phone || "-" },
+      { label: "Email", getter: (lead) => lead.email },
+      { label: "Course Name", getter: (lead) => lead.courseName || "-" },
+      { label: "Country", getter: (lead) => lead.country || "India" },
+      { label: "Counselor", getter: (lead) => lead.counselor || "Unassigned" },
+      { label: "Lead Source", getter: (lead) => getDisplayLeadSource(lead) },
+      { label: "Dialed", getter: (lead) => lead.mainAdmissionDialed || "" },
+      { label: "Course Pitched", getter: (lead) => lead.mainAdmissionCoursePitched || "" },
+      { label: "Course Status", getter: (lead) => lead.mainAdmissionCourseStatus || "" },
+      { label: "Admission", getter: (lead) => lead.mainAdmissionAdmissionStatus || "" },
+      { label: "Call Status", getter: (lead) => lead.mainAdmissionCallStatus || "" }
+    ],
+    fileName: `main-admission-leads-${new Date().toISOString().slice(0, 10)}.xlsx`,
+    sheetName: segmentConfig.label,
+    summary: [
+      ["Section", "Admission"],
+      ["Subsection", segmentConfig.label],
+      ["Filtered Leads", filteredLeads.length]
+    ]
+  });
+
+  if (!result.ok) {
+    showToast(result.message, true);
+    return;
+  }
+
+  showToast(`${segmentConfig.label} exported successfully.`, false);
 }
 
 function filterLeads(leads) {

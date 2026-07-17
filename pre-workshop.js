@@ -23,6 +23,7 @@ import {
   deleteLeadNote,
   updateLeadActivity as updateLeadActivityOnServer
 } from "./lead-service.js";
+import { exportLeadRowsToExcel } from "./lead-export.js";
 
 await bootstrapLocalState();
 
@@ -1390,6 +1391,7 @@ function renderFilters(leads) {
       <div class="filter-item filter-item-cta">
         <label>&nbsp;</label>
         <div class="filter-actions">
+          <button id="exportPreWorkshopLeads" class="btn-primary" type="button">Export Leads</button>
           <button id="resetFilters" class="btn-ghost" type="button">Reset</button>
         </div>
       </div>
@@ -1453,6 +1455,67 @@ function renderFilters(leads) {
     currentPage = 1;
     renderAll();
   };
+
+  document.getElementById("exportPreWorkshopLeads").onclick = () => {
+    exportFilteredLeads();
+  };
+}
+
+function getPreWorkshopExportRows() {
+  const allLeads = getAllLeads();
+  normalizeLeadFields(allLeads);
+  const scopedLeads = getScopedLeads(allLeads);
+  const preWorkshopLeads = getPreWorkshopLeads(scopedLeads);
+  normalizeFilterState(preWorkshopLeads);
+  return filterLeads(preWorkshopLeads);
+}
+
+function getPreWorkshopTimelineLabel() {
+  if (filter.timeline === "today") return "Today";
+  if (filter.timeline === "yesterday") return "Yesterday";
+  if (filter.timeline === "week") return "Week";
+  if (filter.timeline === "custom") {
+    if (filter.startDate || filter.endDate) {
+      return `${filter.startDate || "Start"} to ${filter.endDate || "End"}`;
+    }
+    return "Custom Range";
+  }
+  return "Overall";
+}
+
+function exportFilteredLeads() {
+  const filteredLeads = getPreWorkshopExportRows();
+  const result = exportLeadRowsToExcel({
+    rows: filteredLeads,
+    columns: [
+      { label: "Lead Import Date", getter: (lead) => lead.createdAt },
+      { label: "Name", getter: (lead) => lead.name },
+      { label: "Phone Number", getter: (lead) => lead.phone || "-" },
+      { label: "Email", getter: (lead) => lead.email },
+      { label: "Workshop Name", getter: (lead) => lead.workshop || "-" },
+      { label: "Counselor", getter: (lead) => lead.counselor || "Unassigned" },
+      { label: "Dialed", getter: (lead) => lead.dialed || "" },
+      { label: "Call Status", getter: (lead) => lead.callStatus || "" },
+      { label: "Workshop Status", getter: (lead) => lead.wsStatus || "" },
+      { label: "WhatsApp Invitation Sent", getter: (lead) => lead.whatsappInvite || "" },
+      { label: "WhatsApp Group Status", getter: (lead) => lead.whatsappGroupStatus || "" }
+    ],
+    fileName: `workshop-calling-leads-${new Date().toISOString().slice(0, 10)}.xlsx`,
+    sheetName: "Workshop Calling",
+    summary: [
+      ["Section", "Workshop"],
+      ["Subsection", "Workshop Calling"],
+      ["Timeline", getPreWorkshopTimelineLabel()],
+      ["Filtered Leads", filteredLeads.length]
+    ]
+  });
+
+  if (!result.ok) {
+    showToast(result.message, true);
+    return;
+  }
+
+  showToast("Workshop Calling leads exported successfully.", false);
 }
 
 function renderActivityStatusPanel(lead) {

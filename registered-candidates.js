@@ -1,6 +1,7 @@
 import { registerPageCleanup } from "./page-runtime.js";
 import { apiUrl } from "./api-client.js";
 import { openActivityHistory } from "./activity-history.js";
+import { exportLeadRowsToExcel } from "./lead-export.js";
 import {
   bootstrapLocalState,
   getCounselors as getStoredCounselors,
@@ -633,6 +634,7 @@ function renderFilters(leads) {
         <div class="filter-item filter-item-cta">
           <label>&nbsp;</label>
           <div class="filter-actions">
+            <button id="registeredExportBtn" type="button" class="btn-primary">Export Leads</button>
             <button id="registeredResetFiltersBtn" type="button" class="btn-ghost">Reset</button>
           </div>
         </div>
@@ -707,6 +709,52 @@ function renderFilters(leads) {
     currentPage = 1;
     renderAll();
   };
+
+  document.getElementById("registeredExportBtn").onclick = () => {
+    exportFilteredLeads();
+  };
+}
+
+function getRegisteredExportRows() {
+  const allLeads = getScopedLeads(getAllLeads());
+  return filterLeads(allLeads);
+}
+
+function exportFilteredLeads() {
+  const segmentConfig = getSegmentConfig();
+  const filteredLeads = getRegisteredExportRows();
+  const result = exportLeadRowsToExcel({
+    rows: filteredLeads,
+    columns: [
+      { label: "Lead Import Date", getter: (lead) => lead.createdAt },
+      { label: "CRM ID", getter: (lead) => lead.id },
+      { label: activeSegment === CRASH_SEGMENT ? "Full Name" : "Name", getter: (lead) => lead.name },
+      { label: activeSegment === CRASH_SEGMENT ? "Contact Number" : "Phone Number", getter: (lead) => lead.phone || "-" },
+      { label: activeSegment === CRASH_SEGMENT ? "Mail ID" : "Email", getter: (lead) => lead.email },
+      { label: "Course Name", getter: (lead) => lead.courseName || "-" },
+      { label: activeSegment === CRASH_SEGMENT ? "Location" : "Country", getter: (lead) => lead.country || "India" },
+      { label: "Counselor", getter: (lead) => lead.counselor || "Unassigned" },
+      { label: "Dialed", getter: (lead) => lead.registeredDialed || "" },
+      { label: "Course Pitched", getter: (lead) => lead.registeredCoursePitched || "" },
+      { label: "Course Status", getter: (lead) => lead.registeredCourseStatus || "" },
+      { label: "Admission", getter: (lead) => lead.registeredAdmissionStatus || "" },
+      { label: "Call Status", getter: (lead) => lead.registeredCallStatus || "" }
+    ],
+    fileName: `${segmentConfig.key}-leads-${new Date().toISOString().slice(0, 10)}.xlsx`,
+    sheetName: segmentConfig.label,
+    summary: [
+      ["Section", "Admission"],
+      ["Subsection", segmentConfig.label],
+      ["Filtered Leads", filteredLeads.length]
+    ]
+  });
+
+  if (!result.ok) {
+    showToast(result.message, true);
+    return;
+  }
+
+  showToast(`${segmentConfig.label} exported successfully.`, false);
 }
 
 function filterLeads(leads) {

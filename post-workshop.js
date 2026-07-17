@@ -1,5 +1,6 @@
 import { registerPageCleanup } from "./page-runtime.js";
 import { openActivityHistory } from "./activity-history.js";
+import { exportLeadRowsToExcel } from "./lead-export.js";
 import {
   bootstrapLocalState,
   getCounselors as getStoredCounselors,
@@ -747,6 +748,7 @@ function renderFilters(leads) {
         <div class="filter-item filter-item-cta">
           <label>&nbsp;</label>
           <div class="filter-actions">
+            <button id="exportPostWorkshopLeads" class="btn-primary" type="button">Export Leads</button>
             <button id="postResetFilters" class="btn-ghost" type="button">Reset</button>
           </div>
         </div>
@@ -824,6 +826,67 @@ function renderFilters(leads) {
     currentPage = 1;
     renderAll();
   };
+
+  document.getElementById("exportPostWorkshopLeads").onclick = () => {
+    exportFilteredLeads();
+  };
+}
+
+function getPostWorkshopExportRows() {
+  const allLeads = getAllLeads();
+  normalizeLeadFields(allLeads);
+  const scopedLeads = getScopedLeads(allLeads);
+  const admissionLeads = getAdmissionCallingLeads(scopedLeads);
+  return filterLeads(admissionLeads);
+}
+
+function getPostWorkshopTimelineLabel() {
+  if (filter.timeline === "today") return "Today";
+  if (filter.timeline === "yesterday") return "Yesterday";
+  if (filter.timeline === "week") return "Week";
+  if (filter.timeline === "custom") {
+    if (filter.startDate || filter.endDate) {
+      return `${filter.startDate || "Start"} to ${filter.endDate || "End"}`;
+    }
+    return "Custom Range";
+  }
+  return "Overall";
+}
+
+function exportFilteredLeads() {
+  const filteredLeads = getPostWorkshopExportRows();
+  const result = exportLeadRowsToExcel({
+    rows: filteredLeads,
+    columns: [
+      { label: "Lead Import Date", getter: (lead) => lead.createdAt },
+      { label: "Name", getter: (lead) => lead.name },
+      { label: "Phone Number", getter: (lead) => lead.phone || "-" },
+      { label: "Email", getter: (lead) => lead.email },
+      { label: "Workshop Name", getter: (lead) => getAdmissionWorkshopName(lead) || "-" },
+      { label: "Counselor", getter: (lead) => lead.counselor || "Unassigned" },
+      { label: "Dialed", getter: (lead) => lead.postDialed || "" },
+      { label: "Course Pitched", getter: (lead) => lead.coursePitched || "" },
+      { label: "Course Status", getter: (lead) => lead.courseStatus || "" },
+      { label: "Admission", getter: (lead) => lead.admissionStatus || "" },
+      { label: "Call Status", getter: (lead) => lead.postCallStatus || "" },
+      { label: "Workshop Joining Status", getter: (lead) => lead.workshopJoiningStatus || "" }
+    ],
+    fileName: `admission-calling-leads-${new Date().toISOString().slice(0, 10)}.xlsx`,
+    sheetName: "Admission Calling",
+    summary: [
+      ["Section", "Workshop"],
+      ["Subsection", "Admission Calling"],
+      ["Timeline", getPostWorkshopTimelineLabel()],
+      ["Filtered Leads", filteredLeads.length]
+    ]
+  });
+
+  if (!result.ok) {
+    showToast(result.message, true);
+    return;
+  }
+
+  showToast("Admission Calling leads exported successfully.", false);
 }
 
 function filterLeads(leads) {
