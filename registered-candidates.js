@@ -240,6 +240,65 @@ function buildLeadKey(lead) {
   return [ref.id, ref.email, ref.phone, ref.workshop, ref.createdAt].join("::");
 }
 
+function getSelectableLeadKeys(leads) {
+  return leads.map((lead) => buildLeadKey(lead));
+}
+
+function getSelectedLeadCount(leads) {
+  const selectableKeys = new Set(getSelectableLeadKeys(leads));
+  let count = 0;
+
+  selectedLeadKeys.forEach((leadKey) => {
+    if (selectableKeys.has(String(leadKey))) {
+      count += 1;
+    }
+  });
+
+  return count;
+}
+
+function syncSelectedLeadIds(leads) {
+  const selectableKeys = new Set(getSelectableLeadKeys(leads));
+  selectedLeadKeys = new Set([...selectedLeadKeys].filter((leadKey) => selectableKeys.has(String(leadKey))));
+}
+
+function toggleLeadSelection(leadKey, isChecked) {
+  const next = new Set(selectedLeadKeys);
+  if (isChecked) {
+    next.add(String(leadKey));
+  } else {
+    next.delete(String(leadKey));
+  }
+  selectedLeadKeys = next;
+}
+
+function toggleAllLeadsSelection(leads, isChecked) {
+  selectedLeadKeys = isChecked ? new Set(getSelectableLeadKeys(leads)) : new Set();
+}
+
+function isLeadSelected(lead) {
+  return selectedLeadKeys.has(buildLeadKey(lead));
+}
+
+function clampSelectionCount(rawValue, maxCount) {
+  const parsed = Number.parseInt(String(rawValue || "").trim(), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 0;
+  }
+
+  return Math.min(parsed, maxCount);
+}
+
+function selectLeadBatch(leads, rawValue) {
+  const count = clampSelectionCount(rawValue, leads.length);
+  if (!count) {
+    return 0;
+  }
+
+  selectedLeadKeys = new Set(getSelectableLeadKeys(leads).slice(0, count));
+  return count;
+}
+
 function findLeadByRef(leadRef) {
   const leads = getAllRegisteredCandidateLeads();
   return leads.find((lead) => buildLeadKey(lead) === buildLeadKey(leadRef)) || null;
@@ -796,6 +855,9 @@ function renderLeadTable(leads) {
   const totalPages = Math.ceil(leads.length / pageSize) || 1;
   if (currentPage > totalPages) currentPage = totalPages;
   const pageLeads = leads.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  syncSelectedLeadIds(leads);
+  const selectedCount = isAdmin ? getSelectedLeadCount(leads) : 0;
+  const allSelected = isAdmin && pageLeads.length > 0 && pageLeads.every(isLeadSelected);
   const assignableCounselors = getStoredCounselors()
     .map((item) => String(item.name || "").trim())
     .filter(Boolean)
@@ -804,16 +866,24 @@ function renderLeadTable(leads) {
   const bulkToolbar = isAdmin ? `
     <div class="bulk-toolbar">
       <label class="bulk-select-control">
-        <input id="registeredBulkSelect" type="checkbox" ${pageLeads.length && pageLeads.every((lead) => selectedLeadKeys.has(buildLeadKey(lead))) ? "checked" : ""} />
-        <span>Select Page</span>
+        <input id="registeredBulkSelect" type="checkbox" ${allSelected ? "checked" : ""} />
+        <span>Select All</span>
       </label>
+      <div class="bulk-select-actions">
+        <span class="selected-count">Selected: ${selectedCount}</span>
+        <button id="registeredBulkDelete" class="btn-delete bulk-delete-btn" type="button" ${selectedCount ? "" : "disabled"}>Delete Selected</button>
+      </div>
       <div class="bulk-admin-tools">
+        <div class="bulk-inline-group">
+          <input id="registeredBulkCountInput" class="bulk-count-input" type="number" min="1" max="${leads.length || 1}" placeholder="Count" />
+          <button id="registeredBulkCountApply" type="button" class="btn-ghost bulk-action-btn" ${leads.length ? "" : "disabled"}>Select Count</button>
+        </div>
         <div class="bulk-inline-group">
           <select id="registeredBulkAssignCounselor" class="bulk-assign-select">
             <option value="">Assign to</option>
             ${assignableCounselors.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("")}
           </select>
-          <button id="registeredBulkAssignBtn" type="button" class="btn-ghost bulk-action-btn" ${selectedLeadKeys.size ? "" : "disabled"}>Assign Selected</button>
+          <button id="registeredBulkAssignBtn" type="button" class="btn-ghost bulk-action-btn" ${selectedCount ? "" : "disabled"}>Assign Selected</button>
         </div>
       </div>
     </div>
@@ -882,8 +952,7 @@ function renderLeadTable(leads) {
     checkbox.onchange = () => {
       const key = checkbox.getAttribute("data-lead-key");
       if (!key) return;
-      if (checkbox.checked) selectedLeadKeys.add(key);
-      else selectedLeadKeys.delete(key);
+      toggleLeadSelection(key, checkbox.checked);
       renderAll();
     };
   });
@@ -891,12 +960,34 @@ function renderLeadTable(leads) {
   const bulkSelect = document.getElementById("registeredBulkSelect");
   if (bulkSelect) {
     bulkSelect.onchange = () => {
-      pageLeads.forEach((lead) => {
-        const key = buildLeadKey(lead);
-        if (bulkSelect.checked) selectedLeadKeys.add(key);
-        else selectedLeadKeys.delete(key);
-      });
+      toggleAllLeadsSelection(leads, bulkSelect.checked);
       renderAll();
+    };
+  }
+
+  const bulkDelete = document.getElementById("registeredBulkDelete");
+  if (bulkDelete) {
+    bulkDelete.onclick = () => {
+      void deleteSelectedLeads(leads).then((deleted) => {
+        if (deleted) {
+          renderAll();
+        }
+      });
+    };
+  }
+
+  const bulkCountApply = document.getElementById("registeredBulkCountApply");
+  const bulkCountInput = document.getElementById("registeredBulkCountInput");
+  if (bulkCountApply && bulkCountInput) {
+    bulkCountApply.onclick = () => {
+      const selectedBatchCount = selectLeadBatch(leads, bulkCountInput.value);
+      if (!selectedBatchCount) {
+        showToast("Enter a valid lead count to select.", true);
+        return;
+      }
+
+      renderAll();
+      showToast(`Selected ${selectedBatchCount} lead${selectedBatchCount === 1 ? "" : "s"}.`);
     };
   }
 
@@ -1066,6 +1157,43 @@ async function deleteRegisteredLead(leadKey) {
   setMessage("Registered lead deleted successfully.");
   showToast("Registered lead deleted.");
   renderAll();
+}
+
+async function deleteSelectedLeads(leads) {
+  if (!selectedLeadKeys.size) {
+    return false;
+  }
+
+  const confirmed = window.confirm(`Delete ${selectedLeadKeys.size} selected lead${selectedLeadKeys.size === 1 ? "" : "s"}? This cannot be undone.`);
+  if (!confirmed) {
+    return false;
+  }
+
+  const allLeads = getAllRegisteredCandidateLeads();
+  const selectedKeys = new Set([...selectedLeadKeys].map((key) => String(key)));
+  const remainingLeads = allLeads.filter((lead) => !selectedKeys.has(buildLeadKey(lead)));
+  const removedCount = allLeads.length - remainingLeads.length;
+  if (!removedCount) {
+    return false;
+  }
+
+  const saveResult = await persistLeads(remainingLeads);
+  if (!saveResult || saveResult.ok === false) {
+    showToast(saveResult?.message || "Failed to delete selected leads.", true);
+    return false;
+  }
+
+  const syncResult = await syncStateFromLocalAndVerify();
+  if (!syncResult.ok) {
+    showToast(syncResult.message || "Selected leads were deleted locally, but backend verification failed.", true);
+    return false;
+  }
+
+  selectedLeadKeys = new Set();
+  currentPage = 1;
+  setMessage(`Deleted ${removedCount} selected lead${removedCount === 1 ? "" : "s"}.`);
+  showToast(`Deleted ${removedCount} selected lead${removedCount === 1 ? "" : "s"}.`);
+  return true;
 }
 
 function canEditLeadNotes(lead) {

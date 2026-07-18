@@ -1,5 +1,5 @@
 import { registerPageCleanup } from "./page-runtime.js";
-import { bootstrapLocalState, getSession, getCounselors, saveCounselors, startStatePolling } from "./state-sync.js";
+import { bootstrapLocalState, getSession, getCounselors, refreshState, saveCounselors, startStatePolling } from "./state-sync.js";
 import { apiUrl } from "./api-client.js";
 
 await bootstrapLocalState();
@@ -221,18 +221,32 @@ async function updateCounselorRoundRobinStatus(counselorId, field, enabled) {
   const safeField = "roundRobinEnabled";
   const targetMessage = rrRosterMessage;
 
-  const counselors = getCounselors();
-  const nextCounselors = counselors.map((counselor) => {
-    const id = String(counselor.id || counselor.email || "");
-    if (id !== String(counselorId || "")) return counselor;
-    return {
-      ...counselor,
-      [safeField]: enabled
-    };
-  });
+  const buildNextCounselors = () => {
+    const counselors = getCounselors();
+    return counselors.map((counselor) => {
+      const id = String(counselor.id || counselor.email || "");
+      if (id !== String(counselorId || "")) return counselor;
+      return {
+        ...counselor,
+        [safeField]: enabled
+      };
+    });
+  };
 
   showMessage(targetMessage, "Saving counselor rotation...");
-  const result = await saveCounselors(nextCounselors);
+  let result = await saveCounselors(buildNextCounselors());
+  if (!result || result.ok === false) {
+    const shouldRetry = String(result?.message || "").toLowerCase().includes("state changed on the server");
+    if (shouldRetry) {
+      try {
+        await refreshState();
+        result = await saveCounselors(buildNextCounselors());
+      } catch (error) {
+        result = { ok: false, message: error?.message || result?.message || "Failed to update counselor rotation." };
+      }
+    }
+  }
+
   if (!result || result.ok === false) {
     showMessage(targetMessage, result?.message || "Failed to update counselor rotation.", true);
     renderRoundRobinCounselors();
