@@ -11,6 +11,7 @@ if (!session || !["admin", "marketing"].includes(session.role)) {
 }
 
 const webhookUrlInput = document.getElementById("webhookUrl");
+const integrationSectionNav = document.getElementById("integrationSectionNav");
 const copyWebhookUrlBtn = document.getElementById("copyWebhookUrlBtn");
 const enabledToggle = document.getElementById("enabledToggle");
 const saveConfigBtn = document.getElementById("saveConfigBtn");
@@ -99,6 +100,53 @@ function isCounselorInWorkshopRotation(counselor) {
 
 function isCounselorInAdmissionRotation(counselor) {
   return counselor?.admissionRoundRobinEnabled === true && !counselor?.disabled;
+}
+
+function renderIntegrationSectionNav(activeRoute = "elementor-integration.html") {
+  if (!integrationSectionNav) {
+    return;
+  }
+
+  const sections = [
+    {
+      route: "meta-integration.html",
+      label: "Meta",
+      description: "Manage Facebook and Instagram lead capture, webhook setup, and counselor rotation."
+    },
+    {
+      route: "elementor-integration.html",
+      label: "Elementor",
+      description: "Manage Elementor webhook intake, form rules, and automatic workshop or admission routing."
+    }
+  ];
+
+  integrationSectionNav.innerHTML = `
+    <div class="card-head">
+      <h3>Integration Subsections</h3>
+      <p>Use this section to switch between the connected lead sources instead of keeping each one in the sidebar.</p>
+    </div>
+    <div class="filter-actions" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+      ${sections.map((section) => `
+        <button
+          type="button"
+          class="${activeRoute === section.route ? "btn-primary" : "btn-ghost"}"
+          data-integration-section="${section.route}"
+        >
+          ${escapeHtml(section.label)}
+        </button>
+      `).join("")}
+    </div>
+    <p class="block-help">${escapeHtml(sections.find((section) => section.route === activeRoute)?.description || "")}</p>
+  `;
+
+  integrationSectionNav.querySelectorAll("[data-integration-section]").forEach((button) => {
+    button.onclick = () => {
+      const route = button.getAttribute("data-integration-section");
+      if (route && route !== window.location.pathname.split("/").pop()) {
+        window.location.href = route;
+      }
+    };
+  });
 }
 
 function addRuleRow(container, placeholder, value = "") {
@@ -363,6 +411,7 @@ if (session.role !== "admin") {
 
 webhookUrlInput.value = buildWebhookUrl();
 
+renderIntegrationSectionNav();
 const config = await loadConfig();
 applyConfig(config);
 await loadLogs();

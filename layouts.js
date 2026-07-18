@@ -70,7 +70,7 @@ function rebuildSidebarSections() {
   );
 
   const generalRoutes = ["dashboard.html", "lost-leads.html", "monitoring.html", "task-tracker.html"];
-  const adminRoutes = ["counselor-management.html", "lead-control.html", "meta-integration.html", "elementor-integration.html"];
+  const adminRoutes = ["counselor-management.html", "lead-control.html"];
 
   const routeLabels = {
     "dashboard.html": "Dashboard",
@@ -81,8 +81,7 @@ function rebuildSidebarSections() {
     "monitoring.html": "Monitoring",
     "counselor-management.html": "Counselor Management",
     "lead-control.html": "Lead & Data Control",
-    "meta-integration.html": "Meta Integration",
-    "elementor-integration.html": "Elementor Integration"
+    "meta-integration.html": "Integration"
   };
 
   const ensureLink = (route, options = {}) => {
@@ -152,6 +151,15 @@ function rebuildSidebarSections() {
       bottomLinkContainer.appendChild(link);
     }
   });
+
+  const integrationLink = ensureLink("meta-integration.html", {
+    bottom: true,
+    adminOnly: true,
+    activeRoutes: ["elementor-integration.html"]
+  });
+  if (integrationLink) {
+    bottomLinkContainer.appendChild(integrationLink);
+  }
 }
 
 function ensureIntegrationSidebarLinks() {
@@ -172,8 +180,7 @@ function ensureIntegrationSidebarLinks() {
     }
   };
 
-  ensureLink("meta-integration.html", "Meta Integration");
-  ensureLink("elementor-integration.html", "Elementor Integration");
+  ensureLink("meta-integration.html", "Integration");
 }
 
 const prefetchedRoutes = new Set();
