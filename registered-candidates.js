@@ -103,6 +103,58 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
+function normalizeCourseSourceText(value) {
+  return String(value || "")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/[()]+/g, " ")
+    .replace(/\b(adset|asset|ads?|campaign|broad|interest|audience|retargeting|instantform|test|blr|bbsr|odisha|india|ind|od|dubai)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getCanonicalCourseIdentity(lead = {}) {
+  const descriptor = normalizeCourseSourceText([
+    lead?.courseRawName,
+    lead?.courseName,
+    lead?.courseId,
+    lead?.courseCode,
+    lead?.metaAdName,
+    lead?.metaAdsetName,
+    lead?.metaCampaignName,
+    lead?.elementorFormName,
+    lead?.elementorPageUrl
+  ].filter(Boolean).join(" "));
+  const normalized = descriptor.toLowerCase();
+
+  if (!normalized) {
+    return { label: "", key: "" };
+  }
+  if (/\bapids\b|\bindustrial data science\b|\bdata science\b/i.test(normalized)) {
+    return { label: "APIDS", key: "apids" };
+  }
+  if (/\bapida\b|\bindustrial data analytics\b|\bdata analytics specialist\b|\bdata analytics\b/i.test(normalized)) {
+    return { label: "APIDA", key: "apida" };
+  }
+  if (/\b7\s*days?\b.*\bgen\s*ai\b|\bgen\s*ai\b.*\b7\s*days?\b|\b7days\b|\bdays7[_\s-]*genai\b/i.test(normalized)) {
+    return { label: "7 Days Gen AI", key: "7-days-gen-ai" };
+  }
+  if (/\badvanced\b.*\b(ai\s*\/?\s*ml|aiml)\b|\badv\b.*\b(ai\s*\/?\s*ml|aiml)\b|\baiml\b/i.test(normalized)) {
+    return { label: "Advanced AI/ML", key: "advanced-ai-ml" };
+  }
+  if (/\bcyber\s*security\b|\bcybersecurity\b|\bcyber\s*ai\b|\bcyberai\b|\bapcs\b|\bforensics\b/i.test(normalized)) {
+    return { label: "Cyber Security", key: "cyber-security" };
+  }
+  if (/\bgen\s*ai\b|\bgenai\b|\bagentic\b/i.test(normalized)) {
+    return { label: "Gen AI", key: "gen-ai" };
+  }
+
+  return {
+    label: descriptor.replace(/\b\w/g, (match) => match.toUpperCase()),
+    key: normalized.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
+  };
+}
+
 function isCounselorSession() {
   return session?.role === "counselor";
 }
@@ -152,7 +204,10 @@ function getActiveCounselorNames() {
 function normalizeLeadFields(leads) {
   leads.forEach((lead) => {
     lead.counselor = lead.counselor || "Unassigned";
-    lead.courseName = String(lead.courseName || "").trim();
+    const canonicalCourse = getCanonicalCourseIdentity(lead);
+    lead.courseRawName = String(lead.courseRawName || lead.courseName || "").trim();
+    lead.courseName = canonicalCourse.label || String(lead.courseName || "").trim();
+    lead.courseKey = canonicalCourse.key || String(lead.courseKey || "").trim();
     lead.createdAt = lead.createdAt || new Date().toISOString().slice(0, 10);
     lead.registeredDialed = lead.registeredDialed || "";
     lead.registeredCoursePitched = lead.registeredCoursePitched || "";

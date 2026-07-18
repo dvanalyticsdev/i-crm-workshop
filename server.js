@@ -62,6 +62,15 @@ const PUBLIC_COURSE_CATALOG = [
   { id: "days7_genai", code: "7DAYS_GENAI", name: "7 Days Gen AI & Agentic AI Hands-on Master Program", duration: "7 Days" }
 ];
 
+const COURSE_IDENTITY_RULES = [
+  { pattern: /\bapids\b|\bindustrial data science\b|\bdata science\b/i, label: "APIDS", key: "apids" },
+  { pattern: /\bapida\b|\bindustrial data analytics\b|\bdata analytics specialist\b|\bdata analytics\b/i, label: "APIDA", key: "apida" },
+  { pattern: /\b7\s*days?\b.*\bgen\s*ai\b|\bgen\s*ai\b.*\b7\s*days?\b|\b7days\b|\bdays7[_\s-]*genai\b/i, label: "7 Days Gen AI", key: "7-days-gen-ai" },
+  { pattern: /\badvanced\b.*\b(ai\s*\/?\s*ml|aiml)\b|\badv\b.*\b(ai\s*\/?\s*ml|aiml)\b|\baiml\b/i, label: "Advanced AI/ML", key: "advanced-ai-ml" },
+  { pattern: /\bcyber\s*security\b|\bcybersecurity\b|\bcyber\s*ai\b|\bcyberai\b|\bapcs\b|\bforensics\b/i, label: "Cyber Security", key: "cyber-security" },
+  { pattern: /\bgen\s*ai\b|\bgenai\b|\bagentic\b/i, label: "Gen AI", key: "gen-ai" }
+];
+
 const ADMIN_USER = {
   id: ADMIN_LOGIN_ID,
   password: ADMIN_LOGIN_PASSWORD,
@@ -1160,6 +1169,54 @@ function buildWorkshopIdentity(workshopName) {
     topicKey: topicSlug || slugifyWorkshopPart(fallbackLabel),
     dateKey: dateDetails?.key || "",
     qualifiers: qualifierLabels
+  };
+}
+
+function normalizeCourseSourceText(value) {
+  return String(value || "")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/[()]+/g, " ")
+    .replace(/\b(adset|asset|ads?|campaign|broad|interest|audience|retargeting|instantform|test|blr|bbsr|odisha|india|ind|od|dubai)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildCourseIdentity(value, lead = {}) {
+  const descriptor = normalizeCourseSourceText([
+    value,
+    lead?.courseId,
+    lead?.courseCode,
+    lead?.metaAdName,
+    lead?.metaAdsetName,
+    lead?.metaCampaignName,
+    lead?.elementorFormName,
+    lead?.elementorPageUrl
+  ].filter(Boolean).join(" "));
+
+  if (!descriptor) {
+    return {
+      label: "",
+      key: "",
+      rawLabel: ""
+    };
+  }
+
+  for (const rule of COURSE_IDENTITY_RULES) {
+    if (rule.pattern.test(descriptor)) {
+      return {
+        label: rule.label,
+        key: rule.key,
+        rawLabel: normalizeMetaLabel(value)
+      };
+    }
+  }
+
+  const fallbackLabel = toTitleCaseWords(descriptor);
+  return {
+    label: fallbackLabel,
+    key: slugifyWorkshopPart(fallbackLabel),
+    rawLabel: normalizeMetaLabel(value)
   };
 }
 
@@ -2800,8 +2857,30 @@ function decorateLeadWorkshopFields(lead = {}) {
   return nextLead;
 }
 
+function decorateLeadCourseFields(lead = {}) {
+  const nextLead = { ...lead };
+  const courseIdentity = buildCourseIdentity(lead?.courseName, lead);
+  const rawCourseName = normalizeMetaLabel(lead?.courseRawName || lead?.courseName);
+
+  if (courseIdentity.label) {
+    nextLead.courseName = courseIdentity.label;
+    nextLead.courseKey = courseIdentity.key;
+    nextLead.courseRawName = rawCourseName || courseIdentity.rawLabel || courseIdentity.label;
+  } else {
+    nextLead.courseName = String(lead?.courseName || "").trim();
+    delete nextLead.courseKey;
+    if (rawCourseName) {
+      nextLead.courseRawName = rawCourseName;
+    } else {
+      delete nextLead.courseRawName;
+    }
+  }
+
+  return nextLead;
+}
+
 function decorateLeadForStorage(lead = {}) {
-  return decorateLeadDuplicateKeys(decorateLeadWorkshopFields(lead));
+  return decorateLeadDuplicateKeys(decorateLeadCourseFields(decorateLeadWorkshopFields(lead)));
 }
 
 function decorateLeadListForStorage(leads = []) {
