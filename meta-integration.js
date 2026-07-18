@@ -1,5 +1,5 @@
 import { registerPageCleanup } from "./page-runtime.js";
-import { bootstrapLocalState, getSession, getCounselors, refreshState, saveCounselors, startStatePolling } from "./state-sync.js";
+import { acceptServerState, bootstrapLocalState, getSession, getCounselors, refreshState, startStatePolling } from "./state-sync.js";
 import { apiUrl } from "./api-client.js";
 
 await bootstrapLocalState();
@@ -218,36 +218,39 @@ function renderCounselorRotationRows(counselors, options) {
 
 async function updateCounselorRoundRobinStatus(counselorId, field, enabled) {
   if (session.role !== "admin") return;
-  const safeField = "roundRobinEnabled";
   const targetMessage = rrRosterMessage;
 
-  const buildNextCounselors = () => {
-    const counselors = getCounselors();
-    return counselors.map((counselor) => {
-      const id = String(counselor.id || counselor.email || "");
-      if (id !== String(counselorId || "")) return counselor;
-      return {
-        ...counselor,
-        [safeField]: enabled
-      };
-    });
-  };
-
   showMessage(targetMessage, "Saving counselor rotation...");
-  let result = await saveCounselors(buildNextCounselors());
-  if (!result || result.ok === false) {
-    const shouldRetry = String(result?.message || "").toLowerCase().includes("state changed on the server");
-    if (shouldRetry) {
-      try {
-        await refreshState();
-        result = await saveCounselors(buildNextCounselors());
-      } catch (error) {
-        result = { ok: false, message: error?.message || result?.message || "Failed to update counselor rotation." };
-      }
+  let result = null;
+
+  try {
+    const response = await fetch(apiUrl("/api/counselors/rotation"), {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
+      credentials: "same-origin",
+      body: JSON.stringify({
+        counselorId: String(counselorId || "").trim(),
+        field: String(field || "roundRobinEnabled").trim() || "roundRobinEnabled",
+        enabled: !!enabled
+      })
+    });
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      result = { ok: false, message: payload?.message || `HTTP ${response.status}` };
+    } else {
+      acceptServerState(payload?.state || {});
+      result = { ok: true };
     }
+  } catch (error) {
+    result = { ok: false, message: error?.message || "Failed to update counselor rotation." };
   }
 
   if (!result || result.ok === false) {
+    await refreshState().catch(() => undefined);
     showMessage(targetMessage, result?.message || "Failed to update counselor rotation.", true);
     renderRoundRobinCounselors();
     return;

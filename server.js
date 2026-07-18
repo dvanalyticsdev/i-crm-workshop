@@ -4939,6 +4939,75 @@ app.put("/api/counselors", async (req, res) => {
   }
 });
 
+app.put("/api/counselors/rotation", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, "admin");
+    if (!session) return;
+
+    const counselorId = String(req.body?.counselorId || "").trim();
+    const field = String(req.body?.field || "roundRobinEnabled").trim();
+    const enabled = typeof req.body?.enabled === "boolean" ? req.body.enabled : null;
+    const allowedFields = new Set(["roundRobinEnabled"]);
+
+    if (!counselorId) {
+      return res.status(400).json({ message: "Counselor ID is required." });
+    }
+    if (!allowedFields.has(field)) {
+      return res.status(400).json({ message: "Unsupported rotation field." });
+    }
+    if (enabled == null) {
+      return res.status(400).json({ message: "Enabled flag is required." });
+    }
+
+    const counselors = await withMongoRetry(
+      () => counselorsCollection.find({}).toArray(),
+      { retries: 1, label: "Load counselors for rotation update" }
+    );
+
+    const existingCounselor = (Array.isArray(counselors) ? counselors : []).find((counselor) => {
+      const id = String(counselor?.id || counselor?.email || "").trim();
+      return id === counselorId;
+    });
+
+    if (!existingCounselor) {
+      return res.status(404).json({ message: "Counselor not found." });
+    }
+
+    const nextCounselor = {
+      ...existingCounselor,
+      [field]: enabled
+    };
+
+    await withMongoRetry(
+      () => counselorsCollection.replaceOne(
+        { email: String(existingCounselor.email || "").trim().toLowerCase() },
+        nextCounselor,
+        { upsert: false }
+      ),
+      { retries: 1, label: "Update counselor rotation" }
+    );
+
+    const now = new Date().toISOString();
+    await stateCollection.updateOne(
+      { _id: STATE_DOC_ID },
+      { $set: { updatedAt: now } },
+      { upsert: true }
+    );
+
+    cachedStateDoc = null;
+    cachedStateDocAt = 0;
+    const nextState = await getStateDoc();
+    res.setHeader("ETag", buildStateEtag(nextState));
+    return res.json({
+      ok: true,
+      counselor: nextCounselor,
+      state: buildStateResponse(nextState)
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to update counselor rotation", details: error.message });
+  }
+});
+
 app.get("/api/allocation", async (req, res) => {
   try {
     const session = await requireSession(req, res);
