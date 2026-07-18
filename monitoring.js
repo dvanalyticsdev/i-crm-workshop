@@ -421,7 +421,7 @@ function getAdmissionWorkshopName(lead) {
   return String(lead?.admissionWorkshop || lead?.workshop || "").trim();
 }
 
-function formatBreakdownEntries(items, key) {
+function formatBreakdownEntries(items, key, countField = "") {
   const counts = new Map();
 
   items.forEach((item) => {
@@ -432,7 +432,8 @@ function formatBreakdownEntries(items, key) {
     if (!value) {
       return;
     }
-    counts.set(value, (counts.get(value) || 0) + 1);
+    const count = countField ? Number(item[countField]) || 0 : 1;
+    counts.set(value, (counts.get(value) || 0) + count);
   });
 
   return Array.from(counts.entries())
@@ -440,17 +441,12 @@ function formatBreakdownEntries(items, key) {
     .map(([name, count]) => ({ name, count }));
 }
 
-function formatAdmissionWorkshopBreakdownEntries(items) {
+function formatAdmissionWorkshopBreakdownEntries(items, countField = "") {
   return formatBreakdownEntries(
     items.map((lead) => ({ ...lead, workshop: getAdmissionWorkshopName(lead) })),
-    "workshop"
+    "workshop",
+    countField
   );
-}
-
-function formatAdmissionWorkshopBreakdown(items) {
-  return formatAdmissionWorkshopBreakdownEntries(items)
-    .map((entry) => `${entry.name} (${entry.count})`)
-    .join(", ");
 }
 
 function renderBreakdownCell(entries, emptyLabel) {
@@ -553,7 +549,7 @@ function buildWorkshopRows(counselors, leads, rawLeads, range) {
     return {
       counselor,
       ...activitySummary,
-      workshopEntries: formatBreakdownEntries(activityLeads, "workshop"),
+      workshopEntries: formatBreakdownEntries(activityLeads, "workshop", "preActivityUpdates"),
       interested: activityLeads.filter((lead) => lead.wsStatus === "Interested").length,
       notInterested: activityLeads.filter((lead) => lead.wsStatus === "Not Interested").length,
       whatsappJoined: counselorLeads.filter((lead) => lead.whatsappGroupStatus === "Joined").length,
@@ -568,13 +564,11 @@ function buildPostWorkshopRows(counselors, leads, rawLeads, range) {
     const counselorRawLeads = rawLeads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
     const activityLeads = counselorLeads.filter((lead) => (Number(lead.postActivityUpdates) || 0) > 0);
     const activitySummary = splitFreshAndOldActivities(activityLeads, "postActivityUpdates", range);
-    const workshops = formatAdmissionWorkshopBreakdown(activityLeads);
 
     return {
       counselor,
       ...activitySummary,
-      workshops,
-      workshopEntries: formatAdmissionWorkshopBreakdownEntries(activityLeads),
+      workshopEntries: formatAdmissionWorkshopBreakdownEntries(activityLeads, "postActivityUpdates"),
       interested: activityLeads.filter((lead) => lead.courseStatus === "Interested").length,
       notInterested: counselorLeads.filter((lead) => lead.courseStatus === "Not Interested").length,
       enrolled: activityLeads.filter((lead) => lead.admissionStatus === "Enrolled").length,
@@ -594,7 +588,7 @@ function buildMainAdmissionRows(counselors, leads, rawLeads, range) {
     return {
       counselor,
       ...activitySummary,
-      courseEntries: formatBreakdownEntries(activityLeads, "courseName"),
+      courseEntries: formatBreakdownEntries(activityLeads, "courseName", "mainAdmissionActivityUpdates"),
       interested: activityLeads.filter((lead) => lead.mainAdmissionCourseStatus === "Interested").length,
       notInterested: counselorLeads.filter((lead) => lead.mainAdmissionCourseStatus === "Not Interested").length,
       enrolled: activityLeads.filter((lead) => lead.mainAdmissionAdmissionStatus === "Enrolled").length,
@@ -614,7 +608,7 @@ function buildRegisteredRows(counselors, leads, rawLeads, range) {
     return {
       counselor,
       ...activitySummary,
-      courseEntries: formatBreakdownEntries(activityLeads, "courseName"),
+      courseEntries: formatBreakdownEntries(activityLeads, "courseName", "registeredCourseActivityUpdates"),
       newLeads: countNewLeads(counselorRawLeads, range),
       dialed: activityLeads.filter((lead) => lead.registeredDialed === "Yes").length,
       interested: activityLeads.filter((lead) => lead.registeredCourseStatus === "Interested").length,
