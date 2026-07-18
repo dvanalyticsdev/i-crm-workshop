@@ -4403,6 +4403,17 @@ function buildLiveLeadIdentityMatchConditions(leadRefs) {
     .filter(Boolean);
 }
 
+function buildLiveLeadIdQuery(leadRefs = [], leadIds = []) {
+  const ids = [
+    ...(Array.isArray(leadIds) ? leadIds : []),
+    ...(Array.isArray(leadRefs) ? leadRefs.map((ref) => ref?.id) : [])
+  ]
+    .flatMap((leadId) => getLeadIdCandidates(leadId))
+    .filter((leadId) => String(leadId || "").trim());
+
+  return ids.length ? { id: { $in: [...new Set(ids)] } } : null;
+}
+
 function findLeadById(state, leadId) {
   const candidates = new Set(getLeadIdCandidates(leadId).map((value) => String(value)));
   return (Array.isArray(state?.leads) ? state.leads : []).find(
@@ -5400,7 +5411,7 @@ app.delete("/api/leads", async (req, res) => {
   }
 });
 
-app.patch("/api/leads/assignment", async (req, res) => {
+async function assignLeadsHandler(req, res) {
   try {
     const session = await requireRole(req, res, "admin");
     if (!session) return;
@@ -5412,34 +5423,33 @@ app.patch("/api/leads/assignment", async (req, res) => {
       return res.status(400).json({ message: "Lead references and counselor are required." });
     }
 
-    const matchConditions = leadRefs.map((ref) => {
-      const id = String(ref?.id || "").trim();
-      if (!id) return null;
-      const condition = { id: { $in: getLeadIdCandidates(id) } };
-      const email = String(ref?.email || "").trim().toLowerCase();
-      const phone = String(ref?.phone || "").trim();
-      const workshop = String(ref?.workshop || "").trim();
-      const createdAt = String(ref?.createdAt || "").trim();
-      if (email) condition.email = email;
-      if (phone) condition.phone = phone;
-      if (workshop) condition.workshop = workshop;
-      if (createdAt) condition.createdAt = createdAt;
-      return condition;
-    }).filter(Boolean);
+    const idQuery = buildLiveLeadIdQuery(leadRefs, leadIds);
+    const identityMatchConditions = buildLiveLeadIdentityMatchConditions(leadRefs);
+    const identityQuery = identityMatchConditions.length ? { $or: identityMatchConditions } : null;
+    const query = idQuery || identityQuery;
 
-    const query = matchConditions.length
-      ? { $or: matchConditions }
-      : { id: { $in: [...new Set(leadIds.flatMap((leadId) => getLeadIdCandidates(leadId)))] } };
+    if (!query) {
+      return res.status(400).json({ message: "Lead references are required." });
+    }
 
-    const leadsToUpdate = await leadsCollection.find(query).toArray();
+    let leadsToUpdate = await leadsCollection.find(query).toArray();
+    let updateQuery = query;
+    if (!leadsToUpdate.length && idQuery && identityQuery) {
+      leadsToUpdate = await leadsCollection.find(identityQuery).toArray();
+      updateQuery = identityQuery;
+    }
+
+    if (!leadsToUpdate.length) {
+      return res.status(404).json({ message: "No matching leads were assigned." });
+    }
 
     const result = await leadsCollection.updateMany(
-      query,
+      updateQuery,
       { $set: { counselor } }
     );
 
-    if (!result.modifiedCount) {
-      return res.status(404).json({ message: "No matching leads were assigned." });
+    if (!result.matchedCount) {
+      return res.status(409).json({ message: "Leads changed before they could be assigned. Please reload and retry." });
     }
 
     // Trigger notifications for reassigned leads
@@ -5516,11 +5526,14 @@ app.patch("/api/leads/assignment", async (req, res) => {
 
     const nextState = await refreshStateAfterAtomicUpdate();
     res.setHeader("ETag", buildStateEtag(nextState));
-    return res.json({ ok: true, updatedCount: result.modifiedCount, state: buildStateResponse(nextState) });
+    return res.json({ ok: true, updatedCount: result.modifiedCount, matchedCount: result.matchedCount, state: buildStateResponse(nextState) });
   } catch (error) {
     return res.status(500).json({ message: "Failed to assign leads", details: error.message });
   }
-});
+}
+
+app.patch("/api/leads/assignment", assignLeadsHandler);
+app.post("/api/leads/assignment", assignLeadsHandler);
 
 app.post("/api/tasks", async (req, res) => {
   try {

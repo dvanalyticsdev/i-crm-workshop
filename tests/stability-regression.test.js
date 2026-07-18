@@ -116,7 +116,11 @@ test("bulk assignment uses full lead identity references", () => {
   assert.match(postWorkshop, /buildLeadSelectionRef/);
   assert.match(leadService, /JSON\.stringify\(\{ leadRefs, counselor \}\)/);
   assert.match(server, /buildLeadIdentityMatchConditions/);
+  assert.match(server, /buildLiveLeadIdQuery/);
   assert.match(server, /const leadRefs = Array\.isArray\(req\.body\?\.leadRefs\)/);
+  assert.match(server, /app\.patch\("\/api\/leads\/assignment", assignLeadsHandler\)/);
+  assert.match(server, /app\.post\("\/api\/leads\/assignment", assignLeadsHandler\)/);
+  assert.match(server, /result\.matchedCount/);
 });
 
 test("lead-control includes smart assignment suggestion panel", () => {
