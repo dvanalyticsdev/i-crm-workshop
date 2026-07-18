@@ -167,6 +167,7 @@ let mongoInitPromise;
 let cachedStateDoc    = null;
 let cachedStateDocAt  = 0;
 let metaLogWriteCount = 0;
+let leadStorageNormalizationPromise = null;
 // Re-read from Mongo after 5 s so stale serverless instances pick up writes
 // from other instances sooner. Shorter TTL reduces the window in which a
 // concurrent GET can return stale data after a PUT on a different instance.
@@ -693,6 +694,9 @@ async function initMongo() {
 
         // Always ensure the lead ID sequence is in sync with the actual leads at startup
         await syncLeadSequence().catch(() => undefined);
+        await ensureLeadStorageNormalization().catch((error) => {
+          console.warn(`Workshop normalization migration skipped: ${error.message}`);
+        });
         console.log(`Connected to MongoDB database: ${MONGODB_DB_NAME}`);
       } catch (err) {
         console.warn(`\n⚠️ MongoDB connection failed: ${err.message}`);
@@ -969,6 +973,194 @@ function normalizeMetaLabel(value) {
     .replace(/[_-]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+const WORKSHOP_MONTH_LOOKUP = {
+  jan: "January",
+  january: "January",
+  feb: "February",
+  february: "February",
+  mar: "March",
+  march: "March",
+  apr: "April",
+  april: "April",
+  may: "May",
+  jun: "June",
+  june: "June",
+  jul: "July",
+  july: "July",
+  aug: "August",
+  august: "August",
+  sep: "September",
+  sept: "September",
+  september: "September",
+  oct: "October",
+  october: "October",
+  nov: "November",
+  november: "November",
+  dec: "December",
+  december: "December"
+};
+
+const WORKSHOP_TOPIC_PATTERNS = [
+  { pattern: /\bpower\s*bi\b|\bpowerbi\b/i, label: "Power BI", slug: "power-bi" },
+  { pattern: /\bcyber\s*security\b|\bcybersecurity\b/i, label: "Cyber Security", slug: "cyber-security" },
+  { pattern: /\bcyber\s*ai\b|\bcyberai\b/i, label: "Cyber AI", slug: "cyber-ai" },
+  { pattern: /\bgen\s*ai\b|\bgenai\b/i, label: "Gen AI", slug: "gen-ai" },
+  { pattern: /\bexcel\b/i, label: "Excel", slug: "excel" },
+  { pattern: /\bpython\b/i, label: "Python", slug: "python" },
+  { pattern: /\bsql\b/i, label: "SQL", slug: "sql" }
+];
+
+const WORKSHOP_QUALIFIER_PATTERNS = [
+  { pattern: /\bdubai\b/i, label: "Dubai", slug: "dubai" }
+];
+
+function toTitleCaseWords(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\b([a-z])/g, (match) => match.toUpperCase());
+}
+
+function slugifyWorkshopPart(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function formatOrdinalDay(day) {
+  const normalizedDay = Number(day);
+  if (!Number.isFinite(normalizedDay)) {
+    return "";
+  }
+
+  const remainder = normalizedDay % 100;
+  if (remainder >= 11 && remainder <= 13) {
+    return `${normalizedDay}th`;
+  }
+
+  switch (normalizedDay % 10) {
+    case 1:
+      return `${normalizedDay}st`;
+    case 2:
+      return `${normalizedDay}nd`;
+    case 3:
+      return `${normalizedDay}rd`;
+    default:
+      return `${normalizedDay}th`;
+  }
+}
+
+function normalizeWorkshopSourceText(value) {
+  return String(value || "")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/([A-Za-z])(\d)/g, "$1 $2")
+    .replace(/(\d)([A-Za-z])/g, "$1 $2")
+    .replace(/\b(\d{1,2})\s+(st|nd|rd|th)\b/gi, "$1$2")
+    .replace(/[()]+/g, " ")
+    .replace(/[_-]+/g, " ")
+    .replace(/\b(workshop|webinar|masterclass|bootcamp|session|image|images|lead|leads|campaign|meta|form)\b/gi, " ")
+    .replace(/\b(ind|od|imp)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseWorkshopDateDetails(value) {
+  const normalized = normalizeWorkshopSourceText(value);
+  const directMatch = normalized.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/i);
+  if (directMatch) {
+    const monthName = WORKSHOP_MONTH_LOOKUP[String(directMatch[2] || "").toLowerCase()];
+    const day = Number(directMatch[1]);
+    if (monthName && Number.isFinite(day)) {
+      return {
+        day,
+        monthName,
+        label: `${formatOrdinalDay(day)} ${monthName}`,
+        key: `${monthName.toLowerCase()}-${String(day).padStart(2, "0")}`,
+        matchText: directMatch[0]
+      };
+    }
+  }
+
+  const reverseMatch = normalized.match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?\b/i);
+  if (reverseMatch) {
+    const monthName = WORKSHOP_MONTH_LOOKUP[String(reverseMatch[1] || "").toLowerCase()];
+    const day = Number(reverseMatch[2]);
+    if (monthName && Number.isFinite(day)) {
+      return {
+        day,
+        monthName,
+        label: `${formatOrdinalDay(day)} ${monthName}`,
+        key: `${monthName.toLowerCase()}-${String(day).padStart(2, "0")}`,
+        matchText: reverseMatch[0]
+      };
+    }
+  }
+
+  return null;
+}
+
+function buildWorkshopIdentity(workshopName) {
+  const cleaned = normalizeWorkshopSourceText(workshopName);
+  if (!cleaned) {
+    return {
+      label: "",
+      key: "",
+      dateLabel: "",
+      topicLabel: "",
+      topicKey: "",
+      dateKey: ""
+    };
+  }
+
+  const dateDetails = parseWorkshopDateDetails(cleaned);
+  let remaining = cleaned;
+  if (dateDetails?.matchText) {
+    remaining = remaining.replace(dateDetails.matchText, " ").replace(/\s+/g, " ").trim();
+  }
+
+  let topicLabel = "";
+  let topicSlug = "";
+  for (const topic of WORKSHOP_TOPIC_PATTERNS) {
+    if (topic.pattern.test(remaining)) {
+      topicLabel = topic.label;
+      topicSlug = topic.slug;
+      remaining = remaining.replace(topic.pattern, " ").replace(/\s+/g, " ").trim();
+      break;
+    }
+  }
+
+  const qualifierLabels = [];
+  for (const qualifier of WORKSHOP_QUALIFIER_PATTERNS) {
+    if (qualifier.pattern.test(remaining)) {
+      qualifierLabels.push(qualifier.label);
+      remaining = remaining.replace(qualifier.pattern, " ").replace(/\s+/g, " ").trim();
+    }
+  }
+
+  const extraQualifier = toTitleCaseWords(remaining);
+  if (extraQualifier) {
+    qualifierLabels.push(extraQualifier);
+  }
+
+  const fallbackLabel = topicLabel || toTitleCaseWords(cleaned);
+  const labelParts = [fallbackLabel, dateDetails?.label].filter(Boolean);
+  const keyParts = [
+    topicSlug || slugifyWorkshopPart(fallbackLabel),
+    dateDetails?.key
+  ].filter(Boolean);
+
+  return {
+    label: labelParts.join(" ").trim(),
+    key: keyParts.join("-").trim(),
+    dateLabel: dateDetails?.label || "",
+    topicLabel: fallbackLabel,
+    topicKey: topicSlug || slugifyWorkshopPart(fallbackLabel),
+    dateKey: dateDetails?.key || "",
+    qualifiers: qualifierLabels
+  };
 }
 
 function getMetaLeadFieldMap(fieldData = []) {
@@ -2239,7 +2431,7 @@ app.post("/api/public-course-registrations", async (req, res) => {
     }
 
     await withMongoRetry(
-      () => leadsCollection.insertOne(decorateLeadDuplicateKeys(newLead)),
+      () => leadsCollection.insertOne(decorateLeadForStorage(newLead)),
       { retries: 1, label: "Create public course registration lead" }
     );
 
@@ -2568,16 +2760,134 @@ function decorateLeadDuplicateKeys(lead = {}) {
   return nextLead;
 }
 
+function decorateLeadWorkshopFields(lead = {}) {
+  const nextLead = { ...lead };
+  const workshopIdentity = buildWorkshopIdentity(lead?.workshop);
+  const admissionWorkshopIdentity = buildWorkshopIdentity(lead?.admissionWorkshop);
+
+  if (workshopIdentity.label) {
+    nextLead.workshop = workshopIdentity.label;
+    nextLead.workshopKey = workshopIdentity.key;
+    nextLead.workshopName = workshopIdentity.topicLabel;
+    nextLead.workshopNameKey = workshopIdentity.topicKey;
+    nextLead.workshopDateLabel = workshopIdentity.dateLabel;
+    nextLead.workshopDateKey = workshopIdentity.dateKey;
+  } else {
+    nextLead.workshop = String(lead?.workshop || "").trim();
+    delete nextLead.workshopKey;
+    delete nextLead.workshopName;
+    delete nextLead.workshopNameKey;
+    delete nextLead.workshopDateLabel;
+    delete nextLead.workshopDateKey;
+  }
+
+  if (admissionWorkshopIdentity.label) {
+    nextLead.admissionWorkshop = admissionWorkshopIdentity.label;
+    nextLead.admissionWorkshopKey = admissionWorkshopIdentity.key;
+    nextLead.admissionWorkshopName = admissionWorkshopIdentity.topicLabel;
+    nextLead.admissionWorkshopNameKey = admissionWorkshopIdentity.topicKey;
+    nextLead.admissionWorkshopDateLabel = admissionWorkshopIdentity.dateLabel;
+    nextLead.admissionWorkshopDateKey = admissionWorkshopIdentity.dateKey;
+  } else {
+    nextLead.admissionWorkshop = String(lead?.admissionWorkshop || "").trim();
+    delete nextLead.admissionWorkshopKey;
+    delete nextLead.admissionWorkshopName;
+    delete nextLead.admissionWorkshopNameKey;
+    delete nextLead.admissionWorkshopDateLabel;
+    delete nextLead.admissionWorkshopDateKey;
+  }
+
+  return nextLead;
+}
+
+function decorateLeadForStorage(lead = {}) {
+  return decorateLeadDuplicateKeys(decorateLeadWorkshopFields(lead));
+}
+
 function decorateLeadListForStorage(leads = []) {
-  return (Array.isArray(leads) ? leads : []).map((lead) => decorateLeadDuplicateKeys(lead));
+  return (Array.isArray(leads) ? leads : []).map((lead) => decorateLeadForStorage(lead));
+}
+
+function hasLeadStorageDecorationChanges(lead = {}) {
+  return JSON.stringify(decorateLeadForStorage(lead)) !== JSON.stringify(lead);
+}
+
+async function normalizeStoredLeadsCollection() {
+  const storedLeads = await withMongoRetry(
+    () => leadsCollection.find({}).toArray(),
+    { retries: 1, label: "Load leads for workshop normalization" }
+  );
+
+  const replacements = (Array.isArray(storedLeads) ? storedLeads : [])
+    .filter((lead) => lead && lead.id && hasLeadStorageDecorationChanges(lead))
+    .map((lead) => ({
+      id: String(lead.id),
+      replacement: decorateLeadForStorage(lead)
+    }));
+
+  if (!replacements.length) {
+    return 0;
+  }
+
+  if (typeof leadsCollection.bulkWrite === "function") {
+    await withMongoRetry(
+      () => leadsCollection.bulkWrite(
+        replacements.map(({ id, replacement }) => ({
+          replaceOne: {
+            filter: { id },
+            replacement,
+            upsert: false
+          }
+        })),
+        { ordered: false }
+      ),
+      { retries: 1, label: "Normalize stored workshop labels" }
+    );
+  } else {
+    for (const { id, replacement } of replacements) {
+      await withMongoRetry(
+        () => leadsCollection.replaceOne({ id }, replacement, { upsert: false }),
+        { retries: 1, label: "Normalize stored workshop label" }
+      );
+    }
+  }
+
+  await stateCollection.updateOne(
+    { _id: STATE_DOC_ID },
+    { $set: { updatedAt: new Date().toISOString() } },
+    { upsert: true }
+  ).catch(() => undefined);
+
+  cachedStateDoc = null;
+  cachedStateDocAt = 0;
+  return replacements.length;
+}
+
+async function ensureLeadStorageNormalization() {
+  if (leadStorageNormalizationPromise) {
+    return leadStorageNormalizationPromise;
+  }
+
+  leadStorageNormalizationPromise = (async () => {
+    try {
+      return await normalizeStoredLeadsCollection();
+    } finally {
+      leadStorageNormalizationPromise = null;
+    }
+  })();
+
+  return leadStorageNormalizationPromise;
 }
 
 function normalizeWorkshopName(workshopName) {
-  return String(workshopName || "").trim().toLowerCase().replace(/\s+/g, " ");
+  const identity = buildWorkshopIdentity(workshopName);
+  return identity.key || String(workshopName || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 function isSameWorkshopLead(existingLead, incomingLead) {
-  return normalizeWorkshopName(existingLead?.workshop) === normalizeWorkshopName(incomingLead?.workshop);
+  const existingKey = String(existingLead?.workshopKey || normalizeWorkshopName(existingLead?.workshop)).trim();
+  const incomingKey = String(incomingLead?.workshopKey || normalizeWorkshopName(incomingLead?.workshop)).trim();
+  return existingKey === incomingKey;
 }
 
 function buildWorkshopMigrationSnapshot(lead = {}) {
@@ -2651,7 +2961,7 @@ function buildFreshWorkshopLead(existingLead, incomingLead, options = {}) {
     lastWorkshopMigrationSource: String(options.source || incomingLead?.source || existingLead?.source || "").trim()
   };
 
-  return decorateLeadDuplicateKeys(nextLead);
+  return decorateLeadForStorage(nextLead);
 }
 
 function buildLeadOwnerMap(leads, field) {
@@ -2863,7 +3173,7 @@ async function replaceWorkshopLeadWithFreshLead(existingLead, incomingLead, opti
   cachedStateDoc = null;
   cachedStateDocAt = 0;
 
-  return nextLead;
+  return decorateLeadForStorage(nextLead);
 }
 
 async function getStateDoc() {
@@ -2873,6 +3183,8 @@ async function getStateDoc() {
   if (cachedStateDoc && (Date.now() - cachedStateDocAt) < STATE_CACHE_TTL_MS) {
     return cachedStateDoc;
   }
+
+  void ensureLeadStorageNormalization().catch(() => undefined);
 
   const globalMeta = await withMongoRetry(
     () => stateCollection.findOne({ _id: STATE_DOC_ID }),
@@ -2889,7 +3201,7 @@ async function getStateDoc() {
   if (globalMeta) {
     return cacheStateDoc({
       ...globalMeta,
-      leads: leads || [],
+      leads: decorateLeadListForStorage(leads || []),
       counselors: counselors || [],
       tasks: tasks || [],
       allocation: allocation || []
@@ -2910,7 +3222,7 @@ async function getStateDoc() {
 
   return cacheStateDoc({
     ...initialMeta,
-    leads: leads || [],
+    leads: decorateLeadListForStorage(leads || []),
     counselors: counselors || [],
     tasks: tasks || [],
     allocation: allocation || []
@@ -4802,7 +5114,7 @@ async function insertMetaLeadIfNew(leadgenId, newLead) {
       return { modifiedCount: 0, upsertedCount: 0 };
     }
     try {
-      await leadsCollection.insertOne(decorateLeadDuplicateKeys(newLead));
+      await leadsCollection.insertOne(decorateLeadForStorage(newLead));
       await recordActivity({
         leadId: newLead.id,
         leadName: newLead.name,
@@ -4975,7 +5287,7 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
 async function insertElementorLeadIfNew(newLead) {
   return withMongoRetry(async () => {
     try {
-      await leadsCollection.insertOne(decorateLeadDuplicateKeys(newLead));
+      await leadsCollection.insertOne(decorateLeadForStorage(newLead));
       await recordActivity({
         leadId: newLead.id,
         leadName: newLead.name,

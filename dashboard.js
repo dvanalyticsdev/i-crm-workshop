@@ -225,7 +225,17 @@ let workshopBreakdownChart;
 
 function getCoreWorkshopName(workshopName) {
   if (!workshopName) return "";
-  const name = String(workshopName).toLowerCase();
+  const normalizedWorkshopName = String(workshopName)
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/([A-Za-z])(\d)/g, "$1 $2")
+    .replace(/(\d)([A-Za-z])/g, "$1 $2")
+    .replace(/\b(\d{1,2})\s+(st|nd|rd|th)\b/gi, "$1$2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[_\s]+(imp|od|ind)$/i, "")
+    .trim();
+  const name = normalizedWorkshopName.toLowerCase();
 
   if (name.includes("gen") && name.includes("11")) {
     return "Gen AI Workshop 11th June";
@@ -243,7 +253,15 @@ function getCoreWorkshopName(workshopName) {
     return "SQL Workshop 13th June";
   }
 
-  return String(workshopName).trim().replace(/[_\s]+(imp|od|ind)$/i, "").trim();
+  return normalizedWorkshopName;
+}
+
+function getWorkshopSummaryIdentity(lead) {
+  const fallbackName = getCoreWorkshopName(lead?.workshop);
+  return {
+    key: String(lead?.workshopKey || fallbackName).trim().toLowerCase(),
+    label: String(lead?.workshop || fallbackName).trim()
+  };
 }
 
 function extractWorkshopDate(workshopName) {
@@ -285,18 +303,18 @@ function buildWorkshopSummary(leads) {
   const workshopMap = new Map();
 
   leads.forEach((lead) => {
-    const coreName = getCoreWorkshopName(lead.workshop);
-    if (!coreName) {
+    const identity = getWorkshopSummaryIdentity(lead);
+    if (!identity.key || !identity.label) {
       return;
     }
 
-    const existing = workshopMap.get(coreName) || {
-      name: coreName,
-      workshopDate: extractWorkshopDate(coreName),
+    const existing = workshopMap.get(identity.key) || {
+      name: identity.label,
+      workshopDate: extractWorkshopDate(identity.label),
       leadCount: 0
     };
     existing.leadCount += 1;
-    workshopMap.set(coreName, existing);
+    workshopMap.set(identity.key, existing);
   });
 
   const workshops = Array.from(workshopMap.values());
