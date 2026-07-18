@@ -68,6 +68,9 @@ const SEGMENT_CONFIG = {
   }
 };
 const DEFAULT_FILTER = {
+  timeline: isCounselorSession() ? "overall" : "week",
+  startDate: "",
+  endDate: "",
   search: "",
   counselor: "",
   courseName: "",
@@ -80,7 +83,13 @@ const DEFAULT_FILTER = {
 };
 
 const persistedFilter = await loadPersistedValue(FILTER_STORAGE_KEY, {});
+if (persistedFilter.timeline === "daily") {
+  persistedFilter.timeline = "today";
+}
 let filter = { ...DEFAULT_FILTER, ...persistedFilter };
+if (isCounselorSession() && (!persistedFilter.timeline || persistedFilter.timeline === "week")) {
+  filter.timeline = "overall";
+}
 let currentPage = 1;
 const pageSize = 50;
 let selectedLeadKeys = new Set();
@@ -361,6 +370,94 @@ function findLeadByRef(leadRef) {
 
 function getUniqueValues(leads, key) {
   return [...new Set(leads.map((lead) => String(lead[key] || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+
+function parseTimelineDate(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+}
+
+function formatReadableDate(date) {
+  return date.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  });
+}
+
+function getTimelineRange() {
+  const now = new Date();
+
+  if (filter.timeline === "overall") {
+    return null;
+  }
+
+  if (filter.timeline === "today") {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    return { start, end };
+  }
+
+  if (filter.timeline === "yesterday") {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 23, 59, 59, 999);
+    return { start, end };
+  }
+
+  if (filter.timeline === "week") {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    return { start, end };
+  }
+
+  const start = parseTimelineDate(filter.startDate);
+  const endBase = parseTimelineDate(filter.endDate);
+  if (!start || !endBase || start > endBase) {
+    return { start: null, end: null };
+  }
+
+  const end = new Date(endBase.getFullYear(), endBase.getMonth(), endBase.getDate(), 23, 59, 59, 999);
+  return { start, end };
+}
+
+function filterLeadsByTimeline(leads) {
+  const range = getTimelineRange();
+  if (!range) {
+    return leads;
+  }
+  if (!range.start || !range.end) {
+    return leads;
+  }
+
+  const startTime = range.start.getTime();
+  const endTime = range.end.getTime();
+  return leads.filter((lead) => {
+    const created = parseTimelineDate(lead.createdAt);
+    if (!created) {
+      return false;
+    }
+    const createdTime = created.getTime();
+    return createdTime >= startTime && createdTime <= endTime;
+  });
+}
+
+function getTimelineLabel() {
+  if (filter.timeline === "today") return "Today";
+  if (filter.timeline === "yesterday") return "Yesterday";
+  if (filter.timeline === "week") return "Week";
+  if (filter.timeline === "custom") {
+    const range = getTimelineRange();
+    if (!range?.start || !range?.end) {
+      return "Custom";
+    }
+    return `${formatReadableDate(range.start)} - ${formatReadableDate(range.end)}`;
+  }
+  return "Overall";
 }
 
 function getEffectiveRegisteredRoutingSelection(counselorNames) {
@@ -674,6 +771,24 @@ function renderFilters(leads) {
       <div class="filter-section-title">${escapeHtml(segmentConfig.label)} Filters</div>
       <div class="filter-row">
         <div class="filter-item">
+          <label for="registeredTimelineSelect">Timeline</label>
+          <select id="registeredTimelineSelect">
+            <option value="overall" ${filter.timeline === "overall" ? "selected" : ""}>Overall</option>
+            <option value="today" ${filter.timeline === "today" ? "selected" : ""}>Today</option>
+            <option value="yesterday" ${filter.timeline === "yesterday" ? "selected" : ""}>Yesterday</option>
+            <option value="week" ${filter.timeline === "week" ? "selected" : ""}>Week</option>
+            <option value="custom" ${filter.timeline === "custom" ? "selected" : ""}>Custom</option>
+          </select>
+        </div>
+        <div class="filter-item ${filter.timeline === "custom" ? "" : "hidden"}" id="registeredStartDateWrap">
+          <label for="registeredStartDate">Start Date</label>
+          <input id="registeredStartDate" type="date" value="${escapeHtml(filter.startDate)}" />
+        </div>
+        <div class="filter-item ${filter.timeline === "custom" ? "" : "hidden"}" id="registeredEndDateWrap">
+          <label for="registeredEndDate">End Date</label>
+          <input id="registeredEndDate" type="date" value="${escapeHtml(filter.endDate)}" />
+        </div>
+        <div class="filter-item">
           <label for="registeredSearchInput">Search Lead</label>
           <input id="registeredSearchInput" type="text" placeholder="Name, email, phone, course, counselor" value="${escapeHtml(filter.search)}" />
         </div>
@@ -756,6 +871,32 @@ function renderFilters(leads) {
     </div>
   `;
 
+  document.getElementById("registeredTimelineSelect").onchange = (event) => {
+    filter.timeline = event.target.value;
+    persistFilters();
+    currentPage = 1;
+    document.getElementById("registeredStartDateWrap").classList.toggle("hidden", filter.timeline !== "custom");
+    document.getElementById("registeredEndDateWrap").classList.toggle("hidden", filter.timeline !== "custom");
+    renderAll();
+  };
+  const startDateInput = document.getElementById("registeredStartDate");
+  if (startDateInput) {
+    startDateInput.onchange = (event) => {
+      filter.startDate = event.target.value;
+      persistFilters();
+      currentPage = 1;
+      renderAll();
+    };
+  }
+  const endDateInput = document.getElementById("registeredEndDate");
+  if (endDateInput) {
+    endDateInput.onchange = (event) => {
+      filter.endDate = event.target.value;
+      persistFilters();
+      currentPage = 1;
+      renderAll();
+    };
+  }
   document.getElementById("registeredSearchInput").oninput = (event) => {
     filter.search = event.target.value.trim();
     persistFilters();
@@ -859,6 +1000,7 @@ function exportFilteredLeads() {
     summary: [
       ["Section", "Admission"],
       ["Subsection", segmentConfig.label],
+      ["Timeline", getTimelineLabel()],
       ["Filtered Leads", filteredLeads.length]
     ]
   });
@@ -872,7 +1014,7 @@ function exportFilteredLeads() {
 }
 
 function filterLeads(leads) {
-  return leads.filter((lead) => {
+  return filterLeadsByTimeline(leads).filter((lead) => {
     if (filter.search) {
       const haystack = [lead.name, lead.email, lead.phone, lead.courseName, lead.country, lead.counselor].join(" ").toLowerCase();
       if (!haystack.includes(filter.search.toLowerCase())) return false;

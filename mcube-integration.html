@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Elementor Integration | DV Workshop Lead Platform</title>
+  <title>MCUBE Integration | DV Workshop Lead Platform</title>
   <link rel="icon" type="image/png" href="Logos/DV-Logo.png" />
   <script src="theme-bootstrap.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -37,7 +37,7 @@
       </nav>
       <div class="sidebar-bottom-links" style="display:flex;flex-direction:column;gap:0;">
         <a href="counselor-management.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Counselor Management</a>
-        <a href="lead-control.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Lead & Data Control</a>
+        <a href="lead-control.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Lead &amp; Data Control</a>
         <a href="meta-integration.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true" data-active-routes="elementor-integration.html mcube-integration.html">Integration</a>
       </div>
     </aside>
@@ -45,8 +45,8 @@
     <div class="main-content">
       <header class="topbar">
         <div class="topbar-title">
-          <h1>Elementor Lead Integration</h1>
-          <p>Receive Elementor form leads, classify them like Meta, and auto-route them into the CRM.</p>
+          <h1>MCUBE Calling Integration</h1>
+          <p>Configure click-to-call, call event sync, auto lead creation, and CRM call updates from MCUBE.</p>
         </div>
         <div class="topbar-profile">
           <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">
@@ -72,10 +72,11 @@
 
       <div class="meta-page">
         <section class="card" id="integrationSectionNav"></section>
+
         <section class="card">
           <div class="meta-section-title">
             <h3>Connection Status</h3>
-            <p>Elementor intake status and CRM routing readiness.</p>
+            <p>Quick view of MCUBE setup readiness inside the CRM.</p>
           </div>
 
           <div class="meta-status-bar">
@@ -86,71 +87,25 @@
                 <div class="status-pill__value" id="statusValIntegration">Disabled</div>
               </div>
             </div>
-            <div class="status-pill" id="statusPillAllowedForms">
+            <div class="status-pill" id="statusPillBaseUrl">
               <div class="status-pill__dot"></div>
               <div class="status-pill__body">
-                <div class="status-pill__label">Allowed Forms</div>
-                <div class="status-pill__value" id="statusValAllowedForms">All forms</div>
+                <div class="status-pill__label">API Base URL</div>
+                <div class="status-pill__value" id="statusValBaseUrl">Not set</div>
               </div>
             </div>
-            <div class="status-pill" id="statusPillWorkshopRules">
+            <div class="status-pill" id="statusPillToken">
               <div class="status-pill__dot"></div>
               <div class="status-pill__body">
-                <div class="status-pill__label">Workshop Rules</div>
-                <div class="status-pill__value" id="statusValWorkshopRules">Fallback only</div>
+                <div class="status-pill__label">Account Token</div>
+                <div class="status-pill__value" id="statusValToken">Not set</div>
               </div>
             </div>
-            <div class="status-pill" id="statusPillAdmissionRules">
+            <div class="status-pill" id="statusPillWebhook">
               <div class="status-pill__dot"></div>
               <div class="status-pill__body">
-                <div class="status-pill__label">Admission Rules</div>
-                <div class="status-pill__value" id="statusValAdmissionRules">Fallback only</div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section class="card">
-          <div class="meta-section-title">
-            <h3>Setup Guide</h3>
-            <p>Configure Elementor to POST directly into this CRM endpoint.</p>
-          </div>
-
-          <div class="setup-steps">
-            <div class="setup-step">
-              <div class="setup-step__num">1</div>
-              <div class="setup-step__body">
-                <div class="setup-step__title">Use the Webhook action in Elementor</div>
-                <div class="setup-step__desc">
-                  In your Elementor form, add the <strong>Webhook</strong> action and paste the Webhook URL from this page.
-                </div>
-              </div>
-            </div>
-            <div class="setup-step">
-              <div class="setup-step__num">2</div>
-              <div class="setup-step__body">
-                <div class="setup-step__title">Send stable form identifiers</div>
-                <div class="setup-step__desc">
-                  Keep <code>form_id</code> and <code>form_name</code> stable. The CRM will use them to decide whether a lead is a workshop or main-admission lead.
-                </div>
-              </div>
-            </div>
-            <div class="setup-step">
-              <div class="setup-step__num">3</div>
-              <div class="setup-step__body">
-                <div class="setup-step__title">Add explicit lead-type hints when possible</div>
-                <div class="setup-step__desc">
-                  If you can, include hidden fields such as <code>lead_type</code>, <code>intent</code>, or a distinctive page URL. This makes classification safer than relying on fuzzy text alone.
-                </div>
-              </div>
-            </div>
-            <div class="setup-step">
-              <div class="setup-step__num">4</div>
-              <div class="setup-step__body">
-                <div class="setup-step__title">Save rules and enable</div>
-                <div class="setup-step__desc">
-                  Add your allow-list and routing rules below, save them, then enable the integration.
-                </div>
+                <div class="status-pill__label">Webhook Secret</div>
+                <div class="status-pill__value" id="statusValWebhook">Optional</div>
               </div>
             </div>
           </div>
@@ -159,12 +114,12 @@
         <section class="card">
           <div class="meta-section-title">
             <h3>Configuration</h3>
-            <p>Webhook endpoint, allow-lists, and lead classification rules.</p>
+            <p>Set the MCUBE API details, webhook endpoint, and CRM feature toggles.</p>
           </div>
 
           <div class="meta-config-grid">
             <div>
-              <p style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;opacity:.5;margin:0 0 .9rem;">Webhook Settings</p>
+              <p style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;opacity:.5;margin:0 0 .9rem;">Webhook and API</p>
 
               <div class="form-group">
                 <label>Webhook URL</label>
@@ -172,33 +127,57 @@
                   <input id="webhookUrl" type="text" readonly />
                   <button type="button" class="btn-secondary" id="copyWebhookUrlBtn">Copy</button>
                 </div>
+                <p class="field-hint">Use this URL in MCUBE for call event callbacks into this CRM.</p>
               </div>
 
               <div class="form-group">
-                <label>Allowed Form IDs</label>
-                <div id="allowedFormIdsList" class="form-ids-list"></div>
-                <button type="button" class="btn-secondary" id="addAllowedFormIdBtn" style="font-size:.82rem;padding:.4rem .8rem;">+ Add Form ID</button>
-                <p class="field-hint">Leave empty to accept leads from any Elementor form that points to this endpoint.</p>
+                <label for="apiBaseUrlInput">API Base URL</label>
+                <input id="apiBaseUrlInput" type="text" placeholder="https://your-mcube-api-base" />
               </div>
 
-              <div class="field-divider"></div>
+              <div class="form-group">
+                <label for="clickToCallPathInput">Click-to-Call Path</label>
+                <input id="clickToCallPathInput" type="text" placeholder="/click-to-call" />
+              </div>
 
-              <p style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;opacity:.5;margin:0 0 .9rem;">Field Mapping</p>
-              <div class="note-callout">
-                <span>
-                  Expected fields: <code>Full_Name</code>, <code>Email_Address</code>, <code>Phone_Number</code>,
-                  <code>Highest_Qualification</code>, <code>Page_URL</code>, <code>Date</code>, <code>Time</code>,
-                  <code>User_Agent</code>, <code>Remote_IP</code>, <code>form_id</code>, <code>form_name</code>.
-                </span>
+              <div class="form-group">
+                <label for="clickToCallMethodSelect">Click-to-Call Method</label>
+                <select id="clickToCallMethodSelect">
+                  <option value="POST">POST</option>
+                  <option value="GET">GET</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="accountTokenInput">
+                  Account Token
+                  <span id="accountTokenStatus" class="cred-status cred-status--err">Not set</span>
+                </label>
+                <div class="input-btn-row">
+                  <input id="accountTokenInput" type="password" placeholder="Leave blank to keep existing" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
+                  <button type="button" class="btn-secondary toggle-secret-btn" data-target="accountTokenInput">Show</button>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="webhookSecretInput">
+                  Webhook Secret
+                  <span id="webhookSecretStatus" class="cred-status">Optional</span>
+                </label>
+                <div class="input-btn-row">
+                  <input id="webhookSecretInput" type="password" placeholder="Optional HMAC secret" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
+                  <button type="button" class="btn-secondary toggle-secret-btn" data-target="webhookSecretInput">Show</button>
+                </div>
               </div>
             </div>
 
             <div>
-              <p style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;opacity:.5;margin:0 0 .75rem;">Activation</p>
-              <div class="enable-row" style="margin-bottom:1rem;">
+              <p style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;opacity:.5;margin:0 0 .9rem;">CRM Features</p>
+
+              <div class="enable-row">
                 <div class="enable-row__left">
-                  <span class="enable-row__label">Enable Elementor Integration</span>
-                  <span class="enable-row__hint">Incoming form submissions will be classified and routed automatically.</span>
+                  <span class="enable-row__label">Enable MCUBE Integration</span>
+                  <span class="enable-row__hint">Master switch for all MCUBE features.</span>
                 </div>
                 <label class="switch">
                   <input type="checkbox" id="enabledToggle" />
@@ -206,25 +185,16 @@
                 </label>
               </div>
 
-              <div class="field-divider"></div>
-
-              <p style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;opacity:.5;margin:0 0 .9rem;">Workshop Rules</p>
-              <div id="workshopFormIdsList" class="form-ids-list"></div>
-              <button type="button" class="btn-secondary" id="addWorkshopFormIdBtn" style="font-size:.82rem;padding:.4rem .8rem;margin-bottom:.75rem;">+ Add Workshop Form ID</button>
-              <div id="workshopFormNamesList" class="form-ids-list"></div>
-              <button type="button" class="btn-secondary" id="addWorkshopFormNameBtn" style="font-size:.82rem;padding:.4rem .8rem;margin-bottom:.75rem;">+ Add Workshop Form Name</button>
-              <div id="workshopPagePatternsList" class="form-ids-list"></div>
-              <button type="button" class="btn-secondary" id="addWorkshopPagePatternBtn" style="font-size:.82rem;padding:.4rem .8rem;">+ Add Workshop URL Pattern</button>
-
-              <div class="field-divider"></div>
-
-              <p style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;opacity:.5;margin:0 0 .9rem;">Admission Rules</p>
-              <div id="admissionFormIdsList" class="form-ids-list"></div>
-              <button type="button" class="btn-secondary" id="addAdmissionFormIdBtn" style="font-size:.82rem;padding:.4rem .8rem;margin-bottom:.75rem;">+ Add Admission Form ID</button>
-              <div id="admissionFormNamesList" class="form-ids-list"></div>
-              <button type="button" class="btn-secondary" id="addAdmissionFormNameBtn" style="font-size:.82rem;padding:.4rem .8rem;margin-bottom:.75rem;">+ Add Admission Form Name</button>
-              <div id="admissionPagePatternsList" class="form-ids-list"></div>
-              <button type="button" class="btn-secondary" id="addAdmissionPagePatternBtn" style="font-size:.82rem;padding:.4rem .8rem;">+ Add Admission URL Pattern</button>
+              <div class="form-ids-list" style="margin-top:1rem;">
+                <label class="enable-row"><span class="enable-row__label">Click to Call</span><input id="enableClickToCallToggle" type="checkbox" /></label>
+                <label class="enable-row"><span class="enable-row__label">Webhook Event Sync</span><input id="enableEventSyncToggle" type="checkbox" /></label>
+                <label class="enable-row"><span class="enable-row__label">Auto Lead Creation</span><input id="enableAutoLeadCreateToggle" type="checkbox" /></label>
+                <label class="enable-row"><span class="enable-row__label">Auto Follow-Up Tasks</span><input id="enableAutoTaskCreationToggle" type="checkbox" /></label>
+                <label class="enable-row"><span class="enable-row__label">Incoming Lead Lookup</span><input id="enableIncomingPopupToggle" type="checkbox" /></label>
+                <label class="enable-row"><span class="enable-row__label">Recording Link Storage</span><input id="enableRecordingLinksToggle" type="checkbox" /></label>
+                <label class="enable-row"><span class="enable-row__label">Call Status Sync</span><input id="enableCallStatusSyncToggle" type="checkbox" /></label>
+                <label class="enable-row"><span class="enable-row__label">Notifications</span><input id="enableNotificationsToggle" type="checkbox" /></label>
+              </div>
 
               <div class="save-bar">
                 <button type="button" class="btn-primary" id="saveConfigBtn">Save Settings</button>
@@ -236,43 +206,71 @@
 
         <section class="card">
           <div class="meta-section-title">
-            <h3>Routing Snapshot</h3>
-            <p>Workshop leads use Elementor rotation. Admission leads use the shared main-admission rotation.</p>
+            <h3>Capability Snapshot</h3>
+            <p>These CRM-side features are now wired for MCUBE if the API/webhook payloads match your account.</p>
+          </div>
+          <div class="note-callout">
+            <span>Supported in this build: click-to-call endpoint, inbound webhook intake, lead lookup by phone, auto lead creation, call history capture, call-status sync, notification creation, and callback task creation.</span>
           </div>
 
           <div class="rr-stats-grid">
             <div class="rr-kpi">
-              <span class="rr-kpi__label">Total Elementor Leads Assigned</span>
-              <span class="rr-kpi__value" id="rrIndexDisplay">—</span>
-              <span class="rr-kpi__sub">since last reset</span>
+              <span class="rr-kpi__label">MCUBE Round Robin Count</span>
+              <span class="rr-kpi__value" id="rrIndexDisplay">0</span>
+              <span class="rr-kpi__sub">auto-created lead assignments</span>
             </div>
             <div class="rr-kpi">
-              <span class="rr-kpi__label">Next Workshop Lead To</span>
-              <span class="rr-kpi__value" id="rrNextCounselor">—</span>
-              <span class="rr-kpi__sub">Elementor workshop rotation</span>
+              <span class="rr-kpi__label">Next Counselor</span>
+              <span class="rr-kpi__value" id="rrNextCounselor">-</span>
+              <span class="rr-kpi__sub">for new MCUBE-created leads</span>
             </div>
             <div class="rr-kpi">
               <span class="rr-kpi__label">Workshop Counselors</span>
-              <span class="rr-kpi__value" id="rrCounselorCount">—</span>
-              <span class="rr-kpi__sub">active</span>
-            </div>
-            <div class="rr-kpi">
-              <span class="rr-kpi__label">Admission Counselors</span>
-              <span class="rr-kpi__value" id="admissionRrCounselorCount">—</span>
-              <span class="rr-kpi__sub">shared with main admission</span>
+              <span class="rr-kpi__value" id="rrCounselorCount">0</span>
+              <span class="rr-kpi__sub">active in rotation</span>
             </div>
           </div>
 
           <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;">
-            <button type="button" class="btn-secondary" id="resetRrBtn">Reset Elementor Lead Count</button>
+            <button type="button" class="btn-secondary" id="resetRrBtn">Reset MCUBE Lead Count</button>
             <span id="rrMessage" style="font-size:.85rem;"></span>
           </div>
         </section>
 
         <section class="card">
           <div class="meta-section-title">
-            <h3>Webhook Logs</h3>
-            <p>Recent Elementor submissions and routing outcomes.</p>
+            <h3>Validation</h3>
+            <p>Check the saved token structure and local CRM readiness.</p>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;margin-bottom:1rem;">
+            <button type="button" class="btn-secondary" id="validateConfigBtn">Validate Setup</button>
+            <span id="validateMessage" style="font-size:.85rem;"></span>
+          </div>
+
+          <div class="log-table-wrap">
+            <table class="log-table">
+              <thead>
+                <tr>
+                  <th>Check</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="validationTableBody">
+                <tr><td colspan="2" class="log-empty">Run validation to see configuration checks.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="note-callout" style="margin-top:1rem;">
+            <span id="tokenSummaryText">Token summary will appear here after validation.</span>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="meta-section-title">
+            <h3>Event Logs</h3>
+            <p>Recent MCUBE click-to-call and webhook processing results.</p>
           </div>
 
           <div class="log-toolbar">
@@ -313,12 +311,12 @@
                   <th style="width:140px;">Time</th>
                   <th style="width:90px;">Status</th>
                   <th>Message</th>
-                  <th>Lead → Counselor</th>
-                  <th>Form / Page</th>
+                  <th>Lead</th>
+                  <th>Phone / Call ID</th>
                 </tr>
               </thead>
               <tbody id="logsTableBody">
-                <tr><td colspan="5" class="log-empty">Loading logs…</td></tr>
+                <tr><td colspan="5" class="log-empty">Loading logs...</td></tr>
               </tbody>
             </table>
           </div>
@@ -327,7 +325,7 @@
     </div>
   </div>
 
-  <script type="module" src="elementor-integration.js"></script>
+  <script type="module" src="mcube-integration.js"></script>
   <script type="module" src="layouts.js"></script>
 </body>
 </html>

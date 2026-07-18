@@ -117,6 +117,11 @@ function renderIntegrationSectionNav(activeRoute = "elementor-integration.html")
       route: "elementor-integration.html",
       label: "Elementor",
       description: "Manage Elementor webhook intake, form rules, and automatic workshop or admission routing."
+    },
+    {
+      route: "mcube-integration.html",
+      label: "MCUBE",
+      description: "Manage cloud telephony calling, webhook intake, click-to-call, and CRM call sync."
     }
   ];
 

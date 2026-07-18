@@ -108,6 +108,11 @@ function renderIntegrationSectionNav(activeRoute = "meta-integration.html") {
       route: "elementor-integration.html",
       label: "Elementor",
       description: "Manage Elementor webhook intake, form rules, and automatic workshop or admission routing."
+    },
+    {
+      route: "mcube-integration.html",
+      label: "MCUBE",
+      description: "Manage cloud telephony calling, webhook intake, click-to-call, and CRM call sync."
     }
   ];
 
@@ -267,6 +272,7 @@ function renderCounselorRotationRows(counselors, options) {
 async function updateCounselorRoundRobinStatus(counselorId, field, enabled) {
   if (session.role !== "admin") return;
   const targetMessage = rrRosterMessage;
+  const safeField = String(field || "roundRobinEnabled").trim() || "roundRobinEnabled";
 
   showMessage(targetMessage, "Saving counselor rotation...");
   let result = null;
@@ -281,7 +287,8 @@ async function updateCounselorRoundRobinStatus(counselorId, field, enabled) {
       credentials: "same-origin",
       body: JSON.stringify({
         counselorId: String(counselorId || "").trim(),
-        field: String(field || "roundRobinEnabled").trim() || "roundRobinEnabled",
+        field: safeField,
+        [safeField]: enabled,
         enabled: !!enabled
       })
     });

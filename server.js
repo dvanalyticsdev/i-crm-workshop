@@ -20,16 +20,20 @@ const MONGODB_META_LOGS_COLLECTION = process.env.MONGODB_META_LOGS_COLLECTION ||
 const MONGODB_META_RETRY_COLLECTION = process.env.MONGODB_META_RETRY_COLLECTION || "meta_retry_jobs";
 const MONGODB_ELEMENTOR_CONFIG_COLLECTION = process.env.MONGODB_ELEMENTOR_CONFIG_COLLECTION || "elementor_config";
 const MONGODB_ELEMENTOR_LOGS_COLLECTION = process.env.MONGODB_ELEMENTOR_LOGS_COLLECTION || "elementor_logs";
+const MONGODB_MCUBE_CONFIG_COLLECTION = process.env.MONGODB_MCUBE_CONFIG_COLLECTION || "mcube_config";
+const MONGODB_MCUBE_LOGS_COLLECTION = process.env.MONGODB_MCUBE_LOGS_COLLECTION || "mcube_logs";
 const META_WEBHOOK_FORWARD_URL = String(process.env.META_WEBHOOK_FORWARD_URL || "").trim();
 const ADMIN_LOGIN_ID = String(process.env.ADMIN_LOGIN_ID || "").trim();
 const ADMIN_LOGIN_PASSWORD = String(process.env.ADMIN_LOGIN_PASSWORD || "").trim();
 const STATE_DOC_ID = "global";
 const META_CONFIG_DOC_ID = "meta_integration";
 const ELEMENTOR_CONFIG_DOC_ID = "elementor_integration";
+const MCUBE_CONFIG_DOC_ID = "mcube_integration";
 const BACKUP_FORMAT = "dv-crm-manual-backup";
 const BACKUP_VERSION = 1;
 const MAX_META_LOGS = 200;
 const MAX_ELEMENTOR_LOGS = 200;
+const MAX_MCUBE_LOGS = 200;
 const SESSION_COOKIE_NAME = "dvWorkshopSession";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const FORWARDED_WEBHOOK_HEADER = "x-dv-webhook-forwarded";
@@ -137,6 +141,13 @@ app.use("/api/meta/webhook", express.raw({
     req.rawBody = buf;
   }
 }));
+app.use("/api/mcube/webhook", express.raw({
+  type: "*/*",
+  limit: "5mb",
+  verify: (req, _res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 app.use("/api/webhook/elementor-lead", express.urlencoded({
   extended: false,
   limit: "1mb"
@@ -160,6 +171,8 @@ let metaLogsCollection;
 let metaRetryCollection;
 let elementorConfigCollection;
 let elementorLogsCollection;
+let mcubeConfigCollection;
+let mcubeLogsCollection;
 let leadsCollection;
 let counselorsCollection;
 let tasksCollection;
@@ -218,6 +231,8 @@ async function resetMongoConnection() {
   metaRetryCollection = null;
   elementorConfigCollection = null;
   elementorLogsCollection = null;
+  mcubeConfigCollection = null;
+  mcubeLogsCollection = null;
   leadsCollection = null;
   counselorsCollection = null;
   tasksCollection = null;
@@ -448,12 +463,14 @@ function normalizeBackupDocArray(docs = []) {
 }
 
 async function buildBackupPayload() {
-  const [state, preferences, metaConfig, metaLogs, metaRetryJobs] = await Promise.all([
+  const [state, preferences, metaConfig, metaLogs, metaRetryJobs, mcubeConfig, mcubeLogs] = await Promise.all([
     getStateDoc(),
     preferenceCollection.find({}).toArray(),
     metaConfigCollection.findOne({ _id: META_CONFIG_DOC_ID }),
     metaLogsCollection.find({}).sort({ receivedAt: 1 }).toArray(),
-    metaRetryCollection.find({}).sort({ createdAt: 1 }).toArray()
+    metaRetryCollection.find({}).sort({ createdAt: 1 }).toArray(),
+    mcubeConfigCollection.findOne({ _id: MCUBE_CONFIG_DOC_ID }),
+    mcubeLogsCollection.find({}).sort({ receivedAt: 1 }).toArray()
   ]);
 
   const stateDoc = normalizeStateDoc(state);
@@ -467,7 +484,9 @@ async function buildBackupPayload() {
       preferenceCollection: MONGODB_PREFERENCE_COLLECTION,
       metaConfigCollection: MONGODB_META_CONFIG_COLLECTION,
       metaLogsCollection: MONGODB_META_LOGS_COLLECTION,
-      metaRetryCollection: MONGODB_META_RETRY_COLLECTION
+      metaRetryCollection: MONGODB_META_RETRY_COLLECTION,
+      mcubeConfigCollection: MONGODB_MCUBE_CONFIG_COLLECTION,
+      mcubeLogsCollection: MONGODB_MCUBE_LOGS_COLLECTION
     },
     summary: {
       leads: stateDoc.leads.length,
@@ -477,14 +496,17 @@ async function buildBackupPayload() {
       tasks: stateDoc.tasks.length,
       preferences: preferences.length,
       metaLogs: metaLogs.length,
-      metaRetryJobs: metaRetryJobs.length
+      metaRetryJobs: metaRetryJobs.length,
+      mcubeLogs: mcubeLogs.length
     },
     snapshot: {
       state: stateDoc,
       preferences: normalizeBackupDocArray(preferences),
       metaConfig: metaConfig ? normalizeBackupDoc(metaConfig, META_CONFIG_DOC_ID) : null,
       metaLogs: normalizeBackupDocArray(metaLogs),
-      metaRetryJobs: normalizeBackupDocArray(metaRetryJobs)
+      metaRetryJobs: normalizeBackupDocArray(metaRetryJobs),
+      mcubeConfig: mcubeConfig ? normalizeBackupDoc(mcubeConfig, MCUBE_CONFIG_DOC_ID) : null,
+      mcubeLogs: normalizeBackupDocArray(mcubeLogs)
     }
   };
 
@@ -518,8 +540,12 @@ function validateBackupPayload(payload = {}) {
   const preferences = normalizeBackupDocArray(snapshot.preferences);
   const metaLogs = normalizeBackupDocArray(snapshot.metaLogs);
   const metaRetryJobs = normalizeBackupDocArray(snapshot.metaRetryJobs);
+  const mcubeLogs = normalizeBackupDocArray(snapshot.mcubeLogs);
   const metaConfig = snapshot.metaConfig
     ? normalizeBackupDoc(snapshot.metaConfig, META_CONFIG_DOC_ID)
+    : null;
+  const mcubeConfig = snapshot.mcubeConfig
+    ? normalizeBackupDoc(snapshot.mcubeConfig, MCUBE_CONFIG_DOC_ID)
     : null;
 
   return {
@@ -529,7 +555,9 @@ function validateBackupPayload(payload = {}) {
       preferences,
       metaConfig,
       metaLogs,
-      metaRetryJobs
+      metaRetryJobs,
+      mcubeConfig,
+      mcubeLogs
     }
   };
 }
@@ -570,6 +598,8 @@ async function initMongo() {
         metaRetryCollection  = db.collection(MONGODB_META_RETRY_COLLECTION);
         elementorConfigCollection = db.collection(MONGODB_ELEMENTOR_CONFIG_COLLECTION);
         elementorLogsCollection = db.collection(MONGODB_ELEMENTOR_LOGS_COLLECTION);
+        mcubeConfigCollection = db.collection(MONGODB_MCUBE_CONFIG_COLLECTION);
+        mcubeLogsCollection = db.collection(MONGODB_MCUBE_LOGS_COLLECTION);
 
         leadsCollection      = db.collection("leads");
         counselorsCollection = db.collection("counselors");
@@ -595,6 +625,10 @@ async function initMongo() {
           { background: true }
         ).catch(() => undefined);
         await elementorLogsCollection.createIndex(
+          { receivedAt: -1 },
+          { background: true }
+        ).catch(() => undefined);
+        await mcubeLogsCollection.createIndex(
           { receivedAt: -1 },
           { background: true }
         ).catch(() => undefined);
@@ -720,6 +754,8 @@ async function initMongo() {
         metaRetryCollection  = new MockCollection("metaRetry");
         elementorConfigCollection = new MockCollection("elementorConfig");
         elementorLogsCollection = new MockCollection("elementorLogs");
+        mcubeConfigCollection = new MockCollection("mcubeConfig");
+        mcubeLogsCollection = new MockCollection("mcubeLogs");
         leadsCollection      = new MockCollection("leads");
         counselorsCollection = new MockCollection("counselors");
         tasksCollection      = new MockCollection("tasks");
@@ -919,6 +955,350 @@ async function saveElementorLog(entry) {
   } catch (error) {
     console.error("Elementor log write skipped:", error.message);
   }
+}
+
+async function getMcubeConfig() {
+  const doc = await withMongoRetry(
+    () => mcubeConfigCollection.findOne({ _id: MCUBE_CONFIG_DOC_ID }),
+    { retries: 1, label: "Load MCUBE config" }
+  );
+  const baseConfig = doc || {
+    _id: MCUBE_CONFIG_DOC_ID,
+    enabled: false,
+    apiBaseUrl: "",
+    accountToken: "",
+    webhookSecret: "",
+    clickToCallPath: "",
+    clickToCallMethod: "POST",
+    enableClickToCall: true,
+    enableEventSync: true,
+    enableAutoLeadCreate: true,
+    enableAutoTaskCreation: true,
+    enableIncomingPopup: true,
+    enableRecordingLinks: true,
+    enableCallStatusSync: true,
+    enableNotifications: true,
+    roundRobinIndex: 0
+  };
+
+  return {
+    ...baseConfig,
+    logSummary: {
+      success: Number(baseConfig.logSummary?.success) || 0,
+      ignored: Number(baseConfig.logSummary?.ignored) || 0,
+      error: Number(baseConfig.logSummary?.error) || 0
+    }
+  };
+}
+
+let mcubeLogWriteCount = 0;
+
+async function saveMcubeLog(entry) {
+  const log = { ...entry, receivedAt: new Date().toISOString() };
+  const type = String(entry?.type || "").trim().toLowerCase();
+  const shouldTrackCount = type === "success" || type === "ignored" || type === "error";
+
+  try {
+    await withMongoRetry(
+      () => mcubeLogsCollection.insertOne(log),
+      { retries: 1, label: "Write MCUBE log" }
+    );
+
+    if (shouldTrackCount) {
+      await withMongoRetry(
+        () => mcubeConfigCollection.updateOne(
+          { _id: MCUBE_CONFIG_DOC_ID },
+          {
+            $inc: { [`logSummary.${type}`]: 1 },
+            $set: { updatedAt: new Date().toISOString() },
+            $setOnInsert: {
+              enabled: false,
+              apiBaseUrl: "",
+              accountToken: "",
+              webhookSecret: "",
+              clickToCallPath: "",
+              clickToCallMethod: "POST",
+              enableClickToCall: true,
+              enableEventSync: true,
+              enableAutoLeadCreate: true,
+              enableAutoTaskCreation: true,
+              enableIncomingPopup: true,
+              enableRecordingLinks: true,
+              enableCallStatusSync: true,
+              enableNotifications: true,
+              roundRobinIndex: 0,
+              createdAt: new Date().toISOString()
+            }
+          },
+          { upsert: true }
+        ),
+        { retries: 1, label: "Update MCUBE log summary" }
+      );
+    }
+
+    mcubeLogWriteCount += 1;
+    if (mcubeLogWriteCount % 25 !== 0) {
+      return;
+    }
+
+    await withMongoRetry(async () => {
+      const count = await mcubeLogsCollection.countDocuments();
+      if (count <= MAX_MCUBE_LOGS) {
+        return;
+      }
+
+      const excess = count - MAX_MCUBE_LOGS;
+      const oldest = await mcubeLogsCollection
+        .find({}, { projection: { _id: 1 } })
+        .sort({ receivedAt: 1 })
+        .limit(excess)
+        .toArray();
+      if (oldest.length) {
+        await mcubeLogsCollection.deleteMany({ _id: { $in: oldest.map((doc) => doc._id) } });
+      }
+    }, { retries: 1, label: "Prune MCUBE logs" });
+  } catch (error) {
+    console.error("MCUBE log write skipped:", error.message);
+  }
+}
+
+function decodeJwtPayload(token) {
+  try {
+    const parts = String(token || "").trim().split(".");
+    if (parts.length < 2) {
+      return null;
+    }
+    return JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function buildMcubeTokenSummary(token) {
+  const payload = decodeJwtPayload(token);
+  if (!payload) {
+    return null;
+  }
+
+  const issuedAt = Number(payload?.iat) ? new Date(Number(payload.iat) * 1000).toISOString() : null;
+  const expiresAt = Number(payload?.exp_data || payload?.exp)
+    ? new Date(Number(payload.exp_data || payload.exp) * 1000).toISOString()
+    : null;
+
+  return {
+    issuer: String(payload?.iss || "").trim(),
+    audience: String(payload?.aud || "").trim(),
+    businessId: String(payload?.data?.bid || "").trim(),
+    issuedAt,
+    expiresAt,
+    isExpired: !!expiresAt && Date.parse(expiresAt) <= Date.now()
+  };
+}
+
+function parseMcubeWebhookBody(rawBody) {
+  if (!rawBody) {
+    return null;
+  }
+
+  if (rawBody && typeof rawBody === "object" && !Buffer.isBuffer(rawBody)) {
+    return rawBody;
+  }
+
+  const text = Buffer.isBuffer(rawBody) ? rawBody.toString("utf8") : String(rawBody);
+  if (!text.trim()) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    const params = new URLSearchParams(text);
+    if (!Array.from(params.keys()).length) {
+      return null;
+    }
+    const result = {};
+    for (const [key, value] of params.entries()) {
+      result[key] = value;
+    }
+    return result;
+  }
+}
+
+function parseMcubeWebhookRequestBody(req) {
+  if (Buffer.isBuffer(req.body)) {
+    return parseMcubeWebhookBody(req.body);
+  }
+  if (req.rawBody) {
+    return parseMcubeWebhookBody(req.rawBody);
+  }
+  if (req.body && typeof req.body === "object") {
+    return req.body;
+  }
+  return null;
+}
+
+function verifyMcubeWebhookSignature(rawBody, req, secret) {
+  if (!secret || !rawBody) {
+    return true;
+  }
+
+  const candidateHeaders = [
+    req.headers["x-mcube-signature"],
+    req.headers["x-signature"],
+    req.headers["x-webhook-signature"]
+  ].filter(Boolean);
+
+  if (!candidateHeaders.length) {
+    return false;
+  }
+
+  const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+  return candidateHeaders.some((headerValue) => {
+    const raw = String(headerValue || "").trim();
+    const normalized = raw.includes("=") ? raw.split("=").pop() : raw;
+    try {
+      const providedBuf = Buffer.from(normalized, "hex");
+      const expectedBuf = Buffer.from(expected, "hex");
+      return providedBuf.length === expectedBuf.length && crypto.timingSafeEqual(providedBuf, expectedBuf);
+    } catch {
+      return false;
+    }
+  });
+}
+
+function normalizeMcubeDirection(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return "";
+  if (normalized.includes("in")) return "inbound";
+  if (normalized.includes("out")) return "outbound";
+  return normalized;
+}
+
+function normalizeMcubeEvent(body = {}) {
+  const payload = body?.payload && typeof body.payload === "object" ? body.payload : body;
+  const metadata = payload?.metadata && typeof payload.metadata === "object" ? payload.metadata : {};
+  return {
+    raw: body,
+    eventType: String(payload.event_type || payload.eventType || payload.type || payload.action || payload.status || "").trim(),
+    direction: normalizeMcubeDirection(payload.direction || payload.call_direction || payload.callDirection || payload.type),
+    disposition: String(payload.disposition || payload.call_status || payload.callStatus || payload.status || "").trim(),
+    callId: String(payload.call_id || payload.callId || payload.uuid || payload.id || "").trim(),
+    leadId: String(payload.lead_id || payload.leadId || payload.crm_lead_id || metadata.leadId || metadata.lead_id || "").trim(),
+    phone: String(
+      payload.phone ||
+      payload.customer_number ||
+      payload.customerNumber ||
+      payload.mobile ||
+      payload.to ||
+      payload.from ||
+      metadata.phone ||
+      ""
+    ).trim(),
+    recordingUrl: String(payload.recording_url || payload.recordingUrl || payload.recording || "").trim(),
+    notes: String(payload.notes || payload.remark || payload.remarks || payload.description || "").trim(),
+    duration: Number(payload.duration || payload.call_duration || payload.callDuration || 0) || 0,
+    startedAt: String(payload.started_at || payload.start_time || payload.startTime || payload.timestamp || "").trim(),
+    endedAt: String(payload.ended_at || payload.end_time || payload.endTime || "").trim(),
+    counselorName: String(payload.agent_name || payload.agent || payload.executive_name || metadata.counselorName || "").trim(),
+    counselorEmail: String(payload.agent_email || metadata.counselorEmail || "").trim().toLowerCase()
+  };
+}
+
+function mapMcubeDispositionToCrmStatus(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return "";
+  if (/(callback|call\s*back|\bcbl\b)/i.test(normalized)) return "CBL";
+  if (/(connected|answered|completed|success)/i.test(normalized)) return "Connected";
+  if (/(no\s*answer|unanswered|ringing|timeout|\bcnc\b)/i.test(normalized)) return "CNC";
+  if (/(busy|dnp|do\s*not\s*pick|rejected|failed|switched\s*off|not\s*reachable)/i.test(normalized)) return "DNP";
+  return String(value || "").trim();
+}
+
+function inferLeadStageForCallUpdate(lead = {}) {
+  if (isMainAdmissionLead(lead)) {
+    return {
+      stage: "main-admission",
+      dialedField: "mainAdmissionDialed",
+      statusField: "mainAdmissionCallStatus"
+    };
+  }
+  if (isPublicCourseRegistrationLead(lead)) {
+    return {
+      stage: "registered-course",
+      dialedField: "registeredDialed",
+      statusField: "registeredCallStatus"
+    };
+  }
+  if (String(lead?.leadPipeline || "").trim().toLowerCase() === "admission" || lead?.postStatusUpdated) {
+    return {
+      stage: "admission",
+      dialedField: "postDialed",
+      statusField: "postCallStatus"
+    };
+  }
+  return {
+    stage: "workshop",
+    dialedField: "dialed",
+    statusField: "callStatus"
+  };
+}
+
+function findLeadByPhone(state, phone) {
+  const normalizedPhone = normalizeLeadPhone(phone);
+  if (!normalizedPhone) {
+    return null;
+  }
+  return (Array.isArray(state?.leads) ? state.leads : []).find(
+    (lead) => normalizeLeadPhone(lead?.phone) === normalizedPhone
+  ) || null;
+}
+
+async function assignMcubeCounselorRoundRobin(counselorSource) {
+  const sourceList = Array.isArray(counselorSource)
+    ? counselorSource
+    : Array.isArray(counselorSource?.counselors)
+      ? counselorSource.counselors
+      : [];
+  const counselors = sourceList.filter(isCounselorInMetaRotation);
+  if (!counselors.length) return "Unassigned";
+
+  const result = await withMongoRetry(
+    () => mcubeConfigCollection.findOneAndUpdate(
+      { _id: MCUBE_CONFIG_DOC_ID },
+      { $inc: { roundRobinIndex: 1 } },
+      { returnDocument: "after", upsert: true }
+    ),
+    { retries: 1, label: "Advance MCUBE round robin" }
+  );
+  const newIdx = Number(result?.roundRobinIndex) || 1;
+  const idx = ((newIdx - 1) % counselors.length + counselors.length) % counselors.length;
+  return counselors[idx].name;
+}
+
+function buildMcubeLead(event, counselorName, nextId) {
+  const now = new Date().toISOString();
+  const phone = String(event?.phone || "").trim();
+  const displayName = phone ? `MCUBE Caller ${phone.slice(-4)}` : `MCUBE Lead ${nextId}`;
+  return {
+    id: nextId,
+    name: displayName,
+    email: `mcube-${nextId}@noemail.lead`,
+    phone,
+    source: "MCUBE",
+    leadSource: "MCUBE",
+    counselor: counselorName,
+    leadPipeline: "workshop",
+    createdAt: now,
+    updatedAt: now,
+    callStatus: "",
+    mcubeAutoCreated: true,
+    mcubeLastEventType: String(event?.eventType || "").trim(),
+    mcubeLastCallId: String(event?.callId || "").trim()
+  };
+}
+
+function isMcubeCallbackStatus(status) {
+  return String(status || "").trim().toUpperCase() === "CBL";
 }
 
 function verifyWebhookSignature(rawBody, signatureHeader, appSecret) {
@@ -1710,6 +2090,228 @@ async function assignElementorCounselorRoundRobin(counselorSource) {
   return counselors[idx].name;
 }
 
+async function replaceLeadDocument(lead) {
+  await withMongoRetry(
+    () => leadsCollection.replaceOne(
+      { id: { $in: getLeadIdCandidates(lead?.id) } },
+      decorateLeadForStorage(lead),
+      { upsert: false }
+    ),
+    { retries: 1, label: "Replace lead document" }
+  );
+}
+
+async function createMcubeFollowUpTask(lead, event, session = null) {
+  const dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const task = normalizeTaskDoc({
+    title: `MCUBE callback for ${String(lead?.name || "lead").trim()}`,
+    notes: String(event?.notes || event?.disposition || "Callback requested from MCUBE").trim(),
+    dueDate,
+    counselor: String(lead?.counselor || "").trim() || "Unassigned",
+    leadCounselor: String(lead?.counselor || "").trim() || "Unassigned",
+    leadId: String(lead?.id || "").trim(),
+    leadName: String(lead?.name || "").trim()
+  });
+
+  const duplicateTask = await withMongoRetry(
+    () => tasksCollection.findOne({
+      leadId: task.leadId,
+      counselor: task.counselor,
+      title: task.title,
+      dueDate: task.dueDate
+    }),
+    { retries: 1, label: "Check MCUBE callback task" }
+  );
+
+  if (duplicateTask) {
+    return duplicateTask;
+  }
+
+  await withMongoRetry(
+    () => tasksCollection.insertOne(task),
+    { retries: 1, label: "Create MCUBE callback task" }
+  );
+
+  await recordActivity({
+    leadId: task.leadId,
+    leadName: task.leadName,
+    counselorName: task.leadCounselor || task.counselor || "",
+    activityType: "Follow-Up Added",
+    actionDescription: `MCUBE follow-up task created: "${task.title}"`,
+    newValue: `Title: ${task.title}, Due: ${task.dueDate}, Notes: ${task.notes || "None"}`,
+    session
+  });
+
+  return task;
+}
+
+async function processMcubeWebhookPayload(req, body) {
+  const config = await getMcubeConfig();
+  if (!config.enabled || !config.enableEventSync) {
+    await saveMcubeLog({ type: "ignored", message: "Integration disabled or event sync turned off." });
+    return;
+  }
+
+  if (!verifyMcubeWebhookSignature(req.rawBody, req, config.webhookSecret)) {
+    await saveMcubeLog({ type: "error", message: "Webhook signature verification failed." });
+    return;
+  }
+
+  const event = normalizeMcubeEvent(body);
+  if (!event.callId && !event.phone && !event.leadId && !event.eventType) {
+    await saveMcubeLog({ type: "ignored", message: "Webhook received without usable MCUBE event fields." });
+    return;
+  }
+
+  let state = await getStateDoc();
+  let lead = event.leadId ? findLeadById(state, event.leadId) : null;
+  if (!lead && event.phone) {
+    lead = findLeadByPhone(state, event.phone);
+  }
+
+  if (!lead && config.enableAutoLeadCreate && event.phone) {
+    const counselorName = await assignMcubeCounselorRoundRobin(state.counselors);
+    const nextId = await getNextMetaLeadId();
+    const newLead = buildMcubeLead(event, counselorName, nextId);
+    await withMongoRetry(
+      () => leadsCollection.insertOne(decorateLeadForStorage(newLead)),
+      { retries: 1, label: "Create MCUBE lead" }
+    );
+    await recordActivity({
+      leadId: newLead.id,
+      leadName: newLead.name,
+      counselorName: newLead.counselor || "",
+      activityType: "Lead Created",
+      actionDescription: `Lead created from MCUBE webhook (${event.eventType || "call event"})`,
+      newValue: `Name: ${newLead.name}, Phone: ${newLead.phone}, Email: ${newLead.email}`
+    });
+    if (shouldTreatLeadAsAssigned(newLead.counselor)) {
+      await recordActivity({
+        leadId: newLead.id,
+        leadName: newLead.name,
+        counselorName: newLead.counselor,
+        activityType: "Lead Assigned",
+        actionDescription: `Lead initially assigned to counselor ${newLead.counselor}`,
+        newValue: newLead.counselor
+      });
+    }
+    lead = newLead;
+    cachedStateDoc = null;
+    cachedStateDocAt = 0;
+    state = await getStateDoc();
+    if (config.enableNotifications) {
+      await createNotification({
+        userId: "admin",
+        role: "admin",
+        type: "new_mcube_lead",
+        title: "MCUBE Lead Created",
+        message: `Lead ${formatLeadNotificationLabel(newLead)} was created from an MCUBE call event.`,
+        sound: true,
+        leadId: newLead.id,
+        leadName: newLead.name,
+        assignedCounselor: newLead.counselor
+      });
+    }
+  }
+
+  if (!lead) {
+    await saveMcubeLog({
+      type: "ignored",
+      message: "No matching lead found for MCUBE event.",
+      callId: event.callId,
+      phone: event.phone
+    });
+    return;
+  }
+
+  const stageConfig = inferLeadStageForCallUpdate(lead);
+  const normalizedStatus = mapMcubeDispositionToCrmStatus(event.disposition || event.eventType);
+  const history = Array.isArray(lead.mcubeCallHistory) ? lead.mcubeCallHistory : [];
+  const nextHistory = [
+    {
+      at: new Date().toISOString(),
+      callId: event.callId,
+      eventType: event.eventType,
+      direction: event.direction,
+      disposition: event.disposition,
+      normalizedStatus,
+      duration: event.duration,
+      recordingUrl: event.recordingUrl,
+      notes: event.notes
+    },
+    ...history
+  ].slice(0, 50);
+
+  const nextLead = decorateLeadForStorage({
+    ...lead,
+    updatedAt: new Date().toISOString(),
+    mcubeCallHistory: nextHistory,
+    mcubeLastEventType: event.eventType,
+    mcubeLastDisposition: event.disposition,
+    mcubeLastCallId: event.callId,
+    mcubeLastEventAt: new Date().toISOString(),
+    mcubeLastDirection: event.direction || "",
+    lastCallAt: event.endedAt || event.startedAt || new Date().toISOString(),
+    lastCallRecordingUrl: config.enableRecordingLinks ? event.recordingUrl : (lead.lastCallRecordingUrl || "")
+  });
+
+  if (event.direction !== "inbound") {
+    nextLead[stageConfig.dialedField] = "Yes";
+  }
+  if (config.enableCallStatusSync && normalizedStatus) {
+    nextLead[stageConfig.statusField] = normalizedStatus;
+  }
+
+  await replaceLeadDocument(nextLead);
+
+  await recordActivity({
+    leadId: nextLead.id,
+    leadName: nextLead.name,
+    counselorName: nextLead.counselor || "",
+    activityType: "Call Made",
+    actionDescription: `MCUBE ${event.direction || "call"} event recorded${normalizedStatus ? ` with status ${normalizedStatus}` : ""}.`,
+    previousValue: String(lead?.[stageConfig.statusField] || "").trim() || null,
+    newValue: normalizedStatus || String(event.disposition || "").trim() || null
+  });
+
+  if (config.enableAutoTaskCreation && isMcubeCallbackStatus(normalizedStatus)) {
+    await createMcubeFollowUpTask(nextLead, event);
+  }
+
+  if (config.enableNotifications) {
+    await createNotification({
+      userId: "admin",
+      role: "admin",
+      type: "mcube_call_event",
+      title: "MCUBE Call Updated",
+      message: `${formatLeadNotificationLabel(nextLead)} ${normalizedStatus ? `is marked ${normalizedStatus}.` : "has a new call event."}`,
+      sound: normalizedStatus === "CBL",
+      leadId: nextLead.id,
+      leadName: nextLead.name,
+      assignedCounselor: nextLead.counselor
+    });
+  }
+
+  await stateCollection.updateOne(
+    { _id: STATE_DOC_ID },
+    { $set: { updatedAt: new Date().toISOString() } },
+    { upsert: true }
+  );
+  cachedStateDoc = null;
+  cachedStateDocAt = 0;
+
+  await saveMcubeLog({
+    type: "success",
+    message: `MCUBE event processed for ${nextLead.name}${normalizedStatus ? ` (${normalizedStatus})` : ""}.`,
+    leadId: nextLead.id,
+    leadName: nextLead.name,
+    counselor: nextLead.counselor,
+    callId: event.callId,
+    phone: event.phone,
+    eventType: event.eventType
+  });
+}
+
 async function processMetaWebhookPayload(req, body) {
   const config = await getMetaConfig();
 
@@ -2272,6 +2874,382 @@ app.post("/api/elementor/rr-state/reset", async (req, res) => {
   }
 });
 
+app.get("/api/mcube/config", async (req, res) => {
+  try {
+    await initMongo();
+    const activeSession = await getSessionFromRequest(req);
+    if (!activeSession || !["admin", "marketing"].includes(activeSession.session.role)) {
+      return res.status(403).json({ message: "Access required." });
+    }
+
+    const config = await getMcubeConfig();
+    const tokenSummary = buildMcubeTokenSummary(config.accountToken);
+    return res.json({
+      enabled: !!config.enabled,
+      apiBaseUrl: String(config.apiBaseUrl || "").trim(),
+      accountTokenSet: !!String(config.accountToken || "").trim(),
+      webhookSecretSet: !!String(config.webhookSecret || "").trim(),
+      clickToCallPath: String(config.clickToCallPath || "").trim(),
+      clickToCallMethod: String(config.clickToCallMethod || "POST").trim().toUpperCase(),
+      enableClickToCall: config.enableClickToCall !== false,
+      enableEventSync: config.enableEventSync !== false,
+      enableAutoLeadCreate: config.enableAutoLeadCreate !== false,
+      enableAutoTaskCreation: config.enableAutoTaskCreation !== false,
+      enableIncomingPopup: config.enableIncomingPopup !== false,
+      enableRecordingLinks: config.enableRecordingLinks !== false,
+      enableCallStatusSync: config.enableCallStatusSync !== false,
+      enableNotifications: config.enableNotifications !== false,
+      roundRobinIndex: Number(config.roundRobinIndex) || 0,
+      tokenSummary,
+      logSummary: {
+        success: Number(config.logSummary?.success) || 0,
+        ignored: Number(config.logSummary?.ignored) || 0,
+        error: Number(config.logSummary?.error) || 0
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to fetch MCUBE config.", details: err.message });
+  }
+});
+
+app.put("/api/mcube/config", async (req, res) => {
+  try {
+    await initMongo();
+    const activeSession = await getSessionFromRequest(req);
+    if (!activeSession || !["admin", "marketing"].includes(activeSession.session.role)) {
+      return res.status(403).json({ message: "Access required." });
+    }
+
+    const body = req.body || {};
+    const patch = {};
+    const booleanFields = [
+      "enabled",
+      "enableClickToCall",
+      "enableEventSync",
+      "enableAutoLeadCreate",
+      "enableAutoTaskCreation",
+      "enableIncomingPopup",
+      "enableRecordingLinks",
+      "enableCallStatusSync",
+      "enableNotifications"
+    ];
+
+    booleanFields.forEach((field) => {
+      if (typeof body[field] === "boolean") {
+        patch[field] = body[field];
+      }
+    });
+
+    if (typeof body.apiBaseUrl === "string") patch.apiBaseUrl = String(body.apiBaseUrl).trim();
+    if (typeof body.clickToCallPath === "string") patch.clickToCallPath = String(body.clickToCallPath).trim();
+    if (typeof body.clickToCallMethod === "string") patch.clickToCallMethod = String(body.clickToCallMethod).trim().toUpperCase() || "POST";
+    if (typeof body.accountToken === "string" && body.accountToken.trim()) patch.accountToken = String(body.accountToken).trim();
+    if (typeof body.webhookSecret === "string" && body.webhookSecret.trim()) patch.webhookSecret = String(body.webhookSecret).trim();
+
+    const now = new Date().toISOString();
+    await mcubeConfigCollection.updateOne(
+      { _id: MCUBE_CONFIG_DOC_ID },
+      { $set: { ...patch, updatedAt: now }, $setOnInsert: { roundRobinIndex: 0, createdAt: now } },
+      { upsert: true }
+    );
+
+    const updated = await getMcubeConfig();
+    const tokenSummary = buildMcubeTokenSummary(updated.accountToken);
+    return res.json({
+      ok: true,
+      enabled: !!updated.enabled,
+      apiBaseUrl: String(updated.apiBaseUrl || "").trim(),
+      accountTokenSet: !!String(updated.accountToken || "").trim(),
+      webhookSecretSet: !!String(updated.webhookSecret || "").trim(),
+      clickToCallPath: String(updated.clickToCallPath || "").trim(),
+      clickToCallMethod: String(updated.clickToCallMethod || "POST").trim().toUpperCase(),
+      enableClickToCall: updated.enableClickToCall !== false,
+      enableEventSync: updated.enableEventSync !== false,
+      enableAutoLeadCreate: updated.enableAutoLeadCreate !== false,
+      enableAutoTaskCreation: updated.enableAutoTaskCreation !== false,
+      enableIncomingPopup: updated.enableIncomingPopup !== false,
+      enableRecordingLinks: updated.enableRecordingLinks !== false,
+      enableCallStatusSync: updated.enableCallStatusSync !== false,
+      enableNotifications: updated.enableNotifications !== false,
+      roundRobinIndex: Number(updated.roundRobinIndex) || 0,
+      tokenSummary,
+      logSummary: {
+        success: Number(updated.logSummary?.success) || 0,
+        ignored: Number(updated.logSummary?.ignored) || 0,
+        error: Number(updated.logSummary?.error) || 0
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to save MCUBE config.", details: err.message });
+  }
+});
+
+app.post("/api/mcube/test", async (req, res) => {
+  try {
+    await initMongo();
+    const activeSession = await getSessionFromRequest(req);
+    if (!activeSession || !["admin", "marketing"].includes(activeSession.session.role)) {
+      return res.status(403).json({ message: "Access required." });
+    }
+
+    const config = await getMcubeConfig();
+    const tokenSummary = buildMcubeTokenSummary(config.accountToken);
+    const checks = [
+      { label: "Integration enabled", ok: !!config.enabled },
+      { label: "API base URL set", ok: !!String(config.apiBaseUrl || "").trim() },
+      { label: "Account token set", ok: !!String(config.accountToken || "").trim() },
+      { label: "Click-to-call path set", ok: !!String(config.clickToCallPath || "").trim() },
+      { label: "Event sync enabled", ok: config.enableEventSync !== false }
+    ];
+
+    return res.json({
+      ok: true,
+      tokenSummary,
+      checks,
+      message: "This validates the local MCUBE configuration and token structure. It does not verify the token against a live MCUBE endpoint from this environment."
+    });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to validate MCUBE config.", details: err.message });
+  }
+});
+
+app.get("/api/mcube/logs", async (req, res) => {
+  try {
+    await initMongo();
+    const activeSession = await getSessionFromRequest(req);
+    if (!activeSession || !["admin", "marketing"].includes(activeSession.session.role)) {
+      return res.status(403).json({ message: "Access required." });
+    }
+    const limit = Math.min(Number(req.query.limit) || 50, MAX_MCUBE_LOGS);
+    const logs = await mcubeLogsCollection
+      .find({}, { projection: { _id: 0 } })
+      .sort({ receivedAt: -1 })
+      .limit(limit)
+      .toArray();
+    const config = await getMcubeConfig();
+    return res.json({
+      logs,
+      summary: {
+        success: Number(config.logSummary?.success) || 0,
+        ignored: Number(config.logSummary?.ignored) || 0,
+        error: Number(config.logSummary?.error) || 0
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to fetch MCUBE logs.", details: err.message });
+  }
+});
+
+app.delete("/api/mcube/logs", async (req, res) => {
+  try {
+    await initMongo();
+    const activeSession = await getSessionFromRequest(req);
+    if (!activeSession || activeSession.session.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required." });
+    }
+    await mcubeLogsCollection.deleteMany({});
+    await mcubeConfigCollection.updateOne(
+      { _id: MCUBE_CONFIG_DOC_ID },
+      {
+        $set: {
+          logSummary: { success: 0, ignored: 0, error: 0 },
+          updatedAt: new Date().toISOString()
+        },
+        $setOnInsert: {
+          enabled: false,
+          apiBaseUrl: "",
+          accountToken: "",
+          webhookSecret: "",
+          clickToCallPath: "",
+          clickToCallMethod: "POST",
+          enableClickToCall: true,
+          enableEventSync: true,
+          enableAutoLeadCreate: true,
+          enableAutoTaskCreation: true,
+          enableIncomingPopup: true,
+          enableRecordingLinks: true,
+          enableCallStatusSync: true,
+          enableNotifications: true,
+          roundRobinIndex: 0,
+          createdAt: new Date().toISOString()
+        }
+      },
+      { upsert: true }
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to clear MCUBE logs.", details: err.message });
+  }
+});
+
+app.post("/api/mcube/rr-state/reset", async (req, res) => {
+  try {
+    await initMongo();
+    const activeSession = await getSessionFromRequest(req);
+    if (!activeSession || activeSession.session.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required." });
+    }
+    await mcubeConfigCollection.updateOne(
+      { _id: MCUBE_CONFIG_DOC_ID },
+      { $set: { roundRobinIndex: 0, updatedAt: new Date().toISOString() } },
+      { upsert: true }
+    );
+    return res.json({ ok: true, roundRobinIndex: 0 });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to reset MCUBE round-robin.", details: err.message });
+  }
+});
+
+app.get("/api/mcube/lookup", async (req, res) => {
+  try {
+    const session = await requireSession(req, res);
+    if (!session) return;
+
+    const phone = String(req.query.phone || "").trim();
+    if (!phone) {
+      return res.status(400).json({ message: "Phone is required." });
+    }
+
+    const state = await getStateDoc();
+    const lead = findLeadByPhone(state, phone);
+    return res.json({
+      ok: true,
+      found: !!lead,
+      lead: lead
+        ? {
+            id: lead.id,
+            name: lead.name,
+            counselor: lead.counselor,
+            phone: lead.phone,
+            email: lead.email,
+            leadPipeline: lead.leadPipeline || "workshop"
+          }
+        : null
+    });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to lookup lead.", details: err.message });
+  }
+});
+
+app.post("/api/mcube/click-to-call", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "counselor"]);
+    if (!session) return;
+
+    const config = await getMcubeConfig();
+    if (!config.enabled || config.enableClickToCall === false) {
+      return res.status(400).json({ message: "MCUBE click-to-call is disabled." });
+    }
+    if (!config.apiBaseUrl || !config.clickToCallPath || !config.accountToken) {
+      return res.status(400).json({ message: "MCUBE API base URL, token, or click-to-call path is missing." });
+    }
+
+    const leadId = String(req.body?.leadId || "").trim();
+    const phone = String(req.body?.phone || "").trim();
+    const state = await getStateDoc();
+    const lead = leadId ? findLeadById(state, leadId) : (phone ? findLeadByPhone(state, phone) : null);
+    const targetPhone = phone || String(lead?.phone || "").trim();
+    if (!targetPhone) {
+      return res.status(400).json({ message: "A target phone number is required." });
+    }
+
+    const requestPayload = {
+      phone: targetPhone,
+      leadId: String(lead?.id || leadId || "").trim(),
+      leadName: String(lead?.name || req.body?.leadName || "").trim(),
+      counselor: String(lead?.counselor || session.name || "").trim(),
+      triggeredBy: String(session.name || session.email || session.role).trim()
+    };
+    const method = String(config.clickToCallMethod || "POST").trim().toUpperCase() || "POST";
+    const endpointUrl = new URL(config.clickToCallPath, config.apiBaseUrl);
+    if (method === "GET") {
+      Object.entries(requestPayload).forEach(([key, value]) => {
+        if (value) {
+          endpointUrl.searchParams.set(key, value);
+        }
+      });
+    }
+    const endpoint = endpointUrl.toString();
+    const response = await fetch(endpoint, {
+      method,
+      headers: {
+        Authorization: `Bearer ${config.accountToken}`,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/plain;q=0.9"
+      },
+      ...(method === "GET" ? {} : { body: JSON.stringify(requestPayload) })
+    });
+    const text = await response.text();
+    let parsed = null;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      parsed = null;
+    }
+
+    if (!response.ok) {
+      await saveMcubeLog({
+        type: "error",
+        message: `Click-to-call failed with MCUBE HTTP ${response.status}.`,
+        leadId: requestPayload.leadId,
+        phone: requestPayload.phone
+      });
+      return res.status(502).json({
+        message: `MCUBE click-to-call failed with status ${response.status}.`,
+        details: parsed?.message || text || "Unknown MCUBE response"
+      });
+    }
+
+    if (lead) {
+      await recordActivity({
+        leadId: lead.id,
+        leadName: lead.name,
+        counselorName: lead.counselor || session.name || "",
+        activityType: "Call Made",
+        actionDescription: "MCUBE click-to-call triggered from CRM.",
+        newValue: `Phone: ${requestPayload.phone}`,
+        session
+      });
+      await stateCollection.updateOne(
+        { _id: STATE_DOC_ID },
+        { $set: { updatedAt: new Date().toISOString() } },
+        { upsert: true }
+      );
+      cachedStateDoc = null;
+      cachedStateDocAt = 0;
+    }
+
+    await saveMcubeLog({
+      type: "success",
+      message: `Click-to-call dispatched${lead?.name ? ` for ${lead.name}` : ""}.`,
+      leadId: requestPayload.leadId,
+      leadName: requestPayload.leadName,
+      phone: requestPayload.phone
+    });
+
+    return res.json({
+      ok: true,
+      endpoint,
+      response: parsed || text || null
+    });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to trigger MCUBE click-to-call.", details: err.message });
+  }
+});
+
+app.post("/api/mcube/webhook", async (req, res) => {
+  res.status(200).json({ ok: true });
+
+  try {
+    const body = parseMcubeWebhookRequestBody(req) || {};
+    await processMcubeWebhookPayload(req, body);
+  } catch (err) {
+    try {
+      await saveMcubeLog({ type: "error", message: `MCUBE webhook processing error: ${err.message || "unknown error"}` });
+    } catch {}
+  }
+});
+
 app.post("/api/webhook/elementor-lead", async (req, res) => {
   res.status(200).json({ success: true });
 
@@ -2387,7 +3365,18 @@ app.post("/api/admin/restore", async (req, res) => {
       await metaRetryCollection.insertMany(snapshot.metaRetryJobs, { ordered: true });
     }
 
+    await mcubeConfigCollection.deleteMany({});
+    if (snapshot.mcubeConfig) {
+      await mcubeConfigCollection.insertOne(snapshot.mcubeConfig);
+    }
+
+    await mcubeLogsCollection.deleteMany({});
+    if (snapshot.mcubeLogs.length) {
+      await mcubeLogsCollection.insertMany(snapshot.mcubeLogs, { ordered: true });
+    }
+
     metaLogWriteCount = 0;
+    mcubeLogWriteCount = 0;
     sessionCache.clear();
     const nextState = cacheStateDoc({
       ...metadata,
@@ -2409,7 +3398,8 @@ app.post("/api/admin/restore", async (req, res) => {
         tasks: nextState.tasks.length,
         preferences: snapshot.preferences.length,
         metaLogs: snapshot.metaLogs.length,
-        metaRetryJobs: snapshot.metaRetryJobs.length
+        metaRetryJobs: snapshot.metaRetryJobs.length,
+        mcubeLogs: snapshot.mcubeLogs.length
       },
       state: buildStateResponse(nextState)
     });
@@ -5147,6 +6137,10 @@ app.get("/meta-integration", (_req, res) => {
 
 app.get("/elementor-integration", (_req, res) => {
   res.sendFile(path.join(ROOT_DIR, "elementor-integration.html"));
+});
+
+app.get("/mcube-integration", (_req, res) => {
+  res.sendFile(path.join(ROOT_DIR, "mcube-integration.html"));
 });
 
 app.get("/crash-course", (_req, res) => {
