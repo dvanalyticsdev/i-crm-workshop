@@ -231,6 +231,21 @@ export async function updateStateFields(fields) {
           return { ok: true, payload: getStateSnapshot() };
         }
 
+        if (response.status === 412) {
+          try {
+            await refreshState();
+            // Re-apply the intended field update on top of the freshly loaded
+            // authoritative state before retrying with the new ETag.
+            setCurrentState({ ...currentState, ...nextFields });
+            continue;
+          } catch (refreshError) {
+            return {
+              ok: false,
+              message: refreshError?.message || payload?.message || "State changed on the server. Reload the latest data and retry your update."
+            };
+          }
+        }
+
         // 4xx errors are definitive failures — do not retry.
         if (response.status >= 400 && response.status < 500) {
           void refreshState().catch(() => undefined);
