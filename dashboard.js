@@ -247,7 +247,7 @@ function getCoreWorkshopName(workshopName) {
     return "Power BI Workshop 27th June";
   }
   if (name.includes("cyber") && name.includes("21")) {
-    return "Cyber AI Workshop 21st June";
+    return "Cyber Security Workshop 21st June";
   }
   if (name.includes("sql") && name.includes("13")) {
     return "SQL Workshop 13th June";

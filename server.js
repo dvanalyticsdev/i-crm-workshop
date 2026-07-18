@@ -1005,7 +1005,7 @@ const WORKSHOP_MONTH_LOOKUP = {
 const WORKSHOP_TOPIC_PATTERNS = [
   { pattern: /\bpower\s*bi\b|\bpowerbi\b/i, label: "Power BI", slug: "power-bi" },
   { pattern: /\bcyber\s*security\b|\bcybersecurity\b/i, label: "Cyber Security", slug: "cyber-security" },
-  { pattern: /\bcyber\s*ai\b|\bcyberai\b/i, label: "Cyber AI", slug: "cyber-ai" },
+  { pattern: /\bcyber\s*ai\b|\bcyberai\b/i, label: "Cyber Security", slug: "cyber-security" },
   { pattern: /\bgen\s*ai\b|\bgenai\b/i, label: "Gen AI", slug: "gen-ai" },
   { pattern: /\bexcel\b/i, label: "Excel", slug: "excel" },
   { pattern: /\bpython\b/i, label: "Python", slug: "python" },
