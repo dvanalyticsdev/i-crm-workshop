@@ -81,6 +81,17 @@ const ADMIN_USER = {
   name: "Admin"
 };
 
+function toKolkataDateKey(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
 function buildAdminAuthVersion() {
   return crypto
     .createHash("sha256")
@@ -1937,7 +1948,7 @@ function buildMetaLead(fieldData, meta, counselorName, nextId, options = {}) {
     metaAdsetName: String(meta.adsetName || ""),
     metaCampaignName: String(meta.campaignName || ""),
     metaExtraFields,
-    createdAt: new Date().toISOString().slice(0, 10),
+    createdAt: toKolkataDateKey(),
     dialed: "",
     callStatus: "",
     wsStatus: "",
@@ -2012,7 +2023,7 @@ function buildElementorLead(fields, meta, counselorName, nextId, options = {}) {
       ...Object.fromEntries(extraEntries),
       poweredBy: String(fields.powered_by || meta.poweredBy || "").trim()
     },
-    createdAt: new Date().toISOString().slice(0, 10),
+    createdAt: toKolkataDateKey(),
     dialed: "",
     callStatus: "",
     wsStatus: "",
@@ -2102,7 +2113,7 @@ async function replaceLeadDocument(lead) {
 }
 
 async function createMcubeFollowUpTask(lead, event, session = null) {
-  const dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const dueDate = toKolkataDateKey(new Date(Date.now() + 24 * 60 * 60 * 1000));
   const task = normalizeTaskDoc({
     title: `MCUBE callback for ${String(lead?.name || "lead").trim()}`,
     notes: String(event?.notes || event?.disposition || "Callback requested from MCUBE").trim(),
@@ -3725,7 +3736,7 @@ function buildPublicCourseLead({ name, email, phone, course, counselorName, next
     source: "Public Course Registration",
     leadPipeline: "course-registration",
     publicCourseSegment: normalizePublicCourseSegment(segment),
-    createdAt: new Date().toISOString().slice(0, 10),
+    createdAt: toKolkataDateKey(),
     counselor: counselorName,
     registeredDialed: "",
     registeredCoursePitched: "",
@@ -3990,7 +4001,7 @@ function buildWorkshopMigrationSnapshot(lead = {}) {
 
 function buildFreshWorkshopLead(existingLead, incomingLead, options = {}) {
   const now = new Date();
-  const createdAt = now.toISOString().slice(0, 10);
+  const createdAt = toKolkataDateKey(now);
   const workshopMigrationHistory = Array.isArray(existingLead?.workshopMigrationHistory)
     ? structuredClone(existingLead.workshopMigrationHistory)
     : [];
@@ -5231,7 +5242,7 @@ app.post("/api/leads/:leadId/notes", async (req, res) => {
 
     const note = {
       text,
-      at: new Date().toISOString().slice(0, 10),
+      at: toKolkataDateKey(),
       by: session.name || "Unknown"
     };
     const query = { id: { $in: getLeadIdCandidates(leadId) } };

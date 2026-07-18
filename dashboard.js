@@ -29,7 +29,7 @@ const DEFAULT_TIMELINE_STATE = {
   startDate: "",
   endDate: ""
 };
-const REFERENCE_TODAY = new Date(2026, 6, 17);
+const REFERENCE_TODAY = new Date();
 const RECENT_WINDOW_DAYS = 30;
 const MONTH_LOOKUP = {
   jan: 0,

@@ -31,7 +31,6 @@ const session = getSession();
 
 const TIMELINE_STORAGE_KEY = "dvWorkshopMonitoringTimeline";
 const VIEW_STORAGE_KEY = "dvMonitoringActiveView";
-const MONITORING_REFERENCE_DATE = new Date(2026, 6, 17);
 const CRASH_SEGMENT = "crash-course";
 
 const VIEW_CONFIG = {
@@ -108,6 +107,30 @@ function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function toLocalDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseLocalDate(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  const dateOnlyMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnlyMatch) {
+    const [, year, month, day] = dateOnlyMatch;
+    return new Date(Number(year), Number(month) - 1, Number(day));
+  }
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed;
+}
+
 function isCounselorSession() {
   return session?.role === "counselor";
 }
@@ -169,7 +192,7 @@ function normalizeLeadFields(leads) {
     lead.email = String(lead.email || "").toLowerCase();
     lead.workshop = lead.workshop || "";
     lead.courseName = lead.courseName || "";
-    lead.createdAt = lead.createdAt || new Date().toISOString().slice(0, 10);
+    lead.createdAt = lead.createdAt || toLocalDateKey();
     lead.counselor = lead.counselor || "Unassigned";
 
     lead.dialed = lead.dialed || "";
@@ -241,7 +264,7 @@ function getTimelineRange() {
     return null;
   }
 
-  const now = new Date(MONITORING_REFERENCE_DATE);
+  const now = new Date();
 
   if (timelineFilter.type === "today") {
     const start = new Date(now);
@@ -274,9 +297,15 @@ function getTimelineRange() {
       return null;
     }
 
-    const start = new Date(timelineFilter.startDate);
+    const start = parseLocalDate(timelineFilter.startDate);
+    if (!start) {
+      return null;
+    }
     start.setHours(0, 0, 0, 0);
-    const end = new Date(timelineFilter.endDate);
+    const end = parseLocalDate(timelineFilter.endDate);
+    if (!end) {
+      return null;
+    }
     end.setHours(23, 59, 59, 999);
     return { start, end };
   }
@@ -286,7 +315,10 @@ function getTimelineRange() {
 
 function filterHistoryInRange(history, start, end) {
   return history.filter((entry) => {
-    const date = new Date(entry.at);
+    const date = parseLocalDate(entry.at);
+    if (!date) {
+      return false;
+    }
     return date >= start && date <= end;
   });
 }
@@ -475,7 +507,10 @@ function countNewLeads(rawLeads, range) {
 
   const { start, end } = range;
   return rawLeads.filter((lead) => {
-    const created = new Date(lead.createdAt);
+    const created = parseLocalDate(lead.createdAt);
+    if (!created) {
+      return false;
+    }
     return created >= start && created <= end;
   }).length;
 }
@@ -492,8 +527,14 @@ function splitFreshAndOldActivities(activityLeads, countField, range) {
   }
 
   const { start } = range;
-  const freshActivityLeads = activityLeads.filter((lead) => new Date(lead.createdAt) >= start);
-  const oldActivityLeads = activityLeads.filter((lead) => new Date(lead.createdAt) < start);
+  const freshActivityLeads = activityLeads.filter((lead) => {
+    const created = parseLocalDate(lead.createdAt);
+    return created && created >= start;
+  });
+  const oldActivityLeads = activityLeads.filter((lead) => {
+    const created = parseLocalDate(lead.createdAt);
+    return created && created < start;
+  });
 
   return {
     activities: totalActivities,

@@ -112,6 +112,13 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
+function toLocalDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function normalizeCourseSourceText(value) {
   return String(value || "")
     .replace(/([a-z])([A-Z])/g, "$1 $2")
@@ -217,7 +224,7 @@ function normalizeLeadFields(leads) {
     lead.courseRawName = String(lead.courseRawName || lead.courseName || "").trim();
     lead.courseName = canonicalCourse.label || String(lead.courseName || "").trim();
     lead.courseKey = canonicalCourse.key || String(lead.courseKey || "").trim();
-    lead.createdAt = lead.createdAt || new Date().toISOString().slice(0, 10);
+    lead.createdAt = lead.createdAt || toLocalDateKey();
     lead.registeredDialed = lead.registeredDialed || "";
     lead.registeredCoursePitched = lead.registeredCoursePitched || "";
     lead.registeredCourseStatus = lead.registeredCourseStatus || "";
@@ -375,6 +382,13 @@ function getUniqueValues(leads, key) {
 function parseTimelineDate(value) {
   const raw = String(value || "").trim();
   if (!raw) return null;
+
+  const dateOnlyMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnlyMatch) {
+    const [, year, month, day] = dateOnlyMatch;
+    return new Date(Number(year), Number(month) - 1, Number(day));
+  }
+
   const parsed = new Date(raw);
   if (Number.isNaN(parsed.getTime())) {
     return null;

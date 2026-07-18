@@ -50,6 +50,13 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
+function toLocalDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function getScopedLeads(allLeads) {
   if (!isCounselorSession()) {
     return allLeads;
@@ -70,7 +77,7 @@ function normalizeLeadFields(leads) {
     lead.name = lead.name || "";
     lead.email = (lead.email || "").toLowerCase();
     lead.workshop = lead.workshop || "";
-    lead.createdAt = lead.createdAt || new Date().toISOString().slice(0, 10);
+    lead.createdAt = lead.createdAt || toLocalDateKey();
 
     lead.dialed = lead.dialed || "";
     lead.callStatus = lead.callStatus || "";

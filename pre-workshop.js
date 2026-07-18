@@ -784,7 +784,27 @@ const pageSize = 50;
 const activityFields = ["modalDialed", "modalCallStatus", "modalWsStatus", "modalWhatsappInvite", "modalWhatsappGroupStatus"];
 
 function toIsoDate(date = new Date()) {
-  return date.toISOString().slice(0, 10);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseLocalDate(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  const dateOnlyMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnlyMatch) {
+    const [, year, month, day] = dateOnlyMatch;
+    return new Date(Number(year), Number(month) - 1, Number(day));
+  }
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed;
 }
 
 function setMessage(element, text, isError = true) {
@@ -1163,7 +1183,10 @@ function filterByTimeline(leads) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     return leads.filter((lead) => {
-      const created = new Date(lead.createdAt);
+      const created = parseLocalDate(lead.createdAt);
+      if (!created) {
+        return false;
+      }
       created.setHours(0, 0, 0, 0);
       return created.getTime() === today.getTime();
     });
@@ -1174,7 +1197,10 @@ function filterByTimeline(leads) {
     yesterday.setDate(yesterday.getDate() - 1);
     yesterday.setHours(0, 0, 0, 0);
     return leads.filter((lead) => {
-      const created = new Date(lead.createdAt);
+      const created = parseLocalDate(lead.createdAt);
+      if (!created) {
+        return false;
+      }
       created.setHours(0, 0, 0, 0);
       return created.getTime() === yesterday.getTime();
     });
@@ -1189,7 +1215,10 @@ function filterByTimeline(leads) {
     start.setHours(0, 0, 0, 0);
 
     return leads.filter((lead) => {
-      const created = new Date(lead.createdAt);
+      const created = parseLocalDate(lead.createdAt);
+      if (!created) {
+        return false;
+      }
       return created >= start && created <= end;
     });
   }
@@ -1199,14 +1228,23 @@ function filterByTimeline(leads) {
       return leads;
     }
 
-    const start = new Date(filter.startDate);
+    const start = parseLocalDate(filter.startDate);
+    if (!start) {
+      return leads;
+    }
     start.setHours(0, 0, 0, 0);
 
-    const end = new Date(filter.endDate);
+    const end = parseLocalDate(filter.endDate);
+    if (!end) {
+      return leads;
+    }
     end.setHours(23, 59, 59, 999);
 
     return leads.filter((lead) => {
-      const created = new Date(lead.createdAt);
+      const created = parseLocalDate(lead.createdAt);
+      if (!created) {
+        return false;
+      }
       return created >= start && created <= end;
     });
   }
