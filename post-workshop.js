@@ -60,7 +60,17 @@ function isSelectedFilterValue(value) {
 
 function getCoreWorkshopName(workshopName) {
   if (!workshopName) return "";
-  const name = String(workshopName).toLowerCase();
+  const normalizedWorkshopName = String(workshopName)
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/([A-Za-z])(\d)/g, "$1 $2")
+    .replace(/(\d)([A-Za-z])/g, "$1 $2")
+    .replace(/\b(\d{1,2})\s+(st|nd|rd|th)\b/gi, "$1$2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[_\s]+(imp|od|ind)$/i, "")
+    .trim();
+  const name = normalizedWorkshopName.toLowerCase();
   
   if (name.includes("gen") && name.includes("11")) {
     return "Gen AI Workshop 11th June";
@@ -78,16 +88,110 @@ function getCoreWorkshopName(workshopName) {
     return "SQL Workshop 13th June";
   }
   
-  return String(workshopName).trim().replace(/[_\s]+(imp|od|ind)$/i, "").trim();
+  return normalizedWorkshopName;
 }
 
 function getAdmissionWorkshopName(lead) {
   return String(lead?.admissionWorkshop || lead?.workshop || "").trim();
 }
 
+function shortenWorkshopLabel(workshopName) {
+  const coreName = getCoreWorkshopName(workshopName);
+  const cleaned = coreName.replace(/\bworkshop\b/gi, "").replace(/\s{2,}/g, " ").trim();
+  return cleaned || coreName;
+}
+
+function extractWorkshopDate(workshopName) {
+  const coreName = getCoreWorkshopName(workshopName);
+  const match = coreName.match(/(\d{1,2})(?:st|nd|rd|th)\s+([A-Za-z]+)/i);
+  if (!match) {
+    return null;
+  }
+
+  const monthLookup = {
+    jan: 0,
+    january: 0,
+    feb: 1,
+    february: 1,
+    mar: 2,
+    march: 2,
+    apr: 3,
+    april: 3,
+    may: 4,
+    jun: 5,
+    june: 5,
+    jul: 6,
+    july: 6,
+    aug: 7,
+    august: 7,
+    sep: 8,
+    sept: 8,
+    september: 8,
+    oct: 9,
+    october: 9,
+    nov: 10,
+    november: 10,
+    dec: 11,
+    december: 11
+  };
+
+  const day = Number(match[1]);
+  const monthIndex = monthLookup[String(match[2] || "").toLowerCase()];
+  if (!Number.isFinite(day) || monthIndex == null) {
+    return null;
+  }
+
+  return new Date(2026, monthIndex, day);
+}
+
+function getAdmissionWorkshopFilterName(lead) {
+  const sourceName = String(lead?.admissionWorkshop || lead?.workshop || lead?.admissionWorkshopName || "").trim();
+  const shortened = shortenWorkshopLabel(sourceName);
+  return shortened.replace(/\s+\d{1,2}(?:st|nd|rd|th)\s+[A-Za-z]+$/i, "").trim();
+}
+
+function getAdmissionWorkshopFilterDate(lead) {
+  const explicitDateLabel = String(lead?.admissionWorkshopDateLabel || lead?.workshopDateLabel || "").trim();
+  if (explicitDateLabel) {
+    return explicitDateLabel;
+  }
+
+  const workshopDate = extractWorkshopDate(getAdmissionWorkshopName(lead));
+  if (!(workshopDate instanceof Date) || Number.isNaN(workshopDate.getTime())) {
+    return "";
+  }
+
+  const day = workshopDate.getDate();
+  const month = workshopDate.toLocaleDateString("en-IN", { month: "long" });
+  const remainder = day % 100;
+  let suffix = "th";
+  if (remainder < 11 || remainder > 13) {
+    if (day % 10 === 1) suffix = "st";
+    else if (day % 10 === 2) suffix = "nd";
+    else if (day % 10 === 3) suffix = "rd";
+  }
+  return `${day}${suffix} ${month}`;
+}
+
 function getUniqueCoreWorkshops(leads) {
   const coreNames = leads.map((lead) => getCoreWorkshopName(getAdmissionWorkshopName(lead))).filter(Boolean);
   return [...new Set(coreNames)];
+}
+
+function getUniqueAdmissionWorkshopNames(leads) {
+  return [...new Set(
+    leads
+      .map((lead) => getAdmissionWorkshopFilterName(lead))
+      .filter(Boolean)
+  )];
+}
+
+function getUniqueAdmissionWorkshopDates(leads) {
+  return [...new Set(
+    leads
+      .map((lead) => getAdmissionWorkshopFilterDate(lead))
+      .filter(Boolean)
+  )];
 }
 
 function getAdmissionWorkshopOptions(leads) {
@@ -106,9 +210,8 @@ function filterIncludesValue(filterValue, value) {
   }
 
   const normalizedValue = String(value || "").trim();
-  const isWorkshopFilter = (typeof filter !== "undefined" && filterValue === filter.workshop);
   return selected.some((item) => (
-    item === BLANK_FILTER_VALUE ? normalizedValue === "" : (isWorkshopFilter ? getCoreWorkshopName(item) === getCoreWorkshopName(normalizedValue) : item === normalizedValue)
+    item === BLANK_FILTER_VALUE ? normalizedValue === "" : item === normalizedValue
   ));
 }
 
@@ -240,7 +343,8 @@ const DEFAULT_FILTER = {
   startDate: "",
   endDate: "",
   search: "",
-  workshop: EMPTY_FILTER_VALUE,
+  workshopName: EMPTY_FILTER_VALUE,
+  workshopDate: EMPTY_FILTER_VALUE,
   counselor: EMPTY_FILTER_VALUE,
   activityStatus: EMPTY_FILTER_VALUE,
   postDialed: EMPTY_FILTER_VALUE,
@@ -261,6 +365,10 @@ const persistedFilter = await loadPersistedValue(FILTER_STORAGE_KEY, {});
 
 if (persistedFilter.workshopCalling && !persistedFilter.workshopCallingWsStatus) {
   persistedFilter.workshopCallingWsStatus = persistedFilter.workshopCalling;
+}
+
+if (persistedFilter.workshop && !persistedFilter.workshopName) {
+  persistedFilter.workshopName = persistedFilter.workshop;
 }
 
 if (persistedFilter.timeline === "daily") {
@@ -458,6 +566,8 @@ function normalizeLeadFields(leads) {
     lead.admissionStatus = lead.admissionStatus || "";
     lead.postCallStatus = lead.postCallStatus || "";
     lead.admissionWorkshop = lead.admissionWorkshop || "";
+    lead.admissionWorkshopName = getAdmissionWorkshopFilterName(lead);
+    lead.admissionWorkshopDateLabel = getAdmissionWorkshopFilterDate(lead);
     lead.workshopJoiningStatus = lead.workshopJoiningStatus || "";
     lead.postStatusUpdated = typeof lead.postStatusUpdated === "boolean" ? lead.postStatusUpdated : false;
     lead.workshopActivityHistory = Array.isArray(lead.workshopActivityHistory) ? lead.workshopActivityHistory : [];
@@ -601,7 +711,8 @@ function renderKpis(leads) {
 }
 
 function renderFilters(leads) {
-  const workshops = getUniqueCoreWorkshops(leads);
+  const workshopNames = getUniqueAdmissionWorkshopNames(leads);
+  const workshopDates = getUniqueAdmissionWorkshopDates(leads);
   const counselorOptions = [...new Set(
     leads
       .map((lead) => String(lead.counselor || "").trim())
@@ -704,10 +815,16 @@ function renderFilters(leads) {
           value: filter.activityStatus
         })}
         ${renderMultiSelectControl({
-          id: "postWorkshopSelect",
+          id: "postWorkshopNameSelect",
           label: "Workshop Name",
-          options: workshops,
-          value: filter.workshop
+          options: workshopNames,
+          value: filter.workshopName
+        })}
+        ${renderMultiSelectControl({
+          id: "postWorkshopDateSelect",
+          label: "Workshop Date",
+          options: workshopDates,
+          value: filter.workshopDate
         })}
         ${renderMultiSelectControl({
           id: "postDialedSelect",
@@ -770,7 +887,8 @@ function renderFilters(leads) {
   document.getElementById("postSearchLeadInput").value = filter.search;
   bindMultiFilter("postCounselorSelect", "counselor");
   bindMultiFilter("postActivityStatusSelect", "activityStatus");
-  bindMultiFilter("postWorkshopSelect", "workshop");
+  bindMultiFilter("postWorkshopNameSelect", "workshopName");
+  bindMultiFilter("postWorkshopDateSelect", "workshopDate");
   bindMultiFilter("postDialedSelect", "postDialed");
   bindMultiFilter("postCoursePitchedSelect", "coursePitched");
   bindMultiFilter("postCourseStatusSelect", "courseStatus");
@@ -909,8 +1027,12 @@ function filterLeads(leads) {
     });
   }
 
-  if (isSelectedFilterValue(filter.workshop)) {
-    filtered = filtered.filter((lead) => filterIncludesValue(filter.workshop, getAdmissionWorkshopName(lead)));
+  if (isSelectedFilterValue(filter.workshopName)) {
+    filtered = filtered.filter((lead) => filterIncludesValue(filter.workshopName, getAdmissionWorkshopFilterName(lead)));
+  }
+
+  if (isSelectedFilterValue(filter.workshopDate)) {
+    filtered = filtered.filter((lead) => filterIncludesValue(filter.workshopDate, getAdmissionWorkshopFilterDate(lead)));
   }
 
   if (isSelectedFilterValue(filter.counselor)) {
