@@ -1613,6 +1613,13 @@ function buildCourseIdentity(value, lead = {}) {
   };
 }
 
+function isKnownPublicCourseIdentity(courseIdentity = {}) {
+  return Boolean(
+    courseIdentity.key
+    && PUBLIC_COURSE_CATALOG.some((course) => course.id === courseIdentity.key)
+  );
+}
+
 function getMetaLeadFieldMap(fieldData = []) {
   const fields = {};
   (fieldData || []).forEach(({ name, values }) => {
@@ -6508,7 +6515,6 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
   };
   const metaFields = getMetaLeadFieldMap(metaLead.field_data);
   const leadType = classifyIncomingMetaLead(metaFields, metaInfo);
-  const isAdmissionLead = leadType === "admission";
   const inferredAdmissionBranch = inferLeadBranchFromText(
     metaFields.city,
     metaFields.branch,
@@ -6536,6 +6542,13 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
     metaInfo.campaignName ||
     ""
   ).trim();
+  const forcedAdmissionCourseIdentity = buildCourseIdentity(inferredAdmissionCourse, {
+    metaAdName: metaInfo.adName,
+    metaAdsetName: metaInfo.adsetName,
+    metaCampaignName: metaInfo.campaignName
+  });
+  const isAdmissionLead = leadType === "admission" || isKnownPublicCourseIdentity(forcedAdmissionCourseIdentity);
+  const effectiveLeadType = isAdmissionLead ? "admission" : leadType;
   const counselorName = isAdmissionLead
     ? await assignAdmissionCounselorRoundRobin(snapshot.counselors, {
         branch: inferredAdmissionBranch,
@@ -6548,7 +6561,7 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
     metaInfo,
     counselorName,
     nextId,
-    { leadType }
+    { leadType: effectiveLeadType }
   );
   const duplicateLead = findDuplicateLeadByEmailOrPhone(snapshot.leads, newLead);
   if (duplicateLead) {
@@ -6732,7 +6745,6 @@ async function processElementorLeadRecord(payload, config) {
     poweredBy: String(fields.powered_by || "").trim()
   };
   const leadType = classifyIncomingElementorLead(fields, metaInfo, config);
-  const isAdmissionLead = leadType === "admission";
   const inferredAdmissionBranch = inferLeadBranchFromText(
     fields.city,
     fields.branch,
@@ -6757,6 +6769,12 @@ async function processElementorLeadRecord(payload, config) {
     metaInfo.pageUrl ||
     ""
   ).trim();
+  const forcedAdmissionCourseIdentity = buildCourseIdentity(inferredAdmissionCourse, {
+    elementorFormName: metaInfo.formName,
+    elementorPageUrl: metaInfo.pageUrl
+  });
+  const isAdmissionLead = leadType === "admission" || isKnownPublicCourseIdentity(forcedAdmissionCourseIdentity);
+  const effectiveLeadType = isAdmissionLead ? "admission" : leadType;
   const counselorName = isAdmissionLead
     ? await assignAdmissionCounselorRoundRobin(snapshot.counselors, {
         branch: inferredAdmissionBranch,
@@ -6764,7 +6782,7 @@ async function processElementorLeadRecord(payload, config) {
       })
     : await assignElementorCounselorRoundRobin(snapshot.counselors);
   const nextId = await getNextMetaLeadId();
-  const newLead = buildElementorLead(fields, metaInfo, counselorName, nextId, { leadType });
+  const newLead = buildElementorLead(fields, metaInfo, counselorName, nextId, { leadType: effectiveLeadType });
   const duplicateLead = findDuplicateLeadByEmailOrPhone(snapshot.leads, newLead);
 
   if (duplicateLead) {

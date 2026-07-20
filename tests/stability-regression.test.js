@@ -502,6 +502,9 @@ test("admission course permission matching uses catalog course ids", () => {
   assert.match(server, /if \(courseMatches\.length\) return courseMatches;\s*return \[\];/);
   assert.ok(server.includes("apids|apida|apcs|das|aiml|genai|gen ai|7days|7 days"));
   assert.match(server, /if \(hasCourseCatalogSignal\) \{\s*return "admission";\s*\}/);
+  assert.match(server, /function isKnownPublicCourseIdentity/);
+  assert.match(server, /leadType === "admission" \|\| isKnownPublicCourseIdentity\(forcedAdmissionCourseIdentity\)/);
+  assert.match(server, /\{ leadType: effectiveLeadType \}/);
   assert.ok(server.includes('"\\\\bod\\\\b"'));
 });
 
