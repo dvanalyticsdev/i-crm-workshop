@@ -70,6 +70,17 @@ const VIEW_CONFIG = {
         description: "Track the isolated 7-Day Crash Course registration pipeline separately from standard registered candidates."
       }
     }
+  },
+  performance: {
+    label: "Performance",
+    description: "Track overall, manager, and counselor performance using lead movement, PDE activity, and conversion status.",
+    subsections: {
+      "performance-tracking": {
+        label: "Performance Tracking",
+        title: "Performance Tracking",
+        description: "Compare total leads, new and old lead PDE, interested, opportunity, offered, lost, and untouched lead movement."
+      }
+    }
   }
 };
 
@@ -539,6 +550,259 @@ function splitFreshAndOldActivities(activityLeads, countField, range) {
   };
 }
 
+function formatPercent(count, total) {
+  if (!total) {
+    return "0%";
+  }
+  const value = (count / total) * 100;
+  return `${value.toFixed(value % 1 === 0 ? 0 : 1)}%`;
+}
+
+function getLeadKey(lead) {
+  return String(
+    lead.id
+    || lead.leadId
+    || lead.phone
+    || lead.phoneNumber
+    || lead.email
+    || `${lead.name || "lead"}-${lead.createdAt || ""}`
+  );
+}
+
+function wasLeadCreatedInRange(lead, range) {
+  if (!range) {
+    return true;
+  }
+  const created = parseLocalDate(lead.createdAt);
+  return Boolean(created && created >= range.start && created <= range.end);
+}
+
+function wasLeadCreatedBeforeRange(lead, range) {
+  if (!range) {
+    return false;
+  }
+  const created = parseLocalDate(lead.createdAt);
+  return Boolean(created && created < range.start);
+}
+
+function getTotalActivityUpdates(lead) {
+  return [
+    lead.preActivityUpdates,
+    lead.postActivityUpdates,
+    lead.registeredCourseActivityUpdates,
+    lead.mainAdmissionActivityUpdates
+  ].reduce((sum, value) => sum + (Number(value) || 0), 0);
+}
+
+function hasPdeActivity(lead) {
+  return getTotalActivityUpdates(lead) > 0
+    || lead.dialed === "Yes"
+    || lead.postDialed === "Yes"
+    || lead.registeredDialed === "Yes"
+    || lead.mainAdmissionDialed === "Yes"
+    || lead.postStatusUpdated === true
+    || Boolean(lead.callStatus || lead.registeredCallStatus || lead.mainAdmissionCallStatus);
+}
+
+function getCourseStatusValues(lead) {
+  return [
+    lead.wsStatus,
+    lead.courseStatus,
+    lead.registeredCourseStatus,
+    lead.mainAdmissionCourseStatus
+  ].map(normalizeText);
+}
+
+function getAdmissionStatusValues(lead) {
+  return [
+    lead.admissionStatus,
+    lead.registeredAdmissionStatus,
+    lead.mainAdmissionAdmissionStatus
+  ].map(normalizeText);
+}
+
+function hasAnyStatus(lead, expected) {
+  const expectedStatus = normalizeText(expected);
+  return [...getCourseStatusValues(lead), ...getAdmissionStatusValues(lead)]
+    .some((status) => status === expectedStatus);
+}
+
+function isInterestedPerformanceLead(lead) {
+  return hasAnyStatus(lead, "Interested");
+}
+
+function isLostPerformanceLead(lead) {
+  return hasAnyStatus(lead, "Not Interested") || normalizeText(lead.leadStatus) === "lost";
+}
+
+function isOpportunityPerformanceLead(lead) {
+  return getAdmissionStatusValues(lead).some((status) => status === "opportunity");
+}
+
+function isOfferedPerformanceLead(lead) {
+  return getAdmissionStatusValues(lead).some((status) => status === "offered");
+}
+
+function getOpportunityDate(lead) {
+  return parseLocalDate(
+    lead.opportunityAt
+    || lead.opportunityDate
+    || lead.admissionStatusUpdatedAt
+    || lead.registeredAdmissionStatusUpdatedAt
+    || lead.mainAdmissionAdmissionStatusUpdatedAt
+    || lead.updatedAt
+    || lead.createdAt
+  );
+}
+
+function getOpportunityAgeDays(lead) {
+  const opportunityDate = getOpportunityDate(lead);
+  if (!opportunityDate) {
+    return null;
+  }
+  const now = new Date();
+  now.setHours(23, 59, 59, 999);
+  return Math.max(0, Math.floor((now - opportunityDate) / 86400000));
+}
+
+function getPerformanceLeadSet(rawLeads, range) {
+  if (!range) {
+    return rawLeads;
+  }
+
+  const touchedLeads = applyTimelineFilter(rawLeads);
+  const touchedByKey = new Map(touchedLeads.map((lead) => [getLeadKey(lead), lead]));
+  const leadSet = new Map();
+
+  rawLeads.forEach((lead) => {
+    const key = getLeadKey(lead);
+    if (wasLeadCreatedInRange(lead, range)) {
+      leadSet.set(key, touchedByKey.get(key) || lead);
+      return;
+    }
+    if (touchedByKey.has(key)) {
+      leadSet.set(key, touchedByKey.get(key));
+    }
+  });
+
+  return Array.from(leadSet.values());
+}
+
+function buildPerformanceMetrics(leads, range) {
+  const totalLeads = leads.length;
+  const newLeads = leads.filter((lead) => wasLeadCreatedInRange(lead, range)).length;
+  const oldLeads = leads.filter((lead) => wasLeadCreatedBeforeRange(lead, range)).length;
+  const pdeLeads = leads.filter(hasPdeActivity);
+  const newPde = pdeLeads.filter((lead) => wasLeadCreatedInRange(lead, range)).length;
+  const oldPde = pdeLeads.filter((lead) => wasLeadCreatedBeforeRange(lead, range)).length;
+  const interested = leads.filter(isInterestedPerformanceLead).length;
+  const lost = leads.filter(isLostPerformanceLead).length;
+  const opportunityLeads = leads.filter(isOpportunityPerformanceLead);
+  const offered = leads.filter(isOfferedPerformanceLead).length;
+  const untouched = leads.filter((lead) => !hasPdeActivity(lead)).length;
+  const opportunityUnder15 = opportunityLeads.filter((lead) => {
+    const age = getOpportunityAgeDays(lead);
+    return age !== null && age <= 15;
+  }).length;
+  const opportunityOver15 = opportunityLeads.filter((lead) => {
+    const age = getOpportunityAgeDays(lead);
+    return age !== null && age > 15;
+  }).length;
+
+  return {
+    totalLeads,
+    newLeads,
+    oldLeads,
+    newPde,
+    oldPde,
+    totalPde: pdeLeads.length,
+    newPdePercent: formatPercent(newPde, newLeads),
+    oldPdePercent: formatPercent(oldPde, oldLeads),
+    totalPdePercent: formatPercent(pdeLeads.length, totalLeads),
+    interested,
+    interestedPercent: formatPercent(interested, totalLeads),
+    lost,
+    lostPercent: formatPercent(lost, totalLeads),
+    opportunity: opportunityLeads.length,
+    opportunityPercent: formatPercent(opportunityLeads.length, totalLeads),
+    offered,
+    offeredPercent: formatPercent(offered, totalLeads),
+    untouched,
+    untouchedPercent: formatPercent(untouched, totalLeads),
+    opportunityUnder15,
+    opportunityUnder15Percent: formatPercent(opportunityUnder15, opportunityLeads.length),
+    opportunityOver15,
+    opportunityOver15Percent: formatPercent(opportunityOver15, opportunityLeads.length)
+  };
+}
+
+function buildCounselorLookup() {
+  const lookup = new Map();
+  getCounselors().forEach((counselor) => {
+    const name = String(counselor.name || "").trim();
+    if (name) {
+      lookup.set(name.toLowerCase(), counselor);
+    }
+  });
+  return lookup;
+}
+
+function getManagerName(lead, counselorLookup) {
+  const directManager = String(
+    lead.manager
+    || lead.managerName
+    || lead.assignedManager
+    || ""
+  ).trim();
+  if (directManager) {
+    return directManager;
+  }
+
+  const counselor = counselorLookup.get(String(lead.counselor || "").trim().toLowerCase());
+  return String(counselor?.manager || counselor?.managerName || "Unassigned Manager").trim();
+}
+
+function groupLeadsBy(leads, getKey) {
+  const groups = new Map();
+  leads.forEach((lead) => {
+    const key = String(getKey(lead) || "").trim() || "Unassigned";
+    if (!groups.has(key)) {
+      groups.set(key, []);
+    }
+    groups.get(key).push(lead);
+  });
+  return Array.from(groups.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+function buildPerformanceRows(leads, range) {
+  const counselorLookup = buildCounselorLookup();
+  const rows = [
+    {
+      type: "Overall",
+      name: "All Leads",
+      ...buildPerformanceMetrics(leads, range)
+    }
+  ];
+
+  groupLeadsBy(leads, (lead) => getManagerName(lead, counselorLookup)).forEach(([name, managerLeads]) => {
+    rows.push({
+      type: "Manager",
+      name,
+      ...buildPerformanceMetrics(managerLeads, range)
+    });
+  });
+
+  groupLeadsBy(leads, (lead) => lead.counselor || "Unassigned").forEach(([name, counselorLeads]) => {
+    rows.push({
+      type: "LCE/Counselor",
+      name,
+      ...buildPerformanceMetrics(counselorLeads, range)
+    });
+  });
+
+  return rows;
+}
+
 function buildWorkshopRows(counselors, leads, rawLeads, range) {
   return sortRowsByPriority(counselors.map((counselor) => {
     const counselorLeads = leads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
@@ -947,6 +1211,203 @@ function renderRegisteredView(counselors, leads, rawLeads, range) {
   ], rows, 9);
 }
 
+function getPercentNumber(value) {
+  return Number(String(value || "0").replace("%", "")) || 0;
+}
+
+function getPerformanceTopRows(rows, metricKey, sortDirection = "desc") {
+  const counselorRows = rows.filter((row) => row.type === "LCE/Counselor");
+  return [...counselorRows]
+    .sort((a, b) => {
+      const left = getPercentNumber(a[metricKey]);
+      const right = getPercentNumber(b[metricKey]);
+      return sortDirection === "asc" ? left - right : right - left;
+    })
+    .slice(0, 5);
+}
+
+function getTrendKey(date, mode) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  if (mode === "date") {
+    return `${year}-${month}-${day}`;
+  }
+  if (mode === "week") {
+    const firstDay = new Date(date);
+    firstDay.setDate(date.getDate() - date.getDay());
+    return `${firstDay.getFullYear()}-W${String(Math.ceil((((firstDay - new Date(firstDay.getFullYear(), 0, 1)) / 86400000) + 1) / 7)).padStart(2, "0")}`;
+  }
+  if (mode === "month") {
+    return `${year}-${month}`;
+  }
+  if (mode === "quarter") {
+    return `${year}-Q${Math.floor(date.getMonth() / 3) + 1}`;
+  }
+  return String(year);
+}
+
+function buildTrendRows(leads, mode) {
+  const buckets = new Map();
+  leads.forEach((lead) => {
+    const created = parseLocalDate(lead.createdAt);
+    if (!created) {
+      return;
+    }
+    const key = getTrendKey(created, mode);
+    if (!buckets.has(key)) {
+      buckets.set(key, {
+        label: key,
+        total: 0,
+        opportunity: 0,
+        offered: 0,
+        lost: 0
+      });
+    }
+    const bucket = buckets.get(key);
+    bucket.total += 1;
+    bucket.opportunity += isOpportunityPerformanceLead(lead) ? 1 : 0;
+    bucket.offered += isOfferedPerformanceLead(lead) ? 1 : 0;
+    bucket.lost += isLostPerformanceLead(lead) ? 1 : 0;
+  });
+
+  return Array.from(buckets.values()).sort((a, b) => a.label.localeCompare(b.label)).slice(-8);
+}
+
+function renderMiniBar(value, maxValue) {
+  const width = maxValue ? Math.max(4, Math.round((value / maxValue) * 100)) : 0;
+  return `
+    <span class="performance-bar" aria-hidden="true">
+      <span style="width:${width}%"></span>
+    </span>
+    <strong>${value}</strong>
+  `;
+}
+
+function renderTopPerformancePanel(rows) {
+  const panels = [
+    { label: "Top Leads PDE %", rows: getPerformanceTopRows(rows, "totalPdePercent"), metric: "totalPdePercent" },
+    { label: "Top Opportunity %", rows: getPerformanceTopRows(rows, "opportunityPercent"), metric: "opportunityPercent" },
+    { label: "Top Offered %", rows: getPerformanceTopRows(rows, "offeredPercent"), metric: "offeredPercent" },
+    { label: "Lowest Lost %", rows: getPerformanceTopRows(rows, "lostPercent", "asc"), metric: "lostPercent" }
+  ];
+
+  return `
+    <section class="performance-summary-grid">
+      ${panels.map((panel) => `
+        <article class="performance-summary-card">
+          <h4>${escapeHtml(panel.label)}</h4>
+          ${panel.rows.length ? `
+            <ol>
+              ${panel.rows.map((row) => `
+                <li>
+                  <span>${escapeHtml(row.name)}</span>
+                  <strong>${escapeHtml(row[panel.metric])}</strong>
+                </li>
+              `).join("")}
+            </ol>
+          ` : `<p class="block-help">No counselor data available.</p>`}
+        </article>
+      `).join("")}
+    </section>
+  `;
+}
+
+function renderTrendPanel(leads) {
+  const modes = [
+    ["date", "Date"],
+    ["week", "Week"],
+    ["month", "Month"],
+    ["quarter", "Quarter"],
+    ["year", "Year"]
+  ];
+
+  return `
+    <section class="performance-trend-stack">
+      ${modes.map(([mode, label]) => {
+        const trendRows = buildTrendRows(leads, mode);
+        const maxValue = Math.max(0, ...trendRows.flatMap((row) => [row.total, row.opportunity, row.offered, row.lost]));
+        return `
+          <article class="performance-trend-card">
+            <div class="card-head">
+              <h4>${escapeHtml(label)} Trend</h4>
+              <p>Overall, opportunity, offered, and lost leads.</p>
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>${escapeHtml(label)}</th>
+                    <th>Total</th>
+                    <th>Opportunity</th>
+                    <th>Offered</th>
+                    <th>Lost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${trendRows.length ? trendRows.map((row) => `
+                    <tr>
+                      <td>${escapeHtml(row.label)}</td>
+                      <td>${renderMiniBar(row.total, maxValue)}</td>
+                      <td>${renderMiniBar(row.opportunity, maxValue)}</td>
+                      <td>${renderMiniBar(row.offered, maxValue)}</td>
+                      <td>${renderMiniBar(row.lost, maxValue)}</td>
+                    </tr>
+                  `).join("") : `<tr><td colspan="5">No trend data available.</td></tr>`}
+                </tbody>
+              </table>
+            </div>
+          </article>
+        `;
+      }).join("")}
+    </section>
+  `;
+}
+
+function renderPerformanceTrackingView(rawLeads, range) {
+  const leads = getPerformanceLeadSet(rawLeads, range);
+  const rows = buildPerformanceRows(leads, range);
+  const overall = buildPerformanceMetrics(leads, range);
+
+  buildMetricCards([
+    { label: "Total Leads", value: overall.totalLeads },
+    { label: "New Leads", value: overall.newLeads },
+    { label: "Old Leads", value: overall.oldLeads },
+    { label: "Total Leads PDE %", value: overall.totalPdePercent },
+    { label: "Interested %", value: overall.interestedPercent },
+    { label: "Opportunity %", value: overall.opportunityPercent },
+    { label: "Offered %", value: overall.offeredPercent },
+    { label: "Untouched %", value: overall.untouchedPercent }
+  ]);
+
+  const columns = [
+    { label: "Level", render: (row) => escapeHtml(row.type) },
+    { label: "Name", render: (row) => escapeHtml(row.name) },
+    { label: "Total Leads", render: (row) => String(row.totalLeads) },
+    { label: "New Leads", render: (row) => String(row.newLeads) },
+    { label: "Old Leads", render: (row) => String(row.oldLeads) },
+    { label: "New PDE", render: (row) => String(row.newPde) },
+    { label: "Old PDE", render: (row) => String(row.oldPde) },
+    { label: "New PDE %", render: (row) => escapeHtml(row.newPdePercent) },
+    { label: "Old PDE %", render: (row) => escapeHtml(row.oldPdePercent) },
+    { label: "Total PDE %", render: (row) => escapeHtml(row.totalPdePercent) },
+    { label: "Interested", render: (row) => `${row.interested} (${escapeHtml(row.interestedPercent)})` },
+    { label: "Lost", render: (row) => `${row.lost} (${escapeHtml(row.lostPercent)})` },
+    { label: "Opportunity", render: (row) => `${row.opportunity} (${escapeHtml(row.opportunityPercent)})` },
+    { label: "Offered", render: (row) => `${row.offered} (${escapeHtml(row.offeredPercent)})` },
+    { label: "Untouched", render: (row) => `${row.untouched} (${escapeHtml(row.untouchedPercent)})` },
+    { label: "Opportunity <=15 Days", render: (row) => `${row.opportunityUnder15} (${escapeHtml(row.opportunityUnder15Percent)})` },
+    { label: "Opportunity >15 Days", render: (row) => `${row.opportunityOver15} (${escapeHtml(row.opportunityOver15Percent)})` }
+  ];
+
+  renderTable(columns, rows, columns.length);
+  monitoringActiveTable.insertAdjacentHTML(
+    "beforeend",
+    `${renderTopPerformancePanel(rows)}${renderTrendPanel(leads)}`
+  );
+}
+
 function renderActiveMonitoringView() {
   const range = getTimelineRange();
   const rawAllLeads = getScopedLeads(getAllLeads());
@@ -987,6 +1448,11 @@ function renderActiveMonitoringView() {
     const rawLeads = rawAllLeads.filter(isStandardRegisteredLead);
     const counselors = getCounselorBuckets(leads);
     renderRegisteredView(counselors, leads, rawLeads, range);
+    return;
+  }
+
+  if (activeView.subsection === "performance-tracking") {
+    renderPerformanceTrackingView(rawAllLeads, range);
     return;
   }
 
