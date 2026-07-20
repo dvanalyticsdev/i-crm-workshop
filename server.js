@@ -5981,6 +5981,18 @@ app.get("/api/lead-claims", async (req, res) => {
   }
 });
 
+app.delete("/api/lead-claims", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, "admin");
+    if (!session) return;
+
+    const result = await leadClaimsCollection.deleteMany({});
+    return res.json({ ok: true, deletedCount: result.deletedCount || 0 });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to clear lead claims", details: error.message });
+  }
+});
+
 app.post("/api/lead-claims", async (req, res) => {
   try {
     const session = await requireRole(req, res, "counselor");

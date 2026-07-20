@@ -40,6 +40,12 @@ export function fetchLeadClaims() {
   return requestJson("/api/lead-claims");
 }
 
+export function clearLeadClaims() {
+  return requestJson("/api/lead-claims", {
+    method: "DELETE"
+  });
+}
+
 export function raiseLeadClaim({ leadId, leadEmail = "", reason }) {
   return requestJson("/api/lead-claims", {
     method: "POST",

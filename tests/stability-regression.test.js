@@ -394,6 +394,7 @@ test("lead claim workflow requires admin and current owner approval before trans
   assert.match(server, /leadClaimsCollection/);
   assert.match(server, /app\.post\("\/api\/lead-claims"/);
   assert.match(server, /app\.get\("\/api\/lead-claims"/);
+  assert.match(server, /app\.delete\("\/api\/lead-claims"/);
   assert.match(server, /app\.patch\("\/api\/lead-claims\/:claimId\/decision"/);
   assert.match(server, /nextAdminStatus === "approved" && nextOwnerStatus === "approved"/);
   assert.match(server, /leadsCollection\.updateOne\([\s\S]*counselor: claim\.requesterName/);
@@ -405,9 +406,12 @@ test("lead claim workflow requires admin and current owner approval before trans
   assert.match(leadBrowse, /raiseLeadClaim/);
   assert.match(leadBrowseHtml, /Formal reason/);
   assert.match(claimRaisedHtml, /Claim Raised/);
+  assert.match(claimRaisedHtml, /clearClaimsBtn/);
   assert.match(claimRaised, /decideLeadClaim/);
+  assert.match(claimRaised, /clearLeadClaims/);
   assert.match(claimRaised, /Raised against your lead/);
   assert.match(leadClaimService, /fetchLeadClaims/);
+  assert.match(leadClaimService, /clearLeadClaims/);
   assert.match(leadClaimService, /decideLeadClaim/);
   assert.match(layouts, /claim-raised\.html/);
 });

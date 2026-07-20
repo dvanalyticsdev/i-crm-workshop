@@ -1,5 +1,5 @@
 import { getSession, refreshSession } from "./state-sync.js";
-import { decideLeadClaim, fetchLeadClaims } from "./lead-claim-service.js";
+import { clearLeadClaims, decideLeadClaim, fetchLeadClaims } from "./lead-claim-service.js";
 
 const kpiSection = document.getElementById("claimRaisedKpis");
 const heading = document.getElementById("claimRaisedHeading");
@@ -7,6 +7,7 @@ const subheading = document.getElementById("claimRaisedSubheading");
 const list = document.getElementById("claimRaisedList");
 const message = document.getElementById("claimRaisedMessage");
 const refreshButton = document.getElementById("refreshClaimsBtn");
+const clearButton = document.getElementById("clearClaimsBtn");
 
 let claims = [];
 let session = getSession() || await refreshSession().catch(() => null);
@@ -87,11 +88,13 @@ function renderHeader() {
   if (isAdmin()) {
     heading.textContent = "Claim Raised";
     subheading.textContent = "Approve or reject counselor requests to claim leads assigned to another counselor.";
+    clearButton?.classList.remove("hidden");
     return;
   }
 
   heading.textContent = "My Lead Claims";
   subheading.textContent = "Track claims you initiated and review claims raised against your leads.";
+  clearButton?.classList.add("hidden");
 }
 
 function renderStatusPill(label, value) {
@@ -123,6 +126,9 @@ function renderClaimRole(claim) {
 function renderClaims() {
   renderHeader();
   renderKpis();
+  if (clearButton) {
+    clearButton.disabled = !isAdmin() || claims.length === 0;
+  }
 
   if (!claims.length) {
     list.innerHTML = `
@@ -206,6 +212,28 @@ async function handleDecision(button) {
   await loadClaims();
 }
 
+async function clearClaimsList() {
+  if (!isAdmin() || !claims.length) return;
+
+  const confirmed = window.confirm("Clear all lead claim requests from this list?");
+  if (!confirmed) return;
+
+  clearButton.disabled = true;
+  setMessage("Clearing claim requests...");
+  const result = await clearLeadClaims();
+
+  if (!result.ok) {
+    clearButton.disabled = false;
+    setMessage(result.message || "Could not clear claim requests.", true);
+    return;
+  }
+
+  claims = [];
+  setMessage(`Cleared ${result.deletedCount || 0} claim request${Number(result.deletedCount) === 1 ? "" : "s"}.`);
+  renderClaims();
+}
+
 refreshButton?.addEventListener("click", loadClaims);
+clearButton?.addEventListener("click", clearClaimsList);
 
 await loadClaims();
