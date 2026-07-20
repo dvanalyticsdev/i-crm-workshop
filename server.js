@@ -5164,6 +5164,11 @@ function findCounselorByName(state, counselorName) {
   return counselors.find((item) => String(item?.name || "").trim().toLowerCase() === target) || null;
 }
 
+function isCounselorLeadViewNotificationEligible(session) {
+  const role = String(session?.role || "").trim().toLowerCase();
+  return role === "counselor";
+}
+
 app.post("/api/leads/:leadId/view", async (req, res) => {
   try {
     const session = await requireSession(req, res);
@@ -5178,12 +5183,21 @@ app.post("/api/leads/:leadId/view", async (req, res) => {
       return res.status(404).json({ message: "Lead not found." });
     }
 
+    if (!isCounselorLeadViewNotificationEligible(session)) {
+      return res.json({ ok: true, notified: false, message: "Lead view notifications are only sent for counselor viewers." });
+    }
+
     const assignedCounselor = String(lead.counselor || "").trim();
     const counselor = findCounselorByName(state, assignedCounselor);
     const counselorEmail = String(counselor?.email || "").trim().toLowerCase();
 
     if (!counselorEmail) {
       return res.json({ ok: true, notified: false, message: "Lead has no assigned counselor with a notification account." });
+    }
+
+    const viewerEmail = String(session.email || "").trim().toLowerCase();
+    if (viewerEmail && viewerEmail === counselorEmail) {
+      return res.json({ ok: true, notified: false, message: "Viewer is the assigned counselor." });
     }
 
     const viewerLabel = getSessionViewerLabel(session);
