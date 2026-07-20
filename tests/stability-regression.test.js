@@ -546,6 +546,17 @@ test("admission course permission matching uses catalog course ids", () => {
   assert.ok(server.includes('"\\\\bod\\\\b"'));
 });
 
+test("full counselor saves preserve lead flow routing permissions", () => {
+  const server = read("server.js");
+
+  assert.match(server, /function preserveCounselorRoutingFields/);
+  assert.match(server, /roundRobinEnabled: existing\.roundRobinEnabled/);
+  assert.match(server, /admissionRoundRobinEnabled: existing\.admissionRoundRobinEnabled/);
+  assert.match(server, /admissionCoursePermissions: normalizeAdmissionCoursePermissionIds\(existing\.admissionCoursePermissions\)/);
+  assert.match(server, /const nextCounselors = preserveCounselorRoutingFields\(req\.body, currentState\.counselors\)/);
+  assert.match(server, /counselorsCollection\.insertMany\(nextCounselors\)/);
+});
+
 test("main admission leads stay out of legacy workshop and registered sections", () => {
   const dashboard = read("dashboard.js");
   const preWorkshop = read("pre-workshop.js");

@@ -4346,6 +4346,36 @@ function sanitizeState(payload = {}) {
   return next;
 }
 
+function getCounselorIdentityKey(counselor = {}) {
+  const id = String(counselor?.id || "").trim().toLowerCase();
+  if (id) return `id:${id}`;
+
+  const email = String(counselor?.email || "").trim().toLowerCase();
+  if (email) return `email:${email}`;
+
+  return "";
+}
+
+function preserveCounselorRoutingFields(nextCounselors = [], existingCounselors = []) {
+  const existingByKey = new Map();
+  (Array.isArray(existingCounselors) ? existingCounselors : []).forEach((counselor) => {
+    const key = getCounselorIdentityKey(counselor);
+    if (key) existingByKey.set(key, counselor);
+  });
+
+  return (Array.isArray(nextCounselors) ? nextCounselors : []).map((counselor) => {
+    const existing = existingByKey.get(getCounselorIdentityKey(counselor));
+    if (!existing) return counselor;
+
+    return {
+      ...counselor,
+      roundRobinEnabled: existing.roundRobinEnabled,
+      admissionRoundRobinEnabled: existing.admissionRoundRobinEnabled,
+      admissionCoursePermissions: normalizeAdmissionCoursePermissionIds(existing.admissionCoursePermissions)
+    };
+  });
+}
+
 function normalizeLeadContactValue(value) {
   return String(value || "").trim();
 }
@@ -7183,10 +7213,11 @@ app.put("/api/counselors", async (req, res) => {
     }
 
     const currentState = await getStateDoc();
+    const nextCounselors = preserveCounselorRoutingFields(req.body, currentState.counselors);
     const now = new Date().toISOString();
     await counselorsCollection.deleteMany({});
-    if (req.body.length) {
-      await counselorsCollection.insertMany(req.body);
+    if (nextCounselors.length) {
+      await counselorsCollection.insertMany(nextCounselors);
     }
     await stateCollection.updateOne(
       { _id: STATE_DOC_ID },
