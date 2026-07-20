@@ -22,6 +22,8 @@ const MONGODB_ELEMENTOR_CONFIG_COLLECTION = process.env.MONGODB_ELEMENTOR_CONFIG
 const MONGODB_ELEMENTOR_LOGS_COLLECTION = process.env.MONGODB_ELEMENTOR_LOGS_COLLECTION || "elementor_logs";
 const MONGODB_MCUBE_CONFIG_COLLECTION = process.env.MONGODB_MCUBE_CONFIG_COLLECTION || "mcube_config";
 const MONGODB_MCUBE_LOGS_COLLECTION = process.env.MONGODB_MCUBE_LOGS_COLLECTION || "mcube_logs";
+const MONGODB_REACHOUT_CONFIG_COLLECTION = process.env.MONGODB_REACHOUT_CONFIG_COLLECTION || "reachout_config";
+const MONGODB_REACHOUT_LOGS_COLLECTION = process.env.MONGODB_REACHOUT_LOGS_COLLECTION || "reachout_logs";
 const META_WEBHOOK_FORWARD_URL = String(process.env.META_WEBHOOK_FORWARD_URL || "").trim();
 const ADMIN_LOGIN_ID = String(process.env.ADMIN_LOGIN_ID || "").trim();
 const ADMIN_LOGIN_PASSWORD = String(process.env.ADMIN_LOGIN_PASSWORD || "").trim();
@@ -29,11 +31,13 @@ const STATE_DOC_ID = "global";
 const META_CONFIG_DOC_ID = "meta_integration";
 const ELEMENTOR_CONFIG_DOC_ID = "elementor_integration";
 const MCUBE_CONFIG_DOC_ID = "mcube_integration";
+const REACHOUT_CONFIG_DOC_ID = "reachout_center";
 const BACKUP_FORMAT = "dv-crm-manual-backup";
 const BACKUP_VERSION = 1;
 const MAX_META_LOGS = 200;
 const MAX_ELEMENTOR_LOGS = 200;
 const MAX_MCUBE_LOGS = 200;
+const MAX_REACHOUT_LOGS = 500;
 const SESSION_COOKIE_NAME = "dvWorkshopSession";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const FORWARDED_WEBHOOK_HEADER = "x-dv-webhook-forwarded";
@@ -186,6 +190,8 @@ let elementorConfigCollection;
 let elementorLogsCollection;
 let mcubeConfigCollection;
 let mcubeLogsCollection;
+let reachoutConfigCollection;
+let reachoutLogsCollection;
 let leadsCollection;
 let counselorsCollection;
 let tasksCollection;
@@ -247,6 +253,8 @@ async function resetMongoConnection() {
   elementorLogsCollection = null;
   mcubeConfigCollection = null;
   mcubeLogsCollection = null;
+  reachoutConfigCollection = null;
+  reachoutLogsCollection = null;
   leadsCollection = null;
   counselorsCollection = null;
   tasksCollection = null;
@@ -615,6 +623,8 @@ async function initMongo() {
         elementorLogsCollection = db.collection(MONGODB_ELEMENTOR_LOGS_COLLECTION);
         mcubeConfigCollection = db.collection(MONGODB_MCUBE_CONFIG_COLLECTION);
         mcubeLogsCollection = db.collection(MONGODB_MCUBE_LOGS_COLLECTION);
+        reachoutConfigCollection = db.collection(MONGODB_REACHOUT_CONFIG_COLLECTION);
+        reachoutLogsCollection = db.collection(MONGODB_REACHOUT_LOGS_COLLECTION);
 
         leadsCollection      = db.collection("leads");
         counselorsCollection = db.collection("counselors");
@@ -650,6 +660,14 @@ async function initMongo() {
         ).catch(() => undefined);
         await mcubeLogsCollection.createIndex(
           { receivedAt: -1 },
+          { background: true }
+        ).catch(() => undefined);
+        await reachoutLogsCollection.createIndex(
+          { sentAt: -1 },
+          { background: true }
+        ).catch(() => undefined);
+        await reachoutLogsCollection.createIndex(
+          { channel: 1, sentAt: -1 },
           { background: true }
         ).catch(() => undefined);
         await metaRetryCollection.createIndex(
@@ -776,6 +794,8 @@ async function initMongo() {
         elementorLogsCollection = new MockCollection("elementorLogs");
         mcubeConfigCollection = new MockCollection("mcubeConfig");
         mcubeLogsCollection = new MockCollection("mcubeLogs");
+        reachoutConfigCollection = new MockCollection("reachoutConfig");
+        reachoutLogsCollection = new MockCollection("reachoutLogs");
         leadsCollection      = new MockCollection("leads");
         counselorsCollection = new MockCollection("counselors");
         tasksCollection      = new MockCollection("tasks");
@@ -1097,6 +1117,245 @@ function decodeJwtPayload(token) {
   } catch {
     return null;
   }
+}
+
+function getDefaultReachoutTemplates() {
+  return [
+    {
+      id: "default-sms-workshop-reminder",
+      name: "Workshop Reminder",
+      channel: "sms",
+      enabled: true,
+      msg91TemplateId: "",
+      variableMappings: "VAR1=name\nVAR2=workshop",
+      bodyText: "Hi {{name}}, this is a reminder for {{workshop}}.",
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: "default-whatsapp-follow-up",
+      name: "WhatsApp Follow-up",
+      channel: "whatsapp",
+      enabled: true,
+      integratedNumber: "",
+      templateName: "",
+      languageCode: "en",
+      variableMappings: "body_1=name\nbody_2=workshop",
+      bodyText: "Hi {{name}}, following up regarding {{workshop}}.",
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: "default-email-admission-follow-up",
+      name: "Admission Email",
+      channel: "email",
+      enabled: true,
+      msg91TemplateId: "",
+      fromEmail: "",
+      fromName: "DV Analytics",
+      domain: "",
+      subject: "DV Analytics follow-up",
+      variableMappings: "name=name\nworkshop=workshop",
+      bodyText: "Hi {{name}}, following up regarding {{workshop}}.",
+      createdAt: new Date().toISOString()
+    }
+  ];
+}
+
+async function getReachoutConfig() {
+  const doc = await withMongoRetry(
+    () => reachoutConfigCollection.findOne({ _id: REACHOUT_CONFIG_DOC_ID }),
+    { retries: 1, label: "Load ReachOut config" }
+  );
+  const authKey = String(doc?.authKey || process.env.MSG91_AUTH_KEY || "").trim();
+  return {
+    _id: REACHOUT_CONFIG_DOC_ID,
+    enabled: doc?.enabled !== false,
+    authKey,
+    templates: Array.isArray(doc?.templates) ? doc.templates : getDefaultReachoutTemplates(),
+    defaultCountryCode: String(doc?.defaultCountryCode || "91").trim() || "91",
+    logSummary: {
+      success: Number(doc?.logSummary?.success) || 0,
+      error: Number(doc?.logSummary?.error) || 0
+    }
+  };
+}
+
+function publicReachoutConfig(config) {
+  return {
+    enabled: config.enabled !== false,
+    authKeySet: !!String(config.authKey || "").trim(),
+    defaultCountryCode: String(config.defaultCountryCode || "91").trim() || "91",
+    templates: (Array.isArray(config.templates) ? config.templates : []).map((template) => ({
+      ...template,
+      id: String(template.id || ""),
+      channel: String(template.channel || "").trim().toLowerCase()
+    })),
+    logSummary: {
+      success: Number(config.logSummary?.success) || 0,
+      error: Number(config.logSummary?.error) || 0
+    }
+  };
+}
+
+function sanitizeReachoutTemplate(template = {}) {
+  const channel = String(template.channel || "").trim().toLowerCase();
+  const safeChannel = ["sms", "whatsapp", "email"].includes(channel) ? channel : "sms";
+  return {
+    id: String(template.id || crypto.randomUUID()).trim(),
+    name: String(template.name || "Untitled template").trim().slice(0, 120),
+    channel: safeChannel,
+    enabled: template.enabled !== false,
+    msg91TemplateId: String(template.msg91TemplateId || "").trim(),
+    integratedNumber: String(template.integratedNumber || "").trim(),
+    templateName: String(template.templateName || "").trim(),
+    languageCode: String(template.languageCode || "en").trim() || "en",
+    fromEmail: String(template.fromEmail || "").trim(),
+    fromName: String(template.fromName || "").trim(),
+    domain: String(template.domain || "").trim(),
+    subject: String(template.subject || "").trim(),
+    variableMappings: String(template.variableMappings || "").trim(),
+    bodyText: String(template.bodyText || "").trim(),
+    payloadJson: String(template.payloadJson || "").trim(),
+    updatedAt: new Date().toISOString(),
+    createdAt: String(template.createdAt || new Date().toISOString())
+  };
+}
+
+function normalizeMsg91Phone(phone, countryCode = "91") {
+  const digits = String(phone || "").replace(/\D/g, "");
+  if (!digits) return "";
+  if (digits.length === 10) return `${countryCode}${digits}`;
+  return digits;
+}
+
+function getLeadReachoutVariables(lead = {}, session = null) {
+  return {
+    id: lead.id,
+    name: lead.name || "",
+    email: lead.email || "",
+    phone: lead.phone || "",
+    workshop: lead.workshop || lead.workshopName || "",
+    campaign: lead.metaCampaignName || lead.metaAdsetName || lead.metaAdName || lead.elementorFormName || lead.importSourceSheet || "",
+    location: lead.country || lead.city || lead.branch || lead.location || "",
+    counselor: lead.counselor || "",
+    course: lead.course || lead.registeredCourse || lead.mainAdmissionCourse || "",
+    leadPipeline: lead.leadPipeline || "workshop",
+    senderName: session?.name || session?.email || session?.role || "CRM"
+  };
+}
+
+function interpolateReachoutText(text, variables) {
+  return String(text || "").replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (_match, key) => {
+    const value = variables[key];
+    return value === undefined || value === null ? "" : String(value);
+  });
+}
+
+function parseVariableMappings(text, variables) {
+  const entries = String(text || "")
+    .split(/\r?\n|,/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return entries.reduce((acc, line) => {
+    const [rawKey, ...rawValueParts] = line.split("=");
+    const key = String(rawKey || "").trim();
+    const rawValue = rawValueParts.join("=").trim();
+    if (!key) return acc;
+    if (rawValue.includes("{{")) {
+      acc[key] = interpolateReachoutText(rawValue, variables);
+    } else if (Object.prototype.hasOwnProperty.call(variables, rawValue)) {
+      acc[key] = variables[rawValue] === undefined || variables[rawValue] === null ? "" : String(variables[rawValue]);
+    } else {
+      acc[key] = rawValue;
+    }
+    return acc;
+  }, {});
+}
+
+function buildWhatsAppComponents(mappedVariables) {
+  const bodyParams = Object.entries(mappedVariables)
+    .filter(([key]) => /^body/i.test(key))
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([, value]) => ({ type: "text", text: String(value || "") }));
+  return bodyParams.length ? [{ type: "body", parameters: bodyParams }] : [];
+}
+
+function buildReachoutEndpoint(channel) {
+  if (channel === "sms") return "https://control.msg91.com/api/v5/flow";
+  if (channel === "whatsapp") return "https://control.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/bulk/";
+  return "https://control.msg91.com/api/v5/email/send";
+}
+
+function buildReachoutPayload({ template, lead, config, session }) {
+  const channel = String(template.channel || "").trim().toLowerCase();
+  const variables = getLeadReachoutVariables(lead, session);
+  const mappedVariables = parseVariableMappings(template.variableMappings, variables);
+  const phone = normalizeMsg91Phone(lead.phone, config.defaultCountryCode);
+  const email = String(lead.email || "").trim().toLowerCase();
+
+  if (template.payloadJson) {
+    const rendered = interpolateReachoutText(template.payloadJson, { ...variables, ...mappedVariables, phone, email });
+    return JSON.parse(rendered);
+  }
+
+  if (channel === "sms") {
+    if (!phone) throw new Error("Lead phone number is missing.");
+    if (!template.msg91TemplateId) throw new Error("SMS template ID is missing.");
+    return {
+      template_id: template.msg91TemplateId,
+      recipients: [{ mobiles: phone, ...mappedVariables }]
+    };
+  }
+
+  if (channel === "whatsapp") {
+    if (!phone) throw new Error("Lead phone number is missing.");
+    if (!template.integratedNumber || !template.templateName) {
+      throw new Error("WhatsApp integrated number or template name is missing.");
+    }
+    return {
+      integrated_number: template.integratedNumber,
+      content_type: "template",
+      payload: {
+        messaging_product: "whatsapp",
+        to: phone,
+        type: "template",
+        template: {
+          name: template.templateName,
+          language: { code: template.languageCode || "en" },
+          components: buildWhatsAppComponents(mappedVariables)
+        }
+      }
+    };
+  }
+
+  if (!email) throw new Error("Lead email is missing.");
+  if (!template.msg91TemplateId || !template.fromEmail || !template.domain) {
+    throw new Error("Email template ID, from email, or domain is missing.");
+  }
+  return {
+    recipients: [{ to: [{ email, name: lead.name || "" }], variables: mappedVariables }],
+    from: { email: template.fromEmail, name: template.fromName || "DV Analytics" },
+    domain: template.domain,
+    template_id: template.msg91TemplateId,
+    subject: interpolateReachoutText(template.subject || "", variables)
+  };
+}
+
+async function saveReachoutLog(entry) {
+  const type = String(entry?.type || "error").trim().toLowerCase() === "success" ? "success" : "error";
+  const log = { ...entry, type, sentAt: new Date().toISOString() };
+  await withMongoRetry(() => reachoutLogsCollection.insertOne(log), { retries: 1, label: "Write ReachOut log" });
+  await withMongoRetry(
+    () => reachoutConfigCollection.updateOne(
+      { _id: REACHOUT_CONFIG_DOC_ID },
+      {
+        $inc: { [`logSummary.${type}`]: 1 },
+        $set: { updatedAt: new Date().toISOString() },
+        $setOnInsert: { enabled: true, authKey: process.env.MSG91_AUTH_KEY || "", defaultCountryCode: "91", templates: [], createdAt: new Date().toISOString() }
+      },
+      { upsert: true }
+    ),
+    { retries: 1, label: "Update ReachOut log summary" }
+  );
 }
 
 function buildMcubeTokenSummary(token) {
@@ -3518,6 +3777,181 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
     });
   } catch (err) {
     return res.status(500).json({ message: "Failed to trigger MCUBE click-to-call.", details: err.message });
+  }
+});
+
+app.get("/api/reachout/config", async (req, res) => {
+  try {
+    await initMongo();
+    const session = await requireRole(req, res, ["admin", "marketing"]);
+    if (!session) return;
+    const config = await getReachoutConfig();
+    return res.json(publicReachoutConfig(config));
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to fetch ReachOut config.", details: err.message });
+  }
+});
+
+app.put("/api/reachout/config", async (req, res) => {
+  try {
+    await initMongo();
+    const session = await requireRole(req, res, ["admin", "marketing"]);
+    if (!session) return;
+
+    const body = req.body || {};
+    const existing = await getReachoutConfig();
+    const patch = {
+      enabled: typeof body.enabled === "boolean" ? body.enabled : existing.enabled !== false,
+      defaultCountryCode: String(body.defaultCountryCode || existing.defaultCountryCode || "91").replace(/\D/g, "") || "91",
+      templates: Array.isArray(body.templates) ? body.templates.map(sanitizeReachoutTemplate) : existing.templates
+    };
+    if (typeof body.authKey === "string" && body.authKey.trim()) {
+      patch.authKey = String(body.authKey).trim();
+    }
+
+    const now = new Date().toISOString();
+    await reachoutConfigCollection.updateOne(
+      { _id: REACHOUT_CONFIG_DOC_ID },
+      { $set: { ...patch, updatedAt: now }, $setOnInsert: { createdAt: now, logSummary: { success: 0, error: 0 } } },
+      { upsert: true }
+    );
+
+    const updated = await getReachoutConfig();
+    return res.json({ ok: true, ...publicReachoutConfig(updated) });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to save ReachOut config.", details: err.message });
+  }
+});
+
+app.get("/api/reachout/logs", async (req, res) => {
+  try {
+    await initMongo();
+    const session = await requireRole(req, res, ["admin", "marketing"]);
+    if (!session) return;
+    const limit = Math.min(Number(req.query.limit) || 80, MAX_REACHOUT_LOGS);
+    const logs = await reachoutLogsCollection
+      .find({}, { projection: { _id: 0, requestPayload: 0, responseBody: 0 } })
+      .sort({ sentAt: -1 })
+      .limit(limit)
+      .toArray();
+    const config = await getReachoutConfig();
+    return res.json({ logs, summary: publicReachoutConfig(config).logSummary });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to fetch ReachOut logs.", details: err.message });
+  }
+});
+
+app.post("/api/reachout/send", async (req, res) => {
+  try {
+    await initMongo();
+    const session = await requireRole(req, res, ["admin", "marketing"]);
+    if (!session) return;
+
+    const config = await getReachoutConfig();
+    if (config.enabled === false) {
+      return res.status(400).json({ message: "ReachOut Center is disabled." });
+    }
+    if (!String(config.authKey || "").trim()) {
+      return res.status(400).json({ message: "MSG91 auth key is not configured." });
+    }
+
+    const templateId = String(req.body?.templateId || "").trim();
+    const leadIds = Array.isArray(req.body?.leadIds) ? req.body.leadIds.map((id) => String(id).trim()).filter(Boolean) : [];
+    const template = (Array.isArray(config.templates) ? config.templates : []).find((item) => String(item.id) === templateId);
+    if (!template || template.enabled === false) {
+      return res.status(400).json({ message: "Please select an enabled ReachOut template." });
+    }
+    if (!leadIds.length) {
+      return res.status(400).json({ message: "Please select at least one lead." });
+    }
+
+    const state = await getStateDoc();
+    const leadSet = new Set(leadIds);
+    const leads = (Array.isArray(state.leads) ? state.leads : []).filter((lead) => leadSet.has(String(lead.id)));
+    if (!leads.length) {
+      return res.status(404).json({ message: "No matching leads were found." });
+    }
+
+    const channel = String(template.channel || "").trim().toLowerCase();
+    const endpoint = buildReachoutEndpoint(channel);
+    const results = [];
+
+    for (const lead of leads.slice(0, 250)) {
+      let requestPayload = null;
+      try {
+        requestPayload = buildReachoutPayload({ template, lead, config, session });
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            authkey: config.authKey
+          },
+          body: JSON.stringify(requestPayload)
+        });
+        const text = await response.text();
+        let parsed = null;
+        try { parsed = text ? JSON.parse(text) : null; } catch { parsed = null; }
+        if (!response.ok) {
+          throw new Error(parsed?.message || parsed?.error || text || `MSG91 HTTP ${response.status}`);
+        }
+
+        await saveReachoutLog({
+          type: "success",
+          channel,
+          templateId: template.id,
+          templateName: template.name,
+          leadId: lead.id,
+          leadName: lead.name,
+          phone: lead.phone || "",
+          email: lead.email || "",
+          sentBy: session.name || session.email || session.role,
+          responseStatus: response.status
+        });
+        await recordActivity({
+          leadId: lead.id,
+          leadName: lead.name,
+          counselorName: lead.counselor || "",
+          activityType: "ReachOut Message",
+          actionDescription: `ReachOut ${channel.toUpperCase()} sent using ${template.name}.`,
+          newValue: channel === "email" ? lead.email : lead.phone,
+          session
+        });
+        results.push({ leadId: lead.id, ok: true });
+      } catch (error) {
+        await saveReachoutLog({
+          type: "error",
+          channel,
+          templateId: template.id,
+          templateName: template.name,
+          leadId: lead.id,
+          leadName: lead.name,
+          phone: lead.phone || "",
+          email: lead.email || "",
+          sentBy: session.name || session.email || session.role,
+          message: error.message
+        }).catch(() => undefined);
+        results.push({ leadId: lead.id, ok: false, message: error.message });
+      }
+    }
+
+    await stateCollection.updateOne(
+      { _id: STATE_DOC_ID },
+      { $set: { updatedAt: new Date().toISOString() } },
+      { upsert: true }
+    );
+    cachedStateDoc = null;
+    cachedStateDocAt = 0;
+
+    return res.json({
+      ok: true,
+      attempted: results.length,
+      sent: results.filter((item) => item.ok).length,
+      failed: results.filter((item) => !item.ok).length,
+      results
+    });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to send ReachOut messages.", details: err.message });
   }
 });
 
@@ -6905,6 +7339,10 @@ app.get("/elementor-integration", (_req, res) => {
 
 app.get("/mcube-integration", (_req, res) => {
   res.sendFile(path.join(ROOT_DIR, "mcube-integration.html"));
+});
+
+app.get("/reachout", (_req, res) => {
+  res.sendFile(path.join(ROOT_DIR, "reachout.html"));
 });
 
 app.get("/crash-course", (_req, res) => {

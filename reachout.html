@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ReachOut Center | DV Workshop Lead Platform</title>
+  <link rel="icon" type="image/png" href="Logos/DV-Logo.png" />
+  <script src="theme-bootstrap.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="dashboard-body">
+  <div class="layout-root">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="icrm-logo-wrap">
+          <div class="icrm-text-wrap"><span class="icrm-logo-text">i-CRM</span></div>
+          <div class="icrm-dv-badge">
+            <span class="icrm-dv-by">by</span>
+            <img src="Logos/DV-Logo.png" alt="DV Analytics" class="icrm-dv-img" />
+          </div>
+        </div>
+      </div>
+      <nav class="sidebar-nav"></nav>
+      <div class="sidebar-bottom-links" style="display:flex;flex-direction:column;gap:0;"></div>
+    </aside>
+
+    <div class="main-content">
+      <header class="topbar">
+        <div class="topbar-title">
+          <h1>ReachOut Center</h1>
+          <p>Send MSG91 SMS, WhatsApp, and email campaigns to selected CRM leads.</p>
+        </div>
+        <div class="topbar-profile">
+          <span class="role-tag" data-role-tag></span>
+          <button data-logout class="btn-ghost" type="button">Log out</button>
+        </div>
+      </header>
+
+      <div class="meta-page">
+        <section class="card">
+          <div class="meta-section-title">
+            <h3>MSG91 Setup</h3>
+            <p>Saved credentials stay on the server. Admin and marketing users can manage templates here.</p>
+          </div>
+          <div class="meta-config-grid">
+            <div class="form-group">
+              <label for="authKeyInput">MSG91 Auth Key <span id="authKeyStatus" class="cred-status">Not set</span></label>
+              <div class="input-btn-row">
+                <input id="authKeyInput" type="password" placeholder="Leave blank to keep existing" autocomplete="new-password" />
+                <button type="button" class="btn-secondary toggle-secret-btn" data-target="authKeyInput">Show</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="countryCodeInput">Default Country Code</label>
+              <input id="countryCodeInput" type="text" placeholder="91" inputmode="numeric" />
+            </div>
+          </div>
+          <div class="save-bar">
+            <label class="enable-row" style="margin-right:auto;">
+              <span class="enable-row__label">Enable ReachOut Center</span>
+              <input id="enabledToggle" type="checkbox" />
+            </label>
+            <button id="saveConfigBtn" type="button" class="btn-primary">Save Settings</button>
+            <span id="configMessage" style="font-size:.85rem;"></span>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="meta-section-title">
+            <h3>Templates</h3>
+            <p>Create approved SMS, WhatsApp, and email templates once, then reuse them for filtered lead groups.</p>
+          </div>
+          <div class="filter-actions" style="display:flex;gap:.75rem;flex-wrap:wrap;margin-bottom:1rem;">
+            <button id="addTemplateBtn" type="button" class="btn-secondary">Add Template</button>
+          </div>
+          <div id="templateEditorList" class="form-ids-list"></div>
+        </section>
+
+        <section class="card">
+          <div class="meta-section-title">
+            <h3>Audience Builder</h3>
+            <p>Filter leads by CRM fields, select recipients, and send with a saved template.</p>
+          </div>
+          <div class="filter-row">
+            <div class="filter-item">
+              <label for="searchInput">Search</label>
+              <input id="searchInput" type="text" placeholder="Name, phone, email, workshop" />
+            </div>
+            <div class="filter-item">
+              <label for="pipelineFilter">Pipeline</label>
+              <select id="pipelineFilter"></select>
+            </div>
+            <div class="filter-item">
+              <label for="workshopFilter">Workshop</label>
+              <select id="workshopFilter"></select>
+            </div>
+            <div class="filter-item">
+              <label for="campaignFilter">Lead Campaign</label>
+              <select id="campaignFilter"></select>
+            </div>
+            <div class="filter-item">
+              <label for="locationFilter">Location</label>
+              <select id="locationFilter"></select>
+            </div>
+            <div class="filter-item">
+              <label for="counselorFilter">Counselor</label>
+              <select id="counselorFilter"></select>
+            </div>
+            <div class="filter-item">
+              <label for="templateSelect">Send Template</label>
+              <select id="templateSelect"></select>
+            </div>
+          </div>
+          <div class="save-bar">
+            <button id="selectFilteredBtn" type="button" class="btn-secondary">Select Filtered</button>
+            <button id="clearSelectionBtn" type="button" class="btn-secondary">Clear Selection</button>
+            <button id="sendBtn" type="button" class="btn-primary">Send Now</button>
+            <span id="sendMessage" style="font-size:.85rem;"></span>
+          </div>
+          <div class="rr-stats-grid">
+            <div class="rr-kpi"><span class="rr-kpi__label">Filtered Leads</span><span id="filteredCount" class="rr-kpi__value">0</span></div>
+            <div class="rr-kpi"><span class="rr-kpi__label">Selected</span><span id="selectedCount" class="rr-kpi__value">0</span></div>
+            <div class="rr-kpi"><span class="rr-kpi__label">Sent / Failed</span><span id="sendSummary" class="rr-kpi__value">0 / 0</span></div>
+          </div>
+          <div class="log-table-wrap">
+            <table class="log-table">
+              <thead>
+                <tr>
+                  <th style="width:42px;"><input id="selectPageToggle" type="checkbox" /></th>
+                  <th>Lead</th>
+                  <th>Phone</th>
+                  <th>Email</th>
+                  <th>Workshop</th>
+                  <th>Campaign</th>
+                  <th>Location</th>
+                </tr>
+              </thead>
+              <tbody id="leadTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="meta-section-title">
+            <h3>Recent Sends</h3>
+            <p>Latest ReachOut delivery attempts recorded by the CRM.</p>
+          </div>
+          <div class="log-table-wrap">
+            <table class="log-table">
+              <thead><tr><th>Time</th><th>Status</th><th>Channel</th><th>Template</th><th>Lead</th><th>Message</th></tr></thead>
+              <tbody id="logsTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="reachout.js"></script>
+  <script type="module" src="layouts.js"></script>
+</body>
+</html>

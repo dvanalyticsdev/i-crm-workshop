@@ -74,7 +74,7 @@ function rebuildSidebarSections() {
   );
 
   const generalRoutes = ["dashboard.html", "lead-browse.html", "claim-raised.html", "lost-leads.html", "monitoring.html", "task-tracker.html"];
-  const adminRoutes = ["counselor-management.html", "lead-control.html"];
+  const adminRoutes = ["counselor-management.html", "lead-control.html", "reachout.html"];
 
   const routeLabels = {
     "dashboard.html": "Dashboard",
@@ -87,7 +87,8 @@ function rebuildSidebarSections() {
     "monitoring.html": "Monitoring",
     "counselor-management.html": "Counselor Management",
     "lead-control.html": "Lead & Data Control",
-    "meta-integration.html": "Integration"
+    "meta-integration.html": "Integration",
+    "reachout.html": "ReachOut Center"
   };
 
   const ensureLink = (route, options = {}) => {
@@ -161,7 +162,7 @@ function rebuildSidebarSections() {
   const integrationLink = ensureLink("meta-integration.html", {
     bottom: true,
     adminOnly: true,
-    activeRoutes: ["elementor-integration.html"]
+    activeRoutes: ["elementor-integration.html", "mcube-integration.html", "lead-flow-control.html"]
   });
   if (integrationLink) {
     bottomLinkContainer.appendChild(integrationLink);
@@ -306,7 +307,7 @@ function applyRoleVisibility(session) {
   if (isMarketing) {
     document.querySelectorAll(".sidebar-link").forEach((link) => {
       const href = link.getAttribute("href") || "";
-      const isIntegrationLink = href === "meta-integration.html" || href === "elementor-integration.html";
+      const isIntegrationLink = href === "meta-integration.html" || href === "elementor-integration.html" || href === "mcube-integration.html" || href === "lead-flow-control.html" || href === "reachout.html";
       const isUniversalLink = href === "lead-browse.html";
       link.classList.toggle("hidden", !isIntegrationLink && !isUniversalLink);
       if (isIntegrationLink) {
@@ -322,7 +323,7 @@ function applyRoleVisibility(session) {
 function enforceAccess(session) {
   // Marketing users: only allowed on integration pages.
   if (session.role === "marketing") {
-    if (currentRoute !== "lead-browse.html" && currentRoute !== "meta-integration.html" && currentRoute !== "elementor-integration.html") {
+    if (currentRoute !== "lead-browse.html" && currentRoute !== "meta-integration.html" && currentRoute !== "elementor-integration.html" && currentRoute !== "mcube-integration.html" && currentRoute !== "lead-flow-control.html" && currentRoute !== "reachout.html") {
       window.location.href = "meta-integration.html";
       return false;
     }
@@ -335,7 +336,7 @@ function enforceAccess(session) {
   }
 
   if (
-    (currentRoute === "counselor-management.html" || currentRoute === "meta-integration.html" || currentRoute === "elementor-integration.html" || currentRoute === "lead-control.html") &&
+    (currentRoute === "counselor-management.html" || currentRoute === "meta-integration.html" || currentRoute === "elementor-integration.html" || currentRoute === "mcube-integration.html" || currentRoute === "lead-flow-control.html" || currentRoute === "reachout.html" || currentRoute === "lead-control.html") &&
     session.role !== "admin"
   ) {
     const fallback =
@@ -619,7 +620,7 @@ function bindClientRouter() {
     // Marketing users can only use their visible links.
     if (activeSession?.role === "marketing") {
       const targetRoute = resolveRoute(href).route;
-      if (targetRoute !== "lead-browse.html" && targetRoute !== "meta-integration.html" && targetRoute !== "elementor-integration.html") {
+      if (targetRoute !== "lead-browse.html" && targetRoute !== "meta-integration.html" && targetRoute !== "elementor-integration.html" && targetRoute !== "mcube-integration.html" && targetRoute !== "lead-flow-control.html" && targetRoute !== "reachout.html") {
         return;
       }
     }
