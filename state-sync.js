@@ -451,7 +451,31 @@ export async function saveLeads(leads) {
 }
 
 export async function saveCounselors(counselors) {
-  return updateStateFields({ counselors });
+  const nextCounselors = Array.isArray(counselors) ? counselors : [];
+  setCurrentState({ ...currentState, counselors: nextCounselors });
+
+  try {
+    const { response, payload } = await fetchJson("/api/counselors", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
+      body: JSON.stringify(nextCounselors)
+    }, PUT_TIMEOUT_MS);
+
+    if (!response.ok) {
+      void refreshState().catch(() => undefined);
+      return { ok: false, message: payload?.message || "Failed to save counselors." };
+    }
+
+    lastSuccessfulMutationAt = Date.now();
+    await refreshState().catch(() => undefined);
+    return { ok: true, payload: getStateSnapshot() };
+  } catch (error) {
+    void refreshState().catch(() => undefined);
+    return { ok: false, message: error?.message || "Failed to save counselors." };
+  }
 }
 
 export function getMarketingUsers() {
