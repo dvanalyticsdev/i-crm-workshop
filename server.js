@@ -69,11 +69,12 @@ const PUBLIC_COURSE_CATALOG = [
 
 const COURSE_IDENTITY_RULES = [
   { pattern: /\bapids\b|\bindustrial data science\b|\bdata science\b/i, label: "APIDS", key: "apids" },
-  { pattern: /\bapida\b|\bindustrial data analytics\b|\bdata analytics specialist\b|\bdata analytics\b/i, label: "APIDA", key: "apida" },
-  { pattern: /\b7\s*days?\b.*\bgen\s*ai\b|\bgen\s*ai\b.*\b7\s*days?\b|\b7days\b|\bdays7[_\s-]*genai\b/i, label: "7 Days Gen AI", key: "7-days-gen-ai" },
-  { pattern: /\badvanced\b.*\b(ai\s*\/?\s*ml|aiml)\b|\badv\b.*\b(ai\s*\/?\s*ml|aiml)\b|\baiml\b/i, label: "Advanced AI/ML", key: "advanced-ai-ml" },
-  { pattern: /\bcyber\s*security\b|\bcybersecurity\b|\bcyber\s*ai\b|\bcyberai\b|\bapcs\b|\bforensics\b/i, label: "Cyber Security", key: "cyber-security" },
-  { pattern: /\bgen\s*ai\b|\bgenai\b|\bagentic\b/i, label: "Gen AI", key: "gen-ai" }
+  { pattern: /\bapida\b|\bindustrial data analytics\b/i, label: "APIDA", key: "apida" },
+  { pattern: /\b7\s*days?\b.*\bgen\s*ai\b|\bgen\s*ai\b.*\b7\s*days?\b|\b7days\b|\bdays7[_\s-]*genai\b/i, label: "7DAYS_GENAI", key: "days7_genai" },
+  { pattern: /\badvanced\b.*\b(ai\s*\/?\s*ml|aiml)\b|\badv\b.*\b(ai\s*\/?\s*ml|aiml)\b|\baiml\b/i, label: "AIML + GenAI", key: "advanced-aiml-genai-agentic" },
+  { pattern: /\bcyber\s*security\b|\bcybersecurity\b|\bcyber\s*ai\b|\bcyberai\b|\bapcs\b|\bforensics\b/i, label: "APCS", key: "apcs" },
+  { pattern: /\bdata analytics specialist\b|\bdas\b/i, label: "DAS", key: "data-analytics-specialist" },
+  { pattern: /\bmaster\b.*\bgen\s*ai\b|\bgen\s*ai\b.*\bmaster\b|\bgenai\s*master\b|\bagentic\b/i, label: "GenAI Master", key: "master-genai-agentic" }
 ];
 
 const ADMIN_USER = {
@@ -1852,11 +1853,19 @@ function normalizeAdmissionCoursePermissionIds(value) {
 }
 
 function courseMatchesPermission(course, courseText) {
-  const descriptor = String(courseText || "").trim().toLowerCase();
+  const courseIdentity = buildCourseIdentity(courseText);
+  if (courseIdentity.key && courseIdentity.key === course.id) {
+    return true;
+  }
+
+  const descriptor = normalizeCourseSourceText(courseText).toLowerCase();
   if (!descriptor) return true;
-  return [course.id, course.code, course.name]
+  return [course.id, course.code, course.name, courseIdentity.label]
     .filter(Boolean)
-    .some((value) => descriptor.includes(String(value).trim().toLowerCase()));
+    .some((value) => {
+      const normalizedValue = normalizeCourseSourceText(value).toLowerCase();
+      return normalizedValue && descriptor.includes(normalizedValue);
+    });
 }
 
 function isCounselorEligibleForAdmissionLead(counselor, { branch = "", courseName = "" } = {}) {

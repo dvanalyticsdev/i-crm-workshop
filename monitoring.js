@@ -73,12 +73,22 @@ const VIEW_CONFIG = {
   },
   performance: {
     label: "Performance",
-    description: "Track overall, manager, and counselor performance using lead movement, PDE activity, and conversion status.",
+    description: "Track overall and counselor performance using lead movement, PDE activity, and conversion status.",
     subsections: {
-      "performance-tracking": {
-        label: "Performance Tracking",
-        title: "Performance Tracking",
-        description: "Compare total leads, new and old lead PDE, interested, opportunity, offered, lost, and untouched lead movement."
+      "workshop-performance": {
+        label: "Workshop Calling",
+        title: "Workshop Calling Performance",
+        description: "Track workshop calling performance using pre-workshop activity, dialed status, and workshop interest movement."
+      },
+      "post-workshop-performance": {
+        label: "Post Workshop",
+        title: "Post Workshop Performance",
+        description: "Track post-workshop admission follow-up using post-workshop PDE activity and admission conversion movement."
+      },
+      "admission-performance": {
+        label: "Admission Calling",
+        title: "Admission Calling Performance",
+        description: "Track direct admission lead follow-up using main admission PDE activity and admission conversion movement."
       }
     }
   }
@@ -228,6 +238,7 @@ function normalizeLeadFields(leads) {
     lead.registeredCallStatus = lead.registeredCallStatus || "";
 
     lead.mainAdmissionDialed = lead.mainAdmissionDialed || "";
+    lead.mainAdmissionCoursePitched = lead.mainAdmissionCoursePitched || "";
     lead.mainAdmissionCourseStatus = lead.mainAdmissionCourseStatus || "";
     lead.mainAdmissionAdmissionStatus = lead.mainAdmissionAdmissionStatus || "";
     lead.mainAdmissionCallStatus = lead.mainAdmissionCallStatus || "";
@@ -585,62 +596,72 @@ function wasLeadCreatedBeforeRange(lead, range) {
   return Boolean(created && created < range.start);
 }
 
-function getTotalActivityUpdates(lead) {
-  return [
-    lead.preActivityUpdates,
-    lead.postActivityUpdates,
-    lead.registeredCourseActivityUpdates,
-    lead.mainAdmissionActivityUpdates
-  ].reduce((sum, value) => sum + (Number(value) || 0), 0);
+function getPerformanceConfig(subsection) {
+  if (subsection === "workshop-performance") {
+    return {
+      leadFilter: (lead) => !isNonWorkshopPipelineLead(lead) && !isLostLead(lead),
+      activityField: "preActivityUpdates",
+      dialedField: "dialed",
+      callStatusField: "callStatus",
+      courseStatusField: "wsStatus",
+      admissionStatusField: "",
+      statusUpdatedField: ""
+    };
+  }
+
+  if (subsection === "post-workshop-performance") {
+    return {
+      leadFilter: (lead) => !isNonWorkshopPipelineLead(lead),
+      activityField: "postActivityUpdates",
+      dialedField: "postDialed",
+      callStatusField: "",
+      coursePitchedField: "coursePitched",
+      courseStatusField: "courseStatus",
+      admissionStatusField: "admissionStatus",
+      statusUpdatedField: "postStatusUpdated"
+    };
+  }
+
+  return {
+    leadFilter: isMainAdmissionLead,
+    activityField: "mainAdmissionActivityUpdates",
+    dialedField: "mainAdmissionDialed",
+    callStatusField: "mainAdmissionCallStatus",
+    coursePitchedField: "mainAdmissionCoursePitched",
+    courseStatusField: "mainAdmissionCourseStatus",
+    admissionStatusField: "mainAdmissionAdmissionStatus",
+    statusUpdatedField: ""
+  };
 }
 
-function hasPdeActivity(lead) {
-  return getTotalActivityUpdates(lead) > 0
-    || lead.dialed === "Yes"
-    || lead.postDialed === "Yes"
-    || lead.registeredDialed === "Yes"
-    || lead.mainAdmissionDialed === "Yes"
-    || lead.postStatusUpdated === true
-    || Boolean(lead.callStatus || lead.registeredCallStatus || lead.mainAdmissionCallStatus);
+function hasPdeActivity(lead, config) {
+  if (config.coursePitchedField) {
+    return normalizeText(lead[config.coursePitchedField]) === "yes";
+  }
+
+  return (Number(lead[config.activityField]) || 0) > 0
+    || lead[config.dialedField] === "Yes"
+    || Boolean(config.callStatusField && lead[config.callStatusField])
+    || Boolean(config.statusUpdatedField && lead[config.statusUpdatedField] === true);
 }
 
-function getCourseStatusValues(lead) {
-  return [
-    lead.wsStatus,
-    lead.courseStatus,
-    lead.registeredCourseStatus,
-    lead.mainAdmissionCourseStatus
-  ].map(normalizeText);
+function isInterestedPerformanceLead(lead, config) {
+  return normalizeText(lead[config.courseStatusField]) === "interested";
 }
 
-function getAdmissionStatusValues(lead) {
-  return [
-    lead.admissionStatus,
-    lead.registeredAdmissionStatus,
-    lead.mainAdmissionAdmissionStatus
-  ].map(normalizeText);
+function isLostPerformanceLead(lead, config) {
+  return normalizeText(lead[config.courseStatusField]) === "not interested"
+    || normalizeText(lead.leadStatus) === "lost";
 }
 
-function hasAnyStatus(lead, expected) {
-  const expectedStatus = normalizeText(expected);
-  return [...getCourseStatusValues(lead), ...getAdmissionStatusValues(lead)]
-    .some((status) => status === expectedStatus);
+function isOpportunityPerformanceLead(lead, config) {
+  return Boolean(config.admissionStatusField)
+    && normalizeText(lead[config.admissionStatusField]) === "opportunity";
 }
 
-function isInterestedPerformanceLead(lead) {
-  return hasAnyStatus(lead, "Interested");
-}
-
-function isLostPerformanceLead(lead) {
-  return hasAnyStatus(lead, "Not Interested") || normalizeText(lead.leadStatus) === "lost";
-}
-
-function isOpportunityPerformanceLead(lead) {
-  return getAdmissionStatusValues(lead).some((status) => status === "opportunity");
-}
-
-function isOfferedPerformanceLead(lead) {
-  return getAdmissionStatusValues(lead).some((status) => status === "offered");
+function isOfferedPerformanceLead(lead, config) {
+  return Boolean(config.admissionStatusField)
+    && normalizeText(lead[config.admissionStatusField]) === "offered";
 }
 
 function getOpportunityDate(lead) {
@@ -665,16 +686,17 @@ function getOpportunityAgeDays(lead) {
   return Math.max(0, Math.floor((now - opportunityDate) / 86400000));
 }
 
-function getPerformanceLeadSet(rawLeads, range) {
+function getPerformanceLeadSet(rawLeads, range, config) {
+  const scopedRawLeads = rawLeads.filter(config.leadFilter);
   if (!range) {
-    return rawLeads;
+    return scopedRawLeads;
   }
 
-  const touchedLeads = applyTimelineFilter(rawLeads);
+  const touchedLeads = applyTimelineFilter(scopedRawLeads);
   const touchedByKey = new Map(touchedLeads.map((lead) => [getLeadKey(lead), lead]));
   const leadSet = new Map();
 
-  rawLeads.forEach((lead) => {
+  scopedRawLeads.forEach((lead) => {
     const key = getLeadKey(lead);
     if (wasLeadCreatedInRange(lead, range)) {
       leadSet.set(key, touchedByKey.get(key) || lead);
@@ -688,18 +710,18 @@ function getPerformanceLeadSet(rawLeads, range) {
   return Array.from(leadSet.values());
 }
 
-function buildPerformanceMetrics(leads, range) {
+function buildPerformanceMetrics(leads, range, config) {
   const totalLeads = leads.length;
   const newLeads = leads.filter((lead) => wasLeadCreatedInRange(lead, range)).length;
   const oldLeads = leads.filter((lead) => wasLeadCreatedBeforeRange(lead, range)).length;
-  const pdeLeads = leads.filter(hasPdeActivity);
+  const pdeLeads = leads.filter((lead) => hasPdeActivity(lead, config));
   const newPde = pdeLeads.filter((lead) => wasLeadCreatedInRange(lead, range)).length;
   const oldPde = pdeLeads.filter((lead) => wasLeadCreatedBeforeRange(lead, range)).length;
-  const interested = leads.filter(isInterestedPerformanceLead).length;
-  const lost = leads.filter(isLostPerformanceLead).length;
-  const opportunityLeads = leads.filter(isOpportunityPerformanceLead);
-  const offered = leads.filter(isOfferedPerformanceLead).length;
-  const untouched = leads.filter((lead) => !hasPdeActivity(lead)).length;
+  const interested = leads.filter((lead) => isInterestedPerformanceLead(lead, config)).length;
+  const lost = leads.filter((lead) => isLostPerformanceLead(lead, config)).length;
+  const opportunityLeads = leads.filter((lead) => isOpportunityPerformanceLead(lead, config));
+  const offered = leads.filter((lead) => isOfferedPerformanceLead(lead, config)).length;
+  const untouched = leads.filter((lead) => !hasPdeActivity(lead, config)).length;
   const opportunityUnder15 = opportunityLeads.filter((lead) => {
     const age = getOpportunityAgeDays(lead);
     return age !== null && age <= 15;
@@ -736,32 +758,6 @@ function buildPerformanceMetrics(leads, range) {
   };
 }
 
-function buildCounselorLookup() {
-  const lookup = new Map();
-  getCounselors().forEach((counselor) => {
-    const name = String(counselor.name || "").trim();
-    if (name) {
-      lookup.set(name.toLowerCase(), counselor);
-    }
-  });
-  return lookup;
-}
-
-function getManagerName(lead, counselorLookup) {
-  const directManager = String(
-    lead.manager
-    || lead.managerName
-    || lead.assignedManager
-    || ""
-  ).trim();
-  if (directManager) {
-    return directManager;
-  }
-
-  const counselor = counselorLookup.get(String(lead.counselor || "").trim().toLowerCase());
-  return String(counselor?.manager || counselor?.managerName || "Unassigned Manager").trim();
-}
-
 function groupLeadsBy(leads, getKey) {
   const groups = new Map();
   leads.forEach((lead) => {
@@ -774,29 +770,20 @@ function groupLeadsBy(leads, getKey) {
   return Array.from(groups.entries()).sort((a, b) => a[0].localeCompare(b[0]));
 }
 
-function buildPerformanceRows(leads, range) {
-  const counselorLookup = buildCounselorLookup();
+function buildPerformanceRows(leads, range, config) {
   const rows = [
     {
       type: "Overall",
       name: "All Leads",
-      ...buildPerformanceMetrics(leads, range)
+      ...buildPerformanceMetrics(leads, range, config)
     }
   ];
-
-  groupLeadsBy(leads, (lead) => getManagerName(lead, counselorLookup)).forEach(([name, managerLeads]) => {
-    rows.push({
-      type: "Manager",
-      name,
-      ...buildPerformanceMetrics(managerLeads, range)
-    });
-  });
 
   groupLeadsBy(leads, (lead) => lead.counselor || "Unassigned").forEach(([name, counselorLeads]) => {
     rows.push({
       type: "LCE/Counselor",
       name,
-      ...buildPerformanceMetrics(counselorLeads, range)
+      ...buildPerformanceMetrics(counselorLeads, range, config)
     });
   });
 
@@ -1248,7 +1235,7 @@ function getTrendKey(date, mode) {
   return String(year);
 }
 
-function buildTrendRows(leads, mode) {
+function buildTrendRows(leads, mode, config) {
   const buckets = new Map();
   leads.forEach((lead) => {
     const created = parseLocalDate(lead.createdAt);
@@ -1267,9 +1254,9 @@ function buildTrendRows(leads, mode) {
     }
     const bucket = buckets.get(key);
     bucket.total += 1;
-    bucket.opportunity += isOpportunityPerformanceLead(lead) ? 1 : 0;
-    bucket.offered += isOfferedPerformanceLead(lead) ? 1 : 0;
-    bucket.lost += isLostPerformanceLead(lead) ? 1 : 0;
+    bucket.opportunity += isOpportunityPerformanceLead(lead, config) ? 1 : 0;
+    bucket.offered += isOfferedPerformanceLead(lead, config) ? 1 : 0;
+    bucket.lost += isLostPerformanceLead(lead, config) ? 1 : 0;
   });
 
   return Array.from(buckets.values()).sort((a, b) => a.label.localeCompare(b.label)).slice(-8);
@@ -1314,7 +1301,7 @@ function renderTopPerformancePanel(rows) {
   `;
 }
 
-function renderTrendPanel(leads) {
+function renderTrendPanel(leads, config) {
   const modes = [
     ["date", "Date"],
     ["week", "Week"],
@@ -1326,7 +1313,7 @@ function renderTrendPanel(leads) {
   return `
     <section class="performance-trend-stack">
       ${modes.map(([mode, label]) => {
-        const trendRows = buildTrendRows(leads, mode);
+        const trendRows = buildTrendRows(leads, mode, config);
         const maxValue = Math.max(0, ...trendRows.flatMap((row) => [row.total, row.opportunity, row.offered, row.lost]));
         return `
           <article class="performance-trend-card">
@@ -1366,9 +1353,10 @@ function renderTrendPanel(leads) {
 }
 
 function renderPerformanceTrackingView(rawLeads, range) {
-  const leads = getPerformanceLeadSet(rawLeads, range);
-  const rows = buildPerformanceRows(leads, range);
-  const overall = buildPerformanceMetrics(leads, range);
+  const config = getPerformanceConfig(activeView.subsection);
+  const leads = getPerformanceLeadSet(rawLeads, range, config);
+  const rows = buildPerformanceRows(leads, range, config);
+  const overall = buildPerformanceMetrics(leads, range, config);
 
   buildMetricCards([
     { label: "Total Leads", value: overall.totalLeads },
@@ -1404,7 +1392,7 @@ function renderPerformanceTrackingView(rawLeads, range) {
   renderTable(columns, rows, columns.length);
   monitoringActiveTable.insertAdjacentHTML(
     "beforeend",
-    `${renderTopPerformancePanel(rows)}${renderTrendPanel(leads)}`
+    `${renderTopPerformancePanel(rows)}${renderTrendPanel(leads, config)}`
   );
 }
 
@@ -1451,7 +1439,7 @@ function renderActiveMonitoringView() {
     return;
   }
 
-  if (activeView.subsection === "performance-tracking") {
+  if (activeView.group === "performance") {
     renderPerformanceTrackingView(rawAllLeads, range);
     return;
   }

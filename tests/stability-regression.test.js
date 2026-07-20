@@ -487,6 +487,19 @@ test("Integration exposes lead flow control subsection", () => {
   assert.match(metaHtml, /lead-flow-control\.html/);
 });
 
+test("admission course permission matching uses catalog course ids", () => {
+  const server = read("server.js");
+
+  assert.match(server, /key: "advanced-aiml-genai-agentic"/);
+  assert.match(server, /key: "master-genai-agentic"/);
+  assert.match(server, /key: "days7_genai"/);
+  assert.match(server, /key: "apcs"/);
+  assert.match(server, /courseIdentity\.key && courseIdentity\.key === course\.id/);
+  assert.doesNotMatch(server, /key: "advanced-ai-ml"/);
+  assert.doesNotMatch(server, /key: "7-days-gen-ai"/);
+  assert.doesNotMatch(server, /key: "cyber-security"/);
+});
+
 test("main admission leads stay out of legacy workshop and registered sections", () => {
   const dashboard = read("dashboard.js");
   const preWorkshop = read("pre-workshop.js");
