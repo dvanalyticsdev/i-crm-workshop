@@ -542,6 +542,9 @@ test("admission course permission matching uses catalog course ids", () => {
   assert.match(server, /if \(hasCourseCatalogSignal\) \{\s*return "admission";\s*\}/);
   assert.match(server, /function isKnownPublicCourseIdentity/);
   assert.match(server, /leadType === "admission" \|\| isKnownPublicCourseIdentity\(forcedAdmissionCourseIdentity\)/);
+  assert.match(server, /function getAdmissionRoutingCourseName/);
+  assert.match(server, /const admissionRoutingCourseName = getAdmissionRoutingCourseName\(inferredAdmissionCourse, forcedAdmissionCourseIdentity\)/);
+  assert.match(server, /courseName: admissionRoutingCourseName/);
   assert.match(server, /\{ leadType: effectiveLeadType \}/);
   assert.ok(server.includes('"\\\\bod\\\\b"'));
 });

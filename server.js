@@ -1934,6 +1934,14 @@ function isKnownPublicCourseIdentity(courseIdentity = {}) {
   );
 }
 
+function getAdmissionRoutingCourseName(rawCourseName = "", courseIdentity = {}) {
+  if (isKnownPublicCourseIdentity(courseIdentity)) {
+    return courseIdentity.label || courseIdentity.key || rawCourseName;
+  }
+
+  return rawCourseName;
+}
+
 function getMetaLeadFieldMap(fieldData = []) {
   const fields = {};
   (fieldData || []).forEach(({ name, values }) => {
@@ -7570,10 +7578,11 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
   });
   const isAdmissionLead = leadType === "admission" || isKnownPublicCourseIdentity(forcedAdmissionCourseIdentity);
   const effectiveLeadType = isAdmissionLead ? "admission" : leadType;
+  const admissionRoutingCourseName = getAdmissionRoutingCourseName(inferredAdmissionCourse, forcedAdmissionCourseIdentity);
   const counselorName = isAdmissionLead
     ? await assignAdmissionCounselorRoundRobin(snapshot.counselors, {
         branch: inferredAdmissionBranch,
-        courseName: inferredAdmissionCourse
+        courseName: admissionRoutingCourseName
       })
     : await assignCounselorRoundRobin(snapshot.counselors);
   const nextId = await getNextMetaLeadId();
@@ -7796,10 +7805,11 @@ async function processElementorLeadRecord(payload, config) {
   });
   const isAdmissionLead = leadType === "admission" || isKnownPublicCourseIdentity(forcedAdmissionCourseIdentity);
   const effectiveLeadType = isAdmissionLead ? "admission" : leadType;
+  const admissionRoutingCourseName = getAdmissionRoutingCourseName(inferredAdmissionCourse, forcedAdmissionCourseIdentity);
   const counselorName = isAdmissionLead
     ? await assignAdmissionCounselorRoundRobin(snapshot.counselors, {
         branch: inferredAdmissionBranch,
-        courseName: inferredAdmissionCourse
+        courseName: admissionRoutingCourseName
       })
     : await assignElementorCounselorRoundRobin(snapshot.counselors);
   const nextId = await getNextMetaLeadId();
