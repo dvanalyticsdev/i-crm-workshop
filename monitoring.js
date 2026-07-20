@@ -635,14 +635,16 @@ function getPerformanceConfig(subsection) {
 }
 
 function hasPdeActivity(lead, config) {
-  if (config.coursePitchedField) {
-    return normalizeText(lead[config.coursePitchedField]) === "yes";
-  }
-
-  return (Number(lead[config.activityField]) || 0) > 0
+  const hasFollowUpActivity = (Number(lead[config.activityField]) || 0) > 0
     || lead[config.dialedField] === "Yes"
     || Boolean(config.callStatusField && lead[config.callStatusField])
     || Boolean(config.statusUpdatedField && lead[config.statusUpdatedField] === true);
+
+  if (config.coursePitchedField) {
+    return hasFollowUpActivity || normalizeText(lead[config.coursePitchedField]) === "yes";
+  }
+
+  return hasFollowUpActivity;
 }
 
 function isInterestedPerformanceLead(lead, config) {
@@ -877,10 +879,10 @@ function buildMetricCards(metrics) {
   `).join("");
 }
 
-function renderTable(columns, rows, emptyColspan) {
+function renderTable(columns, rows, emptyColspan, tableClass = "") {
   monitoringActiveTable.innerHTML = `
     <div class="table-scroll">
-      <table>
+      <table class="${escapeHtml(tableClass)}">
         <thead>
           <tr>
             ${columns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join("")}
@@ -1213,6 +1215,15 @@ function getPerformanceTopRows(rows, metricKey, sortDirection = "desc") {
     .slice(0, 5);
 }
 
+function renderPerformanceMetric(count, percent) {
+  return `
+    <span class="performance-cell-metric">
+      <strong>${count}</strong>
+      <span>${escapeHtml(percent)}</span>
+    </span>
+  `;
+}
+
 function getTrendKey(date, mode) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -1274,9 +1285,9 @@ function renderMiniBar(value, maxValue) {
 
 function renderTopPerformancePanel(rows) {
   const panels = [
-    { label: "Top Leads PDE %", rows: getPerformanceTopRows(rows, "totalPdePercent"), metric: "totalPdePercent" },
-    { label: "Top Opportunity %", rows: getPerformanceTopRows(rows, "opportunityPercent"), metric: "opportunityPercent" },
-    { label: "Top Offered %", rows: getPerformanceTopRows(rows, "offeredPercent"), metric: "offeredPercent" },
+    { label: "Top PDE %", rows: getPerformanceTopRows(rows, "totalPdePercent").filter((row) => getPercentNumber(row.totalPdePercent) > 0), metric: "totalPdePercent" },
+    { label: "Top Opportunity %", rows: getPerformanceTopRows(rows, "opportunityPercent").filter((row) => getPercentNumber(row.opportunityPercent) > 0), metric: "opportunityPercent" },
+    { label: "Top Offered %", rows: getPerformanceTopRows(rows, "offeredPercent").filter((row) => getPercentNumber(row.offeredPercent) > 0), metric: "offeredPercent" },
     { label: "Lowest Lost %", rows: getPerformanceTopRows(rows, "lostPercent", "asc"), metric: "lostPercent" }
   ];
 
@@ -1294,7 +1305,7 @@ function renderTopPerformancePanel(rows) {
                 </li>
               `).join("")}
             </ol>
-          ` : `<p class="block-help">No counselor data available.</p>`}
+          ` : `<p class="block-help">No movement yet.</p>`}
         </article>
       `).join("")}
     </section>
@@ -1371,25 +1382,25 @@ function renderPerformanceTrackingView(rawLeads, range) {
 
   const columns = [
     { label: "Level", render: (row) => escapeHtml(row.type) },
-    { label: "Name", render: (row) => escapeHtml(row.name) },
-    { label: "Total Leads", render: (row) => String(row.totalLeads) },
-    { label: "New Leads", render: (row) => String(row.newLeads) },
-    { label: "Old Leads", render: (row) => String(row.oldLeads) },
+    { label: "Counselor", render: (row) => escapeHtml(row.name) },
+    { label: "Total", render: (row) => String(row.totalLeads) },
+    { label: "New", render: (row) => String(row.newLeads) },
+    { label: "Old", render: (row) => String(row.oldLeads) },
     { label: "New PDE", render: (row) => String(row.newPde) },
     { label: "Old PDE", render: (row) => String(row.oldPde) },
     { label: "New PDE %", render: (row) => escapeHtml(row.newPdePercent) },
     { label: "Old PDE %", render: (row) => escapeHtml(row.oldPdePercent) },
-    { label: "Total PDE %", render: (row) => escapeHtml(row.totalPdePercent) },
-    { label: "Interested", render: (row) => `${row.interested} (${escapeHtml(row.interestedPercent)})` },
-    { label: "Lost", render: (row) => `${row.lost} (${escapeHtml(row.lostPercent)})` },
-    { label: "Opportunity", render: (row) => `${row.opportunity} (${escapeHtml(row.opportunityPercent)})` },
-    { label: "Offered", render: (row) => `${row.offered} (${escapeHtml(row.offeredPercent)})` },
-    { label: "Untouched", render: (row) => `${row.untouched} (${escapeHtml(row.untouchedPercent)})` },
-    { label: "Opportunity <=15 Days", render: (row) => `${row.opportunityUnder15} (${escapeHtml(row.opportunityUnder15Percent)})` },
-    { label: "Opportunity >15 Days", render: (row) => `${row.opportunityOver15} (${escapeHtml(row.opportunityOver15Percent)})` }
+    { label: "PDE %", render: (row) => escapeHtml(row.totalPdePercent) },
+    { label: "Interested", render: (row) => renderPerformanceMetric(row.interested, row.interestedPercent) },
+    { label: "Lost", render: (row) => renderPerformanceMetric(row.lost, row.lostPercent) },
+    { label: "Opportunity", render: (row) => renderPerformanceMetric(row.opportunity, row.opportunityPercent) },
+    { label: "Offered", render: (row) => renderPerformanceMetric(row.offered, row.offeredPercent) },
+    { label: "Untouched", render: (row) => renderPerformanceMetric(row.untouched, row.untouchedPercent) },
+    { label: "Opp <=15d", render: (row) => renderPerformanceMetric(row.opportunityUnder15, row.opportunityUnder15Percent) },
+    { label: "Opp >15d", render: (row) => renderPerformanceMetric(row.opportunityOver15, row.opportunityOver15Percent) }
   ];
 
-  renderTable(columns, rows, columns.length);
+  renderTable(columns, rows, columns.length, "performance-table");
   monitoringActiveTable.insertAdjacentHTML(
     "beforeend",
     `${renderTopPerformancePanel(rows)}${renderTrendPanel(leads, config)}`
