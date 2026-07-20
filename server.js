@@ -2190,17 +2190,17 @@ function normalizeAdmissionCoursePermissionIds(value) {
 
 function courseMatchesPermission(course, courseText) {
   const courseIdentity = buildCourseIdentity(courseText);
-  if (courseIdentity.key && courseIdentity.key === course.id) {
-    return true;
+  if (isKnownPublicCourseIdentity(courseIdentity)) {
+    return courseIdentity.key === course.id;
   }
 
   const descriptor = normalizeCourseSourceText(courseText).toLowerCase();
   if (!descriptor) return false;
-  return [course.id, course.code, course.name, courseIdentity.label]
+  return [course.id, course.code, course.name]
     .filter(Boolean)
     .some((value) => {
       const normalizedValue = normalizeCourseSourceText(value).toLowerCase();
-      return normalizedValue && descriptor.includes(normalizedValue);
+      return normalizedValue && descriptor === normalizedValue;
     });
 }
 

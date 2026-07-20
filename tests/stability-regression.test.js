@@ -49,6 +49,14 @@ function getFunctionBody(source, name) {
   return source.slice(start, end);
 }
 
+function getConstDeclaration(source, name) {
+  const start = source.indexOf(`const ${name} = [`);
+  assert.notEqual(start, -1, `${name} should exist`);
+  const end = source.indexOf("\n];", start);
+  assert.notEqual(end, -1, `${name} should have an array declaration`);
+  return source.slice(start, end + 3);
+}
+
 test("Meta active handler names are single-source", () => {
   const server = read("server.js");
 
@@ -531,7 +539,7 @@ test("admission course permission matching uses catalog course ids", () => {
   assert.match(server, /key: "master-genai-agentic"/);
   assert.match(server, /key: "days7_genai"/);
   assert.match(server, /key: "apcs"/);
-  assert.match(server, /courseIdentity\.key && courseIdentity\.key === course\.id/);
+  assert.match(server, /isKnownPublicCourseIdentity\(courseIdentity\)[\s\S]*?return courseIdentity\.key === course\.id/);
   assert.doesNotMatch(server, /key: "advanced-ai-ml"/);
   assert.doesNotMatch(server, /key: "7-days-gen-ai"/);
   assert.doesNotMatch(server, /key: "cyber-security"/);
@@ -545,8 +553,50 @@ test("admission course permission matching uses catalog course ids", () => {
   assert.match(server, /function getAdmissionRoutingCourseName/);
   assert.match(server, /const admissionRoutingCourseName = getAdmissionRoutingCourseName\(inferredAdmissionCourse, forcedAdmissionCourseIdentity\)/);
   assert.match(server, /courseName: admissionRoutingCourseName/);
+  assert.doesNotMatch(server, /\[course\.id, course\.code, course\.name, courseIdentity\.label\]/);
+  assert.doesNotMatch(getNamedFunctionSource(server, "courseMatchesPermission"), /descriptor\.includes/);
   assert.match(server, /\{ leadType: effectiveLeadType \}/);
   assert.ok(server.includes('"\\\\bod\\\\b"'));
+});
+
+test("admission course matcher keeps every catalog course isolated", () => {
+  const server = read("server.js");
+  const source = [
+    getConstDeclaration(server, "PUBLIC_COURSE_CATALOG"),
+    getConstDeclaration(server, "COURSE_IDENTITY_RULES"),
+    getNamedFunctionSource(server, "normalizeMetaLabel"),
+    getNamedFunctionSource(server, "toTitleCaseWords"),
+    getNamedFunctionSource(server, "slugifyWorkshopPart"),
+    getNamedFunctionSource(server, "normalizeCourseSourceText"),
+    getNamedFunctionSource(server, "buildCourseIdentity"),
+    getNamedFunctionSource(server, "isKnownPublicCourseIdentity"),
+    getNamedFunctionSource(server, "courseMatchesPermission")
+  ].join("\n");
+
+  const { catalog, matches } = new Function(`${source}; return {
+    catalog: PUBLIC_COURSE_CATALOG,
+    matches: (courseId, text) => courseMatchesPermission(PUBLIC_COURSE_CATALOG.find((course) => course.id === courseId), text)
+  };`)();
+
+  const signals = {
+    apids: "DV_APIDS - OD_052026",
+    apida: "DV_APIDA_Retarget",
+    "advanced-aiml-genai-agentic": "DV_AIML + GenAI campaign",
+    "master-genai-agentic": "DV_GenAI Master campaign",
+    "data-analytics-specialist": "DV_DAS campaign",
+    apcs: "DV_APCS campaign",
+    days7_genai: "DV_7DAYS_GENAI campaign"
+  };
+
+  for (const [expectedCourseId, signal] of Object.entries(signals)) {
+    for (const course of catalog) {
+      assert.equal(
+        matches(course.id, signal),
+        course.id === expectedCourseId,
+        `${signal} should ${course.id === expectedCourseId ? "" : "not "}match ${course.id}`
+      );
+    }
+  }
 });
 
 test("full counselor saves preserve lead flow routing permissions", () => {
