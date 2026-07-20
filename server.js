@@ -978,11 +978,13 @@ async function getMcubeConfig() {
   const baseConfig = doc || {
     _id: MCUBE_CONFIG_DOC_ID,
     enabled: false,
-    apiBaseUrl: "",
+    apiBaseUrl: "https://api.mcube.com",
     accountToken: "",
     webhookSecret: "",
-    clickToCallPath: "",
+    clickToCallPath: "/Restmcube-api/outbound-calls",
     clickToCallMethod: "POST",
+    outboundRefUrl: "1",
+    defaultExecutiveNumber: "",
     enableClickToCall: true,
     enableEventSync: true,
     enableAutoLeadCreate: true,
@@ -1026,11 +1028,13 @@ async function saveMcubeLog(entry) {
             $set: { updatedAt: new Date().toISOString() },
             $setOnInsert: {
               enabled: false,
-              apiBaseUrl: "",
+              apiBaseUrl: "https://api.mcube.com",
               accountToken: "",
               webhookSecret: "",
-              clickToCallPath: "",
+              clickToCallPath: "/Restmcube-api/outbound-calls",
               clickToCallMethod: "POST",
+              outboundRefUrl: "1",
+              defaultExecutiveNumber: "",
               enableClickToCall: true,
               enableEventSync: true,
               enableAutoLeadCreate: true,
@@ -1190,30 +1194,60 @@ function normalizeMcubeDirection(value) {
 function normalizeMcubeEvent(body = {}) {
   const payload = body?.payload && typeof body.payload === "object" ? body.payload : body;
   const metadata = payload?.metadata && typeof payload.metadata === "object" ? payload.metadata : {};
+  const callId = String(payload.callid || payload.call_id || payload.callId || payload.uuid || payload.id || "").trim();
+  const customerPhone = String(
+    payload.callto ||
+    payload.customer_number ||
+    payload.customerNumber ||
+    payload.custnumber ||
+    payload.phone ||
+    payload.mobile ||
+    payload.to ||
+    payload.from ||
+    metadata.phone ||
+    ""
+  ).trim();
+  const disposition = String(payload.dialstatus || payload.disposition || payload.call_status || payload.callStatus || payload.status || "").trim();
+  const recordingUrl = String(payload.filename || payload.recording_url || payload.recordingUrl || payload.recording || "").trim();
+  const startedAt = String(payload.starttime || payload.started_at || payload.start_time || payload.startTime || payload.timestamp || "").trim();
+  const endedAt = String(payload.endtime || payload.ended_at || payload.end_time || payload.endTime || "").trim();
+  const agentName = String(payload.agentname || payload.agent_name || payload.agent || payload.executive_name || metadata.counselorName || "").trim();
+
   return {
     raw: body,
-    eventType: String(payload.event_type || payload.eventType || payload.type || payload.action || payload.status || "").trim(),
+    eventType: String(payload.event_type || payload.eventType || payload.type || payload.action || payload.status || payload.dialstatus || "").trim(),
     direction: normalizeMcubeDirection(payload.direction || payload.call_direction || payload.callDirection || payload.type),
-    disposition: String(payload.disposition || payload.call_status || payload.callStatus || payload.status || "").trim(),
-    callId: String(payload.call_id || payload.callId || payload.uuid || payload.id || "").trim(),
+    disposition,
+    callId,
     leadId: String(payload.lead_id || payload.leadId || payload.crm_lead_id || metadata.leadId || metadata.lead_id || "").trim(),
-    phone: String(
-      payload.phone ||
-      payload.customer_number ||
-      payload.customerNumber ||
-      payload.mobile ||
-      payload.to ||
-      payload.from ||
-      metadata.phone ||
-      ""
-    ).trim(),
-    recordingUrl: String(payload.recording_url || payload.recordingUrl || payload.recording || "").trim(),
+    phone: customerPhone,
+    recordingUrl,
     notes: String(payload.notes || payload.remark || payload.remarks || payload.description || "").trim(),
     duration: Number(payload.duration || payload.call_duration || payload.callDuration || 0) || 0,
-    startedAt: String(payload.started_at || payload.start_time || payload.startTime || payload.timestamp || "").trim(),
-    endedAt: String(payload.ended_at || payload.end_time || payload.endTime || "").trim(),
-    counselorName: String(payload.agent_name || payload.agent || payload.executive_name || metadata.counselorName || "").trim(),
-    counselorEmail: String(payload.agent_email || metadata.counselorEmail || "").trim().toLowerCase()
+    startedAt,
+    endedAt,
+    answeredTime: String(payload.answeredtime || payload.answered_time || payload.answerTime || "").trim(),
+    agentPhone: String(payload.emp_phone || payload.agent_phone || payload.agentPhone || payload.exenumber || "").trim(),
+    didNumber: String(payload.clicktocalldid || payload.did || payload.did_number || "").trim(),
+    disconnectedBy: String(payload.disconnectedby || payload.disconnected_by || "").trim(),
+    groupName: String(payload.groupname || payload.group_name || "").trim(),
+    counselorName: agentName,
+    counselorEmail: String(payload.agent_email || metadata.counselorEmail || "").trim().toLowerCase(),
+    mcubeFields: {
+      starttime: String(payload.starttime || "").trim(),
+      endtime: String(payload.endtime || "").trim(),
+      answeredtime: String(payload.answeredtime || "").trim(),
+      callid: String(payload.callid || "").trim(),
+      emp_phone: String(payload.emp_phone || "").trim(),
+      clicktocalldid: String(payload.clicktocalldid || "").trim(),
+      callto: String(payload.callto || "").trim(),
+      dialstatus: String(payload.dialstatus || "").trim(),
+      filename: String(payload.filename || "").trim(),
+      direction: String(payload.direction || "").trim(),
+      disconnectedby: String(payload.disconnectedby || "").trim(),
+      groupname: String(payload.groupname || "").trim(),
+      agentname: String(payload.agentname || "").trim()
+    }
   };
 }
 
@@ -1264,6 +1298,19 @@ function findLeadByPhone(state, phone) {
   return (Array.isArray(state?.leads) ? state.leads : []).find(
     (lead) => normalizeLeadPhone(lead?.phone) === normalizedPhone
   ) || null;
+}
+
+function getMcubeExecutiveNumber(counselor = {}, session = {}, config = {}) {
+  const candidates = [
+    counselor?.mcubeExecutiveNumber,
+    counselor?.executiveNumber,
+    counselor?.phone,
+    counselor?.mobile,
+    session?.mcubeExecutiveNumber,
+    session?.phone,
+    config?.defaultExecutiveNumber
+  ];
+  return String(candidates.find((value) => String(value || "").trim()) || "").trim();
 }
 
 async function assignMcubeCounselorRoundRobin(counselorSource) {
@@ -2431,7 +2478,15 @@ async function processMcubeWebhookPayload(req, body) {
       normalizedStatus,
       duration: event.duration,
       recordingUrl: event.recordingUrl,
-      notes: event.notes
+      notes: event.notes,
+      answeredTime: event.answeredTime,
+      agentPhone: event.agentPhone,
+      didNumber: event.didNumber,
+      agentName: event.counselorName,
+      groupName: event.groupName,
+      disconnectedBy: event.disconnectedBy,
+      rawStatus: event.disposition,
+      mcubeFields: event.mcubeFields
     },
     ...history
   ].slice(0, 50);
@@ -3085,6 +3140,8 @@ app.get("/api/mcube/config", async (req, res) => {
       webhookSecretSet: !!String(config.webhookSecret || "").trim(),
       clickToCallPath: String(config.clickToCallPath || "").trim(),
       clickToCallMethod: String(config.clickToCallMethod || "POST").trim().toUpperCase(),
+      outboundRefUrl: String(config.outboundRefUrl || "1").trim() || "1",
+      defaultExecutiveNumberSet: !!String(config.defaultExecutiveNumber || "").trim(),
       enableClickToCall: config.enableClickToCall !== false,
       enableEventSync: config.enableEventSync !== false,
       enableAutoLeadCreate: config.enableAutoLeadCreate !== false,
@@ -3137,6 +3194,8 @@ app.put("/api/mcube/config", async (req, res) => {
     if (typeof body.apiBaseUrl === "string") patch.apiBaseUrl = String(body.apiBaseUrl).trim();
     if (typeof body.clickToCallPath === "string") patch.clickToCallPath = String(body.clickToCallPath).trim();
     if (typeof body.clickToCallMethod === "string") patch.clickToCallMethod = String(body.clickToCallMethod).trim().toUpperCase() || "POST";
+    if (typeof body.outboundRefUrl === "string") patch.outboundRefUrl = String(body.outboundRefUrl).trim() || "1";
+    if (typeof body.defaultExecutiveNumber === "string" && body.defaultExecutiveNumber.trim()) patch.defaultExecutiveNumber = String(body.defaultExecutiveNumber).trim();
     if (typeof body.accountToken === "string" && body.accountToken.trim()) patch.accountToken = String(body.accountToken).trim();
     if (typeof body.webhookSecret === "string" && body.webhookSecret.trim()) patch.webhookSecret = String(body.webhookSecret).trim();
 
@@ -3157,6 +3216,8 @@ app.put("/api/mcube/config", async (req, res) => {
       webhookSecretSet: !!String(updated.webhookSecret || "").trim(),
       clickToCallPath: String(updated.clickToCallPath || "").trim(),
       clickToCallMethod: String(updated.clickToCallMethod || "POST").trim().toUpperCase(),
+      outboundRefUrl: String(updated.outboundRefUrl || "1").trim() || "1",
+      defaultExecutiveNumberSet: !!String(updated.defaultExecutiveNumber || "").trim(),
       enableClickToCall: updated.enableClickToCall !== false,
       enableEventSync: updated.enableEventSync !== false,
       enableAutoLeadCreate: updated.enableAutoLeadCreate !== false,
@@ -3193,6 +3254,8 @@ app.post("/api/mcube/test", async (req, res) => {
       { label: "API base URL set", ok: !!String(config.apiBaseUrl || "").trim() },
       { label: "Account token set", ok: !!String(config.accountToken || "").trim() },
       { label: "Click-to-call path set", ok: !!String(config.clickToCallPath || "").trim() },
+      { label: "Outbound path matches MCUBE docs", ok: String(config.clickToCallPath || "").trim() === "/Restmcube-api/outbound-calls" },
+      { label: "Outbound refurl set", ok: !!String(config.outboundRefUrl || "1").trim() },
       { label: "Event sync enabled", ok: config.enableEventSync !== false }
     ];
 
@@ -3251,11 +3314,13 @@ app.delete("/api/mcube/logs", async (req, res) => {
         },
         $setOnInsert: {
           enabled: false,
-          apiBaseUrl: "",
+          apiBaseUrl: "https://api.mcube.com",
           accountToken: "",
           webhookSecret: "",
-          clickToCallPath: "",
+          clickToCallPath: "/Restmcube-api/outbound-calls",
           clickToCallMethod: "POST",
+          outboundRefUrl: "1",
+          defaultExecutiveNumber: "",
           enableClickToCall: true,
           enableEventSync: true,
           enableAutoLeadCreate: true,
@@ -3347,12 +3412,23 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
       return res.status(400).json({ message: "A target phone number is required." });
     }
 
+    const counselorName = String(lead?.counselor || session.name || "").trim();
+    const counselorDoc = counselorName
+      ? (Array.isArray(state?.counselors) ? state.counselors : []).find(
+          (item) => String(item?.name || "").trim().toLowerCase() === counselorName.toLowerCase()
+        )
+      : null;
+    const executiveNumber = getMcubeExecutiveNumber(counselorDoc, session, config);
+    if (!executiveNumber) {
+      return res.status(400).json({ message: "MCUBE executive number is missing for this counselor/session." });
+    }
+
     const requestPayload = {
-      phone: targetPhone,
-      leadId: String(lead?.id || leadId || "").trim(),
-      leadName: String(lead?.name || req.body?.leadName || "").trim(),
-      counselor: String(lead?.counselor || session.name || "").trim(),
-      triggeredBy: String(session.name || session.email || session.role).trim()
+      HTTP_AUTHORIZATION: config.accountToken,
+      exenumber: executiveNumber,
+      custnumber: targetPhone,
+      refurl: String(req.body?.refurl || config.outboundRefUrl || "1").trim() || "1",
+      refid: String(req.body?.refid || lead?.id || leadId || "").trim()
     };
     const method = String(config.clickToCallMethod || "POST").trim().toUpperCase() || "POST";
     const endpointUrl = new URL(config.clickToCallPath, config.apiBaseUrl);
@@ -3367,7 +3443,6 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
     const response = await fetch(endpoint, {
       method,
       headers: {
-        Authorization: `Bearer ${config.accountToken}`,
         "Content-Type": "application/json",
         Accept: "application/json, text/plain;q=0.9"
       },
@@ -3385,8 +3460,8 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
       await saveMcubeLog({
         type: "error",
         message: `Click-to-call failed with MCUBE HTTP ${response.status}.`,
-        leadId: requestPayload.leadId,
-        phone: requestPayload.phone
+        leadId: requestPayload.refid,
+        phone: requestPayload.custnumber
       });
       return res.status(502).json({
         message: `MCUBE click-to-call failed with status ${response.status}.`,
@@ -3401,7 +3476,7 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
         counselorName: lead.counselor || session.name || "",
         activityType: "Call Made",
         actionDescription: "MCUBE click-to-call triggered from CRM.",
-        newValue: `Phone: ${requestPayload.phone}`,
+        newValue: `Phone: ${requestPayload.custnumber}`,
         session
       });
       await stateCollection.updateOne(
@@ -3416,9 +3491,16 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
     await saveMcubeLog({
       type: "success",
       message: `Click-to-call dispatched${lead?.name ? ` for ${lead.name}` : ""}.`,
-      leadId: requestPayload.leadId,
-      leadName: requestPayload.leadName,
-      phone: requestPayload.phone
+      leadId: requestPayload.refid,
+      leadName: String(lead?.name || req.body?.leadName || "").trim(),
+      phone: requestPayload.custnumber,
+      outboundPayload: {
+        HTTP_AUTHORIZATION: "[redacted]",
+        exenumber: requestPayload.exenumber,
+        custnumber: requestPayload.custnumber,
+        refurl: requestPayload.refurl,
+        refid: requestPayload.refid
+      }
     });
 
     return res.json({

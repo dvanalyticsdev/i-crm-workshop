@@ -13,7 +13,10 @@ function getNamedFunctionSource(source, name) {
   const start = source.indexOf(`function ${name}(`);
   assert.notEqual(start, -1, `${name} should exist`);
 
-  let braceIndex = source.indexOf("{", start);
+  const paramsEnd = source.indexOf(")", start);
+  assert.notEqual(paramsEnd, -1, `${name} should have parameters`);
+
+  let braceIndex = source.indexOf("{", paramsEnd);
   assert.notEqual(braceIndex, -1, `${name} should have a body`);
 
   let depth = 0;
@@ -536,4 +539,59 @@ test("lost leads include not interested statuses across all lead pipelines", () 
   assert.match(lostLeads, /: "Registered Candidates"/);
   assert.match(lostLeads, /return "Workshop Calling"/);
   assert.match(lostLeads, /return "Admission Calling"/);
+});
+
+test("MCUBE inbound document sample maps to CRM call event fields", () => {
+  const server = read("server.js");
+  const source = [
+    getNamedFunctionSource(server, "normalizeMcubeDirection"),
+    getNamedFunctionSource(server, "normalizeMcubeEvent")
+  ].join("\n\n");
+  const factory = new Function(`${source}; return { normalizeMcubeEvent };`);
+  const { normalizeMcubeEvent } = factory();
+
+  const event = normalizeMcubeEvent({
+    starttime: "2023-10-12 11:49:57",
+    callid: "80889767291697091597",
+    emp_phone: "8767316316",
+    clicktocalldid: "8035053336",
+    callto: "7816999444",
+    dialstatus: "ANSWER",
+    filename: "https://s3.ap-south-1.amazonaws.com/app.mcube.com/recordings/2023/10/6011/87673163161697091597.wav",
+    direction: "inbound",
+    endtime: "2023-10-12 11:50:28",
+    disconnectedby: "Customer",
+    answeredtime: "00:00:04",
+    groupname: "Integration",
+    agentname: "Test"
+  });
+
+  assert.equal(event.callId, "80889767291697091597");
+  assert.equal(event.phone, "7816999444");
+  assert.equal(event.disposition, "ANSWER");
+  assert.equal(event.recordingUrl, "https://s3.ap-south-1.amazonaws.com/app.mcube.com/recordings/2023/10/6011/87673163161697091597.wav");
+  assert.equal(event.direction, "inbound");
+  assert.equal(event.startedAt, "2023-10-12 11:49:57");
+  assert.equal(event.endedAt, "2023-10-12 11:50:28");
+  assert.equal(event.agentPhone, "8767316316");
+  assert.equal(event.didNumber, "8035053336");
+  assert.equal(event.answeredTime, "00:00:04");
+  assert.equal(event.groupName, "Integration");
+  assert.equal(event.counselorName, "Test");
+  assert.equal(event.mcubeFields.callto, "7816999444");
+});
+
+test("MCUBE outbound click-to-call uses documented payload fields", () => {
+  const server = read("server.js");
+
+  assert.match(server, /apiBaseUrl: "https:\/\/api\.mcube\.com"/);
+  assert.match(server, /clickToCallPath: "\/Restmcube-api\/outbound-calls"/);
+  assert.match(server, /outboundRefUrl: "1"/);
+  assert.match(server, /HTTP_AUTHORIZATION: config\.accountToken/);
+  assert.match(server, /exenumber: executiveNumber/);
+  assert.match(server, /custnumber: targetPhone/);
+  assert.match(server, /refurl: String\(req\.body\?\.refurl \|\| config\.outboundRefUrl \|\| "1"\)/);
+  assert.match(server, /refid: String\(req\.body\?\.refid \|\| lead\?\.id \|\| leadId \|\| ""\)/);
+  assert.doesNotMatch(server, /Authorization: `Bearer \$\{config\.accountToken\}`/);
+  assert.match(server, /MCUBE executive number is missing/);
 });

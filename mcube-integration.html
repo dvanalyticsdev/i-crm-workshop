@@ -132,12 +132,13 @@
 
               <div class="form-group">
                 <label for="apiBaseUrlInput">API Base URL</label>
-                <input id="apiBaseUrlInput" type="text" placeholder="https://your-mcube-api-base" />
+                <input id="apiBaseUrlInput" type="text" placeholder="https://api.mcube.com" />
               </div>
 
               <div class="form-group">
                 <label for="clickToCallPathInput">Click-to-Call Path</label>
-                <input id="clickToCallPathInput" type="text" placeholder="/click-to-call" />
+                <input id="clickToCallPathInput" type="text" placeholder="/Restmcube-api/outbound-calls" />
+                <p class="field-hint">Outbound calls are sent with HTTP_AUTHORIZATION, exenumber, custnumber, refurl, and refid.</p>
               </div>
 
               <div class="form-group">
@@ -146,6 +147,21 @@
                   <option value="POST">POST</option>
                   <option value="GET">GET</option>
                 </select>
+              </div>
+
+              <div class="form-group">
+                <label for="outboundRefUrlInput">Outbound refurl</label>
+                <input id="outboundRefUrlInput" type="text" placeholder="1" />
+                <p class="field-hint">Use 1 for MCUBE default callback, or enter a callback URL if MCUBE has enabled it.</p>
+              </div>
+
+              <div class="form-group">
+                <label for="defaultExecutiveNumberInput">
+                  Fallback Executive Number
+                  <span id="defaultExecutiveNumberStatus" class="cred-status">Optional</span>
+                </label>
+                <input id="defaultExecutiveNumberInput" type="text" placeholder="MCUBE executive number" inputmode="tel" />
+                <p class="field-hint">Used only when the assigned counselor does not have an MCUBE executive number saved.</p>
               </div>
 
               <div class="form-group">

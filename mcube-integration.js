@@ -16,10 +16,13 @@ const copyWebhookUrlBtn = document.getElementById("copyWebhookUrlBtn");
 const apiBaseUrlInput = document.getElementById("apiBaseUrlInput");
 const clickToCallPathInput = document.getElementById("clickToCallPathInput");
 const clickToCallMethodSelect = document.getElementById("clickToCallMethodSelect");
+const outboundRefUrlInput = document.getElementById("outboundRefUrlInput");
+const defaultExecutiveNumberInput = document.getElementById("defaultExecutiveNumberInput");
 const accountTokenInput = document.getElementById("accountTokenInput");
 const webhookSecretInput = document.getElementById("webhookSecretInput");
 const accountTokenStatus = document.getElementById("accountTokenStatus");
 const webhookSecretStatus = document.getElementById("webhookSecretStatus");
+const defaultExecutiveNumberStatus = document.getElementById("defaultExecutiveNumberStatus");
 const enabledToggle = document.getElementById("enabledToggle");
 const enableClickToCallToggle = document.getElementById("enableClickToCallToggle");
 const enableEventSyncToggle = document.getElementById("enableEventSyncToggle");
@@ -197,6 +200,7 @@ function applyConfig(config) {
   apiBaseUrlInput.value = config.apiBaseUrl || "";
   clickToCallPathInput.value = config.clickToCallPath || "";
   clickToCallMethodSelect.value = config.clickToCallMethod || "POST";
+  outboundRefUrlInput.value = config.outboundRefUrl || "1";
   enabledToggle.checked = !!config.enabled;
   enableClickToCallToggle.checked = config.enableClickToCall !== false;
   enableEventSyncToggle.checked = config.enableEventSync !== false;
@@ -218,6 +222,8 @@ function applyConfig(config) {
   accountTokenStatus.className = `cred-status ${config.accountTokenSet ? "cred-status--ok" : "cred-status--err"}`;
   webhookSecretStatus.textContent = config.webhookSecretSet ? "Saved" : "Optional";
   webhookSecretStatus.className = `cred-status ${config.webhookSecretSet ? "cred-status--ok" : ""}`;
+  defaultExecutiveNumberStatus.textContent = config.defaultExecutiveNumberSet ? "Saved" : "Optional";
+  defaultExecutiveNumberStatus.className = `cred-status ${config.defaultExecutiveNumberSet ? "cred-status--ok" : ""}`;
 
   if (config.tokenSummary) {
     const summary = config.tokenSummary;
@@ -235,6 +241,7 @@ async function saveConfig() {
       apiBaseUrl: apiBaseUrlInput.value.trim(),
       clickToCallPath: clickToCallPathInput.value.trim(),
       clickToCallMethod: clickToCallMethodSelect.value,
+      outboundRefUrl: outboundRefUrlInput.value.trim() || "1",
       enableClickToCall: enableClickToCallToggle.checked,
       enableEventSync: enableEventSyncToggle.checked,
       enableAutoLeadCreate: enableAutoLeadCreateToggle.checked,
@@ -249,6 +256,8 @@ async function saveConfig() {
     if (accountToken) payload.accountToken = accountToken;
     const webhookSecret = webhookSecretInput.value.trim();
     if (webhookSecret) payload.webhookSecret = webhookSecret;
+    const defaultExecutiveNumber = defaultExecutiveNumberInput.value.trim();
+    if (defaultExecutiveNumber) payload.defaultExecutiveNumber = defaultExecutiveNumber;
 
     const res = await fetch(apiUrl("/api/mcube/config"), {
       method: "PUT",
@@ -261,6 +270,7 @@ async function saveConfig() {
 
     accountTokenInput.value = "";
     webhookSecretInput.value = "";
+    defaultExecutiveNumberInput.value = "";
     applyConfig(json);
     renderLogSummary(json.logSummary);
     showMessage(saveConfigMessage, "Settings saved successfully.");
