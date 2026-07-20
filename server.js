@@ -1761,6 +1761,7 @@ function isCounselorInAdmissionRotation(counselor) {
 const ODISHA_LOCATION_PATTERN = new RegExp([
   "\\bodisha\\b",
   "\\borissa\\b",
+  "\\bod\\b",
   "\\bangul\\b",
   "\\bathagarh\\b",
   "\\bbalangir\\b",
@@ -1834,7 +1835,7 @@ const ODISHA_LOCATION_PATTERN = new RegExp([
 ].join("|"), "i");
 
 function normalizeBranchName(value) {
-  const raw = String(value || "").trim().toLowerCase();
+  const raw = String(value || "").trim().toLowerCase().replace(/[_-]+/g, " ");
   if (ODISHA_LOCATION_PATTERN.test(raw)) return "Bhubaneswar";
   if (/\bbangalore\b|\bbengaluru\b|\bblr\b/.test(raw)) return "Bangalore";
   return "";
@@ -1859,7 +1860,7 @@ function courseMatchesPermission(course, courseText) {
   }
 
   const descriptor = normalizeCourseSourceText(courseText).toLowerCase();
-  if (!descriptor) return true;
+  if (!descriptor) return false;
   return [course.id, course.code, course.name, courseIdentity.label]
     .filter(Boolean)
     .some((value) => {
@@ -1896,7 +1897,7 @@ function getAdmissionCounselorCandidates(counselors = [], options = {}) {
   }));
   if (courseMatches.length) return courseMatches;
 
-  return activeCounselors;
+  return [];
 }
 
 async function getMetaProcessingSnapshot() {

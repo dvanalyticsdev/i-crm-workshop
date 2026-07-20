@@ -498,6 +498,9 @@ test("admission course permission matching uses catalog course ids", () => {
   assert.doesNotMatch(server, /key: "advanced-ai-ml"/);
   assert.doesNotMatch(server, /key: "7-days-gen-ai"/);
   assert.doesNotMatch(server, /key: "cyber-security"/);
+  assert.match(server, /if \(!descriptor\) return false;/);
+  assert.match(server, /if \(courseMatches\.length\) return courseMatches;\s*return \[\];/);
+  assert.ok(server.includes('"\\\\bod\\\\b"'));
 });
 
 test("main admission leads stay out of legacy workshop and registered sections", () => {
