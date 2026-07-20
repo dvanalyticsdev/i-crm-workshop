@@ -1757,15 +1757,90 @@ function isCounselorInAdmissionRotation(counselor) {
   return counselor?.admissionRoundRobinEnabled === true && !counselor?.disabled;
 }
 
+const ODISHA_LOCATION_PATTERN = new RegExp([
+  "\\bodisha\\b",
+  "\\borissa\\b",
+  "\\bangul\\b",
+  "\\bathagarh\\b",
+  "\\bbalangir\\b",
+  "\\bbolangir\\b",
+  "\\bbalasore\\b",
+  "\\bbaleswar\\b",
+  "\\bbalimela\\b",
+  "\\bbarbil\\b",
+  "\\bbargarh\\b",
+  "\\bbaripada\\b",
+  "\\bbasudebpur\\b",
+  "\\bbhadrak\\b",
+  "\\bbhanjanagar\\b",
+  "\\bbhawanipatna\\b",
+  "\\bbhubaneswar\\b",
+  "\\bbhubaneshwar\\b",
+  "\\bbhubneshwar\\b",
+  "\\bbbsr\\b",
+  "\\bboudh\\b",
+  "\\bbrahmapur\\b",
+  "\\bberhampur\\b",
+  "\\bchandbali\\b",
+  "\\bchatrapur\\b",
+  "\\bchhatrapur\\b",
+  "\\bcuttack\\b",
+  "\\bdeogarh\\b",
+  "\\bdebgarh\\b",
+  "\\bdhenkanal\\b",
+  "\\bgajapati\\b",
+  "\\bganjam\\b",
+  "\\bgunupur\\b",
+  "\\bhirakud\\b",
+  "\\bjagatsinghpur\\b",
+  "\\bjajpur\\b",
+  "\\bjaleswar\\b",
+  "\\bjeypore\\b",
+  "\\bjharsuguda\\b",
+  "\\bkalahandi\\b",
+  "\\bkantabanji\\b",
+  "\\bkendrapara\\b",
+  "\\bkendujhar\\b",
+  "\\bkeonjhar\\b",
+  "\\bkhordha\\b",
+  "\\bkhurda\\b",
+  "\\bkoraput\\b",
+  "\\bmalkangiri\\b",
+  "\\bmayurbhanj\\b",
+  "\\bnabarangpur\\b",
+  "\\bnayagarh\\b",
+  "\\bnuapada\\b",
+  "\\bparadip\\b",
+  "\\bparadeep\\b",
+  "\\bparalakhemundi\\b",
+  "\\bpatnagarh\\b",
+  "\\bphulbani\\b",
+  "\\bpuri\\b",
+  "\\brayagada\\b",
+  "\\brairakhol\\b",
+  "\\brajganga?pur\\b",
+  "\\brajgangpur\\b",
+  "\\brourkela\\b",
+  "\\bsambalpur\\b",
+  "\\bsubarnapur\\b",
+  "\\bsonepur\\b",
+  "\\bsorada\\b",
+  "\\bsundargarh\\b",
+  "\\bsundergarh\\b",
+  "\\btalcher\\b",
+  "\\btitlagarh\\b",
+  "\\bumarkote\\b"
+].join("|"), "i");
+
 function normalizeBranchName(value) {
   const raw = String(value || "").trim().toLowerCase();
-  if (/\bbhubaneswar\b|\bbhubaneshwar\b|\bbhubneshwar\b|\bbbsr\b/.test(raw)) return "Bhubaneswar";
+  if (ODISHA_LOCATION_PATTERN.test(raw)) return "Bhubaneswar";
   if (/\bbangalore\b|\bbengaluru\b|\bblr\b/.test(raw)) return "Bangalore";
   return "";
 }
 
 function inferLeadBranchFromText(...parts) {
-  return normalizeBranchName(parts.filter(Boolean).join(" "));
+  return normalizeBranchName(parts.filter(Boolean).join(" ")) || "Bangalore";
 }
 
 function normalizeAdmissionCoursePermissionIds(value) {
@@ -1797,6 +1872,22 @@ function isCounselorEligibleForAdmissionLead(counselor, { branch = "", courseNam
   if (!courseIds.length) return false;
   const allowedCourses = PUBLIC_COURSE_CATALOG.filter((course) => courseIds.includes(course.id));
   return allowedCourses.some((course) => courseMatchesPermission(course, courseName));
+}
+
+function getAdmissionCounselorCandidates(counselors = [], options = {}) {
+  const activeCounselors = (Array.isArray(counselors) ? counselors : []).filter(isCounselorInAdmissionRotation);
+  if (!activeCounselors.length) return [];
+
+  const branchAndCourseMatches = activeCounselors.filter((counselor) => isCounselorEligibleForAdmissionLead(counselor, options));
+  if (branchAndCourseMatches.length) return branchAndCourseMatches;
+
+  const courseMatches = activeCounselors.filter((counselor) => isCounselorEligibleForAdmissionLead(counselor, {
+    ...options,
+    branch: ""
+  }));
+  if (courseMatches.length) return courseMatches;
+
+  return activeCounselors;
 }
 
 async function getMetaProcessingSnapshot() {
@@ -2154,7 +2245,7 @@ async function assignAdmissionCounselorRoundRobin(counselorSource, options = {})
     : Array.isArray(counselorSource?.counselors)
       ? counselorSource.counselors
       : [];
-  const eligibleCounselors = sourceList.filter((counselor) => isCounselorEligibleForAdmissionLead(counselor, options));
+  const eligibleCounselors = getAdmissionCounselorCandidates(sourceList, options);
   if (!eligibleCounselors.length) return "Unassigned";
 
   const result = await withMongoRetry(
@@ -6406,10 +6497,13 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
     metaFields.city,
     metaFields.branch,
     metaFields.location,
+    metaFields.state,
     metaFields.centre,
     metaFields.center,
     metaFields.preferred_city,
     metaFields.preferred_location,
+    metaFields.preferred_state,
+    metaFields.address,
     metaFields.page_url,
     metaInfo.adName,
     metaInfo.adsetName,
@@ -6627,10 +6721,13 @@ async function processElementorLeadRecord(payload, config) {
     fields.city,
     fields.branch,
     fields.location,
+    fields.state,
     fields.centre,
     fields.center,
     fields.preferred_city,
     fields.preferred_location,
+    fields.preferred_state,
+    fields.address,
     metaInfo.pageUrl,
     metaInfo.formName
   );

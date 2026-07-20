@@ -441,6 +441,16 @@ test("incoming Meta leads route admission traffic into Main Admission Leads", ()
   const taskTracker = read("task-tracker.js");
 
   assert.match(server, /const MAIN_ADMISSION_PIPELINE = "main-admission"/);
+  assert.match(server, /const ODISHA_LOCATION_PATTERN = new RegExp/);
+  assert.ok(server.includes('"\\\\bodisha\\\\b"'));
+  assert.ok(server.includes('"\\\\bcuttack\\\\b"'));
+  assert.ok(server.includes('"\\\\brourkela\\\\b"'));
+  assert.match(server, /return normalizeBranchName\(parts\.filter\(Boolean\)\.join\(" "\)\) \|\| "Bangalore"/);
+  assert.match(server, /function getAdmissionCounselorCandidates/);
+  assert.match(server, /const branchAndCourseMatches = activeCounselors\.filter/);
+  assert.match(server, /if \(branchAndCourseMatches\.length\) return branchAndCourseMatches/);
+  assert.match(server, /if \(courseMatches\.length\) return courseMatches/);
+  assert.match(server, /return activeCounselors/);
   assert.match(server, /function classifyIncomingMetaLead/);
   assert.match(server, /adv ai ml/);
   assert.match(server, /genai/);
