@@ -3394,6 +3394,9 @@ html[data-theme="dark"] .bell-badge {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
+.rr-roster-row--expanded {
+  align-items: flex-start;
+}
 .rr-roster-row:last-child {
   border-bottom: 0;
 }
@@ -3402,6 +3405,7 @@ html[data-theme="dark"] .bell-badge {
   flex-direction: column;
   gap: 0.15rem;
   min-width: 0;
+  flex: 1;
 }
 .rr-roster-person strong {
   font-size: 0.92rem;
@@ -3437,6 +3441,30 @@ html[data-theme="dark"] .bell-badge {
   min-height: 1.2em;
   font-size: 0.85rem;
   margin-bottom: 0.75rem;
+}
+.course-permission-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+}
+.course-permission-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 30px;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.course-permission-option input {
+  width: auto;
+  margin: 0;
 }
 @media (max-width: 560px) {
   .rr-roster-row {

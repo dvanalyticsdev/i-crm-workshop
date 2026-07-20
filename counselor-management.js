@@ -12,6 +12,7 @@ import {
   startStatePolling,
   syncStateFromLocalAndVerify
 } from "./state-sync.js";
+import { PUBLIC_COURSES } from "./course-catalog.js";
 
 await bootstrapLocalState();
 
@@ -22,6 +23,13 @@ const DEFAULT_PERMISSIONS = {
   lostLeads: true,
   monitoring: true
 };
+const BRANCH_OPTIONS = ["Bangalore", "Bhubaneswar"];
+const DEFAULT_BRANCH = "Bangalore";
+const COURSE_PERMISSION_OPTIONS = PUBLIC_COURSES.map((course) => ({
+  id: course.id,
+  label: course.code || course.shortName || course.name,
+  name: course.name
+}));
 
 const counselorForm = document.getElementById("counselorForm");
 const counselorFormMessage = document.getElementById("counselorFormMessage");
@@ -51,6 +59,8 @@ const userEditName = document.getElementById("userEditName");
 const userEditEmail = document.getElementById("userEditEmail");
 const userEditPhone = document.getElementById("userEditPhone");
 const userEditPhoneRow = document.getElementById("userEditPhoneRow");
+const userEditBranch = document.getElementById("userEditBranch");
+const userEditBranchRow = document.getElementById("userEditBranchRow");
 const userEditPermissionsRow = document.getElementById("userEditPermissionsRow");
 const userEditMessage = document.getElementById("userEditMessage");
 let counselorSearchTerm = "";
@@ -111,6 +121,35 @@ function getSelectedEditPermissions() {
   };
 }
 
+function normalizeBranch(value, fallback = DEFAULT_BRANCH) {
+  const match = BRANCH_OPTIONS.find((branch) => branch.toLowerCase() === String(value || "").trim().toLowerCase());
+  return match || fallback;
+}
+
+function normalizeCoursePermissions(value) {
+  if (!Array.isArray(value)) {
+    return COURSE_PERMISSION_OPTIONS.map((course) => course.id);
+  }
+
+  const allowed = new Set(COURSE_PERMISSION_OPTIONS.map((course) => course.id));
+  return [...new Set(value.map((item) => String(item || "").trim()).filter((item) => allowed.has(item)))];
+}
+
+function coursePermissionText(courseIds) {
+  const selected = new Set(normalizeCoursePermissions(courseIds));
+  if (!selected.size) {
+    return "No courses";
+  }
+  if (selected.size === COURSE_PERMISSION_OPTIONS.length) {
+    return "All courses";
+  }
+
+  return COURSE_PERMISSION_OPTIONS
+    .filter((course) => selected.has(course.id))
+    .map((course) => course.label)
+    .join(", ");
+}
+
 function closeUserEditModal() {
   if (!userEditModal || !userEditForm) {
     return;
@@ -121,6 +160,7 @@ function closeUserEditModal() {
   userEditId.value = "";
   setUserEditMessage("");
   userEditPhoneRow.classList.add("hidden");
+  userEditBranchRow.classList.add("hidden");
   userEditPermissionsRow.classList.add("hidden");
   userEditModal.classList.add("hidden");
 }
@@ -139,10 +179,12 @@ function openUserEditModal({ userType, user }) {
   const isCounselor = userType === "counselor";
   userEditTitle.textContent = isCounselor ? "Edit Counselor" : "Edit Marketing User";
   userEditPhoneRow.classList.toggle("hidden", !isCounselor);
+  userEditBranchRow.classList.toggle("hidden", !isCounselor);
   userEditPermissionsRow.classList.toggle("hidden", !isCounselor);
 
   if (isCounselor) {
     userEditPhone.value = user.phone || "";
+    userEditBranch.value = normalizeBranch(user.branch);
     const permissions = {
       ...DEFAULT_PERMISSIONS,
       ...(user.permissions || {})
@@ -152,6 +194,7 @@ function openUserEditModal({ userType, user }) {
     });
   } else {
     userEditPhone.value = "";
+    userEditBranch.value = "";
     document.querySelectorAll("input[name='editPermission']").forEach((item) => {
       item.checked = false;
     });
@@ -192,6 +235,8 @@ function getCounselors() {
   return getStoredCounselors().map((item) => ({
     ...item,
     email: String(item.email || "").toLowerCase(),
+    branch: normalizeBranch(item.branch),
+    admissionCoursePermissions: normalizeCoursePermissions(item.admissionCoursePermissions),
     permissions: {
       ...DEFAULT_PERMISSIONS,
       ...(item.permissions || {})
@@ -381,13 +426,15 @@ function openUserDetailsModal({ userType, user }) {
           rows: [
             ["Name", user.name],
             ["Email", user.email],
-            ["Phone Number", user.phone]
+            ["Phone Number", user.phone],
+            ["Branch Location", normalizeBranch(user.branch)]
           ]
         },
         {
-          title: "Access Permissions",
+          title: "Lead Permissions",
           rows: [
-            ["Permissions", permissionText(user.permissions || DEFAULT_PERMISSIONS)]
+            ["Page Access", permissionText(user.permissions || DEFAULT_PERMISSIONS)],
+            ["Course Eligibility", coursePermissionText(user.admissionCoursePermissions)]
           ]
         }
       ]
@@ -407,7 +454,7 @@ function openUserDetailsModal({ userType, user }) {
       <dl class="management-details-list">
         ${buildDetailsRows(section.rows)}
       </dl>
-      ${section.title === "Access Permissions" && isCounselor ? renderPermissionBadges(user.permissions || DEFAULT_PERMISSIONS) : ""}
+      ${section.title === "Lead Permissions" && isCounselor ? renderPermissionBadges(user.permissions || DEFAULT_PERMISSIONS) : ""}
     </section>
   `).join("");
 
@@ -482,6 +529,8 @@ function renderCounselorList() {
       counselor.name,
       counselor.email,
       counselor.phone,
+      counselor.branch,
+      coursePermissionText(counselor.admissionCoursePermissions),
       permissionText(counselor.permissions || DEFAULT_PERMISSIONS)
     ].join(" ").toLowerCase();
     return haystack.includes(counselorSearchTerm);
@@ -498,6 +547,7 @@ function renderCounselorList() {
             >
               <span class="management-name-card__title">${escapeHtml(counselor.name)}</span>
               <span class="management-name-card__meta">${escapeHtml(counselor.email)}</span>
+              <span class="management-name-card__meta">${escapeHtml(normalizeBranch(counselor.branch))} branch</span>
             </button>
           `).join("")}
         </div>`
@@ -537,10 +587,11 @@ counselorForm.addEventListener("submit", async (event) => {
   const name = document.getElementById("counselorName").value.trim();
   const email = document.getElementById("counselorEmail").value.trim().toLowerCase();
   const phone = document.getElementById("counselorPhone").value.trim();
+  const branch = normalizeBranch(document.getElementById("counselorBranch").value, "");
   const password = document.getElementById("counselorPassword").value.trim();
   const permissions = getSelectedPermissions();
 
-  if (!name || !email || !phone || !password) {
+  if (!name || !email || !phone || !branch || !password) {
     setMessage("All counselor fields are required.", true);
     return;
   }
@@ -566,7 +617,11 @@ counselorForm.addEventListener("submit", async (event) => {
     name,
     email,
     phone,
+    branch,
     password,
+    roundRobinEnabled: true,
+    admissionRoundRobinEnabled: false,
+    admissionCoursePermissions: COURSE_PERMISSION_OPTIONS.map((course) => course.id),
     permissions
   });
 
@@ -816,6 +871,7 @@ if (userEditForm) {
     const name = userEditName.value.trim();
     const email = userEditEmail.value.trim().toLowerCase();
     const phone = userEditPhone.value.trim();
+    const branch = normalizeBranch(userEditBranch.value, "");
 
     if (!userType || !id || !name || !email) {
       setUserEditMessage("All required fields must be filled.", true);
@@ -830,6 +886,10 @@ if (userEditForm) {
     if (userType === "counselor") {
       if (!phone) {
         setUserEditMessage("Phone number is required for counselors.", true);
+        return;
+      }
+      if (!branch) {
+        setUserEditMessage("Branch location is required for counselors.", true);
         return;
       }
 
@@ -847,7 +907,7 @@ if (userEditForm) {
 
       const nextCounselors = counselors.map((item) => (
         item.id === id
-          ? { ...item, name, email, phone, permissions }
+          ? { ...item, name, email, phone, branch, permissions }
           : item
       ));
 

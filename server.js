@@ -56,6 +56,7 @@ const PUBLIC_COURSE_SEGMENT_CONFIG = {
   }
 };
 const MAIN_ADMISSION_PIPELINE = "main-admission";
+const MAIN_ADMISSION_ROUND_ROBIN_FIELD = "mainAdmissionRoundRobinIndex";
 const PUBLIC_COURSE_CATALOG = [
   { id: "apids", code: "APIDS", name: "Advanced Program in Industrial Data Science & AI", duration: "6-8 Months" },
   { id: "apida", code: "APIDA", name: "Advanced Program in Industrial Data Analytics & AI", duration: "4-5 Months" },
@@ -1752,6 +1753,52 @@ function isCounselorInMetaRotation(counselor) {
   return counselor?.roundRobinEnabled !== false && !counselor?.disabled;
 }
 
+function isCounselorInAdmissionRotation(counselor) {
+  return counselor?.admissionRoundRobinEnabled === true && !counselor?.disabled;
+}
+
+function normalizeBranchName(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (/\bbhubaneswar\b|\bbhubaneshwar\b|\bbhubneshwar\b|\bbbsr\b/.test(raw)) return "Bhubaneswar";
+  if (/\bbangalore\b|\bbengaluru\b|\bblr\b/.test(raw)) return "Bangalore";
+  return "";
+}
+
+function inferLeadBranchFromText(...parts) {
+  return normalizeBranchName(parts.filter(Boolean).join(" "));
+}
+
+function normalizeAdmissionCoursePermissionIds(value) {
+  const allowedIds = new Set(PUBLIC_COURSE_CATALOG.map((course) => course.id));
+  if (!Array.isArray(value)) {
+    return [...allowedIds];
+  }
+  return [...new Set(value.map((item) => String(item || "").trim()).filter((item) => allowedIds.has(item)))];
+}
+
+function courseMatchesPermission(course, courseText) {
+  const descriptor = String(courseText || "").trim().toLowerCase();
+  if (!descriptor) return true;
+  return [course.id, course.code, course.name]
+    .filter(Boolean)
+    .some((value) => descriptor.includes(String(value).trim().toLowerCase()));
+}
+
+function isCounselorEligibleForAdmissionLead(counselor, { branch = "", courseName = "" } = {}) {
+  if (!isCounselorInAdmissionRotation(counselor)) return false;
+
+  const targetBranch = normalizeBranchName(branch);
+  if (targetBranch) {
+    const counselorBranch = normalizeBranchName(counselor?.branch);
+    if (counselorBranch && counselorBranch !== targetBranch) return false;
+  }
+
+  const courseIds = normalizeAdmissionCoursePermissionIds(counselor?.admissionCoursePermissions);
+  if (!courseIds.length) return false;
+  const allowedCourses = PUBLIC_COURSE_CATALOG.filter((course) => courseIds.includes(course.id));
+  return allowedCourses.some((course) => courseMatchesPermission(course, courseName));
+}
+
 async function getMetaProcessingSnapshot() {
   if (
     cachedStateDoc
@@ -2099,6 +2146,28 @@ async function assignElementorCounselorRoundRobin(counselorSource) {
   const newIdx = Number(result?.roundRobinIndex) || 1;
   const idx = ((newIdx - 1) % counselors.length + counselors.length) % counselors.length;
   return counselors[idx].name;
+}
+
+async function assignAdmissionCounselorRoundRobin(counselorSource, options = {}) {
+  const sourceList = Array.isArray(counselorSource)
+    ? counselorSource
+    : Array.isArray(counselorSource?.counselors)
+      ? counselorSource.counselors
+      : [];
+  const eligibleCounselors = sourceList.filter((counselor) => isCounselorEligibleForAdmissionLead(counselor, options));
+  if (!eligibleCounselors.length) return "Unassigned";
+
+  const result = await withMongoRetry(
+    () => metaConfigCollection.findOneAndUpdate(
+      { _id: META_CONFIG_DOC_ID },
+      { $inc: { [MAIN_ADMISSION_ROUND_ROBIN_FIELD]: 1 } },
+      { returnDocument: "after", upsert: true }
+    ),
+    { retries: 1, label: "Advance main admission round robin" }
+  );
+  const newIdx = Number(result?.[MAIN_ADMISSION_ROUND_ROBIN_FIELD]) || 1;
+  const idx = ((newIdx - 1) % eligibleCounselors.length + eligibleCounselors.length) % eligibleCounselors.length;
+  return eligibleCounselors[idx].name;
 }
 
 async function replaceLeadDocument(lead) {
@@ -6040,7 +6109,7 @@ app.put("/api/counselors/rotation", async (req, res) => {
     const counselorId = String(req.body?.counselorId || "").trim();
     const field = String(req.body?.field || "roundRobinEnabled").trim();
     const enabled = typeof req.body?.enabled === "boolean" ? req.body.enabled : null;
-    const allowedFields = new Set(["roundRobinEnabled"]);
+    const allowedFields = new Set(["roundRobinEnabled", "admissionRoundRobinEnabled", "admissionCoursePermissions"]);
 
     if (!counselorId) {
       return res.status(400).json({ message: "Counselor ID is required." });
@@ -6048,8 +6117,11 @@ app.put("/api/counselors/rotation", async (req, res) => {
     if (!allowedFields.has(field)) {
       return res.status(400).json({ message: "Unsupported rotation field." });
     }
-    if (enabled == null) {
+    if (field !== "admissionCoursePermissions" && enabled == null) {
       return res.status(400).json({ message: "Enabled flag is required." });
+    }
+    if (field === "admissionCoursePermissions" && !Array.isArray(req.body?.admissionCoursePermissions)) {
+      return res.status(400).json({ message: "Course permissions must be an array." });
     }
 
     const counselors = await withMongoRetry(
@@ -6068,7 +6140,9 @@ app.put("/api/counselors/rotation", async (req, res) => {
 
     const nextCounselor = {
       ...existingCounselor,
-      [field]: enabled
+      [field]: field === "admissionCoursePermissions"
+        ? normalizeAdmissionCoursePermissionIds(req.body.admissionCoursePermissions)
+        : enabled
     };
 
     await withMongoRetry(
@@ -6325,10 +6399,38 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
     adsetName: metaLead.adset_name,
     campaignName: metaLead.campaign_name
   };
-  const leadType = classifyIncomingMetaLead(getMetaLeadFieldMap(metaLead.field_data), metaInfo);
+  const metaFields = getMetaLeadFieldMap(metaLead.field_data);
+  const leadType = classifyIncomingMetaLead(metaFields, metaInfo);
   const isAdmissionLead = leadType === "admission";
+  const inferredAdmissionBranch = inferLeadBranchFromText(
+    metaFields.city,
+    metaFields.branch,
+    metaFields.location,
+    metaFields.centre,
+    metaFields.center,
+    metaFields.preferred_city,
+    metaFields.preferred_location,
+    metaFields.page_url,
+    metaInfo.adName,
+    metaInfo.adsetName,
+    metaInfo.campaignName
+  );
+  const inferredAdmissionCourse = String(
+    metaFields.course ||
+    metaFields.course_name ||
+    metaFields.program ||
+    metaFields.workshop ||
+    metaFields.workshop_name ||
+    metaInfo.adsetName ||
+    metaInfo.adName ||
+    metaInfo.campaignName ||
+    ""
+  ).trim();
   const counselorName = isAdmissionLead
-    ? "Unassigned"
+    ? await assignAdmissionCounselorRoundRobin(snapshot.counselors, {
+        branch: inferredAdmissionBranch,
+        courseName: inferredAdmissionCourse
+      })
     : await assignCounselorRoundRobin(snapshot.counselors);
   const nextId = await getNextMetaLeadId();
   const newLead = buildMetaLead(
@@ -6521,8 +6623,32 @@ async function processElementorLeadRecord(payload, config) {
   };
   const leadType = classifyIncomingElementorLead(fields, metaInfo, config);
   const isAdmissionLead = leadType === "admission";
+  const inferredAdmissionBranch = inferLeadBranchFromText(
+    fields.city,
+    fields.branch,
+    fields.location,
+    fields.centre,
+    fields.center,
+    fields.preferred_city,
+    fields.preferred_location,
+    metaInfo.pageUrl,
+    metaInfo.formName
+  );
+  const inferredAdmissionCourse = String(
+    fields.course ||
+    fields.course_name ||
+    fields.program ||
+    fields.workshop ||
+    fields.workshop_name ||
+    metaInfo.formName ||
+    metaInfo.pageUrl ||
+    ""
+  ).trim();
   const counselorName = isAdmissionLead
-    ? "Unassigned"
+    ? await assignAdmissionCounselorRoundRobin(snapshot.counselors, {
+        branch: inferredAdmissionBranch,
+        courseName: inferredAdmissionCourse
+      })
     : await assignElementorCounselorRoundRobin(snapshot.counselors);
   const nextId = await getNextMetaLeadId();
   const newLead = buildElementorLead(fields, metaInfo, counselorName, nextId, { leadType });

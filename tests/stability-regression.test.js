@@ -328,7 +328,7 @@ test("workshop and admission filters support multiple selected values", () => {
   assert.match(styles, /\.multi-filter-menu/);
   assert.doesNotMatch(preWorkshop, /<select[^>]+multiple/);
   assert.doesNotMatch(postWorkshop, /<select[^>]+multiple/);
-  assert.match(preWorkshop, /filterIncludesValue\(filter\.workshop, lead\.workshop\)/);
+  assert.match(preWorkshop, /filterIncludesValue\(filter\.workshopName, getLeadWorkshopName\(lead\)\)/);
   assert.match(postWorkshop, /filterIncludesValue\(filter\.courseStatus, lead\.courseStatus\)/);
   assert.match(preWorkshop, /BLANK_FILTER_VALUE/);
   assert.match(postWorkshop, /BLANK_FILTER_VALUE/);
@@ -348,7 +348,7 @@ test("admission workshop override stays scoped to admission calling", () => {
   assert.match(postWorkshop, /admissionWorkshop: document\.getElementById\("modalAdmissionWorkshop"\)\.value/);
   assert.match(postWorkshop, /getAdmissionWorkshopName\(lead\)/);
   assert.match(monitoring, /function getAdmissionWorkshopName/);
-  assert.match(monitoring, /formatAdmissionWorkshopBreakdown\(activityLeads\)/);
+  assert.match(monitoring, /formatAdmissionWorkshopBreakdownEntries\(activityLeads, "postActivityUpdates"\)/);
   assert.match(server, /"admissionWorkshop"/);
   assert.doesNotMatch(preWorkshop, /admissionWorkshop/);
 });
@@ -459,16 +459,22 @@ test("incoming Meta leads route admission traffic into Main Admission Leads", ()
   assert.match(taskTracker, /mainAdmissionTaskSection/);
 });
 
-test("Meta integration exposes workshop counselor rotation only", () => {
+test("Integration exposes lead flow control subsection", () => {
   const metaHtml = read("meta-integration.html");
   const metaJs = read("meta-integration.js");
+  const leadFlowHtml = read("lead-flow-control.html");
+  const leadFlowJs = read("lead-flow-control.js");
 
-  assert.match(metaHtml, /Workshop Lead Rotation/);
-  assert.doesNotMatch(metaHtml, /Admission Lead Rotation/);
-  assert.doesNotMatch(metaJs, /function isCounselorInAdmissionRotation/);
-  assert.doesNotMatch(metaJs, /admissionRoundRobinEnabled === true/);
-  assert.match(metaJs, /data-rotation-field/);
-  assert.match(metaJs, /\[safeField\]: enabled/);
+  assert.match(metaJs, /lead-flow-control\.html/);
+  assert.match(leadFlowHtml, /Lead Flow Control/);
+  assert.match(leadFlowHtml, /Workshop admission rotation/);
+  assert.match(leadFlowHtml, /Main admission lead rotation/);
+  assert.match(leadFlowJs, /function isCounselorInAdmissionRotation/);
+  assert.match(leadFlowJs, /admissionRoundRobinEnabled === true/);
+  assert.match(leadFlowJs, /admissionCoursePermissions/);
+  assert.match(leadFlowJs, /data-rotation-field/);
+  assert.match(leadFlowJs, /isCoursePermissionUpdate/);
+  assert.match(metaHtml, /lead-flow-control\.html/);
 });
 
 test("main admission leads stay out of legacy workshop and registered sections", () => {

@@ -111,12 +111,17 @@ function renderIntegrationSectionNav(activeRoute = "elementor-integration.html")
     {
       route: "meta-integration.html",
       label: "Meta",
-      description: "Manage Facebook and Instagram lead capture, webhook setup, and counselor rotation."
+      description: "Manage Facebook and Instagram lead capture, webhook setup, and lead filters."
     },
     {
       route: "elementor-integration.html",
       label: "Elementor",
-      description: "Manage Elementor webhook intake, form rules, and automatic workshop or admission routing."
+      description: "Manage Elementor webhook intake, form rules, and lead classification."
+    },
+    {
+      route: "lead-flow-control.html",
+      label: "Lead Flow Control",
+      description: "Manage counselor rotation, branch routing, and course-wise lead eligibility."
     },
     {
       route: "mcube-integration.html",

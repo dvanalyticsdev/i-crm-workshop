@@ -38,7 +38,7 @@
       <div class="sidebar-bottom-links" style="display:flex;flex-direction:column;gap:0;">
         <a href="counselor-management.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Counselor Management</a>
         <a href="lead-control.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Lead & Data Control</a>
-        <a href="meta-integration.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true" data-active-routes="elementor-integration.html mcube-integration.html">Integration</a>
+        <a href="meta-integration.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true" data-active-routes="elementor-integration.html lead-flow-control.html mcube-integration.html">Integration</a>
       </div>
     </aside>
 
@@ -46,7 +46,7 @@
       <header class="topbar">
         <div class="topbar-title">
           <h1>Meta Lead Ads Integration</h1>
-          <p>Automate lead capture from Facebook &amp; Instagram with round-robin assignment.</p>
+          <p>Automate lead capture from Facebook &amp; Instagram with webhook setup and lead filters.</p>
         </div>
         <div class="topbar-profile">
           <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">
@@ -279,14 +279,14 @@
         <!-- ═══════════════════════════════════════════════════════════════════
              SECTION 4 — Round-Robin Assignment
         ════════════════════════════════════════════════════════════════════ -->
-        <section class="card">
+        <section class="card hidden">
           <div class="meta-section-title">
-            <h3>Round-Robin Assignment</h3>
-            <p>Workshop leads use counselor rotation. Admission leads now stay unassigned until an admin assigns them manually.</p>
+            <h3>Lead flow control</h3>
+            <p>Control workshop and main-admission lead routing from Meta and Elementor in one place.</p>
           </div>
 
           <div class="note-callout" style="margin-bottom:1.25rem;">
-            <span>File-import leads continue to use the existing <strong>percentage-based allocation</strong>. Only leads arriving via the Meta webhook use round-robin.</span>
+            <span>File-import leads continue to use the existing <strong>percentage-based allocation</strong>. Webhook leads use these rotation and eligibility settings.</span>
           </div>
 
           <div class="rr-stats-grid">
@@ -296,35 +296,35 @@
               <span class="rr-kpi__sub">since last reset</span>
             </div>
             <div class="rr-kpi">
-              <span class="rr-kpi__label">Next Assigned To</span>
+              <span class="rr-kpi__label">Next Workshop Lead To</span>
               <span class="rr-kpi__value" id="rrNextCounselor">—</span>
-              <span class="rr-kpi__sub">next workshop lead</span>
+              <span class="rr-kpi__sub">Meta workshop rotation</span>
             </div>
             <div class="rr-kpi">
               <span class="rr-kpi__label">Workshop Counselors</span>
               <span class="rr-kpi__value" id="rrCounselorCount">—</span>
               <span class="rr-kpi__sub">active</span>
             </div>
-            <div class="rr-kpi hidden">
-              <span class="rr-kpi__label">Admission Counselors (Legacy)</span>
+            <div class="rr-kpi">
+              <span class="rr-kpi__label">Admission Counselors</span>
               <span class="rr-kpi__value" id="admissionRrCounselorCount">â€”</span>
-              <span class="rr-kpi__sub">active</span>
+              <span class="rr-kpi__sub">branch and course eligible</span>
             </div>
           </div>
 
           <div class="meta-section-title" style="margin-bottom:.75rem;">
-            <h3>Workshop Lead Rotation</h3>
+            <h3>Workshop admission rotation</h3>
             <p>Switch counselors on or off for workshop lead round-robin assignment.</p>
           </div>
           <span id="rrRosterMessage" class="rr-roster-message"></span>
           <div id="rrCounselorList" class="rr-roster"></div>
 
-          <div class="meta-section-title hidden" style="margin:1.5rem 0 .75rem;">
-            <h3>Legacy Manual Admission Section</h3>
-            <p>Deprecated: admission leads now stay unassigned until an admin assigns them manually.</p>
+          <div class="meta-section-title" style="margin:1.5rem 0 .75rem;">
+            <h3>Main admission lead rotation</h3>
+            <p>Enable counselors for Meta and Elementor admission leads, then limit which courses they can receive.</p>
           </div>
-          <span id="admissionRrRosterMessage" class="rr-roster-message hidden"></span>
-          <div id="admissionRrCounselorList" class="rr-roster hidden"></div>
+          <span id="admissionRrRosterMessage" class="rr-roster-message"></span>
+          <div id="admissionRrCounselorList" class="rr-roster"></div>
 
           <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;">
             <button type="button" class="btn-secondary" id="resetRrBtn">Reset Meta Lead Count</button>
