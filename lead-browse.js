@@ -1,5 +1,6 @@
 import { getLeads, refreshState, startStatePolling } from "./state-sync.js";
 import { trackLeadView } from "./lead-service.js";
+import { openActivityHistory } from "./activity-history.js";
 
 const PAGE_SIZE = 25;
 const controls = document.getElementById("leadBrowseControls");
@@ -11,6 +12,7 @@ const modalTitle = document.getElementById("leadBrowseDetailsTitle");
 const modalSubtitle = document.getElementById("leadBrowseDetailsSubtitle");
 const modalBody = document.getElementById("leadBrowseDetailsBody");
 const closeModalButton = document.getElementById("closeLeadBrowseDetailsBtn");
+const activityHistoryButton = document.getElementById("leadBrowseActivityHistoryBtn");
 
 const filter = {
   category: "workshop",
@@ -300,7 +302,12 @@ function renderTable() {
               <td>${escapeHtml(getCourseLabel(lead))}</td>
               <td>${escapeHtml(getStatusLabel(lead))}</td>
               <td>${escapeHtml(getCreatedAt(lead))}</td>
-              <td><button type="button" class="btn-ghost" data-view-lead="${escapeHtml(getLeadKey(lead))}">View</button></td>
+              <td>
+                <div class="lead-browse-row-actions">
+                  <button type="button" class="btn-ghost" data-view-lead="${escapeHtml(getLeadKey(lead))}">View</button>
+                  <button type="button" class="btn-ghost" data-history-lead="${escapeHtml(getLeadKey(lead))}">Activity</button>
+                </div>
+              </td>
             </tr>
           `).join("")}
         </tbody>
@@ -310,6 +317,9 @@ function renderTable() {
 
   tableSection.querySelectorAll("[data-view-lead]").forEach((button) => {
     button.addEventListener("click", () => openDetails(button.getAttribute("data-view-lead")));
+  });
+  tableSection.querySelectorAll("[data-history-lead]").forEach((button) => {
+    button.addEventListener("click", () => openLeadActivityHistory(button.getAttribute("data-history-lead")));
   });
 
   pagination.innerHTML = `
@@ -375,6 +385,19 @@ async function openDetails(leadKey) {
   }
 }
 
+async function openLeadActivityHistory(leadKey) {
+  const lead = findLeadByKey(leadKey);
+  if (!lead) return;
+
+  latestLeadKey = leadKey;
+  openActivityHistory(lead.id, lead.name || "Lead", lead.email || "");
+
+  const result = await trackLeadView(lead.id, lead.email || "");
+  if (!result.ok) {
+    console.warn("Lead view notification failed:", result.message);
+  }
+}
+
 function closeDetails() {
   latestLeadKey = "";
   modal.classList.add("hidden");
@@ -387,6 +410,11 @@ function render() {
 }
 
 closeModalButton?.addEventListener("click", closeDetails);
+activityHistoryButton?.addEventListener("click", () => {
+  if (latestLeadKey) {
+    void openLeadActivityHistory(latestLeadKey);
+  }
+});
 modal?.addEventListener("click", (event) => {
   if (event.target === modal) closeDetails();
 });
