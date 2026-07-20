@@ -21,6 +21,7 @@ import {
   assignLeads as assignLeadsOnServer,
   deleteLeads as deleteLeadsOnServer,
   deleteLeadNote,
+  trackLeadView,
   updateLeadActivity as updateLeadActivityOnServer
 } from "./lead-service.js";
 import { exportLeadRowsToExcel } from "./lead-export.js";
@@ -2032,6 +2033,7 @@ function openActivityStatusModal(leadId, leadEmail = "") {
   setActivityModalMode("edit");
   populateActivityModal(lead);
   document.getElementById("activityStatusModal").classList.remove("hidden");
+  void trackLeadView(lead.id, lead.email || leadEmail || "");
 }
 
 
@@ -2101,6 +2103,7 @@ function openNotesModal(leadId, leadEmail = "") {
   const notesModal = document.getElementById("notesModal");
   if (notesModal) {
     notesModal.classList.remove("hidden");
+    void trackLeadView(lead.id, lead.email || leadEmail || "");
   }
 }
 
@@ -2200,6 +2203,7 @@ function openTaskModal(leadId) {
   setTaskMessage("");
   taskModalTitle.textContent = "Create Workshop Task";
   taskModal.classList.remove("hidden");
+  void trackLeadView(lead.id, lead.email || "");
 }
 
 async function handleTaskSubmit(event) {

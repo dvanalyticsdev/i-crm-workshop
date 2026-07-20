@@ -75,3 +75,10 @@ export function assignLeads(leadRefs, counselor) {
     body: JSON.stringify({ leadRefs, counselor })
   });
 }
+
+export function trackLeadView(leadId, leadEmail = "") {
+  return requestJson(`/api/leads/${encodeURIComponent(leadId)}/view`, {
+    method: "POST",
+    body: JSON.stringify({ leadEmail })
+  });
+}

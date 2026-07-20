@@ -13,7 +13,7 @@ import {
   syncStateFromLocalAndVerify
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY } from "./task-service.js";
-import { addLeadNote, assignLeads as assignLeadsOnServer, deleteLeadNote, updateLeadActivity as updateLeadActivityOnServer } from "./lead-service.js";
+import { addLeadNote, assignLeads as assignLeadsOnServer, deleteLeadNote, trackLeadView, updateLeadActivity as updateLeadActivityOnServer } from "./lead-service.js";
 
 await bootstrapLocalState();
 
@@ -1307,6 +1307,7 @@ function openActivityModal(leadKey) {
   setRegisteredActivityModalMode("edit");
   populateActivityModal(lead);
   document.getElementById("mainAdmissionActivityModal").classList.remove("hidden");
+  void trackLeadView(lead.id, lead.email || "");
 }
 
 function openDetailsModal(leadKey) {
@@ -1318,6 +1319,7 @@ function openDetailsModal(leadKey) {
   detailsLeadRef = buildLeadRef(lead);
   renderLeadDetailsModal(lead);
   mainAdmissionDetailsModal.classList.remove("hidden");
+  void trackLeadView(lead.id, lead.email || "");
 }
 
 function closeDetailsModal() {
@@ -1495,6 +1497,7 @@ function openNotesModal(leadKey) {
   document.getElementById("mainAdmissionSaveNoteBtn").classList.toggle("hidden", !canEdit);
   document.getElementById("mainAdmissionNewNoteInput").closest(".modal-row").classList.toggle("hidden", !canEdit);
   document.getElementById("mainAdmissionNotesModal").classList.remove("hidden");
+  void trackLeadView(lead.id, lead.email || "");
 
   document.querySelectorAll(".main-admission-note-delete-btn").forEach((button) => {
     button.onclick = async () => {
@@ -1570,6 +1573,7 @@ function openTaskModal(leadKey) {
   setTaskMessage("");
   mainAdmissionTaskModalTitle.textContent = "Create Main Admission Lead Task";
   mainAdmissionTaskModal.classList.remove("hidden");
+  void trackLeadView(lead.id, lead.email || "");
 }
 
 async function handleTaskSubmit(event) {

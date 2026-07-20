@@ -14,7 +14,7 @@ import {
   syncStateFromLocalAndVerify
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY } from "./task-service.js";
-import { addLeadNote, assignLeads as assignLeadsOnServer, deleteLeadNote, updateLeadActivity as updateLeadActivityOnServer } from "./lead-service.js";
+import { addLeadNote, assignLeads as assignLeadsOnServer, deleteLeadNote, trackLeadView, updateLeadActivity as updateLeadActivityOnServer } from "./lead-service.js";
 
 await bootstrapLocalState();
 
@@ -1263,6 +1263,7 @@ function openActivityModal(leadKey) {
   setRegisteredActivityModalMode("edit");
   populateActivityModal(lead);
   document.getElementById("registeredActivityModal").classList.remove("hidden");
+  void trackLeadView(lead.id, lead.email || "");
 }
 
 
@@ -1433,6 +1434,7 @@ function openNotesModal(leadKey) {
   document.getElementById("registeredSaveNoteBtn").classList.toggle("hidden", !canEdit);
   document.getElementById("registeredNewNoteInput").closest(".modal-row").classList.toggle("hidden", !canEdit);
   document.getElementById("registeredNotesModal").classList.remove("hidden");
+  void trackLeadView(lead.id, lead.email || "");
 
   document.querySelectorAll(".registered-note-delete-btn").forEach((button) => {
     button.onclick = async () => {
@@ -1508,6 +1510,7 @@ function openTaskModal(leadKey) {
   setTaskMessage("");
   registeredTaskModalTitle.textContent = "Create Registered Candidate Task";
   registeredTaskModal.classList.remove("hidden");
+  void trackLeadView(lead.id, lead.email || "");
 }
 
 async function handleTaskSubmit(event) {

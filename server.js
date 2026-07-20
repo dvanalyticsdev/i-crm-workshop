@@ -5143,6 +5143,79 @@ function formatLeadNotificationLabel(lead) {
     : leadName;
 }
 
+function getSessionViewerLabel(session) {
+  const name = String(session?.name || "").trim();
+  if (name) return name;
+
+  const email = String(session?.email || "").trim();
+  if (email) return email;
+
+  const role = String(session?.role || "").trim();
+  return role ? role.charAt(0).toUpperCase() + role.slice(1) : "Someone";
+}
+
+function findCounselorByName(state, counselorName) {
+  const target = String(counselorName || "").trim().toLowerCase();
+  if (!target || target === "unassigned") {
+    return null;
+  }
+
+  const counselors = Array.isArray(state?.counselors) ? state.counselors : [];
+  return counselors.find((item) => String(item?.name || "").trim().toLowerCase() === target) || null;
+}
+
+app.post("/api/leads/:leadId/view", async (req, res) => {
+  try {
+    const session = await requireSession(req, res);
+    if (!session) return;
+
+    const leadId = req.params.leadId;
+    const leadEmail = String(req.body?.leadEmail || "").trim().toLowerCase();
+    const state = await getStateDoc();
+    const lead = findLeadByIdentity(state, leadId, leadEmail);
+
+    if (!lead) {
+      return res.status(404).json({ message: "Lead not found." });
+    }
+
+    const assignedCounselor = String(lead.counselor || "").trim();
+    const counselor = findCounselorByName(state, assignedCounselor);
+    const counselorEmail = String(counselor?.email || "").trim().toLowerCase();
+
+    if (!counselorEmail) {
+      return res.json({ ok: true, notified: false, message: "Lead has no assigned counselor with a notification account." });
+    }
+
+    const viewerLabel = getSessionViewerLabel(session);
+    const leadLabel = formatLeadNotificationLabel(lead);
+
+    await createNotification({
+      userId: counselorEmail,
+      role: "counselor",
+      type: "lead_viewed",
+      title: "Lead Being Viewed",
+      message: `${viewerLabel} is currently viewing your lead ${leadLabel}.`,
+      sound: true,
+      leadId: lead.id,
+      leadName: lead.name,
+      assignedCounselor
+    });
+
+    await recordActivity({
+      leadId: lead.id,
+      leadName: lead.name,
+      counselorName: assignedCounselor,
+      activityType: "Lead Viewed",
+      actionDescription: `${viewerLabel} opened this lead in Lead Browse`,
+      session
+    });
+
+    return res.json({ ok: true, notified: true });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to record lead view", details: error.message });
+  }
+});
+
 app.get("/api/notifications", async (req, res) => {
   try {
     await initMongo();

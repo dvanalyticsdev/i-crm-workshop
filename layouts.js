@@ -22,6 +22,7 @@ const loadedAssetUrls = new Set(
 
 const PAGE_PERMISSION_MAP = {
   "dashboard.html": "dashboard",
+  "lead-browse.html": "leadBrowse",
   "pre-workshop.html": "preWorkshop",
   "post-workshop.html": "postWorkshop",
   "task-tracker.html": "taskTracker",
@@ -31,6 +32,7 @@ const PAGE_PERMISSION_MAP = {
 
 const DEFAULT_PERMISSIONS = {
   dashboard: false,
+  leadBrowse: true,
   preWorkshop: true,
   postWorkshop: true,
   taskTracker: true,
@@ -69,11 +71,12 @@ function rebuildSidebarSections() {
       .filter(([href]) => href)
   );
 
-  const generalRoutes = ["dashboard.html", "lost-leads.html", "monitoring.html", "task-tracker.html"];
+  const generalRoutes = ["dashboard.html", "lead-browse.html", "lost-leads.html", "monitoring.html", "task-tracker.html"];
   const adminRoutes = ["counselor-management.html", "lead-control.html"];
 
   const routeLabels = {
     "dashboard.html": "Dashboard",
+    "lead-browse.html": "Lead Browse",
     "pre-workshop.html": "Workshop",
     "registered-candidates.html": "Admission",
     "task-tracker.html": "Task Tracker",
@@ -114,7 +117,7 @@ function rebuildSidebarSections() {
   navContainer.innerHTML = "";
   bottomLinkContainer.innerHTML = "";
 
-  const primaryRoutes = ["dashboard.html"];
+  const primaryRoutes = ["dashboard.html", "lead-browse.html"];
   const remainingRoutes = generalRoutes.filter((route) => !primaryRoutes.includes(route));
 
   primaryRoutes.forEach((route) => {
@@ -296,13 +299,17 @@ function applyRoleVisibility(session) {
   counselorOnlyElements.forEach((element) => {
     element.classList.toggle("hidden", !isCounselor);
   });
-  // Marketing users only need the integration links in the sidebar.
+  // Marketing users only need the integration links and universal browse in the sidebar.
   if (isMarketing) {
     document.querySelectorAll(".sidebar-link").forEach((link) => {
       const href = link.getAttribute("href") || "";
       const isIntegrationLink = href === "meta-integration.html" || href === "elementor-integration.html";
-      link.classList.toggle("hidden", !isIntegrationLink);
+      const isUniversalLink = href === "lead-browse.html";
+      link.classList.toggle("hidden", !isIntegrationLink && !isUniversalLink);
       if (isIntegrationLink) {
+        link.classList.remove("hidden");
+      }
+      if (isUniversalLink) {
         link.classList.remove("hidden");
       }
     });
@@ -312,7 +319,7 @@ function applyRoleVisibility(session) {
 function enforceAccess(session) {
   // Marketing users: only allowed on integration pages.
   if (session.role === "marketing") {
-    if (currentRoute !== "meta-integration.html" && currentRoute !== "elementor-integration.html") {
+    if (currentRoute !== "lead-browse.html" && currentRoute !== "meta-integration.html" && currentRoute !== "elementor-integration.html") {
       window.location.href = "meta-integration.html";
       return false;
     }
@@ -606,8 +613,13 @@ function bindClientRouter() {
     }
 
     event.preventDefault();
-    // Marketing users can only use the integration links.
-    if (activeSession?.role === "marketing") return;
+    // Marketing users can only use their visible links.
+    if (activeSession?.role === "marketing") {
+      const targetRoute = resolveRoute(href).route;
+      if (targetRoute !== "lead-browse.html" && targetRoute !== "meta-integration.html" && targetRoute !== "elementor-integration.html") {
+        return;
+      }
+    }
     void navigateToRoute(href);
   });
 
