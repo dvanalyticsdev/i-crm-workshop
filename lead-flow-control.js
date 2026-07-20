@@ -118,7 +118,7 @@ function isCounselorInAdmissionRotation(counselor) {
 
 function normalizeCoursePermissions(value) {
   if (!Array.isArray(value)) {
-    return COURSE_PERMISSION_OPTIONS.map((course) => course.id);
+    return [];
   }
 
   const allowed = new Set(COURSE_PERMISSION_OPTIONS.map((course) => course.id));

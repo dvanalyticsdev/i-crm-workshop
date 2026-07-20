@@ -1861,7 +1861,7 @@ function inferLeadBranchFromText(...parts) {
 function normalizeAdmissionCoursePermissionIds(value) {
   const allowedIds = new Set(PUBLIC_COURSE_CATALOG.map((course) => course.id));
   if (!Array.isArray(value)) {
-    return [...allowedIds];
+    return [];
   }
   return [...new Set(value.map((item) => String(item || "").trim()).filter((item) => allowedIds.has(item)))];
 }
