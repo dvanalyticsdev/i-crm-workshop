@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Lead Browse</title>
+  <title>Claim Raised</title>
   <link rel="icon" type="image/png" href="Logos/DV-Logo.png" />
   <script src="theme-bootstrap.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -28,6 +28,7 @@
       <nav class="sidebar-nav">
         <a href="dashboard.html" class="sidebar-link">Dashboard</a>
         <a href="lead-browse.html" class="sidebar-link">Lead Browse</a>
+        <a href="claim-raised.html" class="sidebar-link">Claim Raised</a>
         <a href="pre-workshop.html" class="sidebar-link">Workshop Calling</a>
         <a href="post-workshop.html" class="sidebar-link">Admission Calling</a>
         <a href="registered-candidates.html" class="sidebar-link">Registered Candidates</a>
@@ -46,8 +47,8 @@
     <div class="main-content">
       <header class="topbar">
         <div class="topbar-title">
-          <h1>Lead Browse</h1>
-          <p>Browse all workshop and admission leads in one read-only view.</p>
+          <h1>Claim Raised</h1>
+          <p>Review lead ownership requests and approval status.</p>
         </div>
         <div class="topbar-profile">
           <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">
@@ -71,52 +72,22 @@
         </div>
       </header>
 
-      <section class="kpi-grid" id="leadBrowseKpis"></section>
-      <section class="card lead-browse-controls" id="leadBrowseControls"></section>
-      <section class="card table-card" id="leadBrowseTableSection"></section>
-      <div id="leadBrowsePagination" class="pagination-bar"></div>
-
-      <div id="leadBrowseDetailsModal" class="modal hidden">
-        <div class="modal-content card lead-browse-modal">
-          <div class="lead-browse-modal__header">
-            <div>
-              <h3 id="leadBrowseDetailsTitle">Lead Details</h3>
-              <p id="leadBrowseDetailsSubtitle" class="block-help"></p>
-            </div>
-            <div class="lead-browse-modal__actions">
-              <button type="button" id="leadBrowseActivityHistoryBtn" class="btn-ghost">Activity History</button>
-              <button type="button" id="closeLeadBrowseDetailsBtn" class="btn-ghost">Close</button>
-            </div>
+      <section class="kpi-grid" id="claimRaisedKpis"></section>
+      <section class="card claim-raised-panel">
+        <div class="management-section-head">
+          <div>
+            <h3 id="claimRaisedHeading">Claim Requests</h3>
+            <p id="claimRaisedSubheading">Track raised lead claims and approval status.</p>
           </div>
-          <div id="leadBrowseDetailsBody" class="lead-browse-detail-grid"></div>
+          <button type="button" class="btn-ghost" id="refreshClaimsBtn">Refresh</button>
         </div>
-      </div>
-
-      <div id="leadClaimModal" class="modal hidden">
-        <div class="modal-content card lead-claim-modal">
-          <div class="lead-browse-modal__header">
-            <div>
-              <h3>Raise Lead Claim</h3>
-              <p id="leadClaimLeadTitle" class="block-help"></p>
-              <p id="leadClaimLeadMeta" class="block-help"></p>
-            </div>
-            <button type="button" id="cancelLeadClaimBtn" class="btn-ghost">Close</button>
-          </div>
-          <form id="leadClaimForm" class="auth-form">
-            <label for="leadClaimReason">Formal reason for claim</label>
-            <textarea id="leadClaimReason" rows="5" required minlength="12" placeholder="Enter the formal reason for requesting ownership of this lead"></textarea>
-            <p id="leadClaimMessage" class="block-help"></p>
-            <div class="modal-actions">
-              <button type="button" class="btn-ghost" id="cancelLeadClaimBtnSecondary">Cancel</button>
-              <button type="submit" class="btn-primary">Submit Claim</button>
-            </div>
-          </form>
-        </div>
-      </div>
+        <div id="claimRaisedMessage" class="block-help"></div>
+        <div id="claimRaisedList"></div>
+      </section>
     </div>
   </div>
 
-  <script type="module" src="lead-browse.js"></script>
+  <script type="module" src="claim-raised.js"></script>
   <script type="module" src="layouts.js"></script>
 </body>
 </html>

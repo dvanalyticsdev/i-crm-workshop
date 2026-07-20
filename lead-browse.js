@@ -1,5 +1,6 @@
-import { getLeads, refreshState, startStatePolling } from "./state-sync.js";
+import { getLeads, getSession, refreshState, startStatePolling } from "./state-sync.js";
 import { trackLeadView } from "./lead-service.js";
+import { raiseLeadClaim } from "./lead-claim-service.js";
 import { openActivityHistory } from "./activity-history.js";
 
 const PAGE_SIZE = 25;
@@ -13,6 +14,14 @@ const modalSubtitle = document.getElementById("leadBrowseDetailsSubtitle");
 const modalBody = document.getElementById("leadBrowseDetailsBody");
 const closeModalButton = document.getElementById("closeLeadBrowseDetailsBtn");
 const activityHistoryButton = document.getElementById("leadBrowseActivityHistoryBtn");
+const claimModal = document.getElementById("leadClaimModal");
+const claimForm = document.getElementById("leadClaimForm");
+const claimLeadTitle = document.getElementById("leadClaimLeadTitle");
+const claimLeadMeta = document.getElementById("leadClaimLeadMeta");
+const claimReasonInput = document.getElementById("leadClaimReason");
+const claimMessage = document.getElementById("leadClaimMessage");
+const cancelClaimButton = document.getElementById("cancelLeadClaimBtn");
+const cancelClaimButtonSecondary = document.getElementById("cancelLeadClaimBtnSecondary");
 
 const filter = {
   category: "workshop",
@@ -24,6 +33,7 @@ const filter = {
 
 let currentPage = 1;
 let latestLeadKey = "";
+let activeClaimLeadKey = "";
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -112,6 +122,23 @@ function getCreatedAt(lead) {
 
 function getAllLeads() {
   return getLeads().filter((lead) => lead && !lead.isDeleted);
+}
+
+function getSessionCounselorName() {
+  const session = getSession();
+  return String(session?.name || "").trim();
+}
+
+function canRaiseClaimForLead(lead) {
+  const session = getSession();
+  if (session?.role !== "counselor") return false;
+
+  const counselorName = getSessionCounselorName().toLowerCase();
+  const leadCounselor = normalize(lead?.counselor || "");
+  return !!counselorName &&
+    !!leadCounselor &&
+    leadCounselor !== "unassigned" &&
+    leadCounselor !== counselorName;
 }
 
 function getCategoryLeads(leads) {
@@ -291,6 +318,9 @@ function renderTable() {
         </thead>
         <tbody>
           ${pageLeads.map((lead) => `
+            ${(() => {
+              const leadKey = escapeHtml(getLeadKey(lead));
+              return `
             <tr>
               <td>
                 <strong>${escapeHtml(lead.name || "Unnamed lead")}</strong>
@@ -304,11 +334,14 @@ function renderTable() {
               <td>${escapeHtml(getCreatedAt(lead))}</td>
               <td>
                 <div class="lead-browse-row-actions">
-                  <button type="button" class="btn-ghost" data-view-lead="${escapeHtml(getLeadKey(lead))}">View</button>
-                  <button type="button" class="btn-ghost" data-history-lead="${escapeHtml(getLeadKey(lead))}">Activity</button>
+                  <button type="button" class="btn-ghost" data-view-lead="${leadKey}">View</button>
+                  <button type="button" class="btn-ghost" data-history-lead="${leadKey}">Activity</button>
+                  ${canRaiseClaimForLead(lead) ? `<button type="button" class="btn-primary" data-claim-lead="${leadKey}">Claim</button>` : ""}
                 </div>
               </td>
             </tr>
+              `;
+            })()}
           `).join("")}
         </tbody>
       </table>
@@ -320,6 +353,9 @@ function renderTable() {
   });
   tableSection.querySelectorAll("[data-history-lead]").forEach((button) => {
     button.addEventListener("click", () => openLeadActivityHistory(button.getAttribute("data-history-lead")));
+  });
+  tableSection.querySelectorAll("[data-claim-lead]").forEach((button) => {
+    button.addEventListener("click", () => openClaimModal(button.getAttribute("data-claim-lead")));
   });
 
   pagination.innerHTML = `
@@ -336,6 +372,34 @@ function renderTable() {
     currentPage = Math.min(totalPages, currentPage + 1);
     render();
   });
+}
+
+function setClaimMessage(text, isError = false) {
+  if (!claimMessage) return;
+  claimMessage.textContent = text || "";
+  claimMessage.style.color = isError ? "var(--danger)" : "var(--success)";
+}
+
+function openClaimModal(leadKey) {
+  const lead = findLeadByKey(leadKey);
+  if (!lead || !claimModal || !claimForm) return;
+
+  activeClaimLeadKey = leadKey;
+  claimLeadTitle.textContent = lead.name || "Unnamed lead";
+  claimLeadMeta.textContent = `Currently assigned to ${lead.counselor || "Unassigned"} | ${getCourseLabel(lead)}`;
+  claimReasonInput.value = "";
+  setClaimMessage("");
+  claimModal.classList.remove("hidden");
+  claimReasonInput.focus();
+}
+
+function closeClaimModal() {
+  activeClaimLeadKey = "";
+  claimModal?.classList.add("hidden");
+  if (claimForm) {
+    claimForm.reset();
+  }
+  setClaimMessage("");
 }
 
 function findLeadByKey(leadKey) {
@@ -417,6 +481,42 @@ activityHistoryButton?.addEventListener("click", () => {
 });
 modal?.addEventListener("click", (event) => {
   if (event.target === modal) closeDetails();
+});
+cancelClaimButton?.addEventListener("click", closeClaimModal);
+cancelClaimButtonSecondary?.addEventListener("click", closeClaimModal);
+claimModal?.addEventListener("click", (event) => {
+  if (event.target === claimModal) closeClaimModal();
+});
+claimForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const lead = findLeadByKey(activeClaimLeadKey);
+  const reason = String(claimReasonInput?.value || "").trim();
+  if (!lead) {
+    setClaimMessage("This lead is no longer available. Please refresh and try again.", true);
+    return;
+  }
+  if (reason.length < 12) {
+    setClaimMessage("Please enter a detailed formal reason for this claim.", true);
+    return;
+  }
+
+  const submitButton = claimForm.querySelector("button[type='submit']");
+  if (submitButton) submitButton.disabled = true;
+  setClaimMessage("Submitting claim request...");
+  const result = await raiseLeadClaim({
+    leadId: lead.id,
+    leadEmail: lead.email || "",
+    reason
+  });
+  if (submitButton) submitButton.disabled = false;
+
+  if (!result.ok) {
+    setClaimMessage(result.message || "Could not submit claim request.", true);
+    return;
+  }
+
+  setClaimMessage("Claim request submitted for approval.");
+  window.setTimeout(closeClaimModal, 700);
 });
 
 await refreshState().catch(() => undefined);

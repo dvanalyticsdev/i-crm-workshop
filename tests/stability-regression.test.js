@@ -382,6 +382,36 @@ test("lead action buttons escape lead ids before binding click handlers", () => 
   assert.match(postWorkshop, /Could not open this lead/);
 });
 
+test("lead claim workflow requires admin and current owner approval before transfer", () => {
+  const server = read("server.js");
+  const leadBrowseHtml = read("lead-browse.html");
+  const leadBrowse = read("lead-browse.js");
+  const claimRaisedHtml = read("claim-raised.html");
+  const claimRaised = read("claim-raised.js");
+  const leadClaimService = read("lead-claim-service.js");
+  const layouts = read("layouts.js");
+
+  assert.match(server, /leadClaimsCollection/);
+  assert.match(server, /app\.post\("\/api\/lead-claims"/);
+  assert.match(server, /app\.get\("\/api\/lead-claims"/);
+  assert.match(server, /app\.patch\("\/api\/lead-claims\/:claimId\/decision"/);
+  assert.match(server, /nextAdminStatus === "approved" && nextOwnerStatus === "approved"/);
+  assert.match(server, /leadsCollection\.updateOne\([\s\S]*counselor: claim\.requesterName/);
+  assert.match(server, /currentLeadOwner\.toLowerCase\(\) !== claim\.currentOwnerName\.toLowerCase\(\)/);
+  assert.match(server, /Only the counselor currently holding the lead can approve this claim/);
+
+  assert.match(leadBrowse, /canRaiseClaimForLead/);
+  assert.match(leadBrowse, /data-claim-lead/);
+  assert.match(leadBrowse, /raiseLeadClaim/);
+  assert.match(leadBrowseHtml, /Formal reason/);
+  assert.match(claimRaisedHtml, /Claim Raised/);
+  assert.match(claimRaised, /decideLeadClaim/);
+  assert.match(claimRaised, /Raised against your lead/);
+  assert.match(leadClaimService, /fetchLeadClaims/);
+  assert.match(leadClaimService, /decideLeadClaim/);
+  assert.match(layouts, /claim-raised\.html/);
+});
+
 test("admin manual backup and restore controls exist on lead control management", () => {
   const leadControlHtml = read("lead-control.html");
   const leadControl = read("lead-control.js");

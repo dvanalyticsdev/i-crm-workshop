@@ -23,6 +23,7 @@ const loadedAssetUrls = new Set(
 const PAGE_PERMISSION_MAP = {
   "dashboard.html": "dashboard",
   "lead-browse.html": "leadBrowse",
+  "claim-raised.html": "claimRaised",
   "pre-workshop.html": "preWorkshop",
   "post-workshop.html": "postWorkshop",
   "task-tracker.html": "taskTracker",
@@ -33,6 +34,7 @@ const PAGE_PERMISSION_MAP = {
 const DEFAULT_PERMISSIONS = {
   dashboard: false,
   leadBrowse: true,
+  claimRaised: true,
   preWorkshop: true,
   postWorkshop: true,
   taskTracker: true,
@@ -71,12 +73,13 @@ function rebuildSidebarSections() {
       .filter(([href]) => href)
   );
 
-  const generalRoutes = ["dashboard.html", "lead-browse.html", "lost-leads.html", "monitoring.html", "task-tracker.html"];
+  const generalRoutes = ["dashboard.html", "lead-browse.html", "claim-raised.html", "lost-leads.html", "monitoring.html", "task-tracker.html"];
   const adminRoutes = ["counselor-management.html", "lead-control.html"];
 
   const routeLabels = {
     "dashboard.html": "Dashboard",
     "lead-browse.html": "Lead Browse",
+    "claim-raised.html": "Claim Raised",
     "pre-workshop.html": "Workshop",
     "registered-candidates.html": "Admission",
     "task-tracker.html": "Task Tracker",
@@ -117,7 +120,7 @@ function rebuildSidebarSections() {
   navContainer.innerHTML = "";
   bottomLinkContainer.innerHTML = "";
 
-  const primaryRoutes = ["dashboard.html", "lead-browse.html"];
+  const primaryRoutes = ["dashboard.html", "lead-browse.html", "claim-raised.html"];
   const remainingRoutes = generalRoutes.filter((route) => !primaryRoutes.includes(route));
 
   primaryRoutes.forEach((route) => {

@@ -192,6 +192,7 @@ let tasksCollection;
 let allocationCollection;
 let notificationsCollection;
 let activityLogsCollection;
+let leadClaimsCollection;
 
 function logNotificationDebug(message, extra) {
   const payload = extra === undefined ? "" : ` ${JSON.stringify(extra)}`;
@@ -252,6 +253,7 @@ async function resetMongoConnection() {
   allocationCollection = null;
   notificationsCollection = null;
   activityLogsCollection = null;
+  leadClaimsCollection = null;
 }
 
 async function withMongoRetry(operation, { retries = 1, label = "MongoDB operation" } = {}) {
@@ -620,6 +622,7 @@ async function initMongo() {
         allocationCollection = db.collection("allocation");
         notificationsCollection = db.collection("notifications");
         activityLogsCollection  = db.collection("activity_logs");
+        leadClaimsCollection    = db.collection("lead_claims");
 
         // Ensure indexes for activity_logs
         await activityLogsCollection.createIndex({ leadId: 1, timestamp: -1 }, { background: true }).catch(() => undefined);
@@ -627,6 +630,10 @@ async function initMongo() {
         await activityLogsCollection.createIndex({ activityType: 1, timestamp: -1 }, { background: true }).catch(() => undefined);
         await activityLogsCollection.createIndex({ performedBy: 1, timestamp: -1 }, { background: true }).catch(() => undefined);
         await activityLogsCollection.createIndex({ timestamp: -1 }, { background: true }).catch(() => undefined);
+        await leadClaimsCollection.createIndex({ id: 1 }, { unique: true, background: true }).catch(() => undefined);
+        await leadClaimsCollection.createIndex({ status: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
+        await leadClaimsCollection.createIndex({ requesterEmail: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
+        await leadClaimsCollection.createIndex({ currentOwnerEmail: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
 
         // Ensure indexes
         await sessionCollection.createIndex(
@@ -775,6 +782,7 @@ async function initMongo() {
         allocationCollection = new MockCollection("allocation");
         notificationsCollection = new MockCollection("notifications");
         activityLogsCollection  = new MockCollection("activityLogs");
+        leadClaimsCollection    = new MockCollection("leadClaims");
         
         // Sync lead sequence for mock db too
         await syncLeadSequence().catch(() => undefined);
@@ -5246,6 +5254,75 @@ function findCounselorByName(state, counselorName) {
   return counselors.find((item) => String(item?.name || "").trim().toLowerCase() === target) || null;
 }
 
+function getCounselorEmailByName(state, counselorName) {
+  const counselor = findCounselorByName(state, counselorName);
+  return String(counselor?.email || "").trim().toLowerCase();
+}
+
+function normalizeClaimDecision(value) {
+  const decision = String(value || "").trim().toLowerCase();
+  if (decision === "approve" || decision === "approved") return "approved";
+  if (decision === "reject" || decision === "rejected") return "rejected";
+  return "";
+}
+
+function normalizeLeadClaimDoc(claim = {}) {
+  return {
+    id: String(claim.id || "").trim(),
+    status: String(claim.status || "pending").trim().toLowerCase() || "pending",
+    adminStatus: String(claim.adminStatus || "pending").trim().toLowerCase() || "pending",
+    ownerStatus: String(claim.ownerStatus || "pending").trim().toLowerCase() || "pending",
+    leadId: String(claim.leadId || "").trim(),
+    leadName: String(claim.leadName || "").trim(),
+    leadEmail: String(claim.leadEmail || "").trim().toLowerCase(),
+    leadPhone: String(claim.leadPhone || "").trim(),
+    leadWorkshop: String(claim.leadWorkshop || "").trim(),
+    leadCreatedAt: String(claim.leadCreatedAt || "").trim(),
+    currentOwnerName: String(claim.currentOwnerName || "").trim(),
+    currentOwnerEmail: String(claim.currentOwnerEmail || "").trim().toLowerCase(),
+    requesterName: String(claim.requesterName || "").trim(),
+    requesterEmail: String(claim.requesterEmail || "").trim().toLowerCase(),
+    reason: String(claim.reason || "").trim(),
+    createdAt: claim.createdAt || new Date().toISOString(),
+    updatedAt: claim.updatedAt || claim.createdAt || new Date().toISOString(),
+    adminDecidedAt: claim.adminDecidedAt || null,
+    adminDecidedBy: claim.adminDecidedBy || null,
+    ownerDecidedAt: claim.ownerDecidedAt || null,
+    ownerDecidedBy: claim.ownerDecidedBy || null,
+    completedAt: claim.completedAt || null,
+    rejectedAt: claim.rejectedAt || null,
+    rejectionReason: claim.rejectionReason || null
+  };
+}
+
+function serializeLeadClaim(claim = {}) {
+  const normalized = normalizeLeadClaimDoc(claim);
+  delete normalized._id;
+  return normalized;
+}
+
+function isClaimVisibleToSession(claim, session) {
+  if (session?.role === "admin") return true;
+  if (session?.role !== "counselor") return false;
+
+  const email = String(session?.email || "").trim().toLowerCase();
+  const name = String(session?.name || "").trim().toLowerCase();
+  return email && (
+    String(claim.requesterEmail || "").trim().toLowerCase() === email ||
+    String(claim.currentOwnerEmail || "").trim().toLowerCase() === email
+  ) || name && String(claim.currentOwnerName || "").trim().toLowerCase() === name;
+}
+
+async function touchStateUpdatedAt(now = new Date().toISOString()) {
+  await stateCollection.updateOne(
+    { _id: STATE_DOC_ID },
+    { $set: { updatedAt: now } },
+    { upsert: true }
+  );
+  cachedStateDoc = null;
+  cachedStateDocAt = 0;
+}
+
 function isCounselorLeadViewNotificationEligible(session) {
   const role = String(session?.role || "").trim().toLowerCase();
   return role === "counselor";
@@ -5886,6 +5963,300 @@ async function assignLeadsHandler(req, res) {
 
 app.patch("/api/leads/assignment", assignLeadsHandler);
 app.post("/api/leads/assignment", assignLeadsHandler);
+
+app.get("/api/lead-claims", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "counselor"]);
+    if (!session) return;
+
+    const claims = await leadClaimsCollection.find({}).sort({ createdAt: -1 }).toArray();
+    const visibleClaims = (Array.isArray(claims) ? claims : [])
+      .map(serializeLeadClaim)
+      .filter((claim) => isClaimVisibleToSession(claim, session))
+      .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+
+    return res.json({ ok: true, claims: visibleClaims });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch lead claims", details: error.message });
+  }
+});
+
+app.post("/api/lead-claims", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, "counselor");
+    if (!session) return;
+
+    const leadId = String(req.body?.leadId || "").trim();
+    const leadEmail = String(req.body?.leadEmail || "").trim().toLowerCase();
+    const reason = String(req.body?.reason || "").trim();
+
+    if (!leadId || !reason) {
+      return res.status(400).json({ message: "Lead and formal claim reason are required." });
+    }
+    if (reason.length < 12) {
+      return res.status(400).json({ message: "Please enter a more detailed formal reason for this claim." });
+    }
+
+    const state = await getStateDoc();
+    const lead = findLeadByIdentity(state, leadId, leadEmail);
+    if (!lead) {
+      return res.status(404).json({ message: "Lead not found." });
+    }
+
+    const requesterName = getSessionCounselorName(state, session);
+    const requesterEmail = String(session.email || "").trim().toLowerCase();
+    const currentOwnerName = String(lead.counselor || "").trim();
+    const currentOwnerEmail = getCounselorEmailByName(state, currentOwnerName);
+
+    if (!requesterName || !requesterEmail) {
+      return res.status(403).json({ message: "Counselor account details are required to raise a claim." });
+    }
+    if (!currentOwnerName || currentOwnerName.toLowerCase() === "unassigned") {
+      return res.status(400).json({ message: "Claims can only be raised for leads assigned to another counselor." });
+    }
+    if (currentOwnerName.toLowerCase() === requesterName.toLowerCase() || currentOwnerEmail === requesterEmail) {
+      return res.status(400).json({ message: "You already hold this lead." });
+    }
+
+    const existingClaims = await leadClaimsCollection.find({}).toArray();
+    const duplicateClaim = (Array.isArray(existingClaims) ? existingClaims : []).find((claim) => {
+      const normalized = normalizeLeadClaimDoc(claim);
+      return normalized.status === "pending" &&
+        normalized.leadId === String(lead.id || "").trim() &&
+        normalized.requesterEmail === requesterEmail;
+    });
+
+    if (duplicateClaim) {
+      return res.status(409).json({ message: "You already have a pending claim for this lead." });
+    }
+
+    const now = new Date().toISOString();
+    const claim = normalizeLeadClaimDoc({
+      id: `claim-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`,
+      leadId: lead.id,
+      leadName: lead.name || "",
+      leadEmail: lead.email || "",
+      leadPhone: lead.phone || "",
+      leadWorkshop: lead.workshop || lead.courseName || lead.coursePitched || "",
+      leadCreatedAt: lead.createdAt || "",
+      currentOwnerName,
+      currentOwnerEmail,
+      requesterName,
+      requesterEmail,
+      reason,
+      createdAt: now,
+      updatedAt: now
+    });
+
+    await leadClaimsCollection.insertOne(claim);
+
+    await createNotification({
+      userId: "admin",
+      role: "admin",
+      type: "lead_claim_raised",
+      title: "Lead Claim Raised",
+      message: `${requesterName} requested ${formatLeadNotificationLabel(lead)} from ${currentOwnerName}.`,
+      sound: true,
+      leadId: lead.id,
+      leadName: lead.name,
+      fromCounselor: currentOwnerName,
+      toCounselor: requesterName
+    });
+
+    if (currentOwnerEmail) {
+      await createNotification({
+        userId: currentOwnerEmail,
+        role: "counselor",
+        type: "lead_claim_against",
+        title: "Lead Claim Approval Needed",
+        message: `${requesterName} has raised a claim for your lead ${formatLeadNotificationLabel(lead)}.`,
+        sound: true,
+        leadId: lead.id,
+        leadName: lead.name,
+        fromCounselor: currentOwnerName,
+        toCounselor: requesterName
+      });
+    }
+
+    await recordActivity({
+      leadId: lead.id,
+      leadName: lead.name,
+      counselorName: currentOwnerName,
+      activityType: "Lead Claim Raised",
+      actionDescription: `${requesterName} raised a claim request for this lead`,
+      newValue: reason,
+      session
+    });
+
+    return res.status(201).json({ ok: true, claim: serializeLeadClaim(claim) });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to raise lead claim", details: error.message });
+  }
+});
+
+app.patch("/api/lead-claims/:claimId/decision", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "counselor"]);
+    if (!session) return;
+
+    const claimId = String(req.params.claimId || "").trim();
+    const decision = normalizeClaimDecision(req.body?.decision);
+    const note = String(req.body?.note || "").trim();
+
+    if (!claimId || !decision) {
+      return res.status(400).json({ message: "Claim and decision are required." });
+    }
+
+    const existingClaim = await leadClaimsCollection.findOne({ id: claimId });
+    if (!existingClaim) {
+      return res.status(404).json({ message: "Claim request not found." });
+    }
+
+    const state = await getStateDoc();
+    const claim = normalizeLeadClaimDoc(existingClaim);
+    if (claim.status !== "pending") {
+      return res.status(409).json({ message: "This claim request has already been closed." });
+    }
+
+    const now = new Date().toISOString();
+    const updates = { updatedAt: now };
+    const actorLabel = session.name || session.email || session.role;
+
+    if (session.role === "admin") {
+      updates.adminStatus = decision;
+      updates.adminDecidedAt = now;
+      updates.adminDecidedBy = actorLabel;
+    } else {
+      const ownerEmail = String(claim.currentOwnerEmail || "").trim().toLowerCase();
+      const sessionEmail = String(session.email || "").trim().toLowerCase();
+      const ownerName = String(claim.currentOwnerName || "").trim().toLowerCase();
+      const sessionCounselorName = getSessionCounselorName(state, session).toLowerCase();
+      if (
+        (!ownerEmail || ownerEmail !== sessionEmail) &&
+        (!ownerName || ownerName !== sessionCounselorName)
+      ) {
+        return res.status(403).json({ message: "Only the counselor currently holding the lead can approve this claim." });
+      }
+      updates.ownerStatus = decision;
+      updates.ownerDecidedAt = now;
+      updates.ownerDecidedBy = actorLabel;
+    }
+
+    if (decision === "rejected") {
+      updates.status = "rejected";
+      updates.rejectedAt = now;
+      updates.rejectionReason = note || null;
+    }
+
+    const nextAdminStatus = updates.adminStatus || claim.adminStatus;
+    const nextOwnerStatus = updates.ownerStatus || claim.ownerStatus;
+    const shouldTransfer = decision === "approved" && nextAdminStatus === "approved" && nextOwnerStatus === "approved";
+    let transferredLead = null;
+
+    if (shouldTransfer) {
+      const lead = findLeadByIdentity(state, claim.leadId, claim.leadEmail);
+      if (!lead) {
+        return res.status(404).json({ message: "The claimed lead no longer exists." });
+      }
+
+      const currentLeadOwner = String(lead.counselor || "").trim();
+      if (currentLeadOwner.toLowerCase() !== claim.currentOwnerName.toLowerCase()) {
+        updates.status = "rejected";
+        updates.rejectedAt = now;
+        updates.rejectionReason = "Lead owner changed before both approvals were completed.";
+      } else {
+        const result = await leadsCollection.updateOne(
+          { id: { $in: getLeadIdCandidates(claim.leadId) }, counselor: currentLeadOwner },
+          { $set: { counselor: claim.requesterName } }
+        );
+
+        if (!result.modifiedCount && !result.matchedCount) {
+          return res.status(409).json({ message: "Lead changed before the claim could be completed. Please reload and retry." });
+        }
+
+        updates.status = "approved";
+        updates.completedAt = now;
+        transferredLead = lead;
+        await touchStateUpdatedAt(now);
+
+        await recordActivity({
+          leadId: lead.id,
+          leadName: lead.name,
+          counselorName: claim.requesterName,
+          activityType: "Lead Claim Approved",
+          actionDescription: `Lead reassigned from ${claim.currentOwnerName} to ${claim.requesterName} after admin and owner approval`,
+          previousValue: claim.currentOwnerName,
+          newValue: claim.requesterName,
+          remarks: claim.reason,
+          session
+        });
+      }
+    }
+
+    await leadClaimsCollection.updateOne(
+      { id: claimId },
+      { $set: updates }
+    );
+
+    const nextClaim = serializeLeadClaim({
+      ...claim,
+      ...updates
+    });
+
+    if (decision === "rejected") {
+      await createNotification({
+        userId: claim.requesterEmail,
+        role: "counselor",
+        type: "lead_claim_rejected",
+        title: "Lead Claim Rejected",
+        message: `Your claim for ${claim.leadName || "a lead"} was rejected.`,
+        sound: true,
+        leadId: claim.leadId,
+        leadName: claim.leadName,
+        fromCounselor: claim.currentOwnerName,
+        toCounselor: claim.requesterName
+      });
+    } else if (nextClaim.status === "approved") {
+      await Promise.all([
+        createNotification({
+          userId: claim.requesterEmail,
+          role: "counselor",
+          type: "lead_claim_approved",
+          title: "Lead Claim Approved",
+          message: `${claim.leadName || "Lead"} has been transferred to you.`,
+          sound: true,
+          leadId: claim.leadId,
+          leadName: claim.leadName,
+          fromCounselor: claim.currentOwnerName,
+          toCounselor: claim.requesterName
+        }),
+        claim.currentOwnerEmail ? createNotification({
+          userId: claim.currentOwnerEmail,
+          role: "counselor",
+          type: "lead_claim_completed",
+          title: "Lead Claim Completed",
+          message: `${claim.leadName || "Lead"} has been transferred to ${claim.requesterName}.`,
+          sound: true,
+          leadId: claim.leadId,
+          leadName: claim.leadName,
+          fromCounselor: claim.currentOwnerName,
+          toCounselor: claim.requesterName
+        }) : Promise.resolve()
+      ]);
+    }
+
+    const response = { ok: true, claim: nextClaim };
+    if (transferredLead || nextClaim.status === "approved") {
+      const nextState = await refreshStateAfterAtomicUpdate();
+      res.setHeader("ETag", buildStateEtag(nextState));
+      response.state = buildStateResponse(nextState);
+    }
+
+    return res.json(response);
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to update lead claim", details: error.message });
+  }
+});
 
 app.post("/api/tasks", async (req, res) => {
   try {
