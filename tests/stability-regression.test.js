@@ -778,6 +778,7 @@ test("ReachOut is simplified to synced WhatsApp number and template sending", ()
   assert.match(reachoutHtml, /saveMediaUrlBtn/);
   assert.match(reachoutHtml, /mediaFileInput/);
   assert.match(reachoutHtml, /uploadMediaBtn/);
+  assert.match(reachoutHtml, /reachout-media-control/);
   assert.doesNotMatch(reachoutHtml, /Add Template|SMS, WhatsApp, and email|MSG91 Template ID|From Email|Email Domain/);
   assert.match(reachout, /syncWhatsapp/);
   assert.match(reachout, /integratedNumber,\s*templateId,\s*leadIds/);

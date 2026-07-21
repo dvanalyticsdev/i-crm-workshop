@@ -87,15 +87,17 @@
               <label for="templateVariablePreview">Variables</label>
               <input id="templateVariablePreview" type="text" readonly />
             </div>
-            <div id="mediaUrlField" class="filter-item" hidden>
+            <div id="mediaUrlField" class="filter-item reachout-media-field" hidden>
               <label for="mediaUrlInput">Header Media URL</label>
-              <div class="input-btn-row">
-                <input id="mediaUrlInput" type="url" placeholder="https://..." />
-                <button id="saveMediaUrlBtn" type="button" class="btn-secondary">Save</button>
-              </div>
-              <div class="input-btn-row">
-                <input id="mediaFileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-                <button id="uploadMediaBtn" type="button" class="btn-secondary">Upload</button>
+              <div class="reachout-media-control">
+                <div class="reachout-media-control__row">
+                  <input id="mediaUrlInput" type="url" placeholder="https://..." />
+                  <button id="saveMediaUrlBtn" type="button" class="btn-secondary">Save URL</button>
+                </div>
+                <div class="reachout-media-control__row">
+                  <input id="mediaFileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+                  <button id="uploadMediaBtn" type="button" class="btn-secondary">Upload Image</button>
+                </div>
               </div>
             </div>
           </div>

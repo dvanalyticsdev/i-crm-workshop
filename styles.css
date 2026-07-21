@@ -3343,6 +3343,52 @@ html[data-theme="dark"] .bell-badge {
   font-size: 0.82rem;
 }
 
+.reachout-media-field {
+  grid-column: 1 / -1;
+  justify-items: stretch;
+  text-align: left;
+}
+
+.reachout-media-control {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+
+.reachout-media-control__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px;
+  gap: 8px;
+  align-items: center;
+}
+
+.reachout-media-control__row input {
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+}
+
+.reachout-media-control__row input[type="file"] {
+  padding: 8px 10px;
+  line-height: 1.4;
+}
+
+.reachout-media-control__row button {
+  width: 132px;
+  min-height: 42px;
+  padding: 9px 12px;
+}
+
+@media (max-width: 720px) {
+  .reachout-media-control__row {
+    grid-template-columns: 1fr;
+  }
+
+  .reachout-media-control__row button {
+    width: 100%;
+  }
+}
+
 /* Form IDs */
 .form-ids-list {
   display: flex;
