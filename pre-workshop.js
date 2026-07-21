@@ -319,6 +319,10 @@ function getScopedLeads(allLeads) {
 }
 
 function getLeadActivityUpdateCount(lead) {
+  if (typeof lead?.workshopActivityTouchedByAssignee === "boolean") {
+    return lead.workshopActivityTouchedByAssignee ? 1 : 0;
+  }
+
   return Array.isArray(lead?.workshopActivityHistory)
     ? lead.workshopActivityHistory.length
     : Number(lead?.preActivityUpdates) || 0;
@@ -381,7 +385,6 @@ const EMPTY_FILTER_VALUE = "__EMPTY_FILTER__";
 const EMPTY_FILTER_LABEL = "Use Filter";
 const SELECT_ALL_FILTER_VALUE = "__SELECT_ALL__";
 const BLANK_FILTER_VALUE = "__BLANK_FILTER__";
-const WORKSHOP_REFERENCE_DATE = new Date(2026, 6, 17);
 const WORKSHOP_RECENT_DAYS = 30;
 const WORKSHOP_MONTH_LOOKUP = {
   jan: 0,
@@ -409,6 +412,21 @@ const WORKSHOP_MONTH_LOOKUP = {
   dec: 11,
   december: 11
 };
+
+function getWorkshopReferenceDate() {
+  const referenceDate = new Date();
+  referenceDate.setHours(0, 0, 0, 0);
+  return referenceDate;
+}
+
+function formatWorkshopReferenceDate() {
+  return getWorkshopReferenceDate().toLocaleDateString("en-IN", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric"
+  });
+}
 
 function getSelectedFilterValues(value) {
   const rawValues = Array.isArray(value) ? value : [value];
@@ -475,7 +493,7 @@ function extractWorkshopDate(workshopName) {
     return null;
   }
 
-  return new Date(WORKSHOP_REFERENCE_DATE.getFullYear(), monthIndex, day);
+  return new Date(getWorkshopReferenceDate().getFullYear(), monthIndex, day);
 }
 
 function formatWorkshopDate(workshopDate) {
@@ -529,10 +547,11 @@ function getWorkshopDateBucket(workshopDate) {
     return "recent";
   }
 
-  const recentCutoff = new Date(WORKSHOP_REFERENCE_DATE);
+  const referenceDate = getWorkshopReferenceDate();
+  const recentCutoff = new Date(referenceDate);
   recentCutoff.setDate(recentCutoff.getDate() - WORKSHOP_RECENT_DAYS);
 
-  if (workshopDate > WORKSHOP_REFERENCE_DATE) {
+  if (workshopDate > referenceDate) {
     return "upcoming";
   }
   if (workshopDate >= recentCutoff) {
@@ -974,6 +993,12 @@ function normalizeLeadFields(leads) {
       || (Number.isFinite(Number(lead.preActivityUpdates)) ? Number(lead.preActivityUpdates) : 0);
     lead.postActivityUpdates = lead.admissionActivityHistory.length
       || (Number.isFinite(Number(lead.postActivityUpdates)) ? Number(lead.postActivityUpdates) : 0);
+    lead.workshopActivityTouchedByAssignee = typeof lead.workshopActivityTouchedByAssignee === "boolean"
+      ? lead.workshopActivityTouchedByAssignee
+      : lead.preActivityUpdates > 0;
+    lead.admissionActivityTouchedByAssignee = typeof lead.admissionActivityTouchedByAssignee === "boolean"
+      ? lead.admissionActivityTouchedByAssignee
+      : lead.postActivityUpdates > 0;
     lead.whatsappGroupStatus = lead.whatsappGroupStatus || "";
     lead.leadNotes = Array.isArray(lead.leadNotes) ? lead.leadNotes : [];
   });
@@ -1367,7 +1392,7 @@ function renderKpis(leads) {
       <div class="workshop-date-section__head">
         <div>
           <h3>Upcoming Workshops</h3>
-          <p>Workshops after Friday, July 17, 2026 are surfaced first for faster follow-up.</p>
+          <p>Workshops after ${escapeHtml(formatWorkshopReferenceDate())} are surfaced first for faster follow-up.</p>
         </div>
       </div>
       <div class="workshop-date-section__grid">
@@ -1634,7 +1659,7 @@ function exportFilteredLeads() {
 }
 
 function renderActivityStatusPanel(lead) {
-  const hasActivity = Array.isArray(lead.workshopActivityHistory) && lead.workshopActivityHistory.length > 0;
+  const hasActivity = !isUntouchedLead(lead);
   const noteCount = Array.isArray(lead.leadNotes) ? lead.leadNotes.length : 0;
   const leadId = escapeHtml(lead.id);
   const leadEmail = escapeHtml(lead.email || "");

@@ -78,12 +78,16 @@ function getLeadImportSourceFiles(lead) {
 }
 
 function getLeadActivityUpdateCount(lead) {
-  const workshopUpdates = Array.isArray(lead?.workshopActivityHistory)
-    ? lead.workshopActivityHistory.length
-    : Number(lead?.preActivityUpdates) || 0;
-  const admissionUpdates = Array.isArray(lead?.admissionActivityHistory)
-    ? lead.admissionActivityHistory.length
-    : Number(lead?.postActivityUpdates) || 0;
+  const workshopUpdates = typeof lead?.workshopActivityTouchedByAssignee === "boolean"
+    ? (lead.workshopActivityTouchedByAssignee ? 1 : 0)
+    : Array.isArray(lead?.workshopActivityHistory)
+      ? lead.workshopActivityHistory.length
+      : Number(lead?.preActivityUpdates) || 0;
+  const admissionUpdates = typeof lead?.admissionActivityTouchedByAssignee === "boolean"
+    ? (lead.admissionActivityTouchedByAssignee ? 1 : 0)
+    : Array.isArray(lead?.admissionActivityHistory)
+      ? lead.admissionActivityHistory.length
+      : Number(lead?.postActivityUpdates) || 0;
 
   return workshopUpdates + admissionUpdates;
 }
@@ -173,6 +177,12 @@ function normalizeLeadFields(leads) {
       || (Number.isFinite(Number(lead.preActivityUpdates)) ? Number(lead.preActivityUpdates) : 0);
     lead.postActivityUpdates = lead.admissionActivityHistory.length
       || (Number.isFinite(Number(lead.postActivityUpdates)) ? Number(lead.postActivityUpdates) : 0);
+    lead.workshopActivityTouchedByAssignee = typeof lead.workshopActivityTouchedByAssignee === "boolean"
+      ? lead.workshopActivityTouchedByAssignee
+      : lead.preActivityUpdates > 0;
+    lead.admissionActivityTouchedByAssignee = typeof lead.admissionActivityTouchedByAssignee === "boolean"
+      ? lead.admissionActivityTouchedByAssignee
+      : lead.postActivityUpdates > 0;
     lead.whatsappGroupStatus = lead.whatsappGroupStatus || "";
     lead.leadNotes = Array.isArray(lead.leadNotes) ? lead.leadNotes : [];
   });
@@ -521,6 +531,12 @@ function mergeImportedLead(existingLead, importedLead) {
     admissionActivityHistory: preservedAdmissionHistory,
     preActivityUpdates: preservedWorkshopHistory.length,
     postActivityUpdates: preservedAdmissionHistory.length,
+    workshopActivityTouchedByAssignee: typeof existingLead.workshopActivityTouchedByAssignee === "boolean"
+      ? existingLead.workshopActivityTouchedByAssignee
+      : preservedWorkshopHistory.length > 0,
+    admissionActivityTouchedByAssignee: typeof existingLead.admissionActivityTouchedByAssignee === "boolean"
+      ? existingLead.admissionActivityTouchedByAssignee
+      : preservedAdmissionHistory.length > 0,
     postStatusUpdated: typeof existingLead.postStatusUpdated === "boolean" ? existingLead.postStatusUpdated : false
   };
 }
@@ -565,6 +581,8 @@ function buildLeadFromImportRow(row, id, workshopName, sourceFileName) {
     postActivityUpdates: 0,
     workshopActivityHistory: [],
     admissionActivityHistory: [],
+    workshopActivityTouchedByAssignee: false,
+    admissionActivityTouchedByAssignee: false,
     whatsappGroupStatus: "",
     leadNotes: [],
     importSourceFiles: [String(sourceFileName || "").trim()].filter(Boolean),

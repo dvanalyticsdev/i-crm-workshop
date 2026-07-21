@@ -368,10 +368,34 @@ test("workshop updated filter stays scoped to workshop activity", () => {
   const preWorkshop = getNamedFunctionSource(read("pre-workshop.js"), "getLeadActivityUpdateCount");
 
   assert.match(preWorkshop, /function getLeadActivityUpdateCount\(lead\)/);
+  assert.match(preWorkshop, /workshopActivityTouchedByAssignee/);
   assert.match(preWorkshop, /workshopActivityHistory/);
   assert.match(preWorkshop, /preActivityUpdates/);
   assert.doesNotMatch(preWorkshop, /admissionActivityHistory/);
   assert.doesNotMatch(preWorkshop, /postActivityUpdates/);
+});
+
+test("lead transfers reset updated state for the new assignee", () => {
+  const server = read("server.js");
+  const preWorkshop = read("pre-workshop.js");
+  const postWorkshop = read("post-workshop.js");
+  const leadControl = read("lead-control.js");
+
+  assert.match(server, /function getLeadAssignmentResetPatch\(counselor, assignedAt\)/);
+  assert.match(server, /workshopActivityTouchedByAssignee: false/);
+  assert.match(server, /admissionActivityTouchedByAssignee: false/);
+  assert.match(server, /getLeadAssignmentResetPatch\(counselor, now\)/);
+  assert.match(server, /getLeadAssignmentResetPatch\(claim\.requesterName, now\)/);
+  assert.match(server, /function getLeadActivityAssigneePatch\(stage, session\)/);
+  assert.match(server, /workshopActivityTouchedByAssignee: true/);
+  assert.match(server, /admissionActivityTouchedByAssignee: true/);
+
+  assert.match(preWorkshop, /workshopActivityTouchedByAssignee/);
+  assert.match(preWorkshop, /const hasActivity = !isUntouchedLead\(lead\)/);
+  assert.match(postWorkshop, /admissionActivityTouchedByAssignee/);
+  assert.match(postWorkshop, /const hasActivity = !isUntouchedLead\(lead\)/);
+  assert.match(leadControl, /workshopActivityTouchedByAssignee/);
+  assert.match(leadControl, /admissionActivityTouchedByAssignee/);
 });
 
 test("lead action buttons escape lead ids before binding click handlers", () => {
@@ -405,7 +429,7 @@ test("lead claim workflow requires admin and current owner approval before trans
   assert.match(server, /app\.delete\("\/api\/lead-claims"/);
   assert.match(server, /app\.patch\("\/api\/lead-claims\/:claimId\/decision"/);
   assert.match(server, /nextAdminStatus === "approved" && nextOwnerStatus === "approved"/);
-  assert.match(server, /leadsCollection\.updateOne\([\s\S]*counselor: claim\.requesterName/);
+  assert.match(server, /leadsCollection\.updateOne\([\s\S]*getLeadAssignmentResetPatch\(claim\.requesterName, now\)/);
   assert.match(server, /currentLeadOwner\.toLowerCase\(\) !== claim\.currentOwnerName\.toLowerCase\(\)/);
   assert.match(server, /Only the counselor currently holding the lead can approve this claim/);
 

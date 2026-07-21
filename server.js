@@ -5225,6 +5225,29 @@ function canViewLeadActivity(session, state, lead) {
   return false;
 }
 
+function getLeadAssignmentResetPatch(counselor, assignedAt) {
+  return {
+    counselor,
+    counselorAssignedAt: assignedAt,
+    workshopActivityTouchedByAssignee: false,
+    admissionActivityTouchedByAssignee: false
+  };
+}
+
+function getLeadActivityAssigneePatch(stage, session) {
+  if (session?.role !== "counselor") {
+    return {};
+  }
+
+  if (stage === "workshop") {
+    return { workshopActivityTouchedByAssignee: true };
+  }
+  if (stage === "admission") {
+    return { admissionActivityTouchedByAssignee: true };
+  }
+  return {};
+}
+
 async function recordActivity({
   leadId,
   leadName,
@@ -6039,6 +6062,7 @@ app.post("/api/leads/:leadId/activity", async (req, res) => {
     const update = {
       $set: {
         ...patch,
+        ...getLeadActivityAssigneePatch(stage, session),
         [config.countField]: nextCount
       },
       $push: {
@@ -6344,13 +6368,28 @@ async function assignLeadsHandler(req, res) {
       return res.status(404).json({ message: "No matching leads were assigned." });
     }
 
+    const assignmentChangedLeadIds = leadsToUpdate
+      .filter((lead) => String(lead.counselor || "").trim().toLowerCase() !== counselor.toLowerCase())
+      .map((lead) => lead.id)
+      .filter((id) => id !== undefined && id !== null);
+    const now = new Date().toISOString();
     const result = await leadsCollection.updateMany(
       updateQuery,
       { $set: { counselor } }
     );
 
-    if (!result.matchedCount) {
+    const matchedCount = Number.isFinite(Number(result.matchedCount))
+      ? Number(result.matchedCount)
+      : Number(result.modifiedCount) || 0;
+    if (!matchedCount) {
       return res.status(409).json({ message: "Leads changed before they could be assigned. Please reload and retry." });
+    }
+
+    if (assignmentChangedLeadIds.length) {
+      await leadsCollection.updateMany(
+        { id: { $in: assignmentChangedLeadIds } },
+        { $set: getLeadAssignmentResetPatch(counselor, now) }
+      );
     }
 
     // Trigger notifications for reassigned leads
@@ -6418,7 +6457,6 @@ async function assignLeadsHandler(req, res) {
       }
     }
 
-    const now = new Date().toISOString();
     await stateCollection.updateOne(
       { _id: STATE_DOC_ID },
       { $set: { updatedAt: now } },
@@ -6651,7 +6689,7 @@ app.patch("/api/lead-claims/:claimId/decision", async (req, res) => {
       } else {
         const result = await leadsCollection.updateOne(
           { id: { $in: getLeadIdCandidates(claim.leadId) }, counselor: currentLeadOwner },
-          { $set: { counselor: claim.requesterName } }
+          { $set: getLeadAssignmentResetPatch(claim.requesterName, now) }
         );
 
         if (!result.modifiedCount && !result.matchedCount) {

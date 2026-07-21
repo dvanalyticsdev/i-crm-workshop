@@ -545,6 +545,10 @@ function getScopedLeads(allLeads) {
 }
 
 function getLeadActivityUpdateCount(lead) {
+  if (typeof lead?.admissionActivityTouchedByAssignee === "boolean") {
+    return lead.admissionActivityTouchedByAssignee ? 1 : 0;
+  }
+
   return Array.isArray(lead?.admissionActivityHistory)
     ? lead.admissionActivityHistory.length
     : Number(lead?.postActivityUpdates) || 0;
@@ -577,6 +581,12 @@ function normalizeLeadFields(leads) {
       || (Number.isFinite(Number(lead.preActivityUpdates)) ? Number(lead.preActivityUpdates) : 0);
     lead.postActivityUpdates = lead.admissionActivityHistory.length
       || (Number.isFinite(Number(lead.postActivityUpdates)) ? Number(lead.postActivityUpdates) : 0);
+    lead.workshopActivityTouchedByAssignee = typeof lead.workshopActivityTouchedByAssignee === "boolean"
+      ? lead.workshopActivityTouchedByAssignee
+      : lead.preActivityUpdates > 0;
+    lead.admissionActivityTouchedByAssignee = typeof lead.admissionActivityTouchedByAssignee === "boolean"
+      ? lead.admissionActivityTouchedByAssignee
+      : lead.postActivityUpdates > 0;
     lead.whatsappGroupStatus = lead.whatsappGroupStatus || "";
     lead.leadNotes = Array.isArray(lead.leadNotes) ? lead.leadNotes : [];
   });
@@ -1097,7 +1107,7 @@ function filterLeads(leads) {
 }
 
 function renderActivityPanel(lead) {
-  const hasActivity = Array.isArray(lead.admissionActivityHistory) && lead.admissionActivityHistory.length > 0;
+  const hasActivity = !isUntouchedLead(lead);
   const noteCount = Array.isArray(lead.leadNotes) ? lead.leadNotes.length : 0;
   const leadId = escapeHtml(lead.id);
   const leadEmail = escapeHtml(lead.email || "");
