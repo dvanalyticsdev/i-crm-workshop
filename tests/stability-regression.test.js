@@ -794,3 +794,25 @@ test("ReachOut labels MSG91 accepted WhatsApp API calls as submitted, not delive
   assert.match(reachout, /Submitted \$\{submitted\} of \$\{json\.attempted \|\| 0\} to MSG91/);
   assert.match(reachout, /log\.type === "error" \? "Failed" : "Submitted"/);
 });
+
+test("ReachOut WhatsApp payload uses MSG91 component value shape for media and URL buttons", () => {
+  const server = read("server.js");
+
+  assert.match(server, /messaging_product: "whatsapp"/);
+  assert.match(server, /\.\.\.\(template\.namespace \? \{ namespace: template\.namespace \} : \{\}\)/);
+  assert.match(server, /components\[componentKey\] = \{ type: "image", value: componentValue \}/);
+  assert.match(server, /components\[componentKey\] = \{ subtype: "url", type: "text", value: componentValue \}/);
+  assert.match(server, /components\[componentKey\] = \{ type: "text", value: componentValue \}/);
+  assert.match(server, /namespace: normalizeMsg91TemplateNamespace\(template\)/);
+});
+
+test("ReachOut sync stores generic component schema for current and future WhatsApp templates", () => {
+  const server = read("server.js");
+
+  assert.match(server, /function normalizeTemplateComponentSchema/);
+  assert.match(server, /componentSchema,\s*variableMappings: inferWhatsAppVariableMappings\(template, componentSchema\)/);
+  assert.match(server, /componentSchema: Array\.isArray\(template\.componentSchema\)/);
+  assert.match(server, /ensureSchemaComponentsInMappings/);
+  assert.match(server, /template\.componentSchema/);
+  assert.doesNotMatch(server, /header_1: "https:\/\/files\.msg91\.com\/514340\/uvtvfscf"/);
+});

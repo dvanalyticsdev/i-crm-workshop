@@ -1207,12 +1207,14 @@ function sanitizeReachoutTemplate(template = {}) {
     msg91TemplateId: String(template.msg91TemplateId || "").trim(),
     integratedNumber: String(template.integratedNumber || "").trim(),
     templateName: String(template.templateName || "").trim(),
+    namespace: String(template.namespace || "").trim(),
     languageCode: String(template.languageCode || "en").trim() || "en",
     fromEmail: String(template.fromEmail || "").trim(),
     fromName: String(template.fromName || "").trim(),
     domain: String(template.domain || "").trim(),
     subject: String(template.subject || "").trim(),
     variableMappings: String(template.variableMappings || "").trim(),
+    componentSchema: Array.isArray(template.componentSchema) ? template.componentSchema : [],
     bodyText: String(template.bodyText || "").trim(),
     payloadJson: String(template.payloadJson || "").trim(),
     updatedAt: new Date().toISOString(),
@@ -1286,13 +1288,121 @@ function normalizeMsg91TemplateLanguage(template = {}) {
   return "en";
 }
 
-function inferWhatsAppVariableMappings(template = {}) {
+function normalizeMsg91TemplateNamespace(template = {}) {
+  return String(
+    template.namespace ||
+    template.name_space ||
+    template.template_namespace ||
+    template.templateNamespace ||
+    template.waba_namespace ||
+    ""
+  ).trim();
+}
+
+function sortWhatsAppComponentKeys(keys = []) {
+  return [...keys].sort((left, right) => {
+    const order = { header: 0, body: 1, button: 2 };
+    const [leftType, leftNumber] = left.split("_");
+    const [rightType, rightNumber] = right.split("_");
+    return (order[leftType] - order[rightType]) || (Number(leftNumber) - Number(rightNumber));
+  });
+}
+
+function inferLeadFieldForComponent(key, index = 0) {
+  if (/^header/i.test(key)) return "mediaUrl";
+  if (/^button/i.test(key)) return "buttonUrl";
+  if (index === 0) return "name";
+  if (index === 1) return "workshop";
+  if (index === 2) return "course";
+  if (index === 3) return "campaign";
+  return "name";
+}
+
+function normalizeWhatsAppComponentType(value, fallback = "text") {
+  const type = String(value || fallback || "text").trim().toLowerCase();
+  return ["image", "video", "document", "text"].includes(type) ? type : fallback;
+}
+
+function normalizeTemplateComponentSchema(template = {}) {
+  const schema = new Map();
+  const addComponent = (component = {}) => {
+    const key = String(component.key || "").trim().toLowerCase();
+    if (!/^(header|body|button)_\d+$/.test(key) || schema.has(key)) return;
+    schema.set(key, {
+      key,
+      type: normalizeWhatsAppComponentType(component.type, /^header/i.test(key) ? "image" : "text"),
+      subtype: String(component.subtype || "").trim().toLowerCase(),
+      example: String(component.example || "").trim()
+    });
+  };
+
   const text = JSON.stringify(template || {});
-  const bodyKeys = [...new Set(Array.from(text.matchAll(/body[_-]?(\d+)/gi), (match) => `body_${match[1]}`))]
-    .sort((left, right) => Number(left.replace(/\D/g, "")) - Number(right.replace(/\D/g, "")));
-  if (bodyKeys.length) {
-    return bodyKeys.map((key, index) => `${key}=${index === 0 ? "name" : index === 1 ? "workshop" : "course"}`).join("\n");
+  const directKeys = [...new Set(Array.from(
+    text.matchAll(/\b(header|body|button)[_-]?(\d+)\b/gi),
+    (match) => `${match[1].toLowerCase()}_${match[2]}`
+  ))];
+  directKeys.forEach((key) => addComponent({
+    key,
+    type: /^header/i.test(key) ? "image" : "text",
+    subtype: /^button/i.test(key) ? "url" : ""
+  }));
+
+  const componentObjects = collectObjectsDeep(template, (item) => {
+    const type = String(item.type || item.component_type || item.componentType || "").trim().toLowerCase();
+    return ["header", "body", "button", "buttons"].includes(type);
+  });
+
+  componentObjects.forEach((component) => {
+    const rawType = String(component.type || component.component_type || component.componentType || "").trim().toLowerCase();
+    const type = rawType === "buttons" ? "button" : rawType;
+    const example = component.example || {};
+    const exampleValues = [
+      ...(Array.isArray(example.header_handle) ? example.header_handle : []),
+      ...(Array.isArray(example.header_text) ? example.header_text : []),
+      ...(Array.isArray(example.body_text?.[0]) ? example.body_text[0] : []),
+      ...(Array.isArray(example.button_text) ? example.button_text : [])
+    ];
+
+    if (type === "header") {
+      const format = normalizeWhatsAppComponentType(component.format || component.header_type, "image");
+      const count = Math.max((String(component.text || "").match(/\{\{\s*\d+\s*\}\}/g) || []).length, exampleValues.length, 1);
+      for (let index = 1; index <= count; index += 1) {
+        addComponent({ key: `header_${index}`, type: format, example: exampleValues[index - 1] || "" });
+      }
+    }
+
+    if (type === "body") {
+      const parameters = Array.isArray(component.parameters) ? component.parameters : [];
+      const count = Math.max((String(component.text || "").match(/\{\{\s*\d+\s*\}\}/g) || []).length, exampleValues.length, parameters.length);
+      for (let index = 1; index <= count; index += 1) {
+        addComponent({ key: `body_${index}`, type: "text", example: exampleValues[index - 1] || parameters[index - 1]?.value || "" });
+      }
+    }
+
+    const buttons = Array.isArray(component.buttons) ? component.buttons : (type === "button" ? [component] : []);
+    buttons.forEach((button, index) => {
+      const subtype = String(button.sub_type || button.subtype || button.type || component.sub_type || component.subtype || "").trim().toLowerCase();
+      const url = String(button.url || button.example?.[0] || "").trim();
+      if (!subtype.includes("url") && !url.includes("{{")) return;
+      addComponent({ key: `button_${index + 1}`, type: "text", subtype: "url", example: url });
+    });
+  });
+
+  return sortWhatsAppComponentKeys([...schema.keys()]).map((key) => schema.get(key));
+}
+
+function inferWhatsAppVariableMappings(template = {}, componentSchema = null) {
+  const schema = Array.isArray(componentSchema) ? componentSchema : normalizeTemplateComponentSchema(template);
+  if (schema.length) {
+    return schema.map((component, index) => {
+      const example = String(component.example || "").trim();
+      const value = example && /^https?:\/\//i.test(example)
+        ? example
+        : inferLeadFieldForComponent(component.key, index);
+      return `${component.key}=${value}`;
+    }).join("\n");
   }
+  const text = JSON.stringify(template || {});
   const placeholderCount = Math.max(
     ...Array.from(text.matchAll(/\{\{\s*(\d+)\s*\}\}/g), (match) => Number(match[1])),
     0
@@ -1318,15 +1428,18 @@ function normalizeMsg91WhatsAppTemplatesPayload(payload, integratedNumber) {
     if (!templateName || byTemplate.has(templateName)) {
       return;
     }
+    const componentSchema = normalizeTemplateComponentSchema(template);
     byTemplate.set(templateName, sanitizeReachoutTemplate({
       id: String(template.id || template._id || `${integratedNumber}-${templateName}`),
       name: String(template.display_name || template.label || templateName).trim(),
       channel: "whatsapp",
       templateName,
+      namespace: normalizeMsg91TemplateNamespace(template),
       languageCode: normalizeMsg91TemplateLanguage(template),
       integratedNumber,
       enabled: true,
-      variableMappings: inferWhatsAppVariableMappings(template)
+      componentSchema,
+      variableMappings: inferWhatsAppVariableMappings(template, componentSchema)
     }));
   });
   return [...byTemplate.values()];
@@ -1420,6 +1533,8 @@ function getLeadReachoutVariables(lead = {}, session = null) {
     counselor: lead.counselor || "",
     course: lead.course || lead.registeredCourse || lead.mainAdmissionCourse || "",
     leadPipeline: lead.leadPipeline || "workshop",
+    mediaUrl: "",
+    buttonUrl: "https://go.dvanalyticsmds.com/dva01",
     senderName: session?.name || session?.email || session?.role || "CRM"
   };
 }
@@ -1453,13 +1568,43 @@ function parseVariableMappings(text, variables) {
 }
 
 function buildWhatsAppComponents(mappedVariables) {
+  const cleanValue = (value) => String(value || "").trim().replace(/^\*+|\*+$/g, "");
   return Object.entries(mappedVariables)
-    .filter(([key]) => /^body/i.test(key))
-    .sort(([left], [right]) => left.localeCompare(right))
+    .filter(([key]) => /^(header|body|button)_\d+$/i.test(key))
+    .sort(([left], [right]) => {
+      const order = { header: 0, body: 1, button: 2 };
+      const [leftType, leftNumber] = left.toLowerCase().split("_");
+      const [rightType, rightNumber] = right.toLowerCase().split("_");
+      return (order[leftType] - order[rightType]) || (Number(leftNumber) - Number(rightNumber));
+    })
     .reduce((components, [key, value]) => {
-      components[key] = { type: "text", value: String(value || "") };
+      const componentKey = key.toLowerCase();
+      const componentValue = cleanValue(value);
+      if (/^header/i.test(componentKey) && /^https?:\/\//i.test(componentValue)) {
+        components[componentKey] = { type: "image", value: componentValue };
+        return components;
+      }
+      if (/^button/i.test(componentKey)) {
+        components[componentKey] = { subtype: "url", type: "text", value: componentValue };
+        return components;
+      }
+      components[componentKey] = { type: "text", value: componentValue };
       return components;
     }, {});
+}
+
+function ensureSchemaComponentsInMappings(mappedVariables = {}, componentSchema = [], variables = {}) {
+  const next = { ...mappedVariables };
+  (Array.isArray(componentSchema) ? componentSchema : []).forEach((component, index) => {
+    const key = String(component?.key || "").trim().toLowerCase();
+    if (!/^(header|body|button)_\d+$/.test(key) || Object.prototype.hasOwnProperty.call(next, key)) {
+      return;
+    }
+    const example = String(component.example || "").trim();
+    const fallbackField = inferLeadFieldForComponent(key, index);
+    next[key] = example || variables[fallbackField] || "";
+  });
+  return next;
 }
 
 function buildReachoutEndpoint(channel) {
@@ -1470,7 +1615,11 @@ function buildReachoutEndpoint(channel) {
 function buildReachoutPayload({ template, lead, config, session, integratedNumber = "" }) {
   const channel = String(template.channel || "").trim().toLowerCase();
   const variables = getLeadReachoutVariables(lead, session);
-  const mappedVariables = parseVariableMappings(template.variableMappings, variables);
+  const mappedVariables = ensureSchemaComponentsInMappings(
+    parseVariableMappings(template.variableMappings, variables),
+    template.componentSchema,
+    variables
+  );
   const phone = normalizeMsg91Phone(lead.phone, config.defaultCountryCode);
 
   if (template.payloadJson) {
@@ -1488,10 +1637,12 @@ function buildReachoutPayload({ template, lead, config, session, integratedNumbe
       integrated_number: fromNumber,
       content_type: "template",
       payload: {
+        messaging_product: "whatsapp",
         type: "template",
         template: {
           name: template.templateName,
           language: { code: template.languageCode || "en", policy: "deterministic" },
+          ...(template.namespace ? { namespace: template.namespace } : {}),
           to_and_components: [
             {
               to: [phone],
