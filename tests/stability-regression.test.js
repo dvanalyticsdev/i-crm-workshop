@@ -134,6 +134,33 @@ test("bulk assignment uses full lead identity references", () => {
   assert.match(server, /result\.matchedCount/);
 });
 
+test("bulk assignment skips protected admission-status leads", () => {
+  const mainAdmissionLeads = read("main-admission-leads.js");
+  const registeredCandidates = read("registered-candidates.js");
+  const preWorkshop = read("pre-workshop.js");
+  const postWorkshop = read("post-workshop.js");
+  const leadControl = read("lead-control.js");
+  const leadService = read("lead-service.js");
+  const server = read("server.js");
+
+  assert.match(server, /PROTECTED_ASSIGNMENT_ADMISSION_STATUSES = new Set\(\["inconversation", "enrolled", "won"\]\)/);
+  assert.match(server, /function isLeadProtectedFromBulkAssignment\(lead\)/);
+  assert.match(server, /lead\?\.admissionStatus/);
+  assert.match(server, /lead\?\.registeredAdmissionStatus/);
+  assert.match(server, /lead\?\.mainAdmissionAdmissionStatus/);
+  assert.match(getFunctionBody(server, "assignLeadsHandler"), /const protectedLeads = leadsToUpdate\.filter\(isLeadProtectedFromBulkAssignment\)/);
+  assert.match(getFunctionBody(server, "assignLeadsHandler"), /const assignableLeads = leadsToUpdate\.filter\(\(lead\) => !isLeadProtectedFromBulkAssignment\(lead\)\)/);
+  assert.match(getFunctionBody(server, "assignLeadsHandler"), /skippedProtectedCount/);
+  assert.match(getFunctionBody(server, "assignLeadsHandler"), /for \(const lead of assignableLeads\)/);
+  assert.match(leadService, /export function formatLeadAssignmentResult/);
+  assert.match(leadService, /Skipped \$\{skippedProtectedCount\} admission/);
+  assert.match(mainAdmissionLeads, /formatLeadAssignmentResult/);
+  assert.match(registeredCandidates, /formatLeadAssignmentResult/);
+  assert.match(preWorkshop, /formatLeadAssignmentResult/);
+  assert.match(postWorkshop, /formatLeadAssignmentResult/);
+  assert.match(leadControl, /formatLeadAssignmentResult/);
+});
+
 test("lead-control includes smart assignment suggestion panel", () => {
   const leadControlHtml = read("lead-control.html");
   const leadControl = read("lead-control.js");
