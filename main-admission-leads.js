@@ -13,7 +13,7 @@ import {
   syncStateFromLocalAndVerify
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY } from "./task-service.js";
-import { addLeadNote, assignLeads as assignLeadsOnServer, deleteLeadNote, trackLeadView, updateLeadActivity as updateLeadActivityOnServer } from "./lead-service.js";
+import { addLeadNote, assignLeads as assignLeadsOnServer, deleteLeadNote, formatLeadAssignmentResult, trackLeadView, updateLeadActivity as updateLeadActivityOnServer } from "./lead-service.js";
 
 await bootstrapLocalState();
 
@@ -1264,8 +1264,9 @@ function renderLeadTable(leads) {
       }
 
       selectedLeadKeys = new Set();
-      setMessage(`Assigned ${refs.length} lead${refs.length === 1 ? "" : "s"} to ${targetCounselor}.`);
-      showToast(`Assigned ${refs.length} lead${refs.length === 1 ? "" : "s"} to ${targetCounselor}.`);
+      const assignmentSummary = formatLeadAssignmentResult(result, refs.length, targetCounselor);
+      setMessage(assignmentSummary.message, assignmentSummary.assignedCount === 0);
+      showToast(assignmentSummary.message, assignmentSummary.assignedCount === 0);
       renderAll();
     };
   }

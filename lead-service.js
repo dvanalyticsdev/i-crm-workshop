@@ -76,6 +76,27 @@ export function assignLeads(leadRefs, counselor) {
   });
 }
 
+export function formatLeadAssignmentResult(result, requestedCount, counselor) {
+  const assignedCount = Number(
+    result?.assignedCount
+      ?? result?.matchedCount
+      ?? result?.updatedCount
+      ?? requestedCount
+  ) || 0;
+  const skippedProtectedCount = Number(result?.skippedProtectedCount || 0);
+  const assignedLabel = assignedCount === 1 ? "lead" : "leads";
+  const skippedLabel = skippedProtectedCount === 1 ? "lead" : "leads";
+  const skippedText = skippedProtectedCount
+    ? ` Skipped ${skippedProtectedCount} admission ${skippedLabel} with status In-Conversation, Enrolled, or Won.`
+    : "";
+
+  return {
+    assignedCount,
+    skippedProtectedCount,
+    message: `Assigned ${assignedCount} ${assignedLabel} to ${counselor}.${skippedText}`
+  };
+}
+
 export function trackLeadView(leadId, leadEmail = "") {
   return requestJson(`/api/leads/${encodeURIComponent(leadId)}/view`, {
     method: "POST",

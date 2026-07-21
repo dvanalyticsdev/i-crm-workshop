@@ -21,6 +21,7 @@ import {
   assignLeads as assignLeadsOnServer,
   deleteLeads as deleteLeadsOnServer,
   deleteLeadNote,
+  formatLeadAssignmentResult,
   trackLeadView,
   updateLeadActivity as updateLeadActivityOnServer
 } from "./lead-service.js";
@@ -280,8 +281,9 @@ async function assignSelectedLeads(leads, counselorName) {
     return false;
   }
 
-  showToast(`Assigned ${updatedCount} lead${updatedCount === 1 ? "" : "s"} to ${targetCounselor}.`, false);
-  return true;
+  const assignmentSummary = formatLeadAssignmentResult(assignmentResult, updatedCount, targetCounselor);
+  showToast(assignmentSummary.message, assignmentSummary.assignedCount === 0);
+  return assignmentSummary.assignedCount > 0;
 }
 
 function isCounselorSession() {

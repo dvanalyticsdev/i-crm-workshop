@@ -14,7 +14,8 @@ import {
   syncStateFromLocalAndVerify
 } from "./state-sync.js";
 import {
-  assignLeads as assignLeadsOnServer
+  assignLeads as assignLeadsOnServer,
+  formatLeadAssignmentResult
 } from "./lead-service.js";
 
 await bootstrapLocalState();
@@ -1428,8 +1429,9 @@ async function applyAssignmentSuggestionByIndex(index) {
     return;
   }
 
-  setMessage(assignmentSuggestionMessage, `Moved ${suggestion.count} lead${suggestion.count === 1 ? "" : "s"} from ${suggestion.from} to ${suggestion.to}.`, false);
-  showToast(`Moved ${suggestion.count} lead${suggestion.count === 1 ? "" : "s"} to ${suggestion.to}.`, false);
+  const assignmentSummary = formatLeadAssignmentResult(result, suggestion.count, suggestion.to);
+  setMessage(assignmentSuggestionMessage, assignmentSummary.message, assignmentSummary.assignedCount === 0);
+  showToast(assignmentSummary.message, assignmentSummary.assignedCount === 0);
   renderAll();
 }
 
@@ -1448,7 +1450,7 @@ async function applyAllAssignmentSuggestions() {
       renderAll();
       return;
     }
-    movedCount += suggestion.count;
+    movedCount += Number(result.assignedCount ?? result.matchedCount ?? result.updatedCount ?? suggestion.count) || 0;
   }
 
   setMessage(assignmentSuggestionMessage, `Applied ${suggestions.length} suggestion${suggestions.length === 1 ? "" : "s"} and reassigned ${movedCount} lead${movedCount === 1 ? "" : "s"}.`, false);

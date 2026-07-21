@@ -5847,6 +5847,20 @@ function getLeadAssignmentResetPatch(counselor, assignedAt) {
   };
 }
 
+const PROTECTED_ASSIGNMENT_ADMISSION_STATUSES = new Set(["inconversation", "enrolled", "won"]);
+
+function normalizeAssignmentAdmissionStatus(value) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function isLeadProtectedFromBulkAssignment(lead) {
+  return [
+    lead?.admissionStatus,
+    lead?.registeredAdmissionStatus,
+    lead?.mainAdmissionAdmissionStatus
+  ].some((status) => PROTECTED_ASSIGNMENT_ADMISSION_STATUSES.has(normalizeAssignmentAdmissionStatus(status)));
+}
+
 function getLeadActivityAssigneePatch(stage, session) {
   if (session?.role !== "counselor") {
     return {};
@@ -7113,13 +7127,40 @@ async function assignLeadsHandler(req, res) {
       return res.status(404).json({ message: "No matching leads were assigned." });
     }
 
-    const assignmentChangedLeadIds = leadsToUpdate
+    const protectedLeads = leadsToUpdate.filter(isLeadProtectedFromBulkAssignment);
+    const assignableLeads = leadsToUpdate.filter((lead) => !isLeadProtectedFromBulkAssignment(lead));
+    const skippedProtectedCount = protectedLeads.length;
+
+    if (!assignableLeads.length) {
+      const now = new Date().toISOString();
+      await stateCollection.updateOne(
+        { _id: STATE_DOC_ID },
+        { $set: { updatedAt: now } },
+        { upsert: true }
+      );
+
+      const nextState = await refreshStateAfterAtomicUpdate();
+      res.setHeader("ETag", buildStateEtag(nextState));
+      return res.json({
+        ok: true,
+        updatedCount: 0,
+        matchedCount: 0,
+        assignedCount: 0,
+        skippedProtectedCount,
+        state: buildStateResponse(nextState)
+      });
+    }
+
+    const assignableLeadIds = assignableLeads
+      .map((lead) => lead.id)
+      .filter((id) => id !== undefined && id !== null);
+    const assignmentChangedLeadIds = assignableLeads
       .filter((lead) => String(lead.counselor || "").trim().toLowerCase() !== counselor.toLowerCase())
       .map((lead) => lead.id)
       .filter((id) => id !== undefined && id !== null);
     const now = new Date().toISOString();
     const result = await leadsCollection.updateMany(
-      updateQuery,
+      { id: { $in: assignableLeadIds } },
       { $set: { counselor } }
     );
 
@@ -7146,7 +7187,7 @@ async function assignLeadsHandler(req, res) {
       }
     });
 
-    for (const lead of leadsToUpdate) {
+    for (const lead of assignableLeads) {
       const oldCounselor = String(lead.counselor || "").trim();
       const newCounselor = String(counselor).trim();
       const leadLabel = formatLeadNotificationLabel(lead);
@@ -7210,7 +7251,14 @@ async function assignLeadsHandler(req, res) {
 
     const nextState = await refreshStateAfterAtomicUpdate();
     res.setHeader("ETag", buildStateEtag(nextState));
-    return res.json({ ok: true, updatedCount: result.modifiedCount, matchedCount: result.matchedCount, state: buildStateResponse(nextState) });
+    return res.json({
+      ok: true,
+      updatedCount: result.modifiedCount,
+      matchedCount: result.matchedCount,
+      assignedCount: matchedCount,
+      skippedProtectedCount,
+      state: buildStateResponse(nextState)
+    });
   } catch (error) {
     return res.status(500).json({ message: "Failed to assign leads", details: error.message });
   }
