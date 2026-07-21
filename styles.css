@@ -563,7 +563,12 @@ textarea:focus {
   position: sticky;
   top: 0;
   height: 100vh;
+  height: 100dvh;
   gap: 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .sidebar-brand {
@@ -2495,6 +2500,7 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
   .sidebar {
     position: static;
     height: auto;
+    overflow: visible;
     width: auto;
     border-right: 0;
     border-bottom: 1px solid var(--border);
