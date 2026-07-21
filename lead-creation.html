@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lead Creation</title>
+  <link rel="icon" type="image/png" href="Logos/DV-Logo.png" />
+  <script src="theme-bootstrap.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="dashboard-body">
+  <div class="layout-root">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="icrm-logo-wrap">
+          <div class="icrm-text-wrap">
+            <span class="icrm-logo-text">i-CRM</span>
+          </div>
+          <div class="icrm-dv-badge">
+            <span class="icrm-dv-by">by</span>
+            <img src="Logos/DV-Logo.png" alt="DV Analytics" class="icrm-dv-img" />
+          </div>
+        </div>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="dashboard.html" class="sidebar-link">Dashboard</a>
+        <a href="lead-browse.html" class="sidebar-link">Lead Browse</a>
+        <a href="claim-raised.html" class="sidebar-link">Claim Raised</a>
+        <a href="lead-creation.html" class="sidebar-link">Lead Creation</a>
+        <a href="pre-workshop.html" class="sidebar-link">Workshop Calling</a>
+        <a href="post-workshop.html" class="sidebar-link">Admission Calling</a>
+        <a href="registered-candidates.html" class="sidebar-link">Registered Candidates</a>
+        <a href="main-admission-leads.html" class="sidebar-link">Main Admission Leads</a>
+        <a href="task-tracker.html" class="sidebar-link" data-counselor-only="true">Task Tracker</a>
+        <a href="lost-leads.html" class="sidebar-link">Lost Leads</a>
+        <a href="monitoring.html" class="sidebar-link">Monitoring</a>
+      </nav>
+      <div class="sidebar-bottom-links" style="display:flex;flex-direction:column;gap:0;">
+        <a href="counselor-management.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Counselor Management</a>
+        <a href="lead-control.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Lead & Data Control</a>
+        <a href="meta-integration.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Meta Integration</a>
+      </div>
+    </aside>
+
+    <div class="main-content">
+      <header class="topbar">
+        <div class="topbar-title">
+          <h1>Lead Creation</h1>
+          <p>Submit and review approved-only lead creation requests.</p>
+        </div>
+        <div class="topbar-profile">
+          <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">
+            <span class="theme-toggle__stack" aria-hidden="true">
+              <span class="theme-toggle__icon theme-toggle__icon--sun" aria-hidden="true">
+                <svg viewBox="0 0 24 24" role="presentation" focusable="false">
+                  <circle cx="12" cy="12" r="4.5"></circle>
+                  <path d="M12 1.8v2.4M12 19.8v2.4M4.2 4.2l1.7 1.7M18.1 18.1l1.7 1.7M1.8 12h2.4M19.8 12h2.4M4.2 19.8l1.7-1.7M18.1 5.9l1.7-1.7"></path>
+                </svg>
+              </span>
+              <span class="theme-toggle__icon theme-toggle__icon--moon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" role="presentation" focusable="false">
+                  <path d="M20.2 14.7A8.2 8.2 0 0 1 9.3 3.8a8.5 8.5 0 1 0 10.9 10.9Z"></path>
+                </svg>
+              </span>
+            </span>
+            <span class="theme-toggle__label" data-theme-label>Light</span>
+          </button>
+          <span class="role-tag" data-role-tag></span>
+          <button data-logout class="btn-ghost" type="button">Log out</button>
+        </div>
+      </header>
+
+      <section class="kpi-grid" id="leadCreationKpis"></section>
+
+      <section class="card lead-creation-form-panel" id="leadCreationFormPanel">
+        <div class="management-section-head">
+          <div>
+            <h3>New Lead Request</h3>
+            <p>Requests become real leads only after admin approval.</p>
+          </div>
+        </div>
+        <form id="leadCreationForm" class="lead-creation-form">
+          <label>
+            Calling section
+            <select id="leadCreationPipeline" required>
+              <option value="workshop">Workshop Calling</option>
+              <option value="main-admission">Main Admission Calling</option>
+            </select>
+          </label>
+          <label>
+            Lead name
+            <input id="leadCreationName" type="text" autocomplete="off" required />
+          </label>
+          <label>
+            Phone
+            <input id="leadCreationPhone" type="tel" autocomplete="off" required />
+          </label>
+          <label>
+            Email
+            <input id="leadCreationEmail" type="email" autocomplete="off" />
+          </label>
+          <label id="leadCreationWorkshopWrap">
+            Workshop
+            <input id="leadCreationWorkshop" type="text" autocomplete="off" />
+          </label>
+          <label id="leadCreationCourseWrap" class="hidden">
+            Course
+            <input id="leadCreationCourse" type="text" autocomplete="off" />
+          </label>
+          <label>
+            Source
+            <input id="leadCreationSource" type="text" autocomplete="off" />
+          </label>
+          <label class="lead-creation-notes">
+            Notes
+            <textarea id="leadCreationNotes" rows="3"></textarea>
+          </label>
+          <div class="lead-creation-form-actions">
+            <button type="submit" class="btn-primary" id="submitLeadCreationBtn">Submit Request</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card lead-creation-panel">
+        <div class="management-section-head">
+          <div>
+            <h3 id="leadCreationHeading">Lead Creation Requests</h3>
+            <p id="leadCreationSubheading">Track pending approval and completed requests.</p>
+          </div>
+          <div class="lead-claim-toolbar">
+            <button type="button" class="btn-delete" id="clearLeadCreationBtn">Clear List</button>
+            <button type="button" class="btn-ghost" id="refreshLeadCreationBtn">Refresh</button>
+          </div>
+        </div>
+        <div id="leadCreationMessage" class="block-help"></div>
+        <div id="leadCreationList"></div>
+      </section>
+    </div>
+  </div>
+
+  <script type="module" src="lead-creation.js"></script>
+  <script type="module" src="layouts.js"></script>
+</body>
+</html>

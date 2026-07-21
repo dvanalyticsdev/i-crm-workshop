@@ -448,6 +448,36 @@ test("lead claim workflow requires admin and current owner approval before trans
   assert.match(layouts, /claim-raised\.html/);
 });
 
+test("lead creation requests require counselor submission and admin approval before insert", () => {
+  const server = read("server.js");
+  const leadCreationHtml = read("lead-creation.html");
+  const leadCreation = read("lead-creation.js");
+  const leadCreationService = read("lead-creation-service.js");
+  const layouts = read("layouts.js");
+
+  assert.match(server, /leadCreationRequestsCollection/);
+  assert.match(server, /app\.post\("\/api\/lead-creation-requests"/);
+  assert.match(server, /requireRole\(req, res, "counselor"\)/);
+  assert.match(server, /app\.patch\("\/api\/lead-creation-requests\/:requestId\/decision"/);
+  assert.match(server, /requireRole\(req, res, "admin"\)/);
+  assert.match(server, /buildApprovedLeadFromCreationRequest/);
+  assert.match(server, /leadsCollection\.insertOne\(leadDraft\)/);
+  assert.match(server, /leadPipeline: MAIN_ADMISSION_PIPELINE/);
+  assert.match(server, /getLeadCreationTargetLabel/);
+  assert.match(server, /clearedByRequester: true/);
+  assert.match(server, /clearedByAdmin: true/);
+
+  assert.match(leadCreationHtml, /<h1>Lead Creation<\/h1>/);
+  assert.match(leadCreationHtml, /leadCreationPipeline/);
+  assert.match(leadCreationHtml, /Main Admission Calling/);
+  assert.match(leadCreation, /submitLeadCreationRequest/);
+  assert.match(leadCreation, /decideLeadCreationRequest/);
+  assert.match(leadCreation, /clearLeadCreationRequests/);
+  assert.match(leadCreation, /formPanel\?\.classList\.toggle\("hidden", isAdmin\(\)\)/);
+  assert.match(leadCreationService, /\/api\/lead-creation-requests/);
+  assert.match(layouts, /lead-creation\.html/);
+});
+
 test("admin manual backup and restore controls exist on lead control management", () => {
   const leadControlHtml = read("lead-control.html");
   const leadControl = read("lead-control.js");

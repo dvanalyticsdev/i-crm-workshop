@@ -109,6 +109,7 @@ const ADMIN_AUTH_VERSION = buildAdminAuthVersion();
 
 const DEFAULT_PERMISSIONS = {
   dashboard: false,
+  leadCreation: true,
   preWorkshop: true,
   postWorkshop: true,
   taskTracker: true,
@@ -199,6 +200,7 @@ let allocationCollection;
 let notificationsCollection;
 let activityLogsCollection;
 let leadClaimsCollection;
+let leadCreationRequestsCollection;
 
 function logNotificationDebug(message, extra) {
   const payload = extra === undefined ? "" : ` ${JSON.stringify(extra)}`;
@@ -262,6 +264,7 @@ async function resetMongoConnection() {
   notificationsCollection = null;
   activityLogsCollection = null;
   leadClaimsCollection = null;
+  leadCreationRequestsCollection = null;
 }
 
 async function withMongoRetry(operation, { retries = 1, label = "MongoDB operation" } = {}) {
@@ -633,6 +636,7 @@ async function initMongo() {
         notificationsCollection = db.collection("notifications");
         activityLogsCollection  = db.collection("activity_logs");
         leadClaimsCollection    = db.collection("lead_claims");
+        leadCreationRequestsCollection = db.collection("lead_creation_requests");
 
         // Ensure indexes for activity_logs
         await activityLogsCollection.createIndex({ leadId: 1, timestamp: -1 }, { background: true }).catch(() => undefined);
@@ -644,6 +648,9 @@ async function initMongo() {
         await leadClaimsCollection.createIndex({ status: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
         await leadClaimsCollection.createIndex({ requesterEmail: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
         await leadClaimsCollection.createIndex({ currentOwnerEmail: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
+        await leadCreationRequestsCollection.createIndex({ id: 1 }, { unique: true, background: true }).catch(() => undefined);
+        await leadCreationRequestsCollection.createIndex({ status: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
+        await leadCreationRequestsCollection.createIndex({ requesterEmail: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
 
         // Ensure indexes
         await sessionCollection.createIndex(
@@ -803,6 +810,7 @@ async function initMongo() {
         notificationsCollection = new MockCollection("notifications");
         activityLogsCollection  = new MockCollection("activityLogs");
         leadClaimsCollection    = new MockCollection("leadClaims");
+        leadCreationRequestsCollection = new MockCollection("leadCreationRequests");
         
         // Sync lead sequence for mock db too
         await syncLeadSequence().catch(() => undefined);
@@ -5808,6 +5816,138 @@ function isClaimVisibleToSession(claim, session) {
   ) || name && String(claim.currentOwnerName || "").trim().toLowerCase() === name;
 }
 
+function normalizeLeadCreationPipeline(value) {
+  const pipeline = String(value || "").trim().toLowerCase();
+  return pipeline === MAIN_ADMISSION_PIPELINE || pipeline === "admission" || pipeline === "main-admission-calling"
+    ? MAIN_ADMISSION_PIPELINE
+    : "workshop";
+}
+
+function normalizeLeadCreationRequestDoc(request = {}) {
+  const pipeline = normalizeLeadCreationPipeline(request.pipeline || request.leadPipeline);
+  return {
+    id: String(request.id || "").trim(),
+    status: String(request.status || "pending").trim().toLowerCase() || "pending",
+    pipeline,
+    name: String(request.name || "").trim(),
+    email: String(request.email || "").trim().toLowerCase(),
+    phone: String(request.phone || "").trim(),
+    workshop: String(request.workshop || "").trim(),
+    courseName: String(request.courseName || request.course || "").trim(),
+    source: String(request.source || "").trim(),
+    notes: String(request.notes || "").trim(),
+    requesterName: String(request.requesterName || "").trim(),
+    requesterEmail: String(request.requesterEmail || "").trim().toLowerCase(),
+    requestedLeadId: request.requestedLeadId ? String(request.requestedLeadId).trim() : null,
+    createdAt: request.createdAt || new Date().toISOString(),
+    updatedAt: request.updatedAt || request.createdAt || new Date().toISOString(),
+    decidedAt: request.decidedAt || null,
+    decidedBy: request.decidedBy || null,
+    rejectionReason: request.rejectionReason || null,
+    clearedByAdmin: !!request.clearedByAdmin,
+    clearedByRequester: !!request.clearedByRequester
+  };
+}
+
+function serializeLeadCreationRequest(request = {}) {
+  const normalized = normalizeLeadCreationRequestDoc(request);
+  delete normalized._id;
+  return normalized;
+}
+
+function isLeadCreationRequestVisibleToSession(request, session) {
+  if (session?.role === "admin") {
+    return !request.clearedByAdmin;
+  }
+  if (session?.role !== "counselor") {
+    return false;
+  }
+
+  const email = String(session?.email || "").trim().toLowerCase();
+  return !!email && request.requesterEmail === email && !request.clearedByRequester;
+}
+
+function getLeadCreationTargetLabel(request = {}) {
+  return normalizeLeadCreationPipeline(request.pipeline) === MAIN_ADMISSION_PIPELINE
+    ? "Main Admission Calling"
+    : "Workshop Calling";
+}
+
+function buildApprovedLeadFromCreationRequest(request = {}, nextId, approvedAt = new Date().toISOString()) {
+  const normalized = normalizeLeadCreationRequestDoc(request);
+  const isAdmission = normalized.pipeline === MAIN_ADMISSION_PIPELINE;
+  const createdAt = toKolkataDateKey(new Date(approvedAt));
+  const baseLead = {
+    id: nextId,
+    name: normalized.name,
+    email: normalized.email,
+    phone: normalized.phone,
+    source: normalized.source || "Counselor Lead Creation Request",
+    createdAt,
+    counselor: normalized.requesterName || "Unassigned",
+    leadCreationRequestId: normalized.id,
+    requestedBy: normalized.requesterName || normalized.requesterEmail,
+    requestedByEmail: normalized.requesterEmail,
+    approvedAt,
+    approvedBy: normalized.decidedBy || "Admin",
+    leadNotes: normalized.notes
+      ? [{ text: normalized.notes, at: approvedAt, by: normalized.requesterName || normalized.requesterEmail }]
+      : [],
+    importSourceFiles: ["Lead Creation Request"],
+    importSourceSheets: []
+  };
+
+  if (isAdmission) {
+    return decorateLeadForStorage({
+      ...baseLead,
+      leadPipeline: MAIN_ADMISSION_PIPELINE,
+      courseName: normalized.courseName,
+      mainAdmissionDialed: "",
+      mainAdmissionCoursePitched: "",
+      mainAdmissionCourseStatus: "",
+      mainAdmissionAdmissionStatus: "",
+      mainAdmissionCallStatus: "",
+      mainAdmissionActivityUpdated: false,
+      mainAdmissionActivityUpdates: 0,
+      mainAdmissionActivityHistory: []
+    });
+  }
+
+  return decorateLeadForStorage({
+    ...baseLead,
+    leadPipeline: "",
+    workshop: normalized.workshop,
+    admissionWorkshop: normalized.workshop,
+    status: "New",
+    dialed: "",
+    callStatus: "",
+    wsStatus: "",
+    whatsappInvite: "",
+    postDialed: "",
+    postCallStatus: "",
+    coursePitched: "",
+    courseStatus: "",
+    admissionStatus: "",
+    workshopJoiningStatus: "",
+    whatsappGroupStatus: "",
+    postStatusUpdated: false,
+    preActivityUpdates: 0,
+    postActivityUpdates: 0,
+    workshopActivityHistory: [],
+    admissionActivityHistory: []
+  });
+}
+
+function findLeadCreationDuplicate(leads = [], incomingLead = {}) {
+  const isAdmission = isMainAdmissionLead(incomingLead);
+  return (Array.isArray(leads) ? leads : []).find((lead) => {
+    if (isAdmission) {
+      return isMainAdmissionLead(lead) && !!findDuplicateLeadByEmailOrPhone([lead], incomingLead);
+    }
+    return !isMainAdmissionLead(lead) && !isPublicCourseRegistrationLead(lead) && !!findDuplicateLeadByEmailOrPhone([lead], incomingLead);
+  }) || null;
+}
+
 async function touchStateUpdatedAt(now = new Date().toISOString()) {
   await stateCollection.updateOne(
     { _id: STATE_DOC_ID },
@@ -6473,6 +6613,232 @@ async function assignLeadsHandler(req, res) {
 
 app.patch("/api/leads/assignment", assignLeadsHandler);
 app.post("/api/leads/assignment", assignLeadsHandler);
+
+app.get("/api/lead-creation-requests", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "counselor"]);
+    if (!session) return;
+
+    const requests = await leadCreationRequestsCollection.find({}).sort({ createdAt: -1 }).toArray();
+    const visibleRequests = (Array.isArray(requests) ? requests : [])
+      .map(serializeLeadCreationRequest)
+      .filter((request) => isLeadCreationRequestVisibleToSession(request, session))
+      .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+
+    return res.json({ ok: true, requests: visibleRequests });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch lead creation requests", details: error.message });
+  }
+});
+
+app.delete("/api/lead-creation-requests", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "counselor"]);
+    if (!session) return;
+
+    const now = new Date().toISOString();
+    const query = session.role === "admin"
+      ? { clearedByAdmin: { $ne: true } }
+      : { requesterEmail: String(session.email || "").trim().toLowerCase(), clearedByRequester: { $ne: true } };
+    const patch = session.role === "admin"
+      ? { clearedByAdmin: true, adminClearedAt: now, updatedAt: now }
+      : { clearedByRequester: true, requesterClearedAt: now, updatedAt: now };
+
+    const result = await leadCreationRequestsCollection.updateMany(query, { $set: patch });
+    return res.json({ ok: true, clearedCount: result.modifiedCount || 0 });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to clear lead creation requests", details: error.message });
+  }
+});
+
+app.post("/api/lead-creation-requests", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, "counselor");
+    if (!session) return;
+
+    const state = await getStateDoc();
+    const requesterName = getSessionCounselorName(state, session);
+    const requesterEmail = String(session.email || "").trim().toLowerCase();
+    const pipeline = normalizeLeadCreationPipeline(req.body?.pipeline || req.body?.leadPipeline);
+    const name = String(req.body?.name || "").trim();
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    const phone = String(req.body?.phone || "").trim();
+    const workshop = String(req.body?.workshop || "").trim();
+    const courseName = String(req.body?.courseName || req.body?.course || "").trim();
+    const source = String(req.body?.source || "").trim();
+    const notes = String(req.body?.notes || "").trim();
+
+    if (!requesterName || !requesterEmail) {
+      return res.status(403).json({ message: "Counselor account details are required to request lead creation." });
+    }
+    if (!name || !phone) {
+      return res.status(400).json({ message: "Lead name and phone are required." });
+    }
+    if (pipeline === "workshop" && !workshop) {
+      return res.status(400).json({ message: "Workshop name is required for workshop calling requests." });
+    }
+    if (pipeline === MAIN_ADMISSION_PIPELINE && !courseName) {
+      return res.status(400).json({ message: "Course name is required for main admission calling requests." });
+    }
+
+    const pendingRequests = await leadCreationRequestsCollection.find({
+      requesterEmail,
+      status: "pending"
+    }).toArray();
+    const duplicatePending = (Array.isArray(pendingRequests) ? pendingRequests : []).find((request) => {
+      const normalized = normalizeLeadCreationRequestDoc(request);
+      const sameEmail = email && normalized.email === email;
+      const samePhone = normalizeLeadPhone(normalized.phone) && normalizeLeadPhone(normalized.phone) === normalizeLeadPhone(phone);
+      return normalized.pipeline === pipeline && (sameEmail || samePhone);
+    });
+    if (duplicatePending) {
+      return res.status(409).json({ message: "You already have a pending lead creation request for this contact." });
+    }
+
+    const now = new Date().toISOString();
+    const requestDoc = normalizeLeadCreationRequestDoc({
+      id: `lead-request-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`,
+      status: "pending",
+      pipeline,
+      name,
+      email,
+      phone,
+      workshop,
+      courseName,
+      source,
+      notes,
+      requesterName,
+      requesterEmail,
+      createdAt: now,
+      updatedAt: now
+    });
+
+    await leadCreationRequestsCollection.insertOne(requestDoc);
+    await createNotification({
+      userId: "admin",
+      role: "admin",
+      type: "lead_creation_requested",
+      title: "Lead Creation Request",
+      message: `${requesterName} requested a new ${getLeadCreationTargetLabel(requestDoc)} lead for ${name}.`,
+      sound: true,
+      leadName: name,
+      toCounselor: requesterName
+    });
+
+    return res.status(201).json({ ok: true, request: serializeLeadCreationRequest(requestDoc) });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to submit lead creation request", details: error.message });
+  }
+});
+
+app.patch("/api/lead-creation-requests/:requestId/decision", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, "admin");
+    if (!session) return;
+
+    const requestId = String(req.params.requestId || "").trim();
+    const decision = normalizeClaimDecision(req.body?.decision);
+    const note = String(req.body?.note || "").trim();
+    if (!requestId || !decision) {
+      return res.status(400).json({ message: "Request and decision are required." });
+    }
+
+    const existingRequest = await leadCreationRequestsCollection.findOne({ id: requestId });
+    if (!existingRequest) {
+      return res.status(404).json({ message: "Lead creation request not found." });
+    }
+
+    const requestDoc = normalizeLeadCreationRequestDoc(existingRequest);
+    if (requestDoc.status !== "pending") {
+      return res.status(409).json({ message: "This lead creation request has already been closed." });
+    }
+
+    const now = new Date().toISOString();
+    const updates = {
+      status: decision,
+      decidedAt: now,
+      decidedBy: session.name || session.email || session.role,
+      updatedAt: now,
+      ...(decision === "rejected" ? { rejectionReason: note || null } : {})
+    };
+
+    let newLead = null;
+    if (decision === "approved") {
+      const nextId = await getNextMetaLeadId();
+      const leadDraft = buildApprovedLeadFromCreationRequest({ ...requestDoc, ...updates }, nextId, now);
+      const state = await getStateDoc();
+      const duplicateLead = findLeadCreationDuplicate(state.leads, leadDraft);
+      if (duplicateLead) {
+        return res.status(409).json({
+          message: "A matching lead already exists in this calling section.",
+          leadId: duplicateLead.id || null
+        });
+      }
+
+      await withMongoRetry(
+        () => leadsCollection.insertOne(leadDraft),
+        { retries: 1, label: "Create approved lead request" }
+      );
+      await recordActivity({
+        leadId: leadDraft.id,
+        leadName: leadDraft.name,
+        counselorName: leadDraft.counselor || "",
+        activityType: "Lead Created",
+        actionDescription: `Lead created after admin approval for ${getLeadCreationTargetLabel(requestDoc)}`,
+        newValue: `Name: ${leadDraft.name}, Phone: ${leadDraft.phone}, Email: ${leadDraft.email}`,
+        session
+      });
+      if (leadDraft.counselor && leadDraft.counselor.toLowerCase() !== "unassigned") {
+        await recordActivity({
+          leadId: leadDraft.id,
+          leadName: leadDraft.name,
+          counselorName: leadDraft.counselor,
+          activityType: "Lead Assigned",
+          actionDescription: `Lead initially assigned to requester ${leadDraft.counselor}`,
+          newValue: leadDraft.counselor,
+          session
+        });
+      }
+      updates.requestedLeadId = String(leadDraft.id);
+      newLead = leadDraft;
+      await touchStateUpdatedAt(now);
+    }
+
+    await leadCreationRequestsCollection.updateOne(
+      { id: requestId },
+      { $set: updates }
+    );
+
+    await createNotification({
+      userId: requestDoc.requesterEmail,
+      role: "counselor",
+      type: decision === "approved" ? "lead_creation_approved" : "lead_creation_rejected",
+      title: decision === "approved" ? "Lead Request Approved" : "Lead Request Rejected",
+      message: decision === "approved"
+        ? `Your lead creation request for ${requestDoc.name} was approved.`
+        : `Your lead creation request for ${requestDoc.name} was rejected.`,
+      sound: true,
+      leadId: newLead?.id || null,
+      leadName: requestDoc.name,
+      assignedCounselor: requestDoc.requesterName
+    });
+
+    const response = {
+      ok: true,
+      request: serializeLeadCreationRequest({ ...requestDoc, ...updates })
+    };
+    if (newLead) {
+      const nextState = await refreshStateAfterAtomicUpdate();
+      res.setHeader("ETag", buildStateEtag(nextState));
+      response.state = buildStateResponse(nextState);
+      response.lead = newLead;
+    }
+
+    return res.json(response);
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to update lead creation request", details: error.message });
+  }
+});
 
 app.get("/api/lead-claims", async (req, res) => {
   try {
