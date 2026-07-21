@@ -774,9 +774,11 @@ test("ReachOut is simplified to synced WhatsApp number and template sending", ()
   assert.match(reachoutHtml, /syncWhatsappBtn/);
   assert.match(reachoutHtml, /numberSelect/);
   assert.match(reachoutHtml, /templateSelect/);
+  assert.match(reachoutHtml, /mediaUrlInput/);
   assert.doesNotMatch(reachoutHtml, /Add Template|SMS, WhatsApp, and email|MSG91 Template ID|From Email|Email Domain/);
   assert.match(reachout, /syncWhatsapp/);
-  assert.match(reachout, /integratedNumber, templateId, leadIds/);
+  assert.match(reachout, /integratedNumber,\s*templateId,\s*leadIds/);
+  assert.match(reachout, /needsMediaHeader/);
   assert.doesNotMatch(reachout, /blankTemplate|data-remove-template|New SMS Template|New Email Template/);
 });
 
@@ -804,6 +806,8 @@ test("ReachOut WhatsApp payload uses MSG91 component value shape for media and U
   assert.match(server, /return \{ subtype: schemaSubtype \|\| "url", type: "text", value: componentValue \}/);
   assert.match(server, /return \{ type: "text", value: componentValue \}/);
   assert.match(server, /Template \$\{templateName\} needs a public HTTPS media URL/);
+  assert.match(server, /mediaUrl = ""/);
+  assert.match(server, /variables\.mediaUrl/);
   assert.match(server, /Template \$\{templateName\} needs a valid HTTPS button URL/);
   assert.match(server, /namespace: normalizeMsg91TemplateNamespace\(template\)/);
 });
@@ -812,6 +816,7 @@ test("ReachOut sync stores generic component schema for current and future Whats
   const server = read("server.js");
 
   assert.match(server, /function normalizeTemplateComponentSchema/);
+  assert.match(server, /const isMediaHeader = .*header_\\d\+\$/);
   assert.match(server, /value\.image\?\.link/);
   assert.match(server, /explicitType: Boolean\(rawType\)/);
   assert.match(server, /example: existing\.example \|\| next\.example/);

@@ -25,6 +25,8 @@ const locationFilter = document.getElementById("locationFilter");
 const counselorFilter = document.getElementById("counselorFilter");
 const templateSelect = document.getElementById("templateSelect");
 const templateVariablePreview = document.getElementById("templateVariablePreview");
+const mediaUrlField = document.getElementById("mediaUrlField");
+const mediaUrlInput = document.getElementById("mediaUrlInput");
 const selectFilteredBtn = document.getElementById("selectFilteredBtn");
 const clearSelectionBtn = document.getElementById("clearSelectionBtn");
 const sendBtn = document.getElementById("sendBtn");
@@ -118,9 +120,15 @@ function renderTemplateSelect() {
 
 function renderTemplatePreview() {
   const template = (config?.templates || []).find((item) => String(item.id) === templateSelect.value);
+  const needsMediaHeader = (template?.componentSchema || []).some((component) => (
+    /^header_\d+$/i.test(String(component?.key || ""))
+    && ["image", "video", "document"].includes(String(component?.type || "").toLowerCase())
+  ));
   templateVariablePreview.value = template?.variableMappings
     ? template.variableMappings.replace(/\s*\n\s*/g, ", ")
     : "No variables";
+  mediaUrlField.hidden = !needsMediaHeader;
+  if (!needsMediaHeader) mediaUrlInput.value = "";
 }
 
 function filterLeadList() {
@@ -224,6 +232,10 @@ async function sendSelected() {
     showMessage(sendMessage, "Select a WhatsApp number, template, and at least one lead.", true);
     return;
   }
+  if (!mediaUrlField.hidden && !/^https:\/\//i.test(mediaUrlInput.value.trim())) {
+    showMessage(sendMessage, "This template needs a public HTTPS header media URL before sending.", true);
+    return;
+  }
   sendBtn.disabled = true;
   showMessage(sendMessage, "Sending...");
   try {
@@ -231,7 +243,12 @@ async function sendSelected() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
-      body: JSON.stringify({ integratedNumber, templateId, leadIds: [...selectedLeadIds] })
+      body: JSON.stringify({
+        integratedNumber,
+        templateId,
+        leadIds: [...selectedLeadIds],
+        mediaUrl: mediaUrlField.hidden ? "" : mediaUrlInput.value.trim()
+      })
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json.message || json.details || `HTTP ${res.status}`);

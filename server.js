@@ -1442,7 +1442,8 @@ function inferWhatsAppVariableMappings(template = {}, componentSchema = null) {
   if (schema.length) {
     return schema.map((component, index) => {
       const example = String(component.example || "").trim();
-      const value = example && /^https?:\/\//i.test(example)
+      const isMediaHeader = /^header_\d+$/i.test(component.key) && ["image", "video", "document"].includes(String(component.type || "").toLowerCase());
+      const value = !isMediaHeader && example && /^https?:\/\//i.test(example)
         ? example
         : inferLeadFieldForComponent(component.key, index);
       return `${component.key}=${value}`;
@@ -1567,7 +1568,7 @@ function normalizeMsg91Phone(phone, countryCode = "91") {
   return digits;
 }
 
-function getLeadReachoutVariables(lead = {}, session = null) {
+function getLeadReachoutVariables(lead = {}, session = null, extras = {}) {
   return {
     id: lead.id,
     name: lead.name || "",
@@ -1579,7 +1580,7 @@ function getLeadReachoutVariables(lead = {}, session = null) {
     counselor: lead.counselor || "",
     course: lead.course || lead.registeredCourse || lead.mainAdmissionCourse || "",
     leadPipeline: lead.leadPipeline || "workshop",
-    mediaUrl: "",
+    mediaUrl: String(extras.mediaUrl || "").trim(),
     buttonUrl: "https://go.dvanalyticsmds.com/dva01",
     senderName: session?.name || session?.email || session?.role || "CRM"
   };
@@ -1675,9 +1676,15 @@ function ensureSchemaComponentsInMappings(mappedVariables = {}, componentSchema 
   const next = { ...mappedVariables };
   (Array.isArray(componentSchema) ? componentSchema : []).forEach((component, index) => {
     const key = String(component?.key || "").trim().toLowerCase();
-    if (!/^(header|body|button)_\d+$/.test(key) || Object.prototype.hasOwnProperty.call(next, key)) {
+    if (!/^(header|body|button)_\d+$/.test(key)) {
       return;
     }
+    const isMediaHeader = /^header_\d+$/.test(key) && ["image", "video", "document"].includes(String(component?.type || "").toLowerCase());
+    if (isMediaHeader) {
+      next[key] = String(variables.mediaUrl || "").trim();
+      return;
+    }
+    if (Object.prototype.hasOwnProperty.call(next, key)) return;
     const example = String(component.example || "").trim();
     const fallbackField = inferLeadFieldForComponent(key, index);
     next[key] = example || variables[fallbackField] || "";
@@ -1690,9 +1697,9 @@ function buildReachoutEndpoint(channel) {
   return "";
 }
 
-function buildReachoutPayload({ template, lead, config, session, integratedNumber = "" }) {
+function buildReachoutPayload({ template, lead, config, session, integratedNumber = "", mediaUrl = "" }) {
   const channel = String(template.channel || "").trim().toLowerCase();
-  const variables = getLeadReachoutVariables(lead, session);
+  const variables = getLeadReachoutVariables(lead, session, { mediaUrl });
   const mappedVariables = ensureSchemaComponentsInMappings(
     parseVariableMappings(template.variableMappings, variables),
     template.componentSchema,
@@ -4308,6 +4315,7 @@ app.post("/api/reachout/send", async (req, res) => {
 
     const templateId = String(req.body?.templateId || "").trim();
     const integratedNumber = String(req.body?.integratedNumber || "").replace(/\D/g, "");
+    const mediaUrl = String(req.body?.mediaUrl || "").trim();
     const leadIds = Array.isArray(req.body?.leadIds) ? req.body.leadIds.map((id) => String(id).trim()).filter(Boolean) : [];
     const template = (Array.isArray(config.templates) ? config.templates : []).find((item) => String(item.id) === templateId);
     if (!template || template.enabled === false) {
@@ -4340,7 +4348,7 @@ app.post("/api/reachout/send", async (req, res) => {
     for (const lead of leads.slice(0, 250)) {
       let requestPayload = null;
       try {
-        requestPayload = buildReachoutPayload({ template, lead, config, session, integratedNumber });
+        requestPayload = buildReachoutPayload({ template, lead, config, session, integratedNumber, mediaUrl });
         const response = await fetch(endpoint, {
           method: "POST",
           headers: {
