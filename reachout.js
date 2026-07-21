@@ -235,8 +235,13 @@ async function sendSelected() {
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json.message || json.details || `HTTP ${res.status}`);
-    sendSummary.textContent = `${json.sent || 0} / ${json.failed || 0}`;
-    showMessage(sendMessage, `Attempted ${json.attempted}; sent ${json.sent}, failed ${json.failed}.`, Number(json.failed) > 0);
+    const submitted = json.submitted ?? json.sent ?? 0;
+    sendSummary.textContent = `${submitted} / ${json.failed || 0}`;
+    showMessage(
+      sendMessage,
+      `Submitted ${submitted} of ${json.attempted || 0} to MSG91. Check MSG91 delivery logs for delivered/failed status.`,
+      Number(json.failed) > 0
+    );
     await loadLogs();
   } catch (error) {
     showMessage(sendMessage, `Send failed: ${error.message}`, true);
@@ -283,7 +288,7 @@ async function loadLogs() {
   logsTableBody.innerHTML = logs.length ? logs.map((log) => `
     <tr>
       <td>${escapeHtml(formatTime(log.sentAt))}</td>
-      <td><span class="log-type log-type--${log.type === "success" ? "success" : "error"}">${escapeHtml(log.type)}</span></td>
+      <td><span class="log-type log-type--${log.type === "error" ? "error" : "success"}">${escapeHtml(log.type === "error" ? "Failed" : "Submitted")}</span></td>
       <td>${escapeHtml(String(log.channel || "").toUpperCase())}</td>
       <td>${escapeHtml(log.templateName || "-")}</td>
       <td>${escapeHtml(log.leadName || log.leadId || "-")}</td>

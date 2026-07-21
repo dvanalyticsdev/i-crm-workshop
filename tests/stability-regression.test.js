@@ -779,3 +779,18 @@ test("ReachOut is simplified to synced WhatsApp number and template sending", ()
   assert.match(reachout, /integratedNumber, templateId, leadIds/);
   assert.doesNotMatch(reachout, /blankTemplate|data-remove-template|New SMS Template|New Email Template/);
 });
+
+test("ReachOut labels MSG91 accepted WhatsApp API calls as submitted, not delivered", () => {
+  const server = read("server.js");
+  const reachoutHtml = read("reachout.html");
+  const reachout = read("reachout.js");
+
+  assert.match(server, /type: "submitted"/);
+  assert.match(server, /submitted: results\.filter\(\(item\) => item\.ok\)\.length/);
+  assert.match(server, /submitted to MSG91/);
+  assert.match(server, /doc\?\.logSummary\?\.submitted \?\? doc\?\.logSummary\?\.success/);
+  assert.match(reachoutHtml, /Submitted \/ Failed/);
+  assert.match(reachoutHtml, /Final delivery status remains in MSG91 delivery logs/);
+  assert.match(reachout, /Submitted \$\{submitted\} of \$\{json\.attempted \|\| 0\} to MSG91/);
+  assert.match(reachout, /log\.type === "error" \? "Failed" : "Submitted"/);
+});

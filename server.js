@@ -1151,6 +1151,7 @@ async function getReachoutConfig() {
     whatsappNumbers,
     defaultCountryCode: String(doc?.defaultCountryCode || "91").trim() || "91",
     logSummary: {
+      submitted: Number(doc?.logSummary?.submitted ?? doc?.logSummary?.success) || 0,
       success: Number(doc?.logSummary?.success) || 0,
       error: Number(doc?.logSummary?.error) || 0
     }
@@ -1169,6 +1170,7 @@ function publicReachoutConfig(config) {
       channel: String(template.channel || "").trim().toLowerCase()
     })),
     logSummary: {
+      submitted: Number(config.logSummary?.submitted ?? config.logSummary?.success) || 0,
       success: Number(config.logSummary?.success) || 0,
       error: Number(config.logSummary?.error) || 0
     }
@@ -1505,7 +1507,8 @@ function buildReachoutPayload({ template, lead, config, session, integratedNumbe
 }
 
 async function saveReachoutLog(entry) {
-  const type = String(entry?.type || "error").trim().toLowerCase() === "success" ? "success" : "error";
+  const rawType = String(entry?.type || "error").trim().toLowerCase();
+  const type = rawType === "submitted" || rawType === "success" ? "submitted" : "error";
   const log = { ...entry, type, sentAt: new Date().toISOString() };
   await withMongoRetry(() => reachoutLogsCollection.insertOne(log), { retries: 1, label: "Write ReachOut log" });
   await withMongoRetry(
@@ -4126,7 +4129,7 @@ app.post("/api/reachout/send", async (req, res) => {
         }
 
         await saveReachoutLog({
-          type: "success",
+          type: "submitted",
           channel,
           templateId: template.id,
           templateName: template.name,
@@ -4142,8 +4145,8 @@ app.post("/api/reachout/send", async (req, res) => {
           leadName: lead.name,
           counselorName: lead.counselor || "",
           activityType: "ReachOut Message",
-          actionDescription: `ReachOut ${channel.toUpperCase()} sent using ${template.name}.`,
-          newValue: channel === "email" ? lead.email : lead.phone,
+          actionDescription: `ReachOut ${channel.toUpperCase()} submitted to MSG91 using ${template.name}.`,
+          newValue: lead.phone,
           session
         });
         results.push({ leadId: lead.id, ok: true });
@@ -4175,7 +4178,7 @@ app.post("/api/reachout/send", async (req, res) => {
     return res.json({
       ok: true,
       attempted: results.length,
-      sent: results.filter((item) => item.ok).length,
+      submitted: results.filter((item) => item.ok).length,
       failed: results.filter((item) => !item.ok).length,
       results
     });
