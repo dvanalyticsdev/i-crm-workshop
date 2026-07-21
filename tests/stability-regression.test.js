@@ -800,9 +800,11 @@ test("ReachOut WhatsApp payload uses MSG91 component value shape for media and U
 
   assert.match(server, /messaging_product: "whatsapp"/);
   assert.match(server, /\.\.\.\(template\.namespace \? \{ namespace: template\.namespace \} : \{\}\)/);
-  assert.match(server, /components\[componentKey\] = \{ type: "image", value: componentValue \}/);
-  assert.match(server, /components\[componentKey\] = \{ subtype: "url", type: "text", value: componentValue \}/);
-  assert.match(server, /components\[componentKey\] = \{ type: "text", value: componentValue \}/);
+  assert.match(server, /return \{ type: schemaType, value: componentValue \}/);
+  assert.match(server, /return \{ subtype: schemaSubtype \|\| "url", type: "text", value: componentValue \}/);
+  assert.match(server, /return \{ type: "text", value: componentValue \}/);
+  assert.match(server, /Template \$\{templateName\} needs a public HTTPS media URL/);
+  assert.match(server, /Template \$\{templateName\} needs a valid HTTPS button URL/);
   assert.match(server, /namespace: normalizeMsg91TemplateNamespace\(template\)/);
 });
 
@@ -810,6 +812,9 @@ test("ReachOut sync stores generic component schema for current and future Whats
   const server = read("server.js");
 
   assert.match(server, /function normalizeTemplateComponentSchema/);
+  assert.match(server, /value\.image\?\.link/);
+  assert.match(server, /explicitType: Boolean\(rawType\)/);
+  assert.match(server, /example: existing\.example \|\| next\.example/);
   assert.match(server, /componentSchema,\s*variableMappings: inferWhatsAppVariableMappings\(template, componentSchema\)/);
   assert.match(server, /componentSchema: Array\.isArray\(template\.componentSchema\)/);
   assert.match(server, /ensureSchemaComponentsInMappings/);

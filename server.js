@@ -1327,13 +1327,38 @@ function normalizeTemplateComponentSchema(template = {}) {
   const schema = new Map();
   const addComponent = (component = {}) => {
     const key = String(component.key || "").trim().toLowerCase();
-    if (!/^(header|body|button)_\d+$/.test(key) || schema.has(key)) return;
-    schema.set(key, {
+    if (!/^(header|body|button)_\d+$/.test(key)) return;
+    const next = {
       key,
       type: normalizeWhatsAppComponentType(component.type, /^header/i.test(key) ? "image" : "text"),
       subtype: String(component.subtype || "").trim().toLowerCase(),
-      example: String(component.example || "").trim()
-    });
+      example: String(component.example || "").trim(),
+      explicitType: Boolean(component.explicitType)
+    };
+    const existing = schema.get(key);
+    if (existing) {
+      schema.set(key, {
+        ...existing,
+        type: next.explicitType ? next.type : (existing.type === "text" && next.type !== "text" ? next.type : existing.type),
+        subtype: existing.subtype || next.subtype,
+        example: existing.example || next.example
+      });
+      return;
+    }
+    schema.set(key, next);
+  };
+  const getComponentExample = (value = {}) => {
+    if (!value || typeof value !== "object") return "";
+    return String(
+      value.value
+      || value.text
+      || value.url
+      || value.link
+      || value.image?.link
+      || value.video?.link
+      || value.document?.link
+      || ""
+    ).trim();
   };
 
   const text = JSON.stringify(template || {});
@@ -1346,6 +1371,24 @@ function normalizeTemplateComponentSchema(template = {}) {
     type: /^header/i.test(key) ? "image" : "text",
     subtype: /^button/i.test(key) ? "url" : ""
   }));
+
+  collectObjectsDeep(template, (item) => {
+    Object.entries(item || {}).forEach(([rawKey, rawValue]) => {
+      const match = String(rawKey || "").match(/^(header|body|button)[_-]?(\d+)$/i);
+      if (!match || !rawValue || typeof rawValue !== "object") return;
+      const key = `${match[1].toLowerCase()}_${match[2]}`;
+      const rawType = String(rawValue.type || rawValue.format || rawValue.header_type || "").trim().toLowerCase();
+      const subtype = String(rawValue.subtype || rawValue.sub_type || "").trim().toLowerCase();
+      addComponent({
+        key,
+        type: normalizeWhatsAppComponentType(rawType, /^header/i.test(key) ? "image" : "text"),
+        explicitType: Boolean(rawType),
+        subtype: /^button/i.test(key) ? (subtype || "url") : subtype,
+        example: getComponentExample(rawValue)
+      });
+    });
+    return false;
+  });
 
   const componentObjects = collectObjectsDeep(template, (item) => {
     const type = String(item.type || item.component_type || item.componentType || "").trim().toLowerCase();
@@ -1367,7 +1410,7 @@ function normalizeTemplateComponentSchema(template = {}) {
       const format = normalizeWhatsAppComponentType(component.format || component.header_type, "image");
       const count = Math.max((String(component.text || "").match(/\{\{\s*\d+\s*\}\}/g) || []).length, exampleValues.length, 1);
       for (let index = 1; index <= count; index += 1) {
-        addComponent({ key: `header_${index}`, type: format, example: exampleValues[index - 1] || "" });
+        addComponent({ key: `header_${index}`, type: format, explicitType: true, example: exampleValues[index - 1] || "" });
       }
     }
 
@@ -1375,7 +1418,7 @@ function normalizeTemplateComponentSchema(template = {}) {
       const parameters = Array.isArray(component.parameters) ? component.parameters : [];
       const count = Math.max((String(component.text || "").match(/\{\{\s*\d+\s*\}\}/g) || []).length, exampleValues.length, parameters.length);
       for (let index = 1; index <= count; index += 1) {
-        addComponent({ key: `body_${index}`, type: "text", example: exampleValues[index - 1] || parameters[index - 1]?.value || "" });
+        addComponent({ key: `body_${index}`, type: "text", explicitType: true, example: exampleValues[index - 1] || parameters[index - 1]?.value || "" });
       }
     }
 
@@ -1384,11 +1427,14 @@ function normalizeTemplateComponentSchema(template = {}) {
       const subtype = String(button.sub_type || button.subtype || button.type || component.sub_type || component.subtype || "").trim().toLowerCase();
       const url = String(button.url || button.example?.[0] || "").trim();
       if (!subtype.includes("url") && !url.includes("{{")) return;
-      addComponent({ key: `button_${index + 1}`, type: "text", subtype: "url", example: url });
+      addComponent({ key: `button_${index + 1}`, type: "text", explicitType: true, subtype: "url", example: url });
     });
   });
 
-  return sortWhatsAppComponentKeys([...schema.keys()]).map((key) => schema.get(key));
+  return sortWhatsAppComponentKeys([...schema.keys()]).map((key) => {
+    const { explicitType, ...component } = schema.get(key);
+    return component;
+  });
 }
 
 function inferWhatsAppVariableMappings(template = {}, componentSchema = null) {
@@ -1567,8 +1613,48 @@ function parseVariableMappings(text, variables) {
   }, {});
 }
 
-function buildWhatsAppComponents(mappedVariables) {
+function cleanWhatsAppComponentValue(value) {
+  return String(value || "").trim().replace(/^\*+|\*+$/g, "");
+}
+
+function assertPublicHttpsUrl(value, message) {
+  if (!/^https:\/\//i.test(String(value || "").trim())) {
+    throw new Error(message);
+  }
+}
+
+function buildWhatsAppComponent(key, value, schemaComponent = null, templateName = "selected template") {
+  const componentKey = String(key || "").trim().toLowerCase();
+  const componentValue = cleanWhatsAppComponentValue(value);
+  const schemaType = normalizeWhatsAppComponentType(schemaComponent?.type, /^header/i.test(componentKey) ? "image" : "text");
+  const schemaSubtype = String(schemaComponent?.subtype || "").trim().toLowerCase();
+  const mediaTypes = new Set(["image", "video", "document"]);
+
+  if (/^header/i.test(componentKey) && mediaTypes.has(schemaType)) {
+    assertPublicHttpsUrl(
+      componentValue,
+      `Template ${templateName} needs a public HTTPS media URL for ${componentKey}. Re-sync the template or set a valid media URL before sending.`
+    );
+    return { type: schemaType, value: componentValue };
+  }
+
+  if (/^button/i.test(componentKey)) {
+    if (schemaSubtype === "url") {
+      assertPublicHttpsUrl(
+        componentValue,
+        `Template ${templateName} needs a valid HTTPS button URL for ${componentKey}.`
+      );
+    }
+    return { subtype: schemaSubtype || "url", type: "text", value: componentValue };
+  }
+
+  return { type: "text", value: componentValue };
+}
+
+function buildWhatsAppComponents(mappedVariables, componentSchema = [], templateName = "selected template") {
   const cleanValue = (value) => String(value || "").trim().replace(/^\*+|\*+$/g, "");
+  const schemaByKey = new Map((Array.isArray(componentSchema) ? componentSchema : [])
+    .map((component) => [String(component?.key || "").trim().toLowerCase(), component]));
   return Object.entries(mappedVariables)
     .filter(([key]) => /^(header|body|button)_\d+$/i.test(key))
     .sort(([left], [right]) => {
@@ -1579,16 +1665,8 @@ function buildWhatsAppComponents(mappedVariables) {
     })
     .reduce((components, [key, value]) => {
       const componentKey = key.toLowerCase();
-      const componentValue = cleanValue(value);
-      if (/^header/i.test(componentKey) && /^https?:\/\//i.test(componentValue)) {
-        components[componentKey] = { type: "image", value: componentValue };
-        return components;
-      }
-      if (/^button/i.test(componentKey)) {
-        components[componentKey] = { subtype: "url", type: "text", value: componentValue };
-        return components;
-      }
-      components[componentKey] = { type: "text", value: componentValue };
+      const schemaComponent = schemaByKey.get(componentKey) || null;
+      components[componentKey] = buildWhatsAppComponent(componentKey, cleanValue(value), schemaComponent, templateName);
       return components;
     }, {});
 }
@@ -1646,7 +1724,7 @@ function buildReachoutPayload({ template, lead, config, session, integratedNumbe
           to_and_components: [
             {
               to: [phone],
-              components: buildWhatsAppComponents(mappedVariables)
+              components: buildWhatsAppComponents(mappedVariables, template.componentSchema, template.templateName || template.name)
             }
           ]
         }
