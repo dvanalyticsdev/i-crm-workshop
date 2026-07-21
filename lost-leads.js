@@ -1,5 +1,5 @@
 import { registerPageCleanup } from "./page-runtime.js";
-import { bootstrapLocalState, getCounselors, getLeads as getStoredLeads, getSession, loadPersistedValue, saveLeads as persistLeads, savePersistedValue, startStatePolling } from "./state-sync.js";
+import { bootstrapLocalState, getCounselors, getLeads as getStoredLeads, getSession, loadLocalPreference, saveLeads as persistLeads, saveLocalPreference, startStatePolling } from "./state-sync.js";
 import { openActivityHistory } from "./activity-history.js";
 
 await bootstrapLocalState();
@@ -12,7 +12,7 @@ const resetLostSearch = document.getElementById("resetLostSearch");
 const session = getSession();
 const SEARCH_STORAGE_KEY = "dvWorkshopLostLeadSearch";
 
-let searchQuery = String(await loadPersistedValue(SEARCH_STORAGE_KEY, "") || "");
+let searchQuery = String(await loadLocalPreference(SEARCH_STORAGE_KEY, "") || "");
 
 if (lostSearchInput) {
   lostSearchInput.value = searchQuery;
@@ -38,7 +38,7 @@ function getCounselorIdentity() {
 }
 
 function persistSearchQuery() {
-  void savePersistedValue(SEARCH_STORAGE_KEY, searchQuery);
+  void saveLocalPreference(SEARCH_STORAGE_KEY, searchQuery);
 }
 
 function escapeHtml(value) {

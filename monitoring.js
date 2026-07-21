@@ -4,8 +4,8 @@ import {
   getCounselors,
   getLeads as getStoredLeads,
   getSession,
-  loadPersistedValue,
-  savePersistedValue,
+  loadLocalPreference,
+  saveLocalPreference,
   startStatePolling
 } from "./state-sync.js";
 
@@ -107,12 +107,12 @@ let activeView = {
 
 timelineFilter = {
   ...timelineFilter,
-  ...await loadPersistedValue(TIMELINE_STORAGE_KEY, {})
+  ...await loadLocalPreference(TIMELINE_STORAGE_KEY, {})
 };
 
 activeView = {
   ...activeView,
-  ...await loadPersistedValue(VIEW_STORAGE_KEY, {})
+  ...await loadLocalPreference(VIEW_STORAGE_KEY, {})
 };
 
 function escapeHtml(value) {
@@ -172,11 +172,11 @@ function getCounselorIdentity() {
 }
 
 function persistTimelineFilter() {
-  void savePersistedValue(TIMELINE_STORAGE_KEY, timelineFilter);
+  void saveLocalPreference(TIMELINE_STORAGE_KEY, timelineFilter);
 }
 
 function persistActiveView() {
-  void savePersistedValue(VIEW_STORAGE_KEY, activeView);
+  void saveLocalPreference(VIEW_STORAGE_KEY, activeView);
 }
 
 function setExportMessage(text, isError = true) {

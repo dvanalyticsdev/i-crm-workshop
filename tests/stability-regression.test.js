@@ -362,6 +362,32 @@ test("system update notice is a non-blocking header pill until clicked", () => {
   assert.match(styles, /\.update-modal-overlay/);
 });
 
+test("screen filters are browser-local and not shared through server preferences", () => {
+  const stateSync = read("state-sync.js");
+  const localPreferencePages = [
+    "dashboard.js",
+    "lost-leads.js",
+    "monitoring.js",
+    "pre-workshop.js",
+    "post-workshop.js",
+    "registered-candidates.js",
+    "main-admission-leads.js"
+  ];
+
+  assert.match(stateSync, /export async function loadLocalPreference/);
+  assert.match(stateSync, /export async function saveLocalPreference/);
+  assert.match(stateSync, /window\.localStorage\.getItem\(`dvLocalPreference:\$\{scope\}`\)/);
+  assert.match(stateSync, /window\.localStorage\.setItem\(`dvLocalPreference:\$\{scope\}`/);
+
+  localPreferencePages.forEach((file) => {
+    const source = read(file);
+    assert.match(source, /loadLocalPreference/);
+    assert.match(source, /saveLocalPreference/);
+    assert.doesNotMatch(source, /loadPersistedValue/);
+    assert.doesNotMatch(source, /savePersistedValue/);
+  });
+});
+
 test("workshop and admission filters support multiple selected values", () => {
   const preWorkshop = read("pre-workshop.js");
   const postWorkshop = read("post-workshop.js");

@@ -1,6 +1,6 @@
 import { registerPageCleanup } from "./page-runtime.js";
 import { onThemeChange, readThemePalette } from "./theme.js";
-import { bootstrapLocalState, getLeads as getStoredLeads, getSession, loadPersistedValue, savePersistedValue, startStatePolling } from "./state-sync.js";
+import { bootstrapLocalState, getLeads as getStoredLeads, getSession, loadLocalPreference, saveLocalPreference, startStatePolling } from "./state-sync.js";
 
 await bootstrapLocalState();
 
@@ -60,7 +60,7 @@ const MONTH_LOOKUP = {
 
 const persistedTimelineState = {
   ...DEFAULT_TIMELINE_STATE,
-  ...await loadPersistedValue(TIMELINE_STORAGE_KEY, {})
+  ...await loadLocalPreference(TIMELINE_STORAGE_KEY, {})
 };
 
 timelinePreset.value = persistedTimelineState.preset || DEFAULT_TIMELINE_STATE.preset;
@@ -69,7 +69,7 @@ endDateInput.value = persistedTimelineState.endDate || "";
 customRangeFields.classList.toggle("hidden", timelinePreset.value !== "custom");
 
 function persistTimelineState() {
-  void savePersistedValue(TIMELINE_STORAGE_KEY, {
+  void saveLocalPreference(TIMELINE_STORAGE_KEY, {
     preset: timelinePreset.value,
     startDate: startDateInput.value,
     endDate: endDateInput.value

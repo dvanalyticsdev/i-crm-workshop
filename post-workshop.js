@@ -6,8 +6,8 @@ import {
   getCounselors as getStoredCounselors,
   getLeads as getStoredLeads,
   getSession,
-  loadPersistedValue,
-  savePersistedValue,
+  loadLocalPreference,
+  saveLocalPreference,
   startStatePolling
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY } from "./task-service.js";
@@ -363,7 +363,7 @@ const DEFAULT_FILTER = {
 };
 
 const FILTER_STORAGE_KEY = "dvWorkshopAdmissionCallingFilters";
-const persistedFilter = await loadPersistedValue(FILTER_STORAGE_KEY, {});
+const persistedFilter = await loadLocalPreference(FILTER_STORAGE_KEY, {});
 
 if (persistedFilter.workshopCalling && !persistedFilter.workshopCallingWsStatus) {
   persistedFilter.workshopCallingWsStatus = persistedFilter.workshopCalling;
@@ -412,7 +412,7 @@ function setMessage(text, isError = true) {
 }
 
 function persistFilterState() {
-  void savePersistedValue(FILTER_STORAGE_KEY, filter);
+  void saveLocalPreference(FILTER_STORAGE_KEY, filter);
 }
 
 function parseDateKey(dateKey) {

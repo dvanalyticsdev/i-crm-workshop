@@ -446,6 +446,39 @@ export async function savePersistedValue(key, value) {
   return { ok: true, value: payload?.value ?? value };
 }
 
+export async function loadLocalPreference(key, fallback) {
+  const scope = String(key || "").trim();
+  if (!scope || typeof window === "undefined" || !window.localStorage) {
+    return cloneValue(fallback);
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(`dvLocalPreference:${scope}`);
+    if (rawValue == null) {
+      return cloneValue(fallback);
+    }
+    return JSON.parse(rawValue);
+  } catch (error) {
+    console.warn("Failed to load local preference:", error);
+    return cloneValue(fallback);
+  }
+}
+
+export async function saveLocalPreference(key, value) {
+  const scope = String(key || "").trim();
+  if (!scope || typeof window === "undefined" || !window.localStorage) {
+    return { ok: false, message: "Local preference scope is required." };
+  }
+
+  try {
+    window.localStorage.setItem(`dvLocalPreference:${scope}`, JSON.stringify(value));
+    return { ok: true, value };
+  } catch (error) {
+    console.warn("Failed to save local preference:", error);
+    return { ok: false, message: "Failed to save local preference." };
+  }
+}
+
 export async function saveLeads(leads) {
   return updateStateFields({ leads });
 }

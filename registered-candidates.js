@@ -7,9 +7,9 @@ import {
   getCounselors as getStoredCounselors,
   getLeads as getStoredLeads,
   getSession,
-  loadPersistedValue,
+  loadLocalPreference,
   saveLeads as persistLeads,
-  savePersistedValue,
+  saveLocalPreference,
   startStatePolling,
   syncStateFromLocalAndVerify
 } from "./state-sync.js";
@@ -82,7 +82,7 @@ const DEFAULT_FILTER = {
   activityStatus: ""
 };
 
-const persistedFilter = await loadPersistedValue(FILTER_STORAGE_KEY, {});
+const persistedFilter = await loadLocalPreference(FILTER_STORAGE_KEY, {});
 if (persistedFilter.timeline === "daily") {
   persistedFilter.timeline = "today";
 }
@@ -100,7 +100,7 @@ let registeredActivityModalMode = "edit";
 let activeSegment = normalizeSegment(window.location.hash.replace(/^#/, "")) || DEFAULT_SEGMENT;
 
 function persistFilters() {
-  void savePersistedValue(FILTER_STORAGE_KEY, filter);
+  void saveLocalPreference(FILTER_STORAGE_KEY, filter);
 }
 
 function escapeHtml(value) {

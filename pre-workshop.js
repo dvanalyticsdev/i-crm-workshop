@@ -8,10 +8,10 @@ import {
   getCounselors as getStoredCounselors,
   getLeads as getStoredLeads,
   getSession,
-  loadPersistedValue,
+  loadLocalPreference,
   replaceStateSnapshot,
   saveAllocation as persistAllocation,
-  savePersistedValue,
+  saveLocalPreference,
   startStatePolling,
   syncStateFromLocalAndVerify
 } from "./state-sync.js";
@@ -771,7 +771,7 @@ const DEFAULT_FILTER = {
 };
 
 const FILTER_STORAGE_KEY = "dvWorkshopWorkshopCallingFilters";
-const persistedFilter = await loadPersistedValue(FILTER_STORAGE_KEY, {});
+const persistedFilter = await loadLocalPreference(FILTER_STORAGE_KEY, {});
 
 Object.keys(DEFAULT_FILTER).forEach((key) => {
   if (persistedFilter[key] === "All" || persistedFilter[key] === "Select" || persistedFilter[key] === EMPTY_FILTER_LABEL) {
@@ -900,7 +900,7 @@ function getLeadImportSourceFiles(lead) {
 }
 
 function persistFilterState() {
-  void savePersistedValue(FILTER_STORAGE_KEY, filter);
+  void saveLocalPreference(FILTER_STORAGE_KEY, filter);
 }
 
 function normalizeFilterState(leads) {
