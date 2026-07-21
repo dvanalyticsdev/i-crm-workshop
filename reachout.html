@@ -89,7 +89,14 @@
             </div>
             <div id="mediaUrlField" class="filter-item" hidden>
               <label for="mediaUrlInput">Header Media URL</label>
-              <input id="mediaUrlInput" type="url" placeholder="https://..." />
+              <div class="input-btn-row">
+                <input id="mediaUrlInput" type="url" placeholder="https://..." />
+                <button id="saveMediaUrlBtn" type="button" class="btn-secondary">Save</button>
+              </div>
+              <div class="input-btn-row">
+                <input id="mediaFileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+                <button id="uploadMediaBtn" type="button" class="btn-secondary">Upload</button>
+              </div>
             </div>
           </div>
         </section>

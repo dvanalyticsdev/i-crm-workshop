@@ -27,6 +27,9 @@ const templateSelect = document.getElementById("templateSelect");
 const templateVariablePreview = document.getElementById("templateVariablePreview");
 const mediaUrlField = document.getElementById("mediaUrlField");
 const mediaUrlInput = document.getElementById("mediaUrlInput");
+const saveMediaUrlBtn = document.getElementById("saveMediaUrlBtn");
+const mediaFileInput = document.getElementById("mediaFileInput");
+const uploadMediaBtn = document.getElementById("uploadMediaBtn");
 const selectFilteredBtn = document.getElementById("selectFilteredBtn");
 const clearSelectionBtn = document.getElementById("clearSelectionBtn");
 const sendBtn = document.getElementById("sendBtn");
@@ -79,7 +82,13 @@ function renderSelect(select, values, current = "") {
   )).join("")}`;
 }
 
-function applyConfig(nextConfig) {
+function optionExists(select, value) {
+  return [...select.options].some((option) => option.value === value);
+}
+
+function applyConfig(nextConfig, preferred = {}) {
+  const preferredNumber = preferred.numberValue ?? numberSelect.value;
+  const preferredTemplateId = preferred.templateId ?? templateSelect.value;
   config = nextConfig;
   enabledToggle.checked = config.enabled !== false;
   countryCodeInput.value = config.defaultCountryCode || "91";
@@ -87,7 +96,10 @@ function applyConfig(nextConfig) {
   authKeyStatus.className = `cred-status ${config.authKeySet ? "cred-status--ok" : "cred-status--err"}`;
   authKeyInput.value = "";
   renderNumberSelect();
-  renderTemplateSelect();
+  if (preferredNumber && optionExists(numberSelect, preferredNumber)) {
+    numberSelect.value = preferredNumber;
+  }
+  renderTemplateSelect(preferredTemplateId);
 }
 
 async function loadConfig() {
@@ -107,7 +119,7 @@ function renderNumberSelect() {
     : `<option value="">Sync WhatsApp numbers</option>`;
 }
 
-function renderTemplateSelect() {
+function renderTemplateSelect(preferredTemplateId = templateSelect.value) {
   const selectedNumber = numberSelect.value;
   const templates = (config?.templates || [])
     .filter((template) => template.enabled !== false)
@@ -115,6 +127,9 @@ function renderTemplateSelect() {
   templateSelect.innerHTML = templates.length
     ? templates.map((template) => `<option value="${escapeHtml(template.id)}">${escapeHtml(template.name || template.templateName)}</option>`).join("")
     : `<option value="">Sync approved templates</option>`;
+  if (preferredTemplateId && optionExists(templateSelect, preferredTemplateId)) {
+    templateSelect.value = preferredTemplateId;
+  }
   renderTemplatePreview();
 }
 
@@ -128,7 +143,10 @@ function renderTemplatePreview() {
     ? template.variableMappings.replace(/\s*\n\s*/g, ", ")
     : "No variables";
   mediaUrlField.hidden = !needsMediaHeader;
-  if (!needsMediaHeader) mediaUrlInput.value = "";
+  mediaUrlInput.value = needsMediaHeader ? (template.defaultHeaderMediaUrl || "") : "";
+  saveMediaUrlBtn.disabled = !needsMediaHeader;
+  uploadMediaBtn.disabled = !needsMediaHeader;
+  if (!needsMediaHeader) mediaFileInput.value = "";
 }
 
 function filterLeadList() {
@@ -222,6 +240,106 @@ async function saveConfig() {
     showMessage(configMessage, `Save failed: ${error.message}`, true);
   } finally {
     saveConfigBtn.disabled = false;
+  }
+}
+
+async function saveTemplateMediaUrl() {
+  const templateId = templateSelect.value;
+  const mediaUrl = mediaUrlInput.value.trim();
+  if (!templateId || mediaUrlField.hidden) {
+    showMessage(sendMessage, "Select a media-header template first.", true);
+    return;
+  }
+  if (!/^https:\/\//i.test(mediaUrl)) {
+    showMessage(sendMessage, "Enter a public HTTPS media URL before saving.", true);
+    return;
+  }
+
+  saveMediaUrlBtn.disabled = true;
+  showMessage(sendMessage, "Saving media URL...");
+  try {
+    const updatedTemplates = (config.templates || []).map((template) => (
+      String(template.id) === templateId
+        ? { ...template, defaultHeaderMediaUrl: mediaUrl }
+        : template
+    ));
+    const payload = {
+      enabled: enabledToggle.checked,
+      defaultCountryCode: countryCodeInput.value.trim(),
+      whatsappNumbers: config.whatsappNumbers || [],
+      templates: updatedTemplates
+    };
+    const res = await fetch(apiUrl("/api/reachout/config"), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(payload)
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message || `HTTP ${res.status}`);
+    applyConfig(json);
+    showMessage(sendMessage, "Header media URL saved for this template.");
+  } catch (error) {
+    showMessage(sendMessage, `Save failed: ${error.message}`, true);
+  } finally {
+    saveMediaUrlBtn.disabled = false;
+  }
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Unable to read the selected image."));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadTemplateMedia() {
+  const templateId = templateSelect.value;
+  const file = mediaFileInput.files?.[0];
+  if (!templateId || mediaUrlField.hidden) {
+    showMessage(sendMessage, "Select a media-header template first.", true);
+    return;
+  }
+  if (!file) {
+    showMessage(sendMessage, "Choose an image to upload.", true);
+    return;
+  }
+  if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) {
+    showMessage(sendMessage, "Upload a JPG, PNG, WEBP, or GIF image.", true);
+    return;
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    showMessage(sendMessage, "Image must be 5 MB or smaller.", true);
+    return;
+  }
+
+  uploadMediaBtn.disabled = true;
+  showMessage(sendMessage, "Uploading image...");
+  try {
+    const dataUrl = await readFileAsDataUrl(file);
+    const res = await fetch(apiUrl("/api/reachout/media"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({
+        templateId,
+        fileName: file.name,
+        contentType: file.type,
+        dataUrl
+      })
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.details || json.message || `HTTP ${res.status}`);
+    applyConfig(json, { numberValue: numberSelect.value, templateId });
+    mediaUrlInput.value = json.mediaUrl || mediaUrlInput.value;
+    mediaFileInput.value = "";
+    showMessage(sendMessage, "Image uploaded and saved for this template.");
+  } catch (error) {
+    showMessage(sendMessage, `Upload failed: ${error.message}`, true);
+  } finally {
+    uploadMediaBtn.disabled = false;
   }
 }
 
@@ -326,6 +444,8 @@ saveConfigBtn.addEventListener("click", saveConfig);
 syncWhatsappBtn.addEventListener("click", syncWhatsapp);
 numberSelect.addEventListener("change", renderTemplateSelect);
 templateSelect.addEventListener("change", renderTemplatePreview);
+saveMediaUrlBtn.addEventListener("click", saveTemplateMediaUrl);
+uploadMediaBtn.addEventListener("click", uploadTemplateMedia);
 sendBtn.addEventListener("click", sendSelected);
 selectFilteredBtn.addEventListener("click", () => {
   filteredLeads.forEach((lead) => selectedLeadIds.add(String(lead.id)));

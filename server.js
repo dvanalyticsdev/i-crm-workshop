@@ -24,6 +24,7 @@ const MONGODB_MCUBE_CONFIG_COLLECTION = process.env.MONGODB_MCUBE_CONFIG_COLLECT
 const MONGODB_MCUBE_LOGS_COLLECTION = process.env.MONGODB_MCUBE_LOGS_COLLECTION || "mcube_logs";
 const MONGODB_REACHOUT_CONFIG_COLLECTION = process.env.MONGODB_REACHOUT_CONFIG_COLLECTION || "reachout_config";
 const MONGODB_REACHOUT_LOGS_COLLECTION = process.env.MONGODB_REACHOUT_LOGS_COLLECTION || "reachout_logs";
+const MONGODB_REACHOUT_MEDIA_COLLECTION = process.env.MONGODB_REACHOUT_MEDIA_COLLECTION || "reachout_media";
 const META_WEBHOOK_FORWARD_URL = String(process.env.META_WEBHOOK_FORWARD_URL || "").trim();
 const ADMIN_LOGIN_ID = String(process.env.ADMIN_LOGIN_ID || "").trim();
 const ADMIN_LOGIN_PASSWORD = String(process.env.ADMIN_LOGIN_PASSWORD || "").trim();
@@ -193,6 +194,7 @@ let mcubeConfigCollection;
 let mcubeLogsCollection;
 let reachoutConfigCollection;
 let reachoutLogsCollection;
+let reachoutMediaCollection;
 let leadsCollection;
 let counselorsCollection;
 let tasksCollection;
@@ -257,6 +259,7 @@ async function resetMongoConnection() {
   mcubeLogsCollection = null;
   reachoutConfigCollection = null;
   reachoutLogsCollection = null;
+  reachoutMediaCollection = null;
   leadsCollection = null;
   counselorsCollection = null;
   tasksCollection = null;
@@ -628,6 +631,7 @@ async function initMongo() {
         mcubeLogsCollection = db.collection(MONGODB_MCUBE_LOGS_COLLECTION);
         reachoutConfigCollection = db.collection(MONGODB_REACHOUT_CONFIG_COLLECTION);
         reachoutLogsCollection = db.collection(MONGODB_REACHOUT_LOGS_COLLECTION);
+        reachoutMediaCollection = db.collection(MONGODB_REACHOUT_MEDIA_COLLECTION);
 
         leadsCollection      = db.collection("leads");
         counselorsCollection = db.collection("counselors");
@@ -675,6 +679,14 @@ async function initMongo() {
         ).catch(() => undefined);
         await reachoutLogsCollection.createIndex(
           { channel: 1, sentAt: -1 },
+          { background: true }
+        ).catch(() => undefined);
+        await reachoutMediaCollection.createIndex(
+          { id: 1 },
+          { unique: true, background: true }
+        ).catch(() => undefined);
+        await reachoutMediaCollection.createIndex(
+          { createdAt: -1 },
           { background: true }
         ).catch(() => undefined);
         await metaRetryCollection.createIndex(
@@ -803,6 +815,7 @@ async function initMongo() {
         mcubeLogsCollection = new MockCollection("mcubeLogs");
         reachoutConfigCollection = new MockCollection("reachoutConfig");
         reachoutLogsCollection = new MockCollection("reachoutLogs");
+        reachoutMediaCollection = new MockCollection("reachoutMedia");
         leadsCollection      = new MockCollection("leads");
         counselorsCollection = new MockCollection("counselors");
         tasksCollection      = new MockCollection("tasks");
@@ -1198,6 +1211,56 @@ function normalizeReachoutWhatsAppNumber(value = {}) {
   };
 }
 
+function getPublicRequestBaseUrl(req) {
+  const proto = String(req.get("x-forwarded-proto") || req.protocol || "https").split(",")[0].trim() || "https";
+  const host = String(req.get("x-forwarded-host") || req.get("host") || "").split(",")[0].trim();
+  return host ? `${proto}://${host}` : "";
+}
+
+function normalizeReachoutMediaUpload(body = {}) {
+  const contentType = String(body.contentType || body.type || "").trim().toLowerCase();
+  if (!["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"].includes(contentType)) {
+    throw new Error("Upload a JPG, PNG, WEBP, or GIF image.");
+  }
+
+  const rawData = String(body.data || body.dataUrl || body.base64 || "").trim();
+  const base64 = rawData.includes(",") ? rawData.split(",").pop() : rawData;
+  if (!base64) {
+    throw new Error("Image data is missing.");
+  }
+
+  const buffer = Buffer.from(base64, "base64");
+  if (!buffer.length) {
+    throw new Error("Image data is invalid.");
+  }
+  if (buffer.length > 5 * 1024 * 1024) {
+    throw new Error("Image must be 5 MB or smaller.");
+  }
+
+  const extensionByType = {
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif"
+  };
+  return {
+    id: crypto.randomUUID(),
+    fileName: String(body.fileName || body.name || "reachout-header").trim().slice(0, 160),
+    contentType: contentType === "image/jpg" ? "image/jpeg" : contentType,
+    extension: extensionByType[contentType] || "jpg",
+    buffer
+  };
+}
+
+function bufferFromStoredMediaData(data) {
+  if (Buffer.isBuffer(data)) return data;
+  if (data?.buffer) return Buffer.from(data.buffer);
+  if (Array.isArray(data?.data)) return Buffer.from(data.data);
+  if (typeof data === "string") return Buffer.from(data, "base64");
+  return Buffer.alloc(0);
+}
+
 function sanitizeReachoutTemplate(template = {}) {
   return {
     id: String(template.id || crypto.randomUUID()).trim(),
@@ -1214,6 +1277,7 @@ function sanitizeReachoutTemplate(template = {}) {
     domain: String(template.domain || "").trim(),
     subject: String(template.subject || "").trim(),
     variableMappings: String(template.variableMappings || "").trim(),
+    defaultHeaderMediaUrl: String(template.defaultHeaderMediaUrl || "").trim(),
     componentSchema: Array.isArray(template.componentSchema) ? template.componentSchema : [],
     bodyText: String(template.bodyText || "").trim(),
     payloadJson: String(template.payloadJson || "").trim(),
@@ -4239,6 +4303,76 @@ app.put("/api/reachout/config", async (req, res) => {
   }
 });
 
+app.get("/api/reachout/media/:id", async (req, res) => {
+  try {
+    await initMongo();
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(404).end();
+    const media = await withMongoRetry(
+      () => reachoutMediaCollection.findOne({ id }),
+      { retries: 1, label: "Load ReachOut media" }
+    );
+    if (!media?.data) return res.status(404).end();
+    const buffer = bufferFromStoredMediaData(media.data);
+    if (!buffer.length) return res.status(404).end();
+    res.setHeader("Content-Type", media.contentType || "image/jpeg");
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    return res.end(buffer);
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to load ReachOut media.", details: err.message });
+  }
+});
+
+app.post("/api/reachout/media", async (req, res) => {
+  try {
+    await initMongo();
+    const session = await requireRole(req, res, ["admin", "marketing"]);
+    if (!session) return;
+
+    const templateId = String(req.body?.templateId || "").trim();
+    if (!templateId) {
+      return res.status(400).json({ message: "Template is required before uploading media." });
+    }
+    const upload = normalizeReachoutMediaUpload(req.body || {});
+    const now = new Date().toISOString();
+    const baseUrl = getPublicRequestBaseUrl(req);
+    if (!baseUrl) {
+      return res.status(400).json({ message: "Unable to create a public CRM media URL for this request." });
+    }
+    const mediaUrl = `${baseUrl}/api/reachout/media/${encodeURIComponent(upload.id)}`;
+    const mediaDoc = {
+      id: upload.id,
+      fileName: upload.fileName,
+      contentType: upload.contentType,
+      extension: upload.extension,
+      data: upload.buffer,
+      uploadedBy: session.email || session.name || session.role,
+      createdAt: now
+    };
+
+    await withMongoRetry(
+      () => reachoutMediaCollection.insertOne(mediaDoc),
+      { retries: 1, label: "Save ReachOut media" }
+    );
+
+    const config = await getReachoutConfig();
+    const templates = (Array.isArray(config.templates) ? config.templates : []).map((template) => (
+      String(template.id) === templateId
+        ? sanitizeReachoutTemplate({ ...template, defaultHeaderMediaUrl: mediaUrl })
+        : sanitizeReachoutTemplate(template)
+    ));
+    await reachoutConfigCollection.updateOne(
+      { _id: REACHOUT_CONFIG_DOC_ID },
+      { $set: { templates, updatedAt: now } },
+      { upsert: true }
+    );
+    const updated = await getReachoutConfig();
+    return res.json({ ok: true, mediaUrl, ...publicReachoutConfig(updated) });
+  } catch (err) {
+    return res.status(400).json({ message: "Failed to upload ReachOut media.", details: err.message });
+  }
+});
+
 app.post("/api/reachout/whatsapp/sync", async (req, res) => {
   try {
     await initMongo();
@@ -4252,6 +4386,17 @@ app.post("/api/reachout/whatsapp/sync", async (req, res) => {
     }
 
     const synced = await syncReachoutWhatsAppFromMsg91(authKey);
+    const existingMediaUrls = new Map((Array.isArray(config.templates) ? config.templates : []).map((template) => [
+      `${template.integratedNumber || ""}:${template.templateName || template.name || ""}:${template.languageCode || "en"}`,
+      String(template.defaultHeaderMediaUrl || "").trim()
+    ]));
+    synced.templates = synced.templates.map((template) => {
+      const key = `${template.integratedNumber || ""}:${template.templateName || template.name || ""}:${template.languageCode || "en"}`;
+      return {
+        ...template,
+        defaultHeaderMediaUrl: existingMediaUrls.get(key) || template.defaultHeaderMediaUrl || ""
+      };
+    });
     const now = new Date().toISOString();
     await reachoutConfigCollection.updateOne(
       { _id: REACHOUT_CONFIG_DOC_ID },
@@ -4348,7 +4493,14 @@ app.post("/api/reachout/send", async (req, res) => {
     for (const lead of leads.slice(0, 250)) {
       let requestPayload = null;
       try {
-        requestPayload = buildReachoutPayload({ template, lead, config, session, integratedNumber, mediaUrl });
+        requestPayload = buildReachoutPayload({
+          template,
+          lead,
+          config,
+          session,
+          integratedNumber,
+          mediaUrl: mediaUrl || template.defaultHeaderMediaUrl || ""
+        });
         const response = await fetch(endpoint, {
           method: "POST",
           headers: {

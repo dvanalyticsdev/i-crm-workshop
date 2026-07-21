@@ -775,10 +775,17 @@ test("ReachOut is simplified to synced WhatsApp number and template sending", ()
   assert.match(reachoutHtml, /numberSelect/);
   assert.match(reachoutHtml, /templateSelect/);
   assert.match(reachoutHtml, /mediaUrlInput/);
+  assert.match(reachoutHtml, /saveMediaUrlBtn/);
+  assert.match(reachoutHtml, /mediaFileInput/);
+  assert.match(reachoutHtml, /uploadMediaBtn/);
   assert.doesNotMatch(reachoutHtml, /Add Template|SMS, WhatsApp, and email|MSG91 Template ID|From Email|Email Domain/);
   assert.match(reachout, /syncWhatsapp/);
   assert.match(reachout, /integratedNumber,\s*templateId,\s*leadIds/);
   assert.match(reachout, /needsMediaHeader/);
+  assert.match(reachout, /saveTemplateMediaUrl/);
+  assert.match(reachout, /uploadTemplateMedia/);
+  assert.match(reachout, /apiUrl\("\/api\/reachout\/media"\)/);
+  assert.match(reachout, /defaultHeaderMediaUrl: mediaUrl/);
   assert.doesNotMatch(reachout, /blankTemplate|data-remove-template|New SMS Template|New Email Template/);
 });
 
@@ -808,6 +815,11 @@ test("ReachOut WhatsApp payload uses MSG91 component value shape for media and U
   assert.match(server, /Template \$\{templateName\} needs a public HTTPS media URL/);
   assert.match(server, /mediaUrl = ""/);
   assert.match(server, /variables\.mediaUrl/);
+  assert.match(server, /defaultHeaderMediaUrl/);
+  assert.match(server, /app\.post\("\/api\/reachout\/media"/);
+  assert.match(server, /app\.get\("\/api\/reachout\/media\/:id"/);
+  assert.match(server, /bufferFromStoredMediaData/);
+  assert.match(server, /MONGODB_REACHOUT_MEDIA_COLLECTION/);
   assert.match(server, /Template \$\{templateName\} needs a valid HTTPS button URL/);
   assert.match(server, /namespace: normalizeMsg91TemplateNamespace\(template\)/);
 });
