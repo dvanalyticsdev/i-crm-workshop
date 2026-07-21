@@ -750,11 +750,32 @@ test("MCUBE outbound click-to-call uses documented payload fields", () => {
 
 test("ReachOut templates do not respawn default seeded templates after removal", () => {
   const server = read("server.js");
-  const reachout = read("reachout.js");
   const defaultReachoutTemplates = getNamedFunctionSource(server, "getDefaultReachoutTemplates");
 
   assert.match(defaultReachoutTemplates, /return \[\];/);
   assert.doesNotMatch(defaultReachoutTemplates, /Workshop Reminder|WhatsApp Follow-up|Admission Email/);
-  assert.match(server, /templates: Array\.isArray\(doc\?\.templates\) \? doc\.templates : getDefaultReachoutTemplates\(\)/);
-  assert.match(reachout, /data-remove-template[\s\S]*?await saveConfig\(\)/);
+  assert.match(server, /doc\.templates\.filter\(\(template\) => String\(template\?\.channel/);
+  assert.match(server, /: getDefaultReachoutTemplates\(\)/);
+});
+
+test("ReachOut is simplified to synced WhatsApp number and template sending", () => {
+  const server = read("server.js");
+  const reachoutHtml = read("reachout.html");
+  const reachout = read("reachout.js");
+
+  assert.match(server, /app\.post\("\/api\/reachout\/whatsapp\/sync"/);
+  assert.match(server, /whatsappNumbers/);
+  assert.match(server, /ReachOut now supports WhatsApp templates only/);
+  assert.match(server, /integratedNumber = String\(req\.body\?\.integratedNumber/);
+  assert.match(server, /to_and_components/);
+  assert.match(server, /get-template-plugins/);
+  assert.doesNotMatch(getNamedFunctionSource(server, "buildReachoutEndpoint"), /api\/v5\/flow|email\/send/);
+
+  assert.match(reachoutHtml, /syncWhatsappBtn/);
+  assert.match(reachoutHtml, /numberSelect/);
+  assert.match(reachoutHtml, /templateSelect/);
+  assert.doesNotMatch(reachoutHtml, /Add Template|SMS, WhatsApp, and email|MSG91 Template ID|From Email|Email Domain/);
+  assert.match(reachout, /syncWhatsapp/);
+  assert.match(reachout, /integratedNumber, templateId, leadIds/);
+  assert.doesNotMatch(reachout, /blankTemplate|data-remove-template|New SMS Template|New Email Template/);
 });

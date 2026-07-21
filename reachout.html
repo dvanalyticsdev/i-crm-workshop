@@ -31,7 +31,7 @@
       <header class="topbar">
         <div class="topbar-title">
           <h1>ReachOut Center</h1>
-          <p>Send MSG91 SMS, WhatsApp, and email campaigns to selected CRM leads.</p>
+          <p>Select leads, choose a WhatsApp number and approved MSG91 template, then send.</p>
         </div>
         <div class="topbar-profile">
           <span class="role-tag" data-role-tag></span>
@@ -42,8 +42,8 @@
       <div class="meta-page">
         <section class="card">
           <div class="meta-section-title">
-            <h3>MSG91 Setup</h3>
-            <p>Saved credentials stay on the server. Admin and marketing users can manage templates here.</p>
+            <h3>WhatsApp Setup</h3>
+            <p>Sync active MSG91 WhatsApp numbers and approved templates into CRM.</p>
           </div>
           <div class="meta-config-grid">
             <div class="form-group">
@@ -63,6 +63,7 @@
               <span class="enable-row__label">Enable ReachOut Center</span>
               <input id="enabledToggle" type="checkbox" />
             </label>
+            <button id="syncWhatsappBtn" type="button" class="btn-secondary">Sync WhatsApp</button>
             <button id="saveConfigBtn" type="button" class="btn-primary">Save Settings</button>
             <span id="configMessage" style="font-size:.85rem;"></span>
           </div>
@@ -70,19 +71,29 @@
 
         <section class="card">
           <div class="meta-section-title">
-            <h3>Templates</h3>
-            <p>Create approved SMS, WhatsApp, and email templates once, then reuse them for filtered lead groups.</p>
+            <h3>Send WhatsApp</h3>
+            <p>Use templates already approved in MSG91.</p>
           </div>
-          <div class="filter-actions" style="display:flex;gap:.75rem;flex-wrap:wrap;margin-bottom:1rem;">
-            <button id="addTemplateBtn" type="button" class="btn-secondary">Add Template</button>
+          <div class="filter-row">
+            <div class="filter-item">
+              <label for="numberSelect">WhatsApp Number</label>
+              <select id="numberSelect"></select>
+            </div>
+            <div class="filter-item">
+              <label for="templateSelect">Template</label>
+              <select id="templateSelect"></select>
+            </div>
+            <div class="filter-item">
+              <label for="templateVariablePreview">Variables</label>
+              <input id="templateVariablePreview" type="text" readonly />
+            </div>
           </div>
-          <div id="templateEditorList" class="form-ids-list"></div>
         </section>
 
         <section class="card">
           <div class="meta-section-title">
             <h3>Audience Builder</h3>
-            <p>Filter leads by CRM fields, select recipients, and send with a saved template.</p>
+            <p>Filter leads and select the recipients for the selected WhatsApp template.</p>
           </div>
           <div class="filter-row">
             <div class="filter-item">
@@ -108,10 +119,6 @@
             <div class="filter-item">
               <label for="counselorFilter">Counselor</label>
               <select id="counselorFilter"></select>
-            </div>
-            <div class="filter-item">
-              <label for="templateSelect">Send Template</label>
-              <select id="templateSelect"></select>
             </div>
           </div>
           <div class="save-bar">

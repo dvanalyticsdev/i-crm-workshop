@@ -1137,11 +1137,18 @@ async function getReachoutConfig() {
     { retries: 1, label: "Load ReachOut config" }
   );
   const authKey = String(doc?.authKey || process.env.MSG91_AUTH_KEY || "").trim();
+  const templates = Array.isArray(doc?.templates)
+    ? doc.templates.filter((template) => String(template?.channel || "").trim().toLowerCase() === "whatsapp")
+    : getDefaultReachoutTemplates();
+  const whatsappNumbers = Array.isArray(doc?.whatsappNumbers)
+    ? doc.whatsappNumbers.map(normalizeReachoutWhatsAppNumber).filter((number) => number.number)
+    : [];
   return {
     _id: REACHOUT_CONFIG_DOC_ID,
     enabled: doc?.enabled !== false,
     authKey,
-    templates: Array.isArray(doc?.templates) ? doc.templates : getDefaultReachoutTemplates(),
+    templates,
+    whatsappNumbers,
     defaultCountryCode: String(doc?.defaultCountryCode || "91").trim() || "91",
     logSummary: {
       success: Number(doc?.logSummary?.success) || 0,
@@ -1155,6 +1162,7 @@ function publicReachoutConfig(config) {
     enabled: config.enabled !== false,
     authKeySet: !!String(config.authKey || "").trim(),
     defaultCountryCode: String(config.defaultCountryCode || "91").trim() || "91",
+    whatsappNumbers: Array.isArray(config.whatsappNumbers) ? config.whatsappNumbers : [],
     templates: (Array.isArray(config.templates) ? config.templates : []).map((template) => ({
       ...template,
       id: String(template.id || ""),
@@ -1167,13 +1175,32 @@ function publicReachoutConfig(config) {
   };
 }
 
+function normalizeReachoutWhatsAppNumber(value = {}) {
+  const raw = typeof value === "string" ? { number: value } : value;
+  const number = String(
+    raw.number ||
+    raw.integratedNumber ||
+    raw.integrated_number ||
+    raw.phone ||
+    raw.mobile ||
+    raw.whatsappNumber ||
+    ""
+  ).replace(/\D/g, "");
+  const label = String(raw.label || raw.clientName || raw.client_name || raw.name || number || "").trim();
+  const status = String(raw.status || raw.activation_status || raw.state || "").trim();
+  return {
+    id: String(raw.id || raw._id || number || crypto.randomUUID()).trim(),
+    number,
+    label: label || number,
+    status
+  };
+}
+
 function sanitizeReachoutTemplate(template = {}) {
-  const channel = String(template.channel || "").trim().toLowerCase();
-  const safeChannel = ["sms", "whatsapp", "email"].includes(channel) ? channel : "sms";
   return {
     id: String(template.id || crypto.randomUUID()).trim(),
     name: String(template.name || "Untitled template").trim().slice(0, 120),
-    channel: safeChannel,
+    channel: "whatsapp",
     enabled: template.enabled !== false,
     msg91TemplateId: String(template.msg91TemplateId || "").trim(),
     integratedNumber: String(template.integratedNumber || "").trim(),
@@ -1188,6 +1215,187 @@ function sanitizeReachoutTemplate(template = {}) {
     payloadJson: String(template.payloadJson || "").trim(),
     updatedAt: new Date().toISOString(),
     createdAt: String(template.createdAt || new Date().toISOString())
+  };
+}
+
+function collectObjectsDeep(value, predicate, limit = 500, output = []) {
+  if (output.length >= limit || value === null || value === undefined) {
+    return output;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectObjectsDeep(item, predicate, limit, output));
+    return output;
+  }
+  if (typeof value === "object") {
+    if (predicate(value)) {
+      output.push(value);
+    }
+    Object.values(value).forEach((item) => collectObjectsDeep(item, predicate, limit, output));
+  }
+  return output;
+}
+
+function normalizeMsg91WhatsAppNumbersPayload(payload) {
+  const candidates = collectObjectsDeep(payload, (item) => {
+    const number = String(
+      item.number ||
+      item.integratedNumber ||
+      item.integrated_number ||
+      item.phone ||
+      item.mobile ||
+      item.whatsappNumber ||
+      ""
+    ).replace(/\D/g, "");
+    return number.length >= 10;
+  });
+  const byNumber = new Map();
+  candidates.forEach((item) => {
+    const normalized = normalizeReachoutWhatsAppNumber(item);
+    if (normalized.number && !byNumber.has(normalized.number)) {
+      byNumber.set(normalized.number, normalized);
+    }
+  });
+  return [...byNumber.values()];
+}
+
+function normalizeMsg91TemplateName(template = {}) {
+  return String(
+    template.name ||
+    template.template_name ||
+    template.templateName ||
+    template.element_name ||
+    template.elementName ||
+    template.display_name ||
+    ""
+  ).trim();
+}
+
+function normalizeMsg91TemplateLanguage(template = {}) {
+  const language = template.language || template.lang || template.languages;
+  if (typeof language === "string") return language.trim() || "en";
+  if (Array.isArray(language) && language.length) {
+    const first = language[0];
+    if (typeof first === "string") return first.trim() || "en";
+    return String(first?.code || first?.language || first?.lang || "en").trim() || "en";
+  }
+  if (language && typeof language === "object") {
+    return String(language.code || language.language || language.lang || "en").trim() || "en";
+  }
+  return "en";
+}
+
+function inferWhatsAppVariableMappings(template = {}) {
+  const text = JSON.stringify(template || {});
+  const bodyKeys = [...new Set(Array.from(text.matchAll(/body[_-]?(\d+)/gi), (match) => `body_${match[1]}`))]
+    .sort((left, right) => Number(left.replace(/\D/g, "")) - Number(right.replace(/\D/g, "")));
+  if (bodyKeys.length) {
+    return bodyKeys.map((key, index) => `${key}=${index === 0 ? "name" : index === 1 ? "workshop" : "course"}`).join("\n");
+  }
+  const placeholderCount = Math.max(
+    ...Array.from(text.matchAll(/\{\{\s*(\d+)\s*\}\}/g), (match) => Number(match[1])),
+    0
+  );
+  if (placeholderCount > 0) {
+    return Array.from({ length: placeholderCount }, (_item, index) => {
+      const key = `body_${index + 1}`;
+      return `${key}=${index === 0 ? "name" : index === 1 ? "workshop" : "course"}`;
+    }).join("\n");
+  }
+  return "";
+}
+
+function normalizeMsg91WhatsAppTemplatesPayload(payload, integratedNumber) {
+  const candidates = collectObjectsDeep(payload, (item) => {
+    const name = normalizeMsg91TemplateName(item);
+    const status = String(item.status || item.template_status || item.state || "").toLowerCase();
+    return !!name && !["rejected", "disabled", "deleted", "paused"].includes(status);
+  });
+  const byTemplate = new Map();
+  candidates.forEach((template) => {
+    const templateName = normalizeMsg91TemplateName(template);
+    if (!templateName || byTemplate.has(templateName)) {
+      return;
+    }
+    byTemplate.set(templateName, sanitizeReachoutTemplate({
+      id: String(template.id || template._id || `${integratedNumber}-${templateName}`),
+      name: String(template.display_name || template.label || templateName).trim(),
+      channel: "whatsapp",
+      templateName,
+      languageCode: normalizeMsg91TemplateLanguage(template),
+      integratedNumber,
+      enabled: true,
+      variableMappings: inferWhatsAppVariableMappings(template)
+    }));
+  });
+  return [...byTemplate.values()];
+}
+
+async function fetchMsg91Json(url, authKey, headers = {}) {
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      authkey: authKey,
+      auth_key: authKey,
+      ...headers
+    }
+  });
+  const text = await response.text();
+  let payload = null;
+  try {
+    payload = text ? JSON.parse(text) : null;
+  } catch {
+    payload = text;
+  }
+  if (!response.ok) {
+    throw new Error(typeof payload === "object" ? (payload?.message || payload?.error || `MSG91 HTTP ${response.status}`) : (payload || `MSG91 HTTP ${response.status}`));
+  }
+  return payload;
+}
+
+async function syncReachoutWhatsAppFromMsg91(authKey) {
+  const numbersPayload = await fetchMsg91Json(
+    "https://control.msg91.com/api/v5/whatsapp/whatsapp-activation/",
+    authKey
+  );
+  const whatsappNumbers = normalizeMsg91WhatsAppNumbersPayload(numbersPayload);
+  const templates = [];
+
+  for (const number of whatsappNumbers) {
+    const urls = [
+      `https://control.msg91.com/api/v5/whatsapp/get-template-plugins/?plugin=clevertap&number=${encodeURIComponent(number.number)}`,
+      `https://control.msg91.com/api/v5/whatsapp/get-template-plugins/?plugin-clevertap&number=${encodeURIComponent(number.number)}`,
+      `https://control.msg91.com/api/v5/whatsapp/get-templates/?number=${encodeURIComponent(number.number)}`
+    ];
+    let lastError = null;
+    for (const url of urls) {
+      try {
+        const payload = await fetchMsg91Json(url, authKey);
+        const syncedTemplates = normalizeMsg91WhatsAppTemplatesPayload(payload, number.number);
+        templates.push(...syncedTemplates);
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (lastError) {
+      console.warn(`ReachOut template sync skipped for ${number.number}: ${lastError.message}`);
+    }
+  }
+
+  const templatesByKey = new Map();
+  templates.forEach((template) => {
+    const key = `${template.integratedNumber || ""}:${template.templateName || template.name || ""}:${template.languageCode || "en"}`;
+    if (!templatesByKey.has(key)) {
+      templatesByKey.set(key, template);
+    }
+  });
+
+  return {
+    whatsappNumbers,
+    templates: [...templatesByKey.values()]
   };
 }
 
@@ -1243,72 +1451,57 @@ function parseVariableMappings(text, variables) {
 }
 
 function buildWhatsAppComponents(mappedVariables) {
-  const bodyParams = Object.entries(mappedVariables)
+  return Object.entries(mappedVariables)
     .filter(([key]) => /^body/i.test(key))
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([, value]) => ({ type: "text", text: String(value || "") }));
-  return bodyParams.length ? [{ type: "body", parameters: bodyParams }] : [];
+    .reduce((components, [key, value]) => {
+      components[key] = { type: "text", value: String(value || "") };
+      return components;
+    }, {});
 }
 
 function buildReachoutEndpoint(channel) {
-  if (channel === "sms") return "https://control.msg91.com/api/v5/flow";
   if (channel === "whatsapp") return "https://control.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/bulk/";
-  return "https://control.msg91.com/api/v5/email/send";
+  return "";
 }
 
-function buildReachoutPayload({ template, lead, config, session }) {
+function buildReachoutPayload({ template, lead, config, session, integratedNumber = "" }) {
   const channel = String(template.channel || "").trim().toLowerCase();
   const variables = getLeadReachoutVariables(lead, session);
   const mappedVariables = parseVariableMappings(template.variableMappings, variables);
   const phone = normalizeMsg91Phone(lead.phone, config.defaultCountryCode);
-  const email = String(lead.email || "").trim().toLowerCase();
 
   if (template.payloadJson) {
-    const rendered = interpolateReachoutText(template.payloadJson, { ...variables, ...mappedVariables, phone, email });
+    const rendered = interpolateReachoutText(template.payloadJson, { ...variables, ...mappedVariables, phone, integratedNumber });
     return JSON.parse(rendered);
-  }
-
-  if (channel === "sms") {
-    if (!phone) throw new Error("Lead phone number is missing.");
-    if (!template.msg91TemplateId) throw new Error("SMS template ID is missing.");
-    return {
-      template_id: template.msg91TemplateId,
-      recipients: [{ mobiles: phone, ...mappedVariables }]
-    };
   }
 
   if (channel === "whatsapp") {
     if (!phone) throw new Error("Lead phone number is missing.");
-    if (!template.integratedNumber || !template.templateName) {
+    const fromNumber = String(integratedNumber || template.integratedNumber || "").replace(/\D/g, "");
+    if (!fromNumber || !template.templateName) {
       throw new Error("WhatsApp integrated number or template name is missing.");
     }
     return {
-      integrated_number: template.integratedNumber,
+      integrated_number: fromNumber,
       content_type: "template",
       payload: {
-        messaging_product: "whatsapp",
-        to: phone,
         type: "template",
         template: {
           name: template.templateName,
-          language: { code: template.languageCode || "en" },
-          components: buildWhatsAppComponents(mappedVariables)
+          language: { code: template.languageCode || "en", policy: "deterministic" },
+          to_and_components: [
+            {
+              to: [phone],
+              components: buildWhatsAppComponents(mappedVariables)
+            }
+          ]
         }
       }
     };
   }
 
-  if (!email) throw new Error("Lead email is missing.");
-  if (!template.msg91TemplateId || !template.fromEmail || !template.domain) {
-    throw new Error("Email template ID, from email, or domain is missing.");
-  }
-  return {
-    recipients: [{ to: [{ email, name: lead.name || "" }], variables: mappedVariables }],
-    from: { email: template.fromEmail, name: template.fromName || "DV Analytics" },
-    domain: template.domain,
-    template_id: template.msg91TemplateId,
-    subject: interpolateReachoutText(template.subject || "", variables)
-  };
+  throw new Error("ReachOut only supports WhatsApp templates.");
 }
 
 async function saveReachoutLog(entry) {
@@ -3782,7 +3975,12 @@ app.put("/api/reachout/config", async (req, res) => {
     const patch = {
       enabled: typeof body.enabled === "boolean" ? body.enabled : existing.enabled !== false,
       defaultCountryCode: String(body.defaultCountryCode || existing.defaultCountryCode || "91").replace(/\D/g, "") || "91",
-      templates: Array.isArray(body.templates) ? body.templates.map(sanitizeReachoutTemplate) : existing.templates
+      whatsappNumbers: Array.isArray(body.whatsappNumbers)
+        ? body.whatsappNumbers.map(normalizeReachoutWhatsAppNumber).filter((number) => number.number)
+        : existing.whatsappNumbers,
+      templates: Array.isArray(body.templates)
+        ? body.templates.map(sanitizeReachoutTemplate).filter((template) => template.templateName)
+        : existing.templates
     };
     if (typeof body.authKey === "string" && body.authKey.trim()) {
       patch.authKey = String(body.authKey).trim();
@@ -3799,6 +3997,48 @@ app.put("/api/reachout/config", async (req, res) => {
     return res.json({ ok: true, ...publicReachoutConfig(updated) });
   } catch (err) {
     return res.status(500).json({ message: "Failed to save ReachOut config.", details: err.message });
+  }
+});
+
+app.post("/api/reachout/whatsapp/sync", async (req, res) => {
+  try {
+    await initMongo();
+    const session = await requireRole(req, res, ["admin", "marketing"]);
+    if (!session) return;
+
+    const config = await getReachoutConfig();
+    const authKey = String(req.body?.authKey || config.authKey || "").trim();
+    if (!authKey) {
+      return res.status(400).json({ message: "MSG91 auth key is required before syncing WhatsApp templates." });
+    }
+
+    const synced = await syncReachoutWhatsAppFromMsg91(authKey);
+    const now = new Date().toISOString();
+    await reachoutConfigCollection.updateOne(
+      { _id: REACHOUT_CONFIG_DOC_ID },
+      {
+        $set: {
+          authKey,
+          whatsappNumbers: synced.whatsappNumbers,
+          templates: synced.templates,
+          defaultCountryCode: config.defaultCountryCode || "91",
+          enabled: config.enabled !== false,
+          updatedAt: now
+        },
+        $setOnInsert: { createdAt: now, logSummary: { success: 0, error: 0 } }
+      },
+      { upsert: true }
+    );
+
+    const updated = await getReachoutConfig();
+    return res.json({
+      ok: true,
+      syncedNumbers: synced.whatsappNumbers.length,
+      syncedTemplates: synced.templates.length,
+      ...publicReachoutConfig(updated)
+    });
+  } catch (err) {
+    return res.status(502).json({ message: "Failed to sync MSG91 WhatsApp templates.", details: err.message });
   }
 });
 
@@ -3835,10 +4075,17 @@ app.post("/api/reachout/send", async (req, res) => {
     }
 
     const templateId = String(req.body?.templateId || "").trim();
+    const integratedNumber = String(req.body?.integratedNumber || "").replace(/\D/g, "");
     const leadIds = Array.isArray(req.body?.leadIds) ? req.body.leadIds.map((id) => String(id).trim()).filter(Boolean) : [];
     const template = (Array.isArray(config.templates) ? config.templates : []).find((item) => String(item.id) === templateId);
     if (!template || template.enabled === false) {
       return res.status(400).json({ message: "Please select an enabled ReachOut template." });
+    }
+    if (String(template.channel || "").trim().toLowerCase() !== "whatsapp") {
+      return res.status(400).json({ message: "ReachOut now supports WhatsApp templates only." });
+    }
+    if (!integratedNumber) {
+      return res.status(400).json({ message: "Please select a WhatsApp number." });
     }
     if (!leadIds.length) {
       return res.status(400).json({ message: "Please select at least one lead." });
@@ -3853,12 +4100,15 @@ app.post("/api/reachout/send", async (req, res) => {
 
     const channel = String(template.channel || "").trim().toLowerCase();
     const endpoint = buildReachoutEndpoint(channel);
+    if (!endpoint) {
+      return res.status(400).json({ message: "Unsupported ReachOut channel." });
+    }
     const results = [];
 
     for (const lead of leads.slice(0, 250)) {
       let requestPayload = null;
       try {
-        requestPayload = buildReachoutPayload({ template, lead, config, session });
+        requestPayload = buildReachoutPayload({ template, lead, config, session, integratedNumber });
         const response = await fetch(endpoint, {
           method: "POST",
           headers: {

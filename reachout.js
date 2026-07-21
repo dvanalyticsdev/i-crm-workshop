@@ -15,8 +15,8 @@ const countryCodeInput = document.getElementById("countryCodeInput");
 const enabledToggle = document.getElementById("enabledToggle");
 const saveConfigBtn = document.getElementById("saveConfigBtn");
 const configMessage = document.getElementById("configMessage");
-const addTemplateBtn = document.getElementById("addTemplateBtn");
-const templateEditorList = document.getElementById("templateEditorList");
+const syncWhatsappBtn = document.getElementById("syncWhatsappBtn");
+const numberSelect = document.getElementById("numberSelect");
 const searchInput = document.getElementById("searchInput");
 const pipelineFilter = document.getElementById("pipelineFilter");
 const workshopFilter = document.getElementById("workshopFilter");
@@ -24,6 +24,7 @@ const campaignFilter = document.getElementById("campaignFilter");
 const locationFilter = document.getElementById("locationFilter");
 const counselorFilter = document.getElementById("counselorFilter");
 const templateSelect = document.getElementById("templateSelect");
+const templateVariablePreview = document.getElementById("templateVariablePreview");
 const selectFilteredBtn = document.getElementById("selectFilteredBtn");
 const clearSelectionBtn = document.getElementById("clearSelectionBtn");
 const sendBtn = document.getElementById("sendBtn");
@@ -83,7 +84,7 @@ function applyConfig(nextConfig) {
   authKeyStatus.textContent = config.authKeySet ? "Saved" : "Not set";
   authKeyStatus.className = `cred-status ${config.authKeySet ? "cred-status--ok" : "cred-status--err"}`;
   authKeyInput.value = "";
-  renderTemplates();
+  renderNumberSelect();
   renderTemplateSelect();
 }
 
@@ -94,102 +95,32 @@ async function loadConfig() {
   applyConfig(json);
 }
 
-function blankTemplate(channel = "sms") {
-  return {
-    id: crypto.randomUUID(),
-    name: channel === "sms" ? "New SMS Template" : channel === "whatsapp" ? "New WhatsApp Template" : "New Email Template",
-    channel,
-    enabled: true,
-    msg91TemplateId: "",
-    integratedNumber: "",
-    templateName: "",
-    languageCode: "en",
-    fromEmail: "",
-    fromName: "DV Analytics",
-    domain: "",
-    subject: "",
-    variableMappings: channel === "sms" ? "VAR1=name" : channel === "whatsapp" ? "body_1=name" : "name=name",
-    bodyText: "",
-    payloadJson: ""
-  };
-}
-
-function renderTemplates() {
-  const templates = Array.isArray(config?.templates) ? config.templates : [];
-  if (!templates.length) {
-    templateEditorList.innerHTML = `<div class="log-empty">No templates saved yet.</div>`;
-    return;
-  }
-
-  templateEditorList.innerHTML = templates.map((template, index) => `
-    <details class="card" style="margin-bottom:1rem;" ${index === 0 ? "open" : ""} data-template-id="${escapeHtml(template.id)}">
-      <summary style="cursor:pointer;font-weight:800;">${escapeHtml(template.name)} <span style="opacity:.55;">${escapeHtml(template.channel.toUpperCase())}</span></summary>
-      <div class="filter-row" style="margin-top:1rem;">
-        <div class="filter-item"><label>Name</label><input data-field="name" value="${escapeHtml(template.name)}" /></div>
-        <div class="filter-item">
-          <label>Channel</label>
-          <select data-field="channel">
-            <option value="sms" ${template.channel === "sms" ? "selected" : ""}>SMS</option>
-            <option value="whatsapp" ${template.channel === "whatsapp" ? "selected" : ""}>WhatsApp</option>
-            <option value="email" ${template.channel === "email" ? "selected" : ""}>Email</option>
-          </select>
-        </div>
-        <div class="filter-item"><label>MSG91 Template ID</label><input data-field="msg91TemplateId" value="${escapeHtml(template.msg91TemplateId || "")}" /></div>
-        <div class="filter-item"><label>WhatsApp Integrated Number</label><input data-field="integratedNumber" value="${escapeHtml(template.integratedNumber || "")}" /></div>
-        <div class="filter-item"><label>WhatsApp Template Name</label><input data-field="templateName" value="${escapeHtml(template.templateName || "")}" /></div>
-        <div class="filter-item"><label>Language</label><input data-field="languageCode" value="${escapeHtml(template.languageCode || "en")}" /></div>
-        <div class="filter-item"><label>From Email</label><input data-field="fromEmail" value="${escapeHtml(template.fromEmail || "")}" /></div>
-        <div class="filter-item"><label>From Name</label><input data-field="fromName" value="${escapeHtml(template.fromName || "")}" /></div>
-        <div class="filter-item"><label>Email Domain</label><input data-field="domain" value="${escapeHtml(template.domain || "")}" /></div>
-        <div class="filter-item"><label>Email Subject</label><input data-field="subject" value="${escapeHtml(template.subject || "")}" /></div>
-      </div>
-      <div class="form-group">
-        <label>Variable Mappings</label>
-        <textarea data-field="variableMappings" rows="3" placeholder="VAR1=name">${escapeHtml(template.variableMappings || "")}</textarea>
-        <p class="field-hint">Use one mapping per line. Available lead fields include name, email, phone, workshop, campaign, location, counselor, course.</p>
-      </div>
-      <div class="form-group">
-        <label>Internal Preview Text</label>
-        <textarea data-field="bodyText" rows="3" placeholder="Hi {{name}}...">${escapeHtml(template.bodyText || "")}</textarea>
-      </div>
-      <div class="form-group">
-        <label>Advanced MSG91 Payload JSON</label>
-        <textarea data-field="payloadJson" rows="4" placeholder='Optional. Use {{name}}, {{phone}}, {{email}} placeholders.'>${escapeHtml(template.payloadJson || "")}</textarea>
-      </div>
-      <div class="save-bar">
-        <label class="enable-row" style="margin-right:auto;"><span class="enable-row__label">Enabled</span><input data-field="enabled" type="checkbox" ${template.enabled !== false ? "checked" : ""} /></label>
-        <button type="button" class="btn-danger" data-remove-template="${escapeHtml(template.id)}">Remove</button>
-      </div>
-    </details>
-  `).join("");
-
-  templateEditorList.querySelectorAll("[data-field]").forEach((field) => {
-    field.addEventListener("input", () => {
-      const card = field.closest("[data-template-id]");
-      const template = templates.find((item) => item.id === card.dataset.templateId);
-      if (!template) return;
-      const key = field.dataset.field;
-      template[key] = field.type === "checkbox" ? field.checked : field.value;
-      renderTemplateSelect();
-    });
-  });
-
-  templateEditorList.querySelectorAll("[data-remove-template]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      button.disabled = true;
-      config.templates = templates.filter((item) => item.id !== button.dataset.removeTemplate);
-      renderTemplates();
-      renderTemplateSelect();
-      await saveConfig();
-    });
-  });
+function renderNumberSelect() {
+  const numbers = Array.isArray(config?.whatsappNumbers) ? config.whatsappNumbers : [];
+  numberSelect.innerHTML = numbers.length
+    ? numbers.map((number) => {
+        const label = `${number.number}${number.label && number.label !== number.number ? ` - ${number.label}` : ""}`;
+        return `<option value="${escapeHtml(number.number)}">${escapeHtml(label)}</option>`;
+      }).join("")
+    : `<option value="">Sync WhatsApp numbers</option>`;
 }
 
 function renderTemplateSelect() {
-  const templates = (config?.templates || []).filter((template) => template.enabled !== false);
+  const selectedNumber = numberSelect.value;
+  const templates = (config?.templates || [])
+    .filter((template) => template.enabled !== false)
+    .filter((template) => !selectedNumber || !template.integratedNumber || template.integratedNumber === selectedNumber);
   templateSelect.innerHTML = templates.length
-    ? templates.map((template) => `<option value="${escapeHtml(template.id)}">${escapeHtml(template.channel.toUpperCase())} - ${escapeHtml(template.name)}</option>`).join("")
-    : `<option value="">No enabled templates</option>`;
+    ? templates.map((template) => `<option value="${escapeHtml(template.id)}">${escapeHtml(template.name || template.templateName)}</option>`).join("")
+    : `<option value="">Sync approved templates</option>`;
+  renderTemplatePreview();
+}
+
+function renderTemplatePreview() {
+  const template = (config?.templates || []).find((item) => String(item.id) === templateSelect.value);
+  templateVariablePreview.value = template?.variableMappings
+    ? template.variableMappings.replace(/\s*\n\s*/g, ", ")
+    : "No variables";
 }
 
 function filterLeadList() {
@@ -265,6 +196,7 @@ async function saveConfig() {
     const payload = {
       enabled: enabledToggle.checked,
       defaultCountryCode: countryCodeInput.value.trim(),
+      whatsappNumbers: config.whatsappNumbers || [],
       templates: config.templates || []
     };
     if (authKeyInput.value.trim()) payload.authKey = authKeyInput.value.trim();
@@ -287,8 +219,9 @@ async function saveConfig() {
 
 async function sendSelected() {
   const templateId = templateSelect.value;
-  if (!templateId || !selectedLeadIds.size) {
-    showMessage(sendMessage, "Select a template and at least one lead.", true);
+  const integratedNumber = numberSelect.value;
+  if (!integratedNumber || !templateId || !selectedLeadIds.size) {
+    showMessage(sendMessage, "Select a WhatsApp number, template, and at least one lead.", true);
     return;
   }
   sendBtn.disabled = true;
@@ -298,7 +231,7 @@ async function sendSelected() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
-      body: JSON.stringify({ templateId, leadIds: [...selectedLeadIds] })
+      body: JSON.stringify({ integratedNumber, templateId, leadIds: [...selectedLeadIds] })
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json.message || json.details || `HTTP ${res.status}`);
@@ -309,6 +242,29 @@ async function sendSelected() {
     showMessage(sendMessage, `Send failed: ${error.message}`, true);
   } finally {
     sendBtn.disabled = false;
+  }
+}
+
+async function syncWhatsapp() {
+  syncWhatsappBtn.disabled = true;
+  showMessage(configMessage, "Syncing WhatsApp numbers and templates from MSG91...");
+  try {
+    const payload = {};
+    if (authKeyInput.value.trim()) payload.authKey = authKeyInput.value.trim();
+    const res = await fetch(apiUrl("/api/reachout/whatsapp/sync"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(payload)
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.details || json.message || `HTTP ${res.status}`);
+    applyConfig(json);
+    showMessage(configMessage, `Synced ${json.syncedNumbers || 0} number(s) and ${json.syncedTemplates || 0} template(s).`);
+  } catch (error) {
+    showMessage(configMessage, `Sync failed: ${error.message}`, true);
+  } finally {
+    syncWhatsappBtn.disabled = false;
   }
 }
 
@@ -344,12 +300,10 @@ document.querySelectorAll(".toggle-secret-btn").forEach((btn) => {
   });
 });
 
-addTemplateBtn.addEventListener("click", () => {
-  config.templates = [...(config.templates || []), blankTemplate("sms")];
-  renderTemplates();
-  renderTemplateSelect();
-});
 saveConfigBtn.addEventListener("click", saveConfig);
+syncWhatsappBtn.addEventListener("click", syncWhatsapp);
+numberSelect.addEventListener("change", renderTemplateSelect);
+templateSelect.addEventListener("change", renderTemplatePreview);
 sendBtn.addEventListener("click", sendSelected);
 selectFilteredBtn.addEventListener("click", () => {
   filteredLeads.forEach((lead) => selectedLeadIds.add(String(lead.id)));
