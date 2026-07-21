@@ -7045,13 +7045,20 @@ app.delete("/api/leads", async (req, res) => {
     if (!session) return;
 
     const leadRefs = Array.isArray(req.body?.leadRefs) ? req.body.leadRefs : [];
-    const matchConditions = buildLiveLeadIdentityMatchConditions(leadRefs);
-    if (!matchConditions.length) {
+    const identityMatchConditions = buildLiveLeadIdentityMatchConditions(leadRefs);
+    const identityQuery = identityMatchConditions.length ? { $or: identityMatchConditions } : null;
+    const idQuery = buildLiveLeadIdQuery(leadRefs);
+    if (!identityQuery && !idQuery) {
       return res.status(400).json({ message: "Lead references are required." });
     }
 
-    const query = { $or: matchConditions };
-    const leadsToDelete = await leadsCollection.find(query).toArray();
+    let query = identityQuery || idQuery;
+    let leadsToDelete = await leadsCollection.find(query).toArray();
+    if (!leadsToDelete.length && identityQuery && idQuery) {
+      leadsToDelete = await leadsCollection.find(idQuery).toArray();
+      query = idQuery;
+    }
+
     if (!leadsToDelete.length) {
       return res.status(404).json({ message: "No matching leads were deleted." });
     }

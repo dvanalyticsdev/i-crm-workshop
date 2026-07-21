@@ -112,6 +112,8 @@ test("bulk delete preserves leads outside the current filtered table", () => {
   assert.match(leadService, /export function deleteLeads/);
   assert.match(server, /app\.delete\("\/api\/leads"/);
   assert.match(server, /buildLiveLeadIdentityMatchConditions/);
+  assert.match(server, /const idQuery = buildLiveLeadIdQuery\(leadRefs\)/);
+  assert.match(server, /leadsToDelete = await leadsCollection\.find\(idQuery\)\.toArray\(\)/);
   assert.match(server, /tasksCollection\.deleteMany\(\{ leadId: \{ \$in: deletedLeadIds \} \}\)/);
   assert.match(preWorkshop, /buildLeadSelectionKey/);
   assert.match(postWorkshop, /buildLeadSelectionKey/);
