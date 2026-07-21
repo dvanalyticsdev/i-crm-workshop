@@ -588,6 +588,9 @@ async function navigateToRoute(href, options = {}) {
     bindThemeControls();
     mountPingPill();
     injectNotificationBell();
+    if (isSystemUpdateAvailable) {
+      showUpdateAvailablePill({ notify: false });
+    }
 
     if (pushState) {
       window.history.pushState({ route }, "", route);
@@ -1009,6 +1012,7 @@ function formatNotificationTime(dateString) {
 // ─── Version Checker ─────────────────────────────────────────────────────────
 let currentClientVersion = null;
 let isUpdateModalShown = false;
+let isSystemUpdateAvailable = false;
 
 async function checkSystemVersion() {
   try {
@@ -1021,8 +1025,8 @@ async function checkSystemVersion() {
       const version = data.version;
       if (!currentClientVersion) {
         currentClientVersion = version;
-      } else if (version !== currentClientVersion && !isUpdateModalShown) {
-        showUpdateModal();
+      } else if (version !== currentClientVersion && !isSystemUpdateAvailable) {
+        showUpdateAvailablePill();
       }
     }
   } catch (err) {
@@ -1030,12 +1034,45 @@ async function checkSystemVersion() {
   }
 }
 
+function showUpdateAvailablePill({ notify = true } = {}) {
+  const wasAlreadyAvailable = isSystemUpdateAvailable;
+  isSystemUpdateAvailable = true;
+
+  if (notify && !wasAlreadyAvailable) {
+    // Play a premium sound to notify the user without blocking their current work.
+    playNotificationSound();
+  }
+
+  const profileContainer = document.querySelector(".topbar-profile");
+  if (!profileContainer || document.getElementById("system-update-pill")) {
+    return;
+  }
+
+  const pill = document.createElement("button");
+  pill.type = "button";
+  pill.id = "system-update-pill";
+  pill.className = "update-available-pill";
+  pill.setAttribute("aria-haspopup", "dialog");
+  pill.innerHTML = `
+    <span class="update-available-pill__dot" aria-hidden="true"></span>
+    <span>Update available</span>
+  `;
+  pill.addEventListener("click", showUpdateModal);
+
+  const notificationBell = profileContainer.querySelector(".bell-wrap-container");
+  const identityTag = profileContainer.querySelector("[data-role-tag]");
+  if (notificationBell) {
+    profileContainer.insertBefore(pill, notificationBell);
+  } else if (identityTag) {
+    profileContainer.insertBefore(pill, identityTag);
+  } else {
+    profileContainer.insertBefore(pill, profileContainer.firstChild);
+  }
+}
+
 function showUpdateModal() {
   if (isUpdateModalShown) return;
   isUpdateModalShown = true;
-
-  // Play a premium sound to notify the user
-  playNotificationSound();
 
   const overlay = document.createElement("div");
   overlay.className = "update-modal-overlay";

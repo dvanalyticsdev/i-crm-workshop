@@ -348,6 +348,20 @@ test("task service uses atomic task endpoints", () => {
   assert.match(taskService, /requestJson\("\/api\/tasks"/);
 });
 
+test("system update notice is a non-blocking header pill until clicked", () => {
+  const layouts = read("layouts.js");
+  const styles = read("styles.css");
+
+  assert.match(layouts, /let isSystemUpdateAvailable = false/);
+  assert.match(getFunctionBody(layouts, "checkSystemVersion"), /showUpdateAvailablePill\(\)/);
+  assert.doesNotMatch(getFunctionBody(layouts, "checkSystemVersion"), /showUpdateModal\(\)/);
+  assert.match(layouts, /id = "system-update-pill"/);
+  assert.match(layouts, /pill\.addEventListener\("click", showUpdateModal\)/);
+  assert.match(layouts, /showUpdateAvailablePill\(\{ notify: false \}\)/);
+  assert.match(styles, /\.update-available-pill/);
+  assert.match(styles, /\.update-modal-overlay/);
+});
+
 test("workshop and admission filters support multiple selected values", () => {
   const preWorkshop = read("pre-workshop.js");
   const postWorkshop = read("post-workshop.js");
