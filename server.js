@@ -1128,44 +1128,7 @@ function decodeJwtPayload(token) {
 }
 
 function getDefaultReachoutTemplates() {
-  return [
-    {
-      id: "default-sms-workshop-reminder",
-      name: "Workshop Reminder",
-      channel: "sms",
-      enabled: true,
-      msg91TemplateId: "",
-      variableMappings: "VAR1=name\nVAR2=workshop",
-      bodyText: "Hi {{name}}, this is a reminder for {{workshop}}.",
-      createdAt: new Date().toISOString()
-    },
-    {
-      id: "default-whatsapp-follow-up",
-      name: "WhatsApp Follow-up",
-      channel: "whatsapp",
-      enabled: true,
-      integratedNumber: "",
-      templateName: "",
-      languageCode: "en",
-      variableMappings: "body_1=name\nbody_2=workshop",
-      bodyText: "Hi {{name}}, following up regarding {{workshop}}.",
-      createdAt: new Date().toISOString()
-    },
-    {
-      id: "default-email-admission-follow-up",
-      name: "Admission Email",
-      channel: "email",
-      enabled: true,
-      msg91TemplateId: "",
-      fromEmail: "",
-      fromName: "DV Analytics",
-      domain: "",
-      subject: "DV Analytics follow-up",
-      variableMappings: "name=name\nworkshop=workshop",
-      bodyText: "Hi {{name}}, following up regarding {{workshop}}.",
-      createdAt: new Date().toISOString()
-    }
-  ];
+  return [];
 }
 
 async function getReachoutConfig() {

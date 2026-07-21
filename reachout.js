@@ -175,10 +175,12 @@ function renderTemplates() {
   });
 
   templateEditorList.querySelectorAll("[data-remove-template]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
       config.templates = templates.filter((item) => item.id !== button.dataset.removeTemplate);
       renderTemplates();
       renderTemplateSelect();
+      await saveConfig();
     });
   });
 }

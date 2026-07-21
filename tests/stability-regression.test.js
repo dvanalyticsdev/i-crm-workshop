@@ -747,3 +747,14 @@ test("MCUBE outbound click-to-call uses documented payload fields", () => {
   assert.doesNotMatch(server, /Authorization: `Bearer \$\{config\.accountToken\}`/);
   assert.match(server, /MCUBE executive number is missing/);
 });
+
+test("ReachOut templates do not respawn default seeded templates after removal", () => {
+  const server = read("server.js");
+  const reachout = read("reachout.js");
+  const defaultReachoutTemplates = getNamedFunctionSource(server, "getDefaultReachoutTemplates");
+
+  assert.match(defaultReachoutTemplates, /return \[\];/);
+  assert.doesNotMatch(defaultReachoutTemplates, /Workshop Reminder|WhatsApp Follow-up|Admission Email/);
+  assert.match(server, /templates: Array\.isArray\(doc\?\.templates\) \? doc\.templates : getDefaultReachoutTemplates\(\)/);
+  assert.match(reachout, /data-remove-template[\s\S]*?await saveConfig\(\)/);
+});
