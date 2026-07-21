@@ -573,6 +573,31 @@ test("activity history endpoint and UI checks", () => {
   assert.match(styles, /\.timeline-badge/);
 });
 
+test("activity update panels can save notes into activity history", () => {
+  const preWorkshopHtml = read("pre-workshop.html");
+  const postWorkshopHtml = read("post-workshop.html");
+  const registeredCandidatesHtml = read("registered-candidates.html");
+  const mainAdmissionLeadsHtml = read("main-admission-leads.html");
+  const preWorkshop = read("pre-workshop.js");
+  const postWorkshop = read("post-workshop.js");
+  const registeredCandidates = read("registered-candidates.js");
+  const mainAdmissionLeads = read("main-admission-leads.js");
+  const server = read("server.js");
+
+  assert.match(preWorkshopHtml, /modalActivityNote/);
+  assert.match(postWorkshopHtml, /modalPostActivityNote/);
+  assert.match(registeredCandidatesHtml, /modalRegisteredActivityNote/);
+  assert.match(mainAdmissionLeadsHtml, /modalMainAdmissionActivityNote/);
+  assert.match(getFunctionBody(preWorkshop, "saveActivityModalNote"), /addLeadNote\(leadId, text/);
+  assert.match(getFunctionBody(postWorkshop, "savePostActivityModalNote"), /addLeadNote\(leadId, text/);
+  assert.match(getFunctionBody(registeredCandidates, "saveActivity"), /modalRegisteredActivityNote/);
+  assert.match(getFunctionBody(registeredCandidates, "saveActivity"), /addLeadNote\(lead\.id, noteText/);
+  assert.match(getFunctionBody(mainAdmissionLeads, "saveActivity"), /modalMainAdmissionActivityNote/);
+  assert.match(getFunctionBody(mainAdmissionLeads, "saveActivity"), /addLeadNote\(lead\.id, noteText/);
+  assert.match(server, /activityType: "Notes Added"/);
+  assert.match(server, /actionDescription: `Added note: "\$\{text\}"`/);
+});
+
 test("incoming Meta leads route admission traffic into Main Admission Leads", () => {
   const server = read("server.js");
   const mainAdmissionHtml = read("main-admission-leads.html");

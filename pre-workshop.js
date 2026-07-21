@@ -803,7 +803,7 @@ let searchTimeout = null;
 let currentPage = 1;
 const pageSize = 50;
 
-const activityFields = ["modalDialed", "modalCallStatus", "modalWsStatus", "modalWhatsappInvite", "modalWhatsappGroupStatus"];
+const activityFields = ["modalDialed", "modalCallStatus", "modalWsStatus", "modalWhatsappInvite", "modalWhatsappGroupStatus", "modalActivityNote"];
 
 function toIsoDate(date = new Date()) {
   const year = date.getFullYear();
@@ -1979,6 +1979,10 @@ function populateActivityModal(lead) {
   document.getElementById("modalWsStatus").value = lead.wsStatus;
   document.getElementById("modalWhatsappInvite").value = lead.whatsappInvite;
   document.getElementById("modalWhatsappGroupStatus").value = lead.whatsappGroupStatus;
+  const noteInput = document.getElementById("modalActivityNote");
+  if (noteInput) {
+    noteInput.value = "";
+  }
 }
 
 function findLeadByActionIdentity(leads, leadId, leadEmail = "") {
@@ -2061,6 +2065,29 @@ function openActivityStatusModal(leadId, leadEmail = "") {
   populateActivityModal(lead);
   document.getElementById("activityStatusModal").classList.remove("hidden");
   void trackLeadView(lead.id, lead.email || leadEmail || "");
+}
+
+async function saveActivityModalNote(leadId, leadEmail = "") {
+  const noteInput = document.getElementById("modalActivityNote");
+  const text = noteInput ? noteInput.value.trim() : "";
+  if (!text) {
+    return true;
+  }
+
+  const allLeads = getAllLeads();
+  const lead = findLeadByActionIdentity(allLeads, leadId, leadEmail);
+  if (!lead) {
+    showToast("Activity saved, but the note could not be linked to this lead. Please refresh and try again.", true);
+    return false;
+  }
+
+  const result = await addLeadNote(leadId, text, leadEmail || lead.email || "");
+  if (!result || result.ok === false) {
+    showToast(result?.message || "Activity saved, but the note could not be saved.", true);
+    return false;
+  }
+
+  return true;
 }
 
 
@@ -2291,10 +2318,17 @@ function initPreWorkshopPage() {
         whatsappGroupStatus: document.getElementById("modalWhatsappGroupStatus").value
       }, modalLeadEmail);
 
-      closeActivityStatusModal();
-      if (saved) {
-        renderAll();
+      if (!saved) {
+        return;
       }
+
+      const noteSaved = await saveActivityModalNote(modalLeadId, modalLeadEmail);
+      if (!noteSaved) {
+        return;
+      }
+
+      closeActivityStatusModal();
+      renderAll();
     };
   }
 

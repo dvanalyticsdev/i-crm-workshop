@@ -1348,7 +1348,8 @@ function setRegisteredActivityModalMode(mode) {
     "modalMainAdmissionCoursePitched",
     "modalMainAdmissionCourseStatus",
     "modalMainAdmissionAdmissionStatus",
-    "modalMainAdmissionCallStatus"
+    "modalMainAdmissionCallStatus",
+    "modalMainAdmissionActivityNote"
   ].forEach((id) => {
     const field = document.getElementById(id);
     if (field) {
@@ -1363,6 +1364,10 @@ function populateActivityModal(lead) {
   document.getElementById("modalMainAdmissionCourseStatus").value = lead.mainAdmissionCourseStatus;
   document.getElementById("modalMainAdmissionAdmissionStatus").value = lead.mainAdmissionAdmissionStatus;
   document.getElementById("modalMainAdmissionCallStatus").value = lead.mainAdmissionCallStatus;
+  const noteInput = document.getElementById("modalMainAdmissionActivityNote");
+  if (noteInput) {
+    noteInput.value = "";
+  }
 }
 
 function closeActivityModal() {
@@ -1392,6 +1397,16 @@ async function saveActivity(event) {
   if (!result || result.ok === false) {
     showToast(result?.message || "Failed to save lead activity.", true);
     return;
+  }
+
+  const noteInput = document.getElementById("modalMainAdmissionActivityNote");
+  const noteText = noteInput ? noteInput.value.trim() : "";
+  if (noteText) {
+    const noteResult = await addLeadNote(lead.id, noteText, lead.email || "");
+    if (!noteResult || noteResult.ok === false) {
+      showToast(noteResult?.message || "Activity saved, but the note could not be saved.", true);
+      return;
+    }
   }
 
   closeActivityModal();

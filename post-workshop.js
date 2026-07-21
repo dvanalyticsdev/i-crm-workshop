@@ -400,7 +400,7 @@ let searchTimeout = null;
 let currentPage = 1;
 const pageSize = 50;
 
-const activityFields = ["modalPostDialed", "modalCoursePitched", "modalCourseStatus", "modalAdmissionStatus", "modalPostCallStatus", "modalAdmissionWorkshop", "modalWorkshopJoiningStatus"];
+const activityFields = ["modalPostDialed", "modalCoursePitched", "modalCourseStatus", "modalAdmissionStatus", "modalPostCallStatus", "modalAdmissionWorkshop", "modalWorkshopJoiningStatus", "modalPostActivityNote"];
 
 function setMessage(text, isError = true) {
   if (!postActivityMessage) {
@@ -1442,6 +1442,10 @@ function populatePostActivityModal(lead) {
   document.getElementById("modalAdmissionStatus").value = lead.admissionStatus;
   document.getElementById("modalPostCallStatus").value = lead.postCallStatus;
   document.getElementById("modalWorkshopJoiningStatus").value = lead.workshopJoiningStatus;
+  const noteInput = document.getElementById("modalPostActivityNote");
+  if (noteInput) {
+    noteInput.value = "";
+  }
 }
 
 function findLeadByActionIdentity(leads, leadId, leadEmail = "") {
@@ -1692,6 +1696,29 @@ async function assignSelectedLeads(leads, counselorName) {
   setMessage(assignmentSummary.message, assignmentSummary.assignedCount === 0);
   showToast(assignmentSummary.message, assignmentSummary.assignedCount === 0);
   return assignmentSummary.assignedCount > 0;
+}
+
+async function savePostActivityModalNote(leadId, leadEmail = "") {
+  const noteInput = document.getElementById("modalPostActivityNote");
+  const text = noteInput ? noteInput.value.trim() : "";
+  if (!text) {
+    return true;
+  }
+
+  const allLeads = getAllLeads();
+  const lead = findLeadByActionIdentity(allLeads, leadId, leadEmail);
+  if (!lead) {
+    showToast("Activity saved, but the note could not be linked to this lead. Please refresh and try again.", true);
+    return false;
+  }
+
+  const result = await addLeadNote(leadId, text, leadEmail || lead.email || "");
+  if (!result || result.ok === false) {
+    showToast(result?.message || "Activity saved, but the note could not be saved.", true);
+    return false;
+  }
+
+  return true;
 }
 
 function openPostActivityModal(leadId, leadEmail = "") {
@@ -1953,6 +1980,11 @@ function initPostWorkshopPage() {
     }, modalLeadEmail);
 
     if (!saved) {
+      return;
+    }
+
+    const noteSaved = await savePostActivityModalNote(modalLeadId, modalLeadEmail);
+    if (!noteSaved) {
       return;
     }
 
