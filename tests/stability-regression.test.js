@@ -842,6 +842,36 @@ test("MCUBE outbound click-to-call uses documented payload fields", () => {
   assert.match(server, /MCUBE executive number is missing/);
 });
 
+test("MCUBE auto-created leads assign only when a picked call matches a CRM counselor", () => {
+  const server = read("server.js");
+  const source = [
+    getNamedFunctionSource(server, "normalizeMcubePhone"),
+    getNamedFunctionSource(server, "findMcubeAnsweringCounselor"),
+    getNamedFunctionSource(server, "didMcubeCallGetPicked"),
+    getNamedFunctionSource(server, "getMcubeLeadAssignment")
+  ].join("\n\n");
+  const factory = new Function(`${source}; return { getMcubeLeadAssignment };`);
+  const { getMcubeLeadAssignment } = factory();
+  const counselors = [
+    { name: "Bhavya", email: "bhavya@example.com", mcubeExecutiveNumber: "8767316316" },
+    { name: "Shubhashree", email: "shu@example.com", phone: "9988776655" }
+  ];
+
+  assert.equal(
+    getMcubeLeadAssignment({ disposition: "CANCEL", agentPhone: "8767316316", counselorName: "Bhavya" }, counselors).counselorName,
+    "Unassigned"
+  );
+  assert.equal(
+    getMcubeLeadAssignment({ disposition: "ANSWER", agentPhone: "1111111111", counselorName: "External Agent" }, counselors).counselorName,
+    "Unassigned"
+  );
+  assert.equal(
+    getMcubeLeadAssignment({ disposition: "ANSWER", agentPhone: "8767316316", counselorName: "Bhavya" }, counselors).counselorName,
+    "Bhavya"
+  );
+  assert.doesNotMatch(server, /assignMcubeCounselorRoundRobin/);
+});
+
 test("ReachOut templates do not respawn default seeded templates after removal", () => {
   const server = read("server.js");
   const defaultReachoutTemplates = getNamedFunctionSource(server, "getDefaultReachoutTemplates");

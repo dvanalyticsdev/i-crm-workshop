@@ -2094,14 +2094,15 @@ function getMcubeLeadAssignment(event = {}, counselorSource) {
   }
 
   const matchedCounselor = findMcubeAnsweringCounselor(counselorSource, event);
-  const pickedBy = String(matchedCounselor?.name || event?.counselorName || "").trim();
+  const pickedBy = String(event?.counselorName || matchedCounselor?.name || "").trim();
+  const assignedCounselorName = String(matchedCounselor?.name || "").trim();
   return {
-    counselorName: pickedBy || "Unassigned",
+    counselorName: assignedCounselorName || "Unassigned",
     pickedBy,
     pickedByPhone: String(event?.agentPhone || "").trim(),
-    assignmentNote: pickedBy
-      ? `Assigned to the MCUBE agent who picked the call: ${pickedBy}.`
-      : "Call was answered, but no MCUBE agent matched a CRM counselor."
+    assignmentNote: assignedCounselorName
+      ? `Assigned to the CRM counselor who picked the MCUBE call: ${assignedCounselorName}.`
+      : "Call was answered, but the MCUBE agent does not match any counselor in the CRM."
   };
 }
 
@@ -3262,6 +3263,9 @@ async function processMcubeWebhookPayload(req, body) {
 
   const stageConfig = inferLeadStageForCallUpdate(lead);
   const normalizedStatus = mapMcubeDispositionToCrmStatus(event.disposition || event.eventType);
+  const assignment = getMcubeLeadAssignment(event, state.counselors);
+  const shouldAssignFromPickedCall = !shouldTreatLeadAsAssigned(lead.counselor)
+    && shouldTreatLeadAsAssigned(assignment.counselorName);
   const history = Array.isArray(lead.mcubeCallHistory) ? lead.mcubeCallHistory : [];
   const nextHistory = [
     {
@@ -3288,8 +3292,12 @@ async function processMcubeWebhookPayload(req, body) {
 
   const nextLead = decorateLeadForStorage({
     ...lead,
+    counselor: shouldAssignFromPickedCall ? assignment.counselorName : lead.counselor,
     updatedAt: new Date().toISOString(),
     mcubeCallHistory: nextHistory,
+    mcubePickedBy: assignment.pickedBy || lead.mcubePickedBy || "",
+    mcubePickedByPhone: assignment.pickedByPhone || lead.mcubePickedByPhone || "",
+    mcubeAssignmentNote: assignment.assignmentNote || lead.mcubeAssignmentNote || "",
     mcubeLastEventType: event.eventType,
     mcubeLastDisposition: event.disposition,
     mcubeLastCallId: event.callId,
@@ -3307,6 +3315,18 @@ async function processMcubeWebhookPayload(req, body) {
   }
 
   await replaceLeadDocument(nextLead);
+
+  if (shouldAssignFromPickedCall) {
+    await recordActivity({
+      leadId: nextLead.id,
+      leadName: nextLead.name,
+      counselorName: nextLead.counselor,
+      activityType: "Lead Assigned",
+      actionDescription: `MCUBE answered call matched CRM counselor ${nextLead.counselor}`,
+      previousValue: String(lead?.counselor || "").trim() || "Unassigned",
+      newValue: nextLead.counselor
+    });
+  }
 
   await recordActivity({
     leadId: nextLead.id,
@@ -3352,8 +3372,8 @@ async function processMcubeWebhookPayload(req, body) {
     counselor: nextLead.counselor,
     leadPipeline: nextLead.leadPipeline || "",
     assignmentStatus: shouldTreatLeadAsAssigned(nextLead.counselor) ? "Assigned" : "Unassigned",
-    pickedBy: event.counselorName || nextLead.mcubePickedBy || "",
-    pickedByPhone: event.agentPhone || nextLead.mcubePickedByPhone || "",
+    pickedBy: assignment.pickedBy || "",
+    pickedByPhone: assignment.pickedByPhone || "",
     callAnswered: didMcubeCallGetPicked(event),
     callDisposition: event.disposition || "",
     normalizedStatus,
