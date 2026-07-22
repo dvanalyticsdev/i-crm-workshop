@@ -150,9 +150,6 @@ function renderCallMetadata(log) {
           <audio class="timeline-recording-player" controls preload="metadata" src="${escapeHtml(recordingUrl)}" data-recording-id="${escapeHtml(recordingId)}">
             <a class="timeline-recording-link" href="${escapeHtml(recordingUrl)}" target="_blank" rel="noopener noreferrer">Open recording</a>
           </audio>
-          <div class="timeline-recording-actions">
-            <a class="timeline-recording-link" href="${escapeHtml(recordingUrl)}" download target="_blank" rel="noopener noreferrer">Download Recording</a>
-          </div>
         </div>
       ` : ""}
     </div>

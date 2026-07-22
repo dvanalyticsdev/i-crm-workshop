@@ -939,8 +939,6 @@ test("MCUBE logs show exact call status before picked interpretation", () => {
   assert.match(activityHistory, /function getUsableRecordingUrl/);
   assert.match(activityHistory, /timeline-recording-link/);
   assert.match(activityHistory, /Call Recording/);
-  assert.match(activityHistory, /Download Recording/);
-  assert.match(activityHistory, /download target="_blank"/);
 });
 
 test("MCUBE click-to-call dispatch logs are marked outbound", () => {

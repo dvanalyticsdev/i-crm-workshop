@@ -6293,12 +6293,6 @@ html[data-theme="dark"] .diff-val {
   color-scheme: dark;
 }
 
-.timeline-recording-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
 .timeline-footer {
   display: flex;
   justify-content: space-between;
