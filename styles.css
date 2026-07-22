@@ -1740,6 +1740,14 @@ tbody tr:hover {
   margin-bottom: var(--space-4);
 }
 
+.main-admission-details-modal__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
 .main-admission-details-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1784,6 +1792,11 @@ tbody tr:hover {
   color: var(--text);
   line-height: 1.45;
   word-break: break-word;
+}
+
+.main-admission-details-input {
+  width: 100%;
+  min-height: 38px;
 }
 
 @media (max-width: 1100px) {

@@ -2320,12 +2320,11 @@ function getMcubeLeadAssignment(event = {}, counselorSource) {
 function buildMcubeLead(event, assignment, nextId) {
   const now = new Date().toISOString();
   const phone = String(event?.phone || "").trim();
-  const displayName = phone ? `MCUBE Caller ${phone.slice(-4)}` : `MCUBE Lead ${nextId}`;
   const counselorName = String(assignment?.counselorName || "").trim() || "Unassigned";
   return {
     id: nextId,
-    name: displayName,
-    email: `mcube-${nextId}@noemail.lead`,
+    name: "",
+    email: "",
     phone,
     source: "MCUBE",
     leadSource: "MCUBE",
@@ -6387,6 +6386,87 @@ function sanitizeLeadPatch(updates = {}, allowedFields = []) {
   return patch;
 }
 
+function isReplaceableLeadContactValue(field, value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+
+  if (field === "name") {
+    return /^mcube\s+(caller|lead)(\s+\S+)?$/i.test(String(value ?? "").trim());
+  }
+
+  if (field === "email") {
+    return /^mcube-[^@\s]+@noemail\.lead$/i.test(normalized);
+  }
+
+  return false;
+}
+
+function sanitizeFillMissingContactPatch(lead = {}, updates = {}) {
+  const patch = {};
+  ["name", "email", "phone"].forEach((field) => {
+    if (!Object.prototype.hasOwnProperty.call(updates, field)) {
+      return;
+    }
+
+    const nextValue = String(updates[field] ?? "").trim();
+    if (!nextValue || !isReplaceableLeadContactValue(field, lead[field])) {
+      return;
+    }
+
+    patch[field] = field === "email" ? nextValue.toLowerCase() : nextValue;
+  });
+  return patch;
+}
+
+const MAIN_ADMISSION_DETAIL_FIELDS = new Set(["name", "email", "phone", "courseName"]);
+
+function getLeadExtraFieldBucketName(lead = {}) {
+  if (lead.metaExtraFields && typeof lead.metaExtraFields === "object") {
+    return "metaExtraFields";
+  }
+  if (lead.elementorExtraFields && typeof lead.elementorExtraFields === "object") {
+    return "elementorExtraFields";
+  }
+  return String(lead.source || "").trim().toLowerCase().includes("elementor")
+    ? "elementorExtraFields"
+    : "metaExtraFields";
+}
+
+function sanitizeMainAdmissionDetailsPatch(lead = {}, body = {}) {
+  const fields = body?.fields && typeof body.fields === "object" ? body.fields : {};
+  const extraFields = body?.extraFields && typeof body.extraFields === "object" ? body.extraFields : {};
+  const setPatch = {};
+  const contactPatch = sanitizeFillMissingContactPatch(lead, fields);
+
+  Object.entries(fields).forEach(([field, value]) => {
+    if (!MAIN_ADMISSION_DETAIL_FIELDS.has(field)) {
+      return;
+    }
+
+    if (["name", "email", "phone"].includes(field)) {
+      return;
+    }
+
+    const nextValue = String(value ?? "").trim();
+    setPatch[field] = field === "email" ? nextValue.toLowerCase() : nextValue;
+  });
+
+  Object.assign(setPatch, contactPatch);
+
+  const extraBucket = getLeadExtraFieldBucketName(lead);
+  Object.entries(extraFields).forEach(([field, value]) => {
+    const key = String(field || "").trim();
+    if (!key || key.includes(".") || key.startsWith("$")) {
+      return;
+    }
+    setPatch[`${extraBucket}.${key}`] = String(value ?? "").trim();
+  });
+
+  return setPatch;
+}
+
 function createTaskId() {
   return `task-${crypto.randomUUID()}`;
 }
@@ -7064,6 +7144,102 @@ app.post("/api/notifications/read", async (req, res) => {
     return res.json({ ok: true });
   } catch (error) {
     return res.status(500).json({ message: "Failed to mark notifications as read", details: error.message });
+  }
+});
+
+app.patch("/api/main-admission-leads/:leadId/details", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "counselor"]);
+    if (!session) return;
+
+    const leadId = req.params.leadId;
+    const leadEmail = String(req.body?.leadEmail || "").trim().toLowerCase();
+    const state = await getStateDoc();
+    const lead = findLeadByIdentity(state, leadId, leadEmail);
+
+    if (!lead) {
+      return res.status(404).json({ message: "Lead not found." });
+    }
+    if (!isMainAdmissionLead(lead)) {
+      return res.status(400).json({ message: "Lead details can be edited only from Main Admission Leads." });
+    }
+    if (!canMutateLead(session, state, lead)) {
+      return res.status(403).json({ message: "Only the assigned counselor can update this lead." });
+    }
+
+    const patch = sanitizeMainAdmissionDetailsPatch(lead, req.body || {});
+    if (!Object.keys(patch).length) {
+      return res.status(400).json({ message: "No valid lead detail fields provided." });
+    }
+
+    const candidateLead = structuredClone({ ...lead });
+    Object.entries(patch).forEach(([field, value]) => {
+      if (field.includes(".")) {
+        const [bucket, key] = field.split(".");
+        candidateLead[bucket] = candidateLead[bucket] && typeof candidateLead[bucket] === "object"
+          ? { ...candidateLead[bucket] }
+          : {};
+        candidateLead[bucket][key] = value;
+      } else {
+        candidateLead[field] = value;
+      }
+    });
+
+    const duplicateLead = findDuplicateLeadByEmailOrPhone(
+      (Array.isArray(state.leads) ? state.leads : []).filter((item) => String(item?.id) !== String(lead.id)),
+      candidateLead
+    );
+    if (duplicateLead) {
+      return res.status(409).json({ message: "Another lead already uses this email or phone." });
+    }
+
+    const decoratedCandidate = decorateLeadForStorage(candidateLead);
+    const normalizedPatch = {};
+    ["normalizedEmail", "normalizedPhone", "courseKey", "courseRawName"].forEach((field) => {
+      if (Object.prototype.hasOwnProperty.call(decoratedCandidate, field)) {
+        normalizedPatch[field] = decoratedCandidate[field];
+      }
+    });
+
+    const now = new Date().toISOString();
+    const query = { id: { $in: getLeadIdCandidates(leadId) } };
+    if (leadEmail) {
+      query.email = leadEmail;
+    }
+
+    const result = await leadsCollection.updateOne(query, {
+      $set: {
+        ...patch,
+        ...normalizedPatch,
+        updatedAt: now
+      }
+    });
+
+    if (!result.modifiedCount) {
+      return res.status(409).json({ message: "Lead changed before the details could be saved. Please reload and retry." });
+    }
+
+    await stateCollection.updateOne(
+      { _id: STATE_DOC_ID },
+      { $set: { updatedAt: now } },
+      { upsert: true }
+    );
+
+    await recordActivity({
+      leadId: lead.id,
+      leadName: candidateLead.name || lead.name,
+      counselorName: candidateLead.counselor || lead.counselor || "",
+      activityType: "Lead Details Updated",
+      actionDescription: "Main Admission lead details updated",
+      session
+    });
+
+    const nextState = await refreshStateAfterAtomicUpdate();
+    const updatedLead = findLeadByIdentity(nextState, leadId, patch.email || leadEmail);
+    res.setHeader("ETag", buildStateEtag(nextState));
+    return res.json({ ok: true, lead: updatedLead, state: buildStateResponse(nextState) });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to update lead details", details: error.message });
   }
 });
 

@@ -216,8 +216,14 @@
               <h3 id="mainAdmissionDetailsModalTitle">Lead Details</h3>
               <p id="mainAdmissionDetailsModalSubtitle" class="block-help">Complete CRM, Meta, and lead information for this record.</p>
             </div>
-            <button type="button" id="closeMainAdmissionDetailsModalBtn" class="btn-ghost">Close</button>
+            <div class="main-admission-details-modal__actions">
+              <button type="button" id="editMainAdmissionDetailsBtn" class="btn-ghost">Edit</button>
+              <button type="button" id="saveMainAdmissionDetailsBtn" class="btn-primary hidden">Save</button>
+              <button type="button" id="cancelMainAdmissionDetailsEditBtn" class="btn-ghost hidden">Cancel</button>
+              <button type="button" id="closeMainAdmissionDetailsModalBtn" class="btn-ghost">Close</button>
+            </div>
           </div>
+          <p id="mainAdmissionDetailsEditMessage" class="message" aria-live="polite"></p>
           <div id="mainAdmissionDetailsModalBody" class="main-admission-details-grid"></div>
         </div>
       </div>

@@ -925,6 +925,21 @@ test("MCUBE auto-created leads assign only when a picked call matches a CRM coun
   assert.doesNotMatch(server, /assignMcubeCounselorRoundRobin/);
 });
 
+test("MCUBE auto-created lead contact placeholders are replaceable only when synthetic", () => {
+  const server = read("server.js");
+  const buildMcubeLead = getNamedFunctionSource(server, "buildMcubeLead");
+  const contactPatch = getNamedFunctionSource(server, "sanitizeFillMissingContactPatch");
+  const replaceableValue = getNamedFunctionSource(server, "isReplaceableLeadContactValue");
+
+  assert.match(buildMcubeLead, /name:\s*""/);
+  assert.match(buildMcubeLead, /email:\s*""/);
+  assert.doesNotMatch(buildMcubeLead, /MCUBE Caller/);
+  assert.doesNotMatch(buildMcubeLead, /@noemail\.lead/);
+  assert.match(contactPatch, /isReplaceableLeadContactValue\(field, lead\[field\]\)/);
+  assert.match(replaceableValue, /\^mcube\\s\+\(caller\|lead\)/);
+  assert.match(replaceableValue, /@noemail\\\.lead/);
+});
+
 test("MCUBE logs show exact call status before picked interpretation", () => {
   const mcubeIntegration = read("mcube-integration.js");
   const mcubeHtml = read("mcube-integration.html");

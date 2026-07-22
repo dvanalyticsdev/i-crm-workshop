@@ -47,6 +47,17 @@ export function updateLeadActivity(leadId, { stage, updates, leadEmail = "", all
   });
 }
 
+export function updateMainAdmissionLeadDetails(leadId, { leadEmail = "", fields = {}, extraFields = {} }) {
+  return requestJson(`/api/main-admission-leads/${encodeURIComponent(leadId)}/details`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      leadEmail,
+      fields,
+      extraFields
+    })
+  });
+}
+
 export function addLeadNote(leadId, text, leadEmail = "") {
   return requestJson(`/api/leads/${encodeURIComponent(leadId)}/notes`, {
     method: "POST",

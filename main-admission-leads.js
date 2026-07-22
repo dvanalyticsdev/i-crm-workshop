@@ -14,7 +14,7 @@ import {
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY } from "./task-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
-import { addLeadNote, assignLeads as assignLeadsOnServer, deleteLeadNote, formatLeadAssignmentResult, trackLeadView, updateLeadActivity as updateLeadActivityOnServer } from "./lead-service.js";
+import { addLeadNote, assignLeads as assignLeadsOnServer, deleteLeadNote, formatLeadAssignmentResult, trackLeadView, updateLeadActivity as updateLeadActivityOnServer, updateMainAdmissionLeadDetails } from "./lead-service.js";
 
 await bootstrapLocalState();
 
@@ -50,6 +50,10 @@ const mainAdmissionDetailsModal = document.getElementById("mainAdmissionDetailsM
 const mainAdmissionDetailsModalTitle = document.getElementById("mainAdmissionDetailsModalTitle");
 const mainAdmissionDetailsModalSubtitle = document.getElementById("mainAdmissionDetailsModalSubtitle");
 const mainAdmissionDetailsModalBody = document.getElementById("mainAdmissionDetailsModalBody");
+const mainAdmissionDetailsEditMessage = document.getElementById("mainAdmissionDetailsEditMessage");
+const editMainAdmissionDetailsBtn = document.getElementById("editMainAdmissionDetailsBtn");
+const saveMainAdmissionDetailsBtn = document.getElementById("saveMainAdmissionDetailsBtn");
+const cancelMainAdmissionDetailsEditBtn = document.getElementById("cancelMainAdmissionDetailsEditBtn");
 
 const FILTER_STORAGE_KEY = "dvMainAdmissionLeadFilters";
 const DEFAULT_SEGMENT = "standard";
@@ -91,6 +95,7 @@ let selectedLeadKeys = new Set();
 let activeLeadRef = null;
 let notesLeadRef = null;
 let detailsLeadRef = null;
+let detailsEditMode = false;
 let mainAdmissionActivityModalMode = "edit";
 let activeSegment = DEFAULT_SEGMENT;
 
@@ -961,6 +966,90 @@ function getLeadWhatsappNumber(lead) {
   return "";
 }
 
+function getLeadExtraFieldBucket(lead) {
+  if (lead?.metaExtraFields && typeof lead.metaExtraFields === "object") {
+    return "metaExtraFields";
+  }
+  if (lead?.elementorExtraFields && typeof lead.elementorExtraFields === "object") {
+    return "elementorExtraFields";
+  }
+  return String(lead?.source || "").trim().toLowerCase().includes("elementor")
+    ? "elementorExtraFields"
+    : "metaExtraFields";
+}
+
+function isReplaceableLeadContactValue(field, value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+
+  if (field === "name") {
+    return /^mcube\s+(caller|lead)(\s+\S+)?$/i.test(String(value ?? "").trim());
+  }
+
+  if (field === "email") {
+    return /^mcube-[^@\s]+@noemail\.lead$/i.test(normalized);
+  }
+
+  return false;
+}
+
+function canEditMainAdmissionDetails(lead) {
+  if (isAdmin) return true;
+  if (!isCounselorSession()) return false;
+  return String(lead?.counselor || "").trim().toLowerCase() === getCounselorIdentity();
+}
+
+function setDetailsEditMessage(message, isError = false) {
+  if (!mainAdmissionDetailsEditMessage) {
+    return;
+  }
+
+  mainAdmissionDetailsEditMessage.textContent = message;
+  mainAdmissionDetailsEditMessage.style.color = isError ? "var(--danger)" : "var(--success)";
+}
+
+function setDetailsActionState(lead) {
+  const canEdit = canEditMainAdmissionDetails(lead);
+  if (editMainAdmissionDetailsBtn) {
+    editMainAdmissionDetailsBtn.classList.toggle("hidden", detailsEditMode || !canEdit);
+  }
+  if (saveMainAdmissionDetailsBtn) {
+    saveMainAdmissionDetailsBtn.classList.toggle("hidden", !detailsEditMode || !canEdit);
+  }
+  if (cancelMainAdmissionDetailsEditBtn) {
+    cancelMainAdmissionDetailsEditBtn.classList.toggle("hidden", !detailsEditMode || !canEdit);
+  }
+}
+
+function getEditableDetailFieldValue(lead, item) {
+  if (item.scope === "lead") {
+    return lead?.[item.field] ?? "";
+  }
+  if (item.scope === "extra") {
+    return getLeadExtraFields(lead)[item.field] ?? "";
+  }
+  return item.value ?? "";
+}
+
+function renderEditableDetailValue(lead, item) {
+  const value = String(getEditableDetailFieldValue(lead, item) ?? "");
+  const isProtectedContact = ["name", "email", "phone"].includes(item.field);
+  const canEditValue = !isProtectedContact || isReplaceableLeadContactValue(item.field, value);
+  const type = item.field === "email" ? "email" : item.field.toLowerCase().includes("phone") ? "tel" : "text";
+  return `
+    <input
+      class="main-admission-details-input"
+      type="${type}"
+      value="${escapeHtml(value)}"
+      data-detail-scope="${escapeHtml(item.scope)}"
+      data-detail-field="${escapeHtml(item.field)}"
+      ${canEditValue ? "" : "disabled"}
+    />
+  `;
+}
+
 function getDisplayLeadSource(lead) {
   const extraFields = getLeadExtraFields(lead);
   const sourceSignals = [
@@ -1030,41 +1119,48 @@ function buildLeadDetailSections(lead) {
     {
       title: "CRM Details",
       items: [
-        ["CRM ID", lead.id],
-        ["Lead Created Date", lead.createdAt],
-        ["Lead Source", displayLeadSource]
+        { label: "CRM ID", value: lead.id },
+        { label: "Lead Created Date", value: lead.createdAt },
+        { label: "Lead Source", value: displayLeadSource }
       ]
     },
     {
       title: "Meta Details",
       items: [
-        ["Ad Name", isMetaLead ? lead.metaAdName : ""],
-        ["Adset Name", isMetaLead ? lead.metaAdsetName : ""],
-        ["Campaign Name", isMetaLead ? lead.metaCampaignName : ""]
+        { label: "Ad Name", value: isMetaLead ? lead.metaAdName : "" },
+        { label: "Adset Name", value: isMetaLead ? lead.metaAdsetName : "" },
+        { label: "Campaign Name", value: isMetaLead ? lead.metaCampaignName : "" }
       ]
     },
     {
       title: "Lead Details",
+      editable: true,
       items: [
-        ["Name", lead.name],
-        ["Phone Number", lead.phone],
-        ["WhatsApp Phone Number", whatsappPhone],
-        ["Email", lead.email],
-        ["Course Name", lead.courseName],
-        ["City", city],
-        ["State", state]
+        { label: "Name", value: lead.name, scope: "lead", field: "name" },
+        { label: "Phone Number", value: lead.phone, scope: "lead", field: "phone" },
+        { label: "WhatsApp Phone Number", value: whatsappPhone, scope: "extra", field: "whatsapp_phone_number" },
+        { label: "Email", value: lead.email, scope: "lead", field: "email" },
+        { label: "Course Name", value: lead.courseName, scope: "lead", field: "courseName" },
+        { label: "City", value: city, scope: "extra", field: "city" },
+        { label: "State", value: state, scope: "extra", field: "state" }
       ]
     },
     extraFieldEntries.length
       ? {
           title: "Lead Qualification Details",
-          items: extraFieldEntries.map(([key, value]) => [formatFieldLabel(key), value])
+          editable: true,
+          items: extraFieldEntries.map(([key, value]) => ({
+            label: formatFieldLabel(key),
+            value,
+            scope: "extra",
+            field: key
+          }))
         }
       : null
   ].filter(Boolean);
 }
 
-function renderLeadDetailsModal(lead) {
+function renderLeadDetailsModalLegacy(lead) {
   if (!mainAdmissionDetailsModalBody || !mainAdmissionDetailsModalTitle || !mainAdmissionDetailsModalSubtitle) {
     return;
   }
@@ -1080,6 +1176,30 @@ function renderLeadDetailsModal(lead) {
           <div class="main-admission-details-item">
             <dt>${escapeHtml(label)}</dt>
             <dd>${formatDetailValue(value)}</dd>
+          </div>
+        `).join("")}
+      </dl>
+    </section>
+  `).join("");
+}
+
+function renderLeadDetailsModal(lead) {
+  if (!mainAdmissionDetailsModalBody || !mainAdmissionDetailsModalTitle || !mainAdmissionDetailsModalSubtitle) {
+    return;
+  }
+
+  const sections = buildLeadDetailSections(lead);
+  mainAdmissionDetailsModalTitle.textContent = `${lead.name || "Lead"} Details`;
+  mainAdmissionDetailsModalSubtitle.textContent = `CRM record ${lead.id || "-"} - ${lead.source || "Unknown source"}`;
+  setDetailsActionState(lead);
+  mainAdmissionDetailsModalBody.innerHTML = sections.map((section) => `
+    <section class="main-admission-details-card">
+      <h4>${escapeHtml(section.title)}</h4>
+      <dl class="main-admission-details-list">
+        ${section.items.map((item) => `
+          <div class="main-admission-details-item">
+            <dt>${escapeHtml(item.label)}</dt>
+            <dd>${detailsEditMode && section.editable ? renderEditableDetailValue(lead, item) : formatDetailValue(item.value)}</dd>
           </div>
         `).join("")}
       </dl>
@@ -1330,6 +1450,8 @@ function openDetailsModal(leadKey) {
     return;
   }
 
+  detailsEditMode = false;
+  setDetailsEditMessage("");
   detailsLeadRef = buildLeadRef(lead);
   renderLeadDetailsModal(lead);
   mainAdmissionDetailsModal.classList.remove("hidden");
@@ -1341,6 +1463,83 @@ function closeDetailsModal() {
     mainAdmissionDetailsModal.classList.add("hidden");
   }
   detailsLeadRef = null;
+  detailsEditMode = false;
+  setDetailsEditMessage("");
+}
+
+function setDetailsEditMode(enabled) {
+  const lead = findLeadByRef(detailsLeadRef);
+  if (!lead) {
+    return;
+  }
+
+  if (enabled && !canEditMainAdmissionDetails(lead)) {
+    showToast("Only the assigned counselor can edit this lead.", true);
+    return;
+  }
+
+  detailsEditMode = enabled;
+  setDetailsEditMessage("");
+  renderLeadDetailsModal(lead);
+}
+
+function collectDetailsModalUpdates() {
+  const fields = {};
+  const extraFields = {};
+
+  mainAdmissionDetailsModalBody?.querySelectorAll("[data-detail-scope][data-detail-field]").forEach((input) => {
+    const scope = input.getAttribute("data-detail-scope");
+    const field = input.getAttribute("data-detail-field");
+    if (!scope || !field || input.disabled) {
+      return;
+    }
+
+    const value = String(input.value || "").trim();
+    if (scope === "lead") {
+      fields[field] = field === "email" ? value.toLowerCase() : value;
+    } else if (scope === "extra") {
+      extraFields[field] = value;
+    }
+  });
+
+  return { fields, extraFields };
+}
+
+async function saveDetailsModalEdits() {
+  const lead = findLeadByRef(detailsLeadRef);
+  if (!lead) {
+    setDetailsEditMessage("Could not find this lead. Please refresh and try again.", true);
+    return;
+  }
+
+  if (!canEditMainAdmissionDetails(lead)) {
+    setDetailsEditMessage("Only the assigned counselor can edit this lead.", true);
+    return;
+  }
+
+  const updates = collectDetailsModalUpdates();
+  const result = await updateMainAdmissionLeadDetails(lead.id, {
+    leadEmail: lead.email || "",
+    fields: updates.fields,
+    extraFields: updates.extraFields
+  });
+
+  if (!result || result.ok === false) {
+    setDetailsEditMessage(result?.message || "Failed to save lead details.", true);
+    return;
+  }
+
+  detailsEditMode = false;
+  setDetailsEditMessage("Lead details saved.", false);
+  const updatedLead = result.lead || findLeadByRef(detailsLeadRef);
+  if (updatedLead) {
+    detailsLeadRef = buildLeadRef(updatedLead);
+  }
+  renderAll();
+  if (updatedLead) {
+    renderLeadDetailsModal(updatedLead);
+  }
+  showToast("Lead details saved.");
 }
 
 
@@ -1684,7 +1883,7 @@ function renderAll() {
   const activeInputState = getActiveInputState();
   renderAdmissionSectionNav();
   renderSegmentSection();
-  if (detailsLeadRef) {
+  if (detailsLeadRef && !detailsEditMode) {
     const liveLead = findLeadByRef(detailsLeadRef);
     if (liveLead) {
       renderLeadDetailsModal(liveLead);
@@ -1709,6 +1908,17 @@ document.getElementById("mainAdmissionSaveNoteBtn").onclick = () => {
 };
 if (mainAdmissionDetailsModal) {
   document.getElementById("closeMainAdmissionDetailsModalBtn").onclick = closeDetailsModal;
+  if (editMainAdmissionDetailsBtn) {
+    editMainAdmissionDetailsBtn.onclick = () => setDetailsEditMode(true);
+  }
+  if (cancelMainAdmissionDetailsEditBtn) {
+    cancelMainAdmissionDetailsEditBtn.onclick = () => setDetailsEditMode(false);
+  }
+  if (saveMainAdmissionDetailsBtn) {
+    saveMainAdmissionDetailsBtn.onclick = () => {
+      void saveDetailsModalEdits();
+    };
+  }
 }
 if (mainAdmissionTaskModal && mainAdmissionTaskForm) {
   document.getElementById("closeMainAdmissionTaskModalBtn").onclick = closeTaskModal;
