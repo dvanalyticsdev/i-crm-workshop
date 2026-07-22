@@ -2094,6 +2094,44 @@ function normalizeMcubeDialNumber(value) {
   return digits;
 }
 
+function looksLikeMcubeToken(value) {
+  const text = String(value || "").trim();
+  return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(text) || /^eyJ[A-Za-z0-9_-]{20,}/.test(text);
+}
+
+function validateMcubeEndpointConfig(config = {}) {
+  const apiBaseUrl = String(config.apiBaseUrl || "").trim();
+  const clickToCallPath = String(config.clickToCallPath || "").trim();
+  const errors = [];
+
+  if (looksLikeMcubeToken(apiBaseUrl)) {
+    errors.push("API Base URL looks like an MCUBE account token. Use https://api.mcube.com there.");
+  }
+  if (looksLikeMcubeToken(clickToCallPath)) {
+    errors.push("Click-to-Call Path looks like an MCUBE account token. Use /Restmcube-api/outbound-calls there and put the token only in Account Token.");
+  }
+
+  if (apiBaseUrl) {
+    try {
+      const url = new URL(apiBaseUrl);
+      if (!["http:", "https:"].includes(url.protocol)) {
+        errors.push("API Base URL must start with http:// or https://.");
+      }
+    } catch {
+      errors.push("API Base URL must be a valid URL, for example https://api.mcube.com.");
+    }
+  }
+
+  if (clickToCallPath && !clickToCallPath.startsWith("/")) {
+    errors.push("Click-to-Call Path must start with /, for example /Restmcube-api/outbound-calls.");
+  }
+  if (/^https?:\/\//i.test(clickToCallPath)) {
+    errors.push("Click-to-Call Path should not be a full URL. Put https://api.mcube.com in API Base URL and /Restmcube-api/outbound-calls in Click-to-Call Path.");
+  }
+
+  return errors;
+}
+
 function isSuccessfulMcubeClickToCallResponse(parsed, text, offering) {
   const bodyText = String(text || "").trim().toLowerCase();
   const status = String(parsed?.status || "").trim().toLowerCase();
@@ -4145,6 +4183,12 @@ app.put("/api/mcube/config", async (req, res) => {
     if (typeof body.accountToken === "string" && body.accountToken.trim()) patch.accountToken = String(body.accountToken).trim();
     if (typeof body.webhookSecret === "string" && body.webhookSecret.trim()) patch.webhookSecret = String(body.webhookSecret).trim();
 
+    const currentConfig = await getMcubeConfig();
+    const endpointErrors = validateMcubeEndpointConfig({ ...currentConfig, ...patch });
+    if (endpointErrors.length) {
+      return res.status(400).json({ message: endpointErrors.join(" ") });
+    }
+
     const now = new Date().toISOString();
     await mcubeConfigCollection.updateOne(
       { _id: MCUBE_CONFIG_DOC_ID },
@@ -4347,6 +4391,10 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
     }
     if (!config.apiBaseUrl || !config.clickToCallPath || !config.accountToken) {
       return res.status(400).json({ message: "MCUBE API base URL, token, or click-to-call path is missing." });
+    }
+    const endpointErrors = validateMcubeEndpointConfig(config);
+    if (endpointErrors.length) {
+      return res.status(400).json({ message: `MCUBE click-to-call configuration is invalid. ${endpointErrors.join(" ")}` });
     }
 
     const leadId = String(req.body?.leadId || "").trim();

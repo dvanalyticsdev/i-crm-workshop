@@ -857,14 +857,34 @@ test("MCUBE outbound click-to-call uses documented payload fields", () => {
   assert.match(server, /function buildMcubeAttemptLog/);
   assert.match(server, /function buildMcubeActivityMetadata/);
   assert.match(server, /function describeFailedMcubeAttempts/);
+  assert.match(server, /function looksLikeMcubeToken/);
+  assert.match(server, /function validateMcubeEndpointConfig/);
   assert.match(server, /sanitizeMcubeEndpointForLog/);
   assert.match(server, /endpointText/);
   assert.match(clickToCallRoute, /const mcubeAccepted = response\.ok && isSuccessfulMcubeClickToCallResponse/);
+  assert.match(clickToCallRoute, /validateMcubeEndpointConfig\(config\)/);
   assert.match(clickToCallRoute, /attempts\.push\(buildMcubeAttemptLog/);
   assert.match(clickToCallRoute, /mcubeAttempts: attempts/);
   assert.match(clickToCallRoute, /callMetadata: buildMcubeActivityMetadata/);
   assert.match(clickToCallRoute, /MCUBE did not confirm that the call was created/);
   assert.match(server, /MCUBE executive number is missing/);
+});
+
+test("MCUBE config rejects token-like click-to-call endpoint values", () => {
+  const server = read("server.js");
+  const mcubeIntegration = read("mcube-integration.js");
+  const saveRouteStart = server.indexOf('app.put("/api/mcube/config"');
+  const saveRouteEnd = server.indexOf('app.post("/api/mcube/test"', saveRouteStart);
+  const saveRoute = server.slice(saveRouteStart, saveRouteEnd);
+
+  assert.match(server, /Click-to-Call Path looks like an MCUBE account token/);
+  assert.match(server, /Use \/Restmcube-api\/outbound-calls there/);
+  assert.match(server, /Click-to-Call Path must start with \//);
+  assert.match(server, /Click-to-Call Path should not be a full URL/);
+  assert.match(saveRoute, /validateMcubeEndpointConfig\(\{ \.\.\.currentConfig, \.\.\.patch \}\)/);
+  assert.match(saveRoute, /return res\.status\(400\)\.json\(\{ message: endpointErrors\.join\(" "\) \}\)/);
+  assert.match(mcubeIntegration, /function getMcubeEndpointInputError/);
+  assert.match(mcubeIntegration, /Click-to-Call Path looks like the MCUBE account token/);
 });
 
 test("MCUBE auto-created leads assign only when a picked call matches a CRM counselor", () => {

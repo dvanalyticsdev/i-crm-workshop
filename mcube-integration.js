@@ -66,6 +66,35 @@ function showMessage(el, text, isError = false) {
   }
 }
 
+function looksLikeMcubeToken(value) {
+  const text = String(value || "").trim();
+  return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(text) || /^eyJ[A-Za-z0-9_-]{20,}/.test(text);
+}
+
+function getMcubeEndpointInputError(apiBaseUrl, clickToCallPath) {
+  if (looksLikeMcubeToken(apiBaseUrl)) {
+    return "API Base URL looks like the MCUBE account token. Use https://api.mcube.com there.";
+  }
+  if (looksLikeMcubeToken(clickToCallPath)) {
+    return "Click-to-Call Path looks like the MCUBE account token. Use /Restmcube-api/outbound-calls there and put the token only in Account Token.";
+  }
+  try {
+    const url = new URL(apiBaseUrl);
+    if (!["http:", "https:"].includes(url.protocol)) {
+      return "API Base URL must start with http:// or https://.";
+    }
+  } catch {
+    return "API Base URL must be valid, for example https://api.mcube.com.";
+  }
+  if (/^https?:\/\//i.test(clickToCallPath)) {
+    return "Click-to-Call Path should be only /Restmcube-api/outbound-calls, not a full URL.";
+  }
+  if (!String(clickToCallPath || "").trim().startsWith("/")) {
+    return "Click-to-Call Path must start with /, for example /Restmcube-api/outbound-calls.";
+  }
+  return "";
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -284,6 +313,11 @@ async function saveConfig() {
   showMessage(saveConfigMessage, "Saving...");
 
   try {
+    const endpointError = getMcubeEndpointInputError(apiBaseUrlInput.value.trim(), clickToCallPathInput.value.trim());
+    if (endpointError) {
+      throw new Error(endpointError);
+    }
+
     const payload = {
       enabled: enabledToggle.checked,
       apiBaseUrl: apiBaseUrlInput.value.trim(),
