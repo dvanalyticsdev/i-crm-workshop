@@ -2047,32 +2047,69 @@ function getMcubeExecutiveNumber(counselor = {}, session = {}, config = {}) {
   return String(candidates.find((value) => String(value || "").trim()) || "").trim();
 }
 
-async function assignMcubeCounselorRoundRobin(counselorSource) {
+function normalizeMcubePhone(value) {
+  return String(value || "").replace(/\D/g, "").slice(-10);
+}
+
+function findMcubeAnsweringCounselor(counselorSource, event = {}) {
   const sourceList = Array.isArray(counselorSource)
     ? counselorSource
     : Array.isArray(counselorSource?.counselors)
       ? counselorSource.counselors
       : [];
-  const counselors = sourceList.filter(isCounselorInMetaRotation);
-  if (!counselors.length) return "Unassigned";
+  const agentName = String(event?.counselorName || "").trim().toLowerCase();
+  const agentEmail = String(event?.counselorEmail || "").trim().toLowerCase();
+  const agentPhone = normalizeMcubePhone(event?.agentPhone);
 
-  const result = await withMongoRetry(
-    () => mcubeConfigCollection.findOneAndUpdate(
-      { _id: MCUBE_CONFIG_DOC_ID },
-      { $inc: { roundRobinIndex: 1 } },
-      { returnDocument: "after", upsert: true }
-    ),
-    { retries: 1, label: "Advance MCUBE round robin" }
-  );
-  const newIdx = Number(result?.roundRobinIndex) || 1;
-  const idx = ((newIdx - 1) % counselors.length + counselors.length) % counselors.length;
-  return counselors[idx].name;
+  return sourceList.find((counselor) => {
+    const name = String(counselor?.name || "").trim().toLowerCase();
+    const email = String(counselor?.email || "").trim().toLowerCase();
+    const phoneCandidates = [
+      counselor?.mcubeExecutiveNumber,
+      counselor?.executiveNumber,
+      counselor?.phone,
+      counselor?.mobile
+    ].map(normalizeMcubePhone).filter(Boolean);
+
+    return (agentEmail && email === agentEmail)
+      || (agentName && name === agentName)
+      || (agentPhone && phoneCandidates.includes(agentPhone));
+  }) || null;
 }
 
-function buildMcubeLead(event, counselorName, nextId) {
+function didMcubeCallGetPicked(event = {}) {
+  const disposition = String(event?.disposition || event?.eventType || "").trim();
+  return !!String(event?.answeredTime || "").trim()
+    || /(answer|answered|connected|success|completed)/i.test(disposition);
+}
+
+function getMcubeLeadAssignment(event = {}, counselorSource) {
+  if (!didMcubeCallGetPicked(event)) {
+    return {
+      counselorName: "Unassigned",
+      pickedBy: "",
+      pickedByPhone: "",
+      assignmentNote: "No one picked the MCUBE call. Lead is waiting for admin assignment."
+    };
+  }
+
+  const matchedCounselor = findMcubeAnsweringCounselor(counselorSource, event);
+  const pickedBy = String(matchedCounselor?.name || event?.counselorName || "").trim();
+  return {
+    counselorName: pickedBy || "Unassigned",
+    pickedBy,
+    pickedByPhone: String(event?.agentPhone || "").trim(),
+    assignmentNote: pickedBy
+      ? `Assigned to the MCUBE agent who picked the call: ${pickedBy}.`
+      : "Call was answered, but no MCUBE agent matched a CRM counselor."
+  };
+}
+
+function buildMcubeLead(event, assignment, nextId) {
   const now = new Date().toISOString();
   const phone = String(event?.phone || "").trim();
   const displayName = phone ? `MCUBE Caller ${phone.slice(-4)}` : `MCUBE Lead ${nextId}`;
+  const counselorName = String(assignment?.counselorName || "").trim() || "Unassigned";
   return {
     id: nextId,
     name: displayName,
@@ -2081,11 +2118,21 @@ function buildMcubeLead(event, counselorName, nextId) {
     source: "MCUBE",
     leadSource: "MCUBE",
     counselor: counselorName,
-    leadPipeline: "workshop",
+    leadPipeline: MAIN_ADMISSION_PIPELINE,
     createdAt: now,
     updatedAt: now,
-    callStatus: "",
+    mainAdmissionDialed: "",
+    mainAdmissionCoursePitched: "",
+    mainAdmissionCourseStatus: "",
+    mainAdmissionAdmissionStatus: "",
+    mainAdmissionCallStatus: "",
+    mainAdmissionActivityUpdated: false,
+    mainAdmissionActivityUpdates: 0,
+    mainAdmissionActivityHistory: [],
     mcubeAutoCreated: true,
+    mcubePickedBy: String(assignment?.pickedBy || "").trim(),
+    mcubePickedByPhone: String(assignment?.pickedByPhone || "").trim(),
+    mcubeAssignmentNote: String(assignment?.assignmentNote || "").trim(),
     mcubeLastEventType: String(event?.eventType || "").trim(),
     mcubeLastCallId: String(event?.callId || "").trim()
   };
@@ -3153,9 +3200,9 @@ async function processMcubeWebhookPayload(req, body) {
   }
 
   if (!lead && config.enableAutoLeadCreate && event.phone) {
-    const counselorName = await assignMcubeCounselorRoundRobin(state.counselors);
+    const assignment = getMcubeLeadAssignment(event, state.counselors);
     const nextId = await getNextMetaLeadId();
-    const newLead = buildMcubeLead(event, counselorName, nextId);
+    const newLead = buildMcubeLead(event, assignment, nextId);
     await withMongoRetry(
       () => leadsCollection.insertOne(decorateLeadForStorage(newLead)),
       { retries: 1, label: "Create MCUBE lead" }
@@ -3166,7 +3213,7 @@ async function processMcubeWebhookPayload(req, body) {
       counselorName: newLead.counselor || "",
       activityType: "Lead Created",
       actionDescription: `Lead created from MCUBE webhook (${event.eventType || "call event"})`,
-      newValue: `Name: ${newLead.name}, Phone: ${newLead.phone}, Email: ${newLead.email}`
+      newValue: `Name: ${newLead.name}, Phone: ${newLead.phone}, Section: Main Admission, Assignment: ${assignment.assignmentNote}`
     });
     if (shouldTreatLeadAsAssigned(newLead.counselor)) {
       await recordActivity({
@@ -3188,7 +3235,7 @@ async function processMcubeWebhookPayload(req, body) {
         role: "admin",
         type: "new_mcube_lead",
         title: "MCUBE Lead Created",
-        message: `Lead ${formatLeadNotificationLabel(newLead)} was created from an MCUBE call event.`,
+        message: `Lead ${formatLeadNotificationLabel(newLead)} was created in Main Admission from an MCUBE call event. ${shouldTreatLeadAsAssigned(newLead.counselor) ? `Assigned to ${newLead.counselor}.` : "Awaiting admin assignment."}`,
         sound: true,
         leadId: newLead.id,
         leadName: newLead.name,
@@ -3202,7 +3249,13 @@ async function processMcubeWebhookPayload(req, body) {
       type: "ignored",
       message: "No matching lead found for MCUBE event.",
       callId: event.callId,
-      phone: event.phone
+      phone: event.phone,
+      pickedBy: event.counselorName || "",
+      pickedByPhone: event.agentPhone || "",
+      callAnswered: didMcubeCallGetPicked(event),
+      callDisposition: event.disposition || "",
+      direction: event.direction || "",
+      eventType: event.eventType
     });
     return;
   }
@@ -3297,6 +3350,15 @@ async function processMcubeWebhookPayload(req, body) {
     leadId: nextLead.id,
     leadName: nextLead.name,
     counselor: nextLead.counselor,
+    leadPipeline: nextLead.leadPipeline || "",
+    assignmentStatus: shouldTreatLeadAsAssigned(nextLead.counselor) ? "Assigned" : "Unassigned",
+    pickedBy: event.counselorName || nextLead.mcubePickedBy || "",
+    pickedByPhone: event.agentPhone || nextLead.mcubePickedByPhone || "",
+    callAnswered: didMcubeCallGetPicked(event),
+    callDisposition: event.disposition || "",
+    normalizedStatus,
+    direction: event.direction || "",
+    recordingUrl: config.enableRecordingLinks ? event.recordingUrl : "",
     callId: event.callId,
     phone: event.phone,
     eventType: event.eventType

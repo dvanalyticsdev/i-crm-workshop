@@ -83,6 +83,50 @@ function formatTime(iso) {
   }
 }
 
+function formatLeadPipeline(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "main-admission") return "Main Admission";
+  if (normalized === "course-registration") return "Registered Course";
+  if (normalized === "admission") return "Admission";
+  if (normalized === "workshop") return "Workshop";
+  return value ? String(value) : "-";
+}
+
+function renderStack(primary, secondary = "") {
+  return `
+    <div class="log-stack">
+      <span class="log-stack__primary">${escapeHtml(primary || "-")}</span>
+      ${secondary ? `<span class="log-stack__secondary">${escapeHtml(secondary)}</span>` : ""}
+    </div>
+  `;
+}
+
+function renderAssignment(log) {
+  const counselor = String(log.counselor || "").trim();
+  const status = String(log.assignmentStatus || (counselor && counselor.toLowerCase() !== "unassigned" ? "Assigned" : "Unassigned")).trim();
+  const isAssigned = status.toLowerCase() === "assigned";
+  const label = isAssigned && counselor ? `Assigned to ${counselor}` : "Unassigned";
+  const detail = isAssigned ? "Lead owner" : "Admin can assign from Main Admission";
+  return renderStack(label, detail);
+}
+
+function renderCallHandling(log) {
+  const pickedBy = String(log.pickedBy || "").trim();
+  const pickedByPhone = String(log.pickedByPhone || "").trim();
+  const disposition = String(log.normalizedStatus || log.callDisposition || log.eventType || "").trim();
+  const direction = String(log.direction || "").trim();
+  const answered = log.callAnswered === true || !!pickedBy;
+  const primary = answered
+    ? `Picked${pickedBy ? ` by ${pickedBy}` : ""}`
+    : "Not picked";
+  const details = [
+    pickedByPhone ? `Agent: ${pickedByPhone}` : "",
+    disposition ? `Status: ${disposition}` : "",
+    direction ? `Direction: ${direction}` : ""
+  ].filter(Boolean).join(" | ");
+  return renderStack(primary, details || (answered ? "Answered call event" : "Remains unassigned"));
+}
+
 function buildWebhookUrl() {
   return apiUrl("/api/mcube/webhook");
 }
@@ -326,7 +370,7 @@ function renderLogs(logs) {
   const filtered = filter === "all" ? logs : logs.filter((log) => log.type === filter);
 
   if (!filtered.length) {
-    logsTableBody.innerHTML = '<tr><td colspan="5" class="log-empty">No events match the selected filter.</td></tr>';
+    logsTableBody.innerHTML = '<tr><td colspan="7" class="log-empty">No events match the selected filter.</td></tr>';
     return;
   }
 
@@ -335,14 +379,16 @@ function renderLogs(logs) {
       <td style="white-space:nowrap;font-size:.78rem;opacity:.7;">${escapeHtml(formatTime(log.receivedAt))}</td>
       <td><span class="log-type log-type--${escapeHtml(log.type || "ignored")}">${escapeHtml(log.type || "?")}</span></td>
       <td>${escapeHtml(log.message || "")}</td>
-      <td>${escapeHtml(log.leadName || log.leadId || "-")}</td>
-      <td>${escapeHtml(log.phone || log.callId || "-")}</td>
+      <td>${renderStack(log.leadName || log.leadId || "-", formatLeadPipeline(log.leadPipeline))}</td>
+      <td>${renderAssignment(log)}</td>
+      <td>${renderCallHandling(log)}</td>
+      <td>${renderStack(log.phone || "-", log.callId ? `Call ID: ${log.callId}` : "")}</td>
     </tr>
   `).join("");
 }
 
 async function loadLogs() {
-  logsTableBody.innerHTML = '<tr><td colspan="5" class="log-empty">Loading...</td></tr>';
+  logsTableBody.innerHTML = '<tr><td colspan="7" class="log-empty">Loading...</td></tr>';
   try {
     const res = await fetch(apiUrl("/api/mcube/logs?limit=50"), { credentials: "same-origin" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -353,7 +399,7 @@ async function loadLogs() {
   } catch (err) {
     allLogs = [];
     renderLogSummary();
-    logsTableBody.innerHTML = `<tr><td colspan="5" class="log-empty" style="color:var(--danger)">Failed to load logs: ${escapeHtml(err.message)}</td></tr>`;
+    logsTableBody.innerHTML = `<tr><td colspan="7" class="log-empty" style="color:var(--danger)">Failed to load logs: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
