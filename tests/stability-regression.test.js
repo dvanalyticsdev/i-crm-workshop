@@ -850,6 +850,12 @@ test("MCUBE outbound click-to-call uses documented payload fields", () => {
   assert.match(clickToCallBuilder, /url: requestPayload\.refurl/);
   assert.match(clickToCallRoute, /response\.status === 404 && activeRequest\.offering === "cloud"/);
   assert.match(clickToCallRoute, /buildMcubeClickToCallRequest\(config, requestPayload, true\)/);
+  assert.match(server, /function normalizeMcubeDialNumber/);
+  assert.match(clickToCallRoute, /const targetPhone = normalizeMcubeDialNumber/);
+  assert.match(clickToCallRoute, /const executiveNumber = normalizeMcubeDialNumber/);
+  assert.match(server, /function isSuccessfulMcubeClickToCallResponse/);
+  assert.match(clickToCallRoute, /const mcubeAccepted = response\.ok && isSuccessfulMcubeClickToCallResponse/);
+  assert.match(clickToCallRoute, /MCUBE did not confirm that the call was created/);
   assert.match(server, /MCUBE executive number is missing/);
 });
 

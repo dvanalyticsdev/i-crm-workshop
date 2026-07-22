@@ -2087,6 +2087,25 @@ function buildMcubeClickToCallRequest(config = {}, requestPayload = {}, forcedVm
   };
 }
 
+function normalizeMcubeDialNumber(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (digits.length > 10 && digits.startsWith("91")) return digits.slice(-10);
+  return digits;
+}
+
+function isSuccessfulMcubeClickToCallResponse(parsed, text, offering) {
+  const bodyText = String(text || "").trim().toLowerCase();
+  const status = String(parsed?.status || "").trim().toLowerCase();
+  const message = String(parsed?.msg || parsed?.message || "").trim().toLowerCase();
+  if (offering === "cloud") {
+    return status === "succ" || status === "success";
+  }
+  if (offering === "vmc") {
+    return message === "success" || status === "success";
+  }
+  return /\b(success|succ)\b/i.test(bodyText);
+}
+
 function normalizeMcubePhone(value) {
   return String(value || "").replace(/\D/g, "").slice(-10);
 }
@@ -4275,7 +4294,7 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
     const phone = String(req.body?.phone || "").trim();
     const state = await getStateDoc();
     const lead = leadId ? findLeadById(state, leadId) : (phone ? findLeadByPhone(state, phone) : null);
-    const targetPhone = phone || String(lead?.phone || "").trim();
+    const targetPhone = normalizeMcubeDialNumber(phone || lead?.phone || "");
     if (!targetPhone) {
       return res.status(400).json({ message: "A target phone number is required." });
     }
@@ -4286,7 +4305,7 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
           (item) => String(item?.name || "").trim().toLowerCase() === counselorName.toLowerCase()
         )
       : null;
-    const executiveNumber = getMcubeExecutiveNumber(counselorDoc, session, config);
+    const executiveNumber = normalizeMcubeDialNumber(getMcubeExecutiveNumber(counselorDoc, session, config));
     if (!executiveNumber) {
       return res.status(400).json({ message: "MCUBE executive number is missing for this counselor/session." });
     }
@@ -4326,10 +4345,14 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
       parsed = null;
     }
 
-    if (!response.ok) {
+    const mcubeAccepted = response.ok && isSuccessfulMcubeClickToCallResponse(parsed, text, activeRequest.offering);
+
+    if (!mcubeAccepted) {
       await saveMcubeLog({
         type: "error",
-        message: `Click-to-call failed with MCUBE HTTP ${response.status}.`,
+        message: response.ok
+          ? "Click-to-call was not accepted by MCUBE."
+          : `Click-to-call failed with MCUBE HTTP ${response.status}.`,
         leadId: requestPayload.refid,
         leadName: String(lead?.name || req.body?.leadName || "").trim(),
         counselor: counselorName,
@@ -4339,13 +4362,14 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
         normalizedStatus: "DISPATCH_FAILED",
         direction: "outbound",
         eventType: "click-to-call",
-        phone: requestPayload.custnumber
+        phone: requestPayload.custnumber,
+        mcubeResponse: parsed || text || ""
       });
       const setupHint = response.status === 404
         ? "MCUBE returned 404. Please confirm whether this account uses the Cloud endpoint (/Restmcube-api/outbound-calls) or the VMC endpoint (/api/outboundcall), and confirm the saved method/path with MCUBE."
         : "";
       return res.status(502).json({
-        message: `MCUBE click-to-call failed with status ${response.status}.`,
+        message: response.ok ? "MCUBE did not confirm that the call was created." : `MCUBE click-to-call failed with status ${response.status}.`,
         details: parsed?.message || text || "Unknown MCUBE response",
         setupHint,
         attemptedOffering: activeRequest.offering
