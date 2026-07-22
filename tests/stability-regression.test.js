@@ -862,6 +862,10 @@ test("MCUBE auto-created leads assign only when a picked call matches a CRM coun
     "Unassigned"
   );
   assert.equal(
+    getMcubeLeadAssignment({ disposition: "CANCEL", answeredTime: "00:00:04", agentPhone: "8767316316", counselorName: "Bhavya" }, counselors).counselorName,
+    "Unassigned"
+  );
+  assert.equal(
     getMcubeLeadAssignment({ disposition: "ANSWER", agentPhone: "1111111111", counselorName: "External Agent" }, counselors).counselorName,
     "Unassigned"
   );
@@ -870,6 +874,17 @@ test("MCUBE auto-created leads assign only when a picked call matches a CRM coun
     "Bhavya"
   );
   assert.doesNotMatch(server, /assignMcubeCounselorRoundRobin/);
+});
+
+test("MCUBE logs show exact call status before picked interpretation", () => {
+  const mcubeIntegration = read("mcube-integration.js");
+  const mcubeHtml = read("mcube-integration.html");
+  const renderCallHandling = getNamedFunctionSource(mcubeIntegration, "renderCallHandling");
+
+  assert.match(mcubeHtml, /<th>Call Status<\/th>/);
+  assert.match(renderCallHandling, /const exactStatus = String\(log\.callDisposition \|\| log\.eventType \|\| log\.normalizedStatus/);
+  assert.match(renderCallHandling, /const primary = exactStatus/);
+  assert.match(renderCallHandling, /outcome,/);
 });
 
 test("ReachOut templates do not respawn default seeded templates after removal", () => {

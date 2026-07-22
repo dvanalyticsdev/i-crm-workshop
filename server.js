@@ -2079,8 +2079,12 @@ function findMcubeAnsweringCounselor(counselorSource, event = {}) {
 
 function didMcubeCallGetPicked(event = {}) {
   const disposition = String(event?.disposition || event?.eventType || "").trim();
-  return !!String(event?.answeredTime || "").trim()
-    || /(answer|answered|connected|success|completed)/i.test(disposition);
+  const normalizedDisposition = disposition.toLowerCase();
+  if (/(cancel|missed|no\s*answer|unanswered|busy|failed|reject|declin|timeout|not\s*reachable|switched\s*off|\bdnp\b|\bcnc\b)/i.test(normalizedDisposition)) {
+    return false;
+  }
+  return /(answer|answered|connected|success|completed)/i.test(normalizedDisposition)
+    || !!String(event?.answeredTime || "").trim();
 }
 
 function getMcubeLeadAssignment(event = {}, counselorSource) {

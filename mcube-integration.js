@@ -113,18 +113,22 @@ function renderAssignment(log) {
 function renderCallHandling(log) {
   const pickedBy = String(log.pickedBy || "").trim();
   const pickedByPhone = String(log.pickedByPhone || "").trim();
-  const disposition = String(log.normalizedStatus || log.callDisposition || log.eventType || "").trim();
+  const exactStatus = String(log.callDisposition || log.eventType || log.normalizedStatus || "").trim();
+  const normalizedStatus = String(log.normalizedStatus || "").trim();
   const direction = String(log.direction || "").trim();
-  const answered = log.callAnswered === true || !!pickedBy;
-  const primary = answered
+  const missedStatus = /(cancel|missed|no\s*answer|unanswered|busy|failed|reject|declin|timeout|not\s*reachable|switched\s*off|\bdnp\b|\bcnc\b)/i.test(exactStatus || normalizedStatus);
+  const answered = !missedStatus && (log.callAnswered === true || !!pickedBy);
+  const primary = exactStatus || (answered ? "Answered" : "Unknown status");
+  const outcome = answered
     ? `Picked${pickedBy ? ` by ${pickedBy}` : ""}`
     : "Not picked";
   const details = [
+    outcome,
     pickedByPhone ? `Agent: ${pickedByPhone}` : "",
-    disposition ? `Status: ${disposition}` : "",
+    normalizedStatus && normalizedStatus !== exactStatus ? `CRM status: ${normalizedStatus}` : "",
     direction ? `Direction: ${direction}` : ""
   ].filter(Boolean).join(" | ");
-  return renderStack(primary, details || (answered ? "Answered call event" : "Remains unassigned"));
+  return renderStack(primary, details);
 }
 
 function buildWebhookUrl() {
