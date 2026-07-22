@@ -28,7 +28,8 @@ export async function triggerMcubeClickToCall(lead, button, notify = () => {}) {
       const attemptSummary = Array.isArray(payload?.attempts)
         ? payload.attempts.map((attempt) => {
             const label = [attempt.offering, attempt.method].filter(Boolean).join(" ");
-            return `${label || "MCUBE"} HTTP ${attempt.httpStatus}: ${attempt.response || "[empty]"}`;
+            const endpoint = attempt.endpoint ? ` ${attempt.endpoint}` : "";
+            return `${label || "MCUBE"}${endpoint} HTTP ${attempt.httpStatus}: ${attempt.response || "[empty]"}`;
           }).join("; ")
         : "";
       throw new Error([payload?.message, payload?.details, attemptSummary, payload?.setupHint].filter(Boolean).join(" ") || `HTTP ${response.status}`);

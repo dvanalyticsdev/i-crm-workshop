@@ -849,8 +849,7 @@ test("MCUBE outbound click-to-call uses documented payload fields", () => {
   assert.doesNotMatch(clickToCallRoute, /body: JSON\.stringify\(requestPayload\)/);
   assert.match(clickToCallBuilder, /apikey: requestPayload\.HTTP_AUTHORIZATION/);
   assert.match(clickToCallBuilder, /url: requestPayload\.refurl/);
-  assert.match(clickToCallRoute, /response\.status === 404 && activeRequest\.offering === "cloud"/);
-  assert.match(clickToCallRoute, /buildMcubeClickToCallRequest\(config, requestPayload, true\)/);
+  assert.doesNotMatch(clickToCallRoute, /buildMcubeClickToCallRequest\(config, requestPayload, true\)/);
   assert.match(server, /function normalizeMcubeDialNumber/);
   assert.match(clickToCallRoute, /const targetPhone = normalizeMcubeDialNumber/);
   assert.match(clickToCallRoute, /const executiveNumber = normalizeMcubeDialNumber/);
@@ -859,6 +858,7 @@ test("MCUBE outbound click-to-call uses documented payload fields", () => {
   assert.match(server, /function buildMcubeActivityMetadata/);
   assert.match(server, /function describeFailedMcubeAttempts/);
   assert.match(server, /sanitizeMcubeEndpointForLog/);
+  assert.match(server, /endpointText/);
   assert.match(clickToCallRoute, /const mcubeAccepted = response\.ok && isSuccessfulMcubeClickToCallResponse/);
   assert.match(clickToCallRoute, /attempts\.push\(buildMcubeAttemptLog/);
   assert.match(clickToCallRoute, /mcubeAttempts: attempts/);
@@ -925,8 +925,7 @@ test("MCUBE click-to-call dispatch logs are marked outbound", () => {
   assert.match(server, /direction: "outbound"/);
   assert.match(server, /eventType: "click-to-call"/);
   assert.match(server, /setupHint/);
-  assert.match(server, /Cloud endpoint/);
-  assert.match(server, /VMC endpoint/);
+  assert.match(server, /configured \$\{activeRequest\.offering\} endpoint/);
 });
 
 test("counselor lead list rows expose MCUBE click-to-call buttons", () => {

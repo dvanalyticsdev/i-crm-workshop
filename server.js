@@ -2150,7 +2150,8 @@ function buildMcubeAttemptLog(request, response, text) {
 function describeFailedMcubeAttempts(attempts = []) {
   const parts = attempts.map((attempt) => {
     const responseText = attempt.response === "[empty]" ? "empty response" : `response: ${attempt.response}`;
-    return `${attempt.offering || "unknown"} ${attempt.method || ""} returned HTTP ${attempt.httpStatus || "?"} with ${responseText}`.trim();
+    const endpointText = attempt.endpoint ? ` at ${attempt.endpoint}` : "";
+    return `${attempt.offering || "unknown"} ${attempt.method || ""}${endpointText} returned HTTP ${attempt.httpStatus || "?"} with ${responseText}`.trim();
   }).filter(Boolean);
   return parts.length ? parts.join("; ") : "No MCUBE response details available.";
 }
@@ -4388,17 +4389,6 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
     });
     let text = await response.text();
     attempts.push(buildMcubeAttemptLog(activeRequest, response, text));
-    if (response.status === 404 && activeRequest.offering === "cloud") {
-      activeRequest = buildMcubeClickToCallRequest(config, requestPayload, true);
-      response = await fetch(activeRequest.endpoint, {
-        method: activeRequest.method,
-        headers: {
-          Accept: "application/json, text/plain;q=0.9"
-        }
-      });
-      text = await response.text();
-      attempts.push(buildMcubeAttemptLog(activeRequest, response, text));
-    }
     let parsed = null;
     try {
       parsed = text ? JSON.parse(text) : null;
@@ -4446,7 +4436,7 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
       }
       const attemptSummary = describeFailedMcubeAttempts(attempts);
       const setupHint = response.status === 404
-        ? "MCUBE returned 404. Please confirm whether this account uses the Cloud endpoint (/Restmcube-api/outbound-calls) or the VMC endpoint (/api/outboundcall), and confirm the saved method/path with MCUBE."
+        ? `MCUBE returned 404 for the configured ${activeRequest.offering} endpoint. Please confirm the saved API Base URL, Click-to-Call Path, and account token with MCUBE.`
         : "";
       return res.status(502).json({
         message: response.ok ? "MCUBE did not confirm that the call was created." : `MCUBE click-to-call failed with status ${response.status}.`,
