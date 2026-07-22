@@ -68,16 +68,74 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
+function isAnsweredCallStatus(value) {
+  return /(answer|answered|connected|success|completed)/i.test(String(value || ""));
+}
+
+function parseDurationSeconds(value) {
+  if (value === null || value === undefined || value === "") return 0;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) return Math.round(numeric);
+
+  const match = String(value).trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return 0;
+  const first = Number(match[1]);
+  const second = Number(match[2]);
+  const third = Number(match[3] || 0);
+  return match[3] ? (first * 3600) + (second * 60) + third : (first * 60) + second;
+}
+
+function formatDuration(value) {
+  const seconds = parseDurationSeconds(value);
+  if (!seconds) return "";
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainingSeconds = seconds % 60;
+  if (hours) {
+    return `${hours}h ${String(minutes).padStart(2, "0")}m ${String(remainingSeconds).padStart(2, "0")}s`;
+  }
+  if (minutes) {
+    return `${minutes}m ${String(remainingSeconds).padStart(2, "0")}s`;
+  }
+  return `${remainingSeconds}s`;
+}
+
+function getUsableRecordingUrl(value) {
+  const url = String(value || "").trim();
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url) || url.startsWith("/")) return url;
+  return "";
+}
+
+function bindRecordingDurationUpdates(root = document) {
+  root.querySelectorAll(".timeline-recording-player").forEach((player) => {
+    player.addEventListener("loadedmetadata", () => {
+      const duration = Math.round(player.duration || 0);
+      if (!Number.isFinite(duration) || duration <= 0) return;
+      const durationTarget = root.querySelector(`[data-recording-duration-for="${player.dataset.recordingId}"]`);
+      if (durationTarget && !parseDurationSeconds(durationTarget.dataset.durationSeconds)) {
+        durationTarget.dataset.durationSeconds = String(duration);
+        durationTarget.textContent = `Talk time: ${formatDuration(duration)}`;
+        durationTarget.classList.remove("hidden");
+      }
+    }, { once: true });
+  });
+}
+
 function renderCallMetadata(log) {
   const metadata = log.callMetadata && typeof log.callMetadata === "object" ? log.callMetadata : {};
-  const recordingUrl = String(log.recordingUrl || metadata.recordingUrl || "").trim();
+  const recordingUrl = getUsableRecordingUrl(log.recordingUrl || metadata.recordingUrl || "");
+  const callStatus = String(metadata.callStatus || metadata.normalizedCallStatus || "").trim();
+  const duration = parseDurationSeconds(metadata.duration || metadata.talkTimeDuration || "");
+  const shouldShowTalkTime = duration || isAnsweredCallStatus(callStatus);
+  const recordingId = `recording-${String(log.id || log._id || metadata.callId || Math.random()).replace(/[^a-z0-9_-]/gi, "-")}`;
   const details = [
     metadata.callStatus ? `Status: ${metadata.callStatus}` : "",
     metadata.callDirection ? `Direction: ${metadata.callDirection}` : "",
     metadata.callId ? `Call ID: ${metadata.callId}` : "",
     metadata.agentName ? `Agent: ${metadata.agentName}` : "",
     metadata.agentPhone ? `Agent phone: ${metadata.agentPhone}` : "",
-    metadata.duration ? `Duration: ${metadata.duration}s` : ""
+    shouldShowTalkTime && duration ? `Talk time: ${formatDuration(duration)}` : ""
   ].filter(Boolean);
 
   if (!recordingUrl && !details.length) return "";
@@ -85,7 +143,18 @@ function renderCallMetadata(log) {
   return `
     <div class="timeline-call-details">
       ${details.length ? `<div>${escapeHtml(details.join(" | "))}</div>` : ""}
-      ${recordingUrl ? `<a class="timeline-recording-link" href="${escapeHtml(recordingUrl)}" target="_blank" rel="noopener noreferrer">Call Recording</a>` : ""}
+      ${shouldShowTalkTime && !duration ? `<div class="timeline-talk-time hidden" data-recording-duration-for="${escapeHtml(recordingId)}" data-duration-seconds="">Talk time: loading...</div>` : ""}
+      ${recordingUrl ? `
+        <div class="timeline-recording-player-wrap">
+          <span class="timeline-recording-label">Call Recording</span>
+          <audio class="timeline-recording-player" controls preload="metadata" src="${escapeHtml(recordingUrl)}" data-recording-id="${escapeHtml(recordingId)}">
+            <a class="timeline-recording-link" href="${escapeHtml(recordingUrl)}" target="_blank" rel="noopener noreferrer">Open recording</a>
+          </audio>
+          <div class="timeline-recording-actions">
+            <a class="timeline-recording-link" href="${escapeHtml(recordingUrl)}" download target="_blank" rel="noopener noreferrer">Download Recording</a>
+          </div>
+        </div>
+      ` : ""}
     </div>
   `;
 }
@@ -331,6 +400,7 @@ async function fetchActivityLogs() {
     });
 
     content.innerHTML = html;
+    bindRecordingDurationUpdates(content);
   } catch (error) {
     loading.classList.add("hidden");
     content.innerHTML = `<div class="timeline-status-message text-danger">⚠️ Error loading activity history: ${escapeHtml(error.message)}</div>`;

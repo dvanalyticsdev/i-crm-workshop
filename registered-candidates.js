@@ -1605,7 +1605,28 @@ function setupRegisteredRoutingPanel() {
   void loadRegisteredRoutingConfig();
 }
 
+function getActiveInputState() {
+  const active = document.activeElement;
+  if (!active?.id) return null;
+  return {
+    id: active.id,
+    selectionStart: typeof active.selectionStart === "number" ? active.selectionStart : null,
+    selectionEnd: typeof active.selectionEnd === "number" ? active.selectionEnd : null
+  };
+}
+
+function restoreActiveInputState(state) {
+  if (!state?.id) return;
+  const input = document.getElementById(state.id);
+  if (!input) return;
+  input.focus();
+  if (state.selectionStart !== null && typeof input.setSelectionRange === "function") {
+    input.setSelectionRange(state.selectionStart, state.selectionEnd ?? state.selectionStart);
+  }
+}
+
 function renderAll() {
+  const activeInputState = getActiveInputState();
   renderAdmissionSectionNav();
   renderSegmentSection();
   const allLeads = getScopedLeads(getAllLeads());
@@ -1614,6 +1635,7 @@ function renderAll() {
   renderKpis(filteredLeads);
   renderFilters(allLeads);
   renderLeadTable(filteredLeads);
+  restoreActiveInputState(activeInputState);
 }
 
 document.getElementById("registeredActivityForm").onsubmit = saveActivity;

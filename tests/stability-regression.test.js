@@ -791,6 +791,9 @@ test("MCUBE inbound document sample maps to CRM call event fields", () => {
   const server = read("server.js");
   const source = [
     getNamedFunctionSource(server, "normalizeMcubeDirection"),
+    getNamedFunctionSource(server, "parseMcubeDurationSeconds"),
+    getNamedFunctionSource(server, "parseMcubeTimestampMs"),
+    getNamedFunctionSource(server, "deriveMcubeTalkTimeDuration"),
     getNamedFunctionSource(server, "normalizeMcubeEvent")
   ].join("\n\n");
   const factory = new Function(`${source}; return { normalizeMcubeEvent };`);
@@ -819,6 +822,7 @@ test("MCUBE inbound document sample maps to CRM call event fields", () => {
   assert.equal(event.direction, "inbound");
   assert.equal(event.startedAt, "2023-10-12 11:49:57");
   assert.equal(event.endedAt, "2023-10-12 11:50:28");
+  assert.equal(event.duration, 27);
   assert.equal(event.agentPhone, "8767316316");
   assert.equal(event.didNumber, "8035053336");
   assert.equal(event.answeredTime, "00:00:04");
@@ -932,8 +936,11 @@ test("MCUBE logs show exact call status before picked interpretation", () => {
   assert.match(renderCallHandling, /const primary = exactStatus/);
   assert.match(renderCallHandling, /outcome,/);
   assert.match(activityHistory, /function renderCallMetadata/);
+  assert.match(activityHistory, /function getUsableRecordingUrl/);
   assert.match(activityHistory, /timeline-recording-link/);
   assert.match(activityHistory, /Call Recording/);
+  assert.match(activityHistory, /Download Recording/);
+  assert.match(activityHistory, /download target="_blank"/);
 });
 
 test("MCUBE click-to-call dispatch logs are marked outbound", () => {

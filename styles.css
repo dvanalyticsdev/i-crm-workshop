@@ -6274,6 +6274,31 @@ html[data-theme="dark"] .diff-val {
   background: var(--primary-soft);
 }
 
+.timeline-recording-player-wrap {
+  display: grid;
+  gap: 6px;
+  max-width: min(420px, 100%);
+}
+
+.timeline-recording-label,
+.timeline-talk-time {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.timeline-recording-player {
+  width: 100%;
+  max-width: 420px;
+  height: 38px;
+  color-scheme: dark;
+}
+
+.timeline-recording-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .timeline-footer {
   display: flex;
   justify-content: space-between;

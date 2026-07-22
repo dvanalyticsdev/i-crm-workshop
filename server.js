@@ -1925,6 +1925,64 @@ function normalizeMcubeDirection(value) {
   return normalized;
 }
 
+function parseMcubeDurationSeconds(value) {
+  if (value === null || value === undefined || value === "") return 0;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) return Math.round(numeric);
+
+  const text = String(value).trim();
+  const timeMatch = text.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!timeMatch) return 0;
+  const first = Number(timeMatch[1]);
+  const second = Number(timeMatch[2]);
+  const third = Number(timeMatch[3] || 0);
+  return timeMatch[3] ? (first * 3600) + (second * 60) + third : (first * 60) + second;
+}
+
+function parseMcubeTimestampMs(value) {
+  const text = String(value || "").trim();
+  if (!text) return 0;
+  const nativeDate = new Date(text);
+  if (!Number.isNaN(nativeDate.getTime())) return nativeDate.getTime();
+
+  const match = text.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (!match) return 0;
+  const [, day, month, year, hour = "0", minute = "0", second = "0"] = match;
+  const parsedDate = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
+  return Number.isNaN(parsedDate.getTime()) ? 0 : parsedDate.getTime();
+}
+
+function deriveMcubeTalkTimeDuration(payload = {}, startedAt = "", endedAt = "", answeredTime = "") {
+  const explicitDuration = parseMcubeDurationSeconds(
+    payload.duration ||
+    payload.call_duration ||
+    payload.callDuration ||
+    payload.talktime ||
+    payload.talk_time ||
+    payload.talkTime ||
+    payload.recording_duration ||
+    payload.recordingDuration
+  );
+  if (explicitDuration) return explicitDuration;
+
+  const endMs = parseMcubeTimestampMs(endedAt);
+  const answerMs = parseMcubeTimestampMs(answeredTime);
+  if (endMs && answerMs && endMs > answerMs) {
+    return Math.round((endMs - answerMs) / 1000);
+  }
+
+  const startMs = parseMcubeTimestampMs(startedAt);
+  const answerOffsetSeconds = parseMcubeDurationSeconds(answeredTime);
+  if (endMs && startMs && endMs > startMs && answerOffsetSeconds) {
+    return Math.max(0, Math.round((endMs - startMs) / 1000) - answerOffsetSeconds);
+  }
+  if (endMs && startMs && endMs > startMs) {
+    return Math.round((endMs - startMs) / 1000);
+  }
+
+  return 0;
+}
+
 function normalizeMcubeEvent(body = {}) {
   const payload = body?.payload && typeof body.payload === "object" ? body.payload : body;
   const metadata = payload?.metadata && typeof payload.metadata === "object" ? payload.metadata : {};
@@ -1945,7 +2003,9 @@ function normalizeMcubeEvent(body = {}) {
   const recordingUrl = String(payload.filename || payload.recording_url || payload.recordingUrl || payload.recording || "").trim();
   const startedAt = String(payload.starttime || payload.started_at || payload.start_time || payload.startTime || payload.timestamp || "").trim();
   const endedAt = String(payload.endtime || payload.ended_at || payload.end_time || payload.endTime || "").trim();
+  const answeredTime = String(payload.answeredtime || payload.answered_time || payload.answerTime || "").trim();
   const agentName = String(payload.agentname || payload.agent_name || payload.agent || payload.executive_name || metadata.counselorName || "").trim();
+  const duration = deriveMcubeTalkTimeDuration(payload, startedAt, endedAt, answeredTime);
 
   return {
     raw: body,
@@ -1957,10 +2017,10 @@ function normalizeMcubeEvent(body = {}) {
     phone: customerPhone,
     recordingUrl,
     notes: String(payload.notes || payload.remark || payload.remarks || payload.description || "").trim(),
-    duration: Number(payload.duration || payload.call_duration || payload.callDuration || 0) || 0,
+    duration,
     startedAt,
     endedAt,
-    answeredTime: String(payload.answeredtime || payload.answered_time || payload.answerTime || "").trim(),
+    answeredTime,
     agentPhone: String(payload.emp_phone || payload.agent_phone || payload.agentPhone || payload.exenumber || "").trim(),
     didNumber: String(payload.clicktocalldid || payload.did || payload.did_number || "").trim(),
     disconnectedBy: String(payload.disconnectedby || payload.disconnected_by || "").trim(),
