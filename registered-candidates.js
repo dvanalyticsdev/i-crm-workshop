@@ -14,6 +14,7 @@ import {
   syncStateFromLocalAndVerify
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY } from "./task-service.js";
+import { triggerMcubeClickToCall } from "./mcube-call-service.js";
 import { addLeadNote, assignLeads as assignLeadsOnServer, deleteLeadNote, formatLeadAssignmentResult, trackLeadView, updateLeadActivity as updateLeadActivityOnServer } from "./lead-service.js";
 
 await bootstrapLocalState();
@@ -1053,6 +1054,7 @@ function renderActivityPanel(lead) {
   return `
     <div class="activity-panel">
       <button type="button" class="btn-update-status${hasActivity ? " btn-update-status--active" : ""}" data-registered-action="update" data-lead-key="${leadKey}">Update</button>
+      <button type="button" class="btn-ghost btn-mcube-call" data-registered-action="call" data-lead-key="${leadKey}" ${lead.phone ? "" : "disabled"}>Call</button>
       <button type="button" class="btn-ghost btn-notes" data-registered-action="notes" data-lead-key="${leadKey}">Notes${noteCount ? ` (${noteCount})` : ""}</button>
       ${canCreateTasks ? `<button type="button" class="btn-ghost btn-task" data-registered-action="task" data-lead-key="${leadKey}">Task</button>` : ""}
       <button type="button" class="btn-ghost btn-activity-history" data-registered-action="activity-history" data-lead-key="${leadKey}">Activity History</button>
@@ -1138,6 +1140,17 @@ function renderLeadTable(leads) {
 
   document.querySelectorAll("[data-registered-action='update']").forEach((button) => {
     button.onclick = () => openActivityModal(button.getAttribute("data-lead-key"));
+  });
+  document.querySelectorAll("[data-registered-action='call']").forEach((button) => {
+    button.onclick = () => {
+      const leadKey = button.getAttribute("data-lead-key");
+      const lead = getAllLeads().find((item) => buildLeadKey(item) === leadKey);
+      if (!lead) {
+        showToast("Could not find this lead. Please refresh and try again.", true);
+        return;
+      }
+      void triggerMcubeClickToCall(lead, button, showToast);
+    };
   });
   document.querySelectorAll("[data-registered-action='notes']").forEach((button) => {
     button.onclick = () => openNotesModal(button.getAttribute("data-lead-key"));

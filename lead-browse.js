@@ -2,6 +2,7 @@ import { getLeads, getSession, refreshState, startStatePolling } from "./state-s
 import { trackLeadView } from "./lead-service.js";
 import { raiseLeadClaim } from "./lead-claim-service.js";
 import { openActivityHistory } from "./activity-history.js";
+import { triggerMcubeClickToCall } from "./mcube-call-service.js";
 
 const PAGE_SIZE = 25;
 const controls = document.getElementById("leadBrowseControls");
@@ -34,6 +35,20 @@ const filter = {
 let currentPage = 1;
 let latestLeadKey = "";
 let activeClaimLeadKey = "";
+
+function showLeadBrowseToast(message, isError = false) {
+  let container = document.querySelector(".toast-container");
+  if (!container) {
+    container = document.createElement("div");
+    container.className = "toast-container";
+    document.body.appendChild(container);
+  }
+  const toast = document.createElement("div");
+  toast.className = `toast ${isError ? "toast--error" : "toast--success"}`;
+  toast.textContent = message;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 3500);
+}
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -335,6 +350,7 @@ function renderTable() {
               <td>
                 <div class="lead-browse-row-actions">
                   <button type="button" class="btn-ghost" data-view-lead="${leadKey}">View</button>
+                  <button type="button" class="btn-ghost btn-mcube-call" data-call-lead="${leadKey}" ${lead.phone ? "" : "disabled"}>Call</button>
                   <button type="button" class="btn-ghost" data-history-lead="${leadKey}">Activity</button>
                   ${canRaiseClaimForLead(lead) ? `<button type="button" class="btn-primary" data-claim-lead="${leadKey}">Claim</button>` : ""}
                 </div>
@@ -350,6 +366,17 @@ function renderTable() {
 
   tableSection.querySelectorAll("[data-view-lead]").forEach((button) => {
     button.addEventListener("click", () => openDetails(button.getAttribute("data-view-lead")));
+  });
+  tableSection.querySelectorAll("[data-call-lead]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const leadKey = button.getAttribute("data-call-lead");
+      const lead = getAllLeads().find((item) => getLeadKey(item) === leadKey);
+      if (!lead) {
+        showLeadBrowseToast("Could not find this lead. Please refresh and try again.", true);
+        return;
+      }
+      void triggerMcubeClickToCall(lead, button, showLeadBrowseToast);
+    });
   });
   tableSection.querySelectorAll("[data-history-lead]").forEach((button) => {
     button.addEventListener("click", () => openLeadActivityHistory(button.getAttribute("data-history-lead")));

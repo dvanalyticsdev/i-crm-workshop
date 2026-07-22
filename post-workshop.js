@@ -11,6 +11,7 @@ import {
   startStatePolling
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY } from "./task-service.js";
+import { triggerMcubeClickToCall } from "./mcube-call-service.js";
 import {
   addLeadNote,
   assignLeads as assignLeadsOnServer,
@@ -1116,6 +1117,7 @@ function renderActivityPanel(lead) {
   return `
     <div class="activity-panel">
       <button class="btn-update-status${hasActivity ? " btn-update-status--active" : ""}" type="button" ${leadAttrs}>Update</button>
+      <button class="btn-ghost btn-mcube-call" type="button" ${leadAttrs} ${lead.phone ? "" : "disabled"}>Call</button>
       <button class="btn-ghost btn-notes" type="button" ${leadAttrs}>Notes${noteCount ? ` (${noteCount})` : ""}</button>
       ${canCreateTasks ? `<button class="btn-ghost btn-task" type="button" ${leadAttrs}>Task</button>` : ""}
       <button class="btn-ghost btn-activity-history" type="button" ${leadAttrs}>Activity History</button>
@@ -1223,6 +1225,19 @@ function renderLeadTable(leads) {
       const leadId = button.getAttribute("data-lead-id");
       const leadEmail = button.getAttribute("data-lead-email");
       openPostActivityModal(leadId, leadEmail);
+    };
+  });
+
+  document.querySelectorAll(".btn-mcube-call").forEach((button) => {
+    button.onclick = () => {
+      const leadId = button.getAttribute("data-lead-id");
+      const leadEmail = button.getAttribute("data-lead-email");
+      const lead = findLeadByActionIdentity(getAllLeads(), leadId, leadEmail);
+      if (!lead) {
+        showToast("Could not find this lead. Please refresh and try again.", true);
+        return;
+      }
+      void triggerMcubeClickToCall(lead, button, showToast);
     };
   });
 

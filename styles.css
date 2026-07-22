@@ -1719,7 +1719,8 @@ tbody tr:hover {
 .activity-panel .btn-ghost,
 .activity-panel .btn-update-status,
 .activity-panel .btn-delete,
-.activity-panel .btn-task {
+.activity-panel .btn-task,
+.activity-panel .btn-mcube-call {
   min-width: 88px;
   white-space: nowrap;
 }

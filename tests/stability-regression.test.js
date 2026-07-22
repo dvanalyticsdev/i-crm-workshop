@@ -897,6 +897,25 @@ test("MCUBE click-to-call dispatch logs are marked outbound", () => {
   assert.match(server, /eventType: "click-to-call"/);
 });
 
+test("counselor lead list rows expose MCUBE click-to-call buttons", () => {
+  const service = read("mcube-call-service.js");
+  const pages = [
+    "pre-workshop.js",
+    "post-workshop.js",
+    "registered-candidates.js",
+    "main-admission-leads.js",
+    "lead-browse.js"
+  ];
+
+  assert.match(service, /apiUrl\("\/api\/mcube\/click-to-call"\)/);
+  assert.match(service, /body: JSON\.stringify\(\{ leadId, phone, leadName \}\)/);
+  pages.forEach((file) => {
+    const source = read(file);
+    assert.match(source, /triggerMcubeClickToCall/);
+    assert.match(source, /btn-mcube-call/);
+  });
+});
+
 test("ReachOut templates do not respawn default seeded templates after removal", () => {
   const server = read("server.js");
   const defaultReachoutTemplates = getNamedFunctionSource(server, "getDefaultReachoutTemplates");
