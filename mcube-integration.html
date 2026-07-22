@@ -132,13 +132,13 @@
 
               <div class="form-group">
                 <label for="apiBaseUrlInput">API Base URL</label>
-                <input id="apiBaseUrlInput" type="text" placeholder="https://api.mcube.com" />
+                <input id="apiBaseUrlInput" type="text" placeholder="https://api.mcube.com or https://mcube.vmc.in" />
               </div>
 
               <div class="form-group">
                 <label for="clickToCallPathInput">Click-to-Call Path</label>
-                <input id="clickToCallPathInput" type="text" placeholder="/Restmcube-api/outbound-calls" />
-                <p class="field-hint">Outbound calls are sent with HTTP_AUTHORIZATION, exenumber, custnumber, refurl, and refid.</p>
+                <input id="clickToCallPathInput" type="text" placeholder="/Restmcube-api/outbound-calls or /api/outboundcall" />
+                <p class="field-hint">Cloud uses POST /Restmcube-api/outbound-calls. VMC uses GET /api/outboundcall with apikey, exenumber, custnumber, and url.</p>
               </div>
 
               <div class="form-group">

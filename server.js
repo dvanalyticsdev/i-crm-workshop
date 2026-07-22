@@ -2047,6 +2047,46 @@ function getMcubeExecutiveNumber(counselor = {}, session = {}, config = {}) {
   return String(candidates.find((value) => String(value || "").trim()) || "").trim();
 }
 
+function isMcubeVmcEndpoint(endpointUrl) {
+  const host = String(endpointUrl?.hostname || "").toLowerCase();
+  const pathname = String(endpointUrl?.pathname || "").toLowerCase();
+  return host.includes("vmc.in") || pathname.includes("/api/outboundcall");
+}
+
+function buildMcubeClickToCallRequest(config = {}, requestPayload = {}, forcedVmc = false) {
+  const configuredMethod = String(config.clickToCallMethod || "POST").trim().toUpperCase() || "POST";
+  const baseUrl = forcedVmc ? "https://mcube.vmc.in" : config.apiBaseUrl;
+  const path = forcedVmc ? "/api/outboundcall" : config.clickToCallPath;
+  const endpointUrl = new URL(path, baseUrl);
+  const useVmc = forcedVmc || isMcubeVmcEndpoint(endpointUrl);
+  const method = useVmc ? "GET" : configuredMethod;
+  const params = useVmc
+    ? {
+        apikey: requestPayload.HTTP_AUTHORIZATION,
+        exenumber: requestPayload.exenumber,
+        custnumber: requestPayload.custnumber,
+        url: requestPayload.refurl
+      }
+    : requestPayload;
+  const body = new URLSearchParams();
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (!value) return;
+    if (method === "GET") {
+      endpointUrl.searchParams.set(key, value);
+    } else {
+      body.set(key, value);
+    }
+  });
+
+  return {
+    endpoint: endpointUrl.toString(),
+    method,
+    body: method === "GET" ? null : body.toString(),
+    offering: useVmc ? "vmc" : "cloud"
+  };
+}
+
 function normalizeMcubePhone(value) {
   return String(value || "").replace(/\D/g, "").slice(-10);
 }
@@ -4258,30 +4298,26 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
       refurl: String(req.body?.refurl || config.outboundRefUrl || "1").trim() || "1",
       refid: String(req.body?.refid || lead?.id || leadId || "").trim()
     };
-    const method = String(config.clickToCallMethod || "POST").trim().toUpperCase() || "POST";
-    const endpointUrl = new URL(config.clickToCallPath, config.apiBaseUrl);
-    if (method === "GET") {
-      Object.entries(requestPayload).forEach(([key, value]) => {
-        if (value) {
-          endpointUrl.searchParams.set(key, value);
-        }
-      });
-    }
-    const endpoint = endpointUrl.toString();
-    const requestBody = new URLSearchParams();
-    Object.entries(requestPayload).forEach(([key, value]) => {
-      if (value) {
-        requestBody.set(key, value);
-      }
-    });
-    const response = await fetch(endpoint, {
-      method,
+    const primaryRequest = buildMcubeClickToCallRequest(config, requestPayload);
+    let activeRequest = primaryRequest;
+    let response = await fetch(activeRequest.endpoint, {
+      method: activeRequest.method,
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
         Accept: "application/json, text/plain;q=0.9"
       },
-      ...(method === "GET" ? {} : { body: requestBody.toString() })
+      ...(activeRequest.body ? { body: activeRequest.body } : {})
     });
+    if (response.status === 404 && activeRequest.offering === "cloud") {
+      activeRequest = buildMcubeClickToCallRequest(config, requestPayload, true);
+      response = await fetch(activeRequest.endpoint, {
+        method: activeRequest.method,
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Accept: "application/json, text/plain;q=0.9"
+        }
+      });
+    }
     const text = await response.text();
     let parsed = null;
     try {
@@ -4311,7 +4347,8 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
       return res.status(502).json({
         message: `MCUBE click-to-call failed with status ${response.status}.`,
         details: parsed?.message || text || "Unknown MCUBE response",
-        setupHint
+        setupHint,
+        attemptedOffering: activeRequest.offering
       });
     }
 
@@ -4358,7 +4395,8 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
 
     return res.json({
       ok: true,
-      endpoint,
+      endpoint: activeRequest.endpoint,
+      offering: activeRequest.offering,
       response: parsed || text || null
     });
   } catch (err) {

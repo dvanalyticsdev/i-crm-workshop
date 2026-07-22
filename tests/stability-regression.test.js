@@ -832,6 +832,7 @@ test("MCUBE outbound click-to-call uses documented payload fields", () => {
   const routeStart = server.indexOf('app.post("/api/mcube/click-to-call"');
   const routeEnd = server.indexOf('app.get("/api/reachout/config"', routeStart);
   const clickToCallRoute = server.slice(routeStart, routeEnd);
+  const clickToCallBuilder = getNamedFunctionSource(server, "buildMcubeClickToCallRequest");
 
   assert.match(server, /apiBaseUrl: "https:\/\/api\.mcube\.com"/);
   assert.match(server, /clickToCallPath: "\/Restmcube-api\/outbound-calls"/);
@@ -842,9 +843,13 @@ test("MCUBE outbound click-to-call uses documented payload fields", () => {
   assert.match(server, /refurl: String\(req\.body\?\.refurl \|\| config\.outboundRefUrl \|\| "1"\)/);
   assert.match(server, /refid: String\(req\.body\?\.refid \|\| lead\?\.id \|\| leadId \|\| ""\)/);
   assert.doesNotMatch(server, /Authorization: `Bearer \$\{config\.accountToken\}`/);
-  assert.match(clickToCallRoute, /new URLSearchParams\(\)/);
+  assert.match(clickToCallBuilder, /new URLSearchParams\(\)/);
   assert.match(clickToCallRoute, /"Content-Type": "application\/x-www-form-urlencoded"/);
   assert.doesNotMatch(clickToCallRoute, /body: JSON\.stringify\(requestPayload\)/);
+  assert.match(clickToCallBuilder, /apikey: requestPayload\.HTTP_AUTHORIZATION/);
+  assert.match(clickToCallBuilder, /url: requestPayload\.refurl/);
+  assert.match(clickToCallRoute, /response\.status === 404 && activeRequest\.offering === "cloud"/);
+  assert.match(clickToCallRoute, /buildMcubeClickToCallRequest\(config, requestPayload, true\)/);
   assert.match(server, /MCUBE executive number is missing/);
 });
 
