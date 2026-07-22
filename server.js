@@ -4268,13 +4268,19 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
       });
     }
     const endpoint = endpointUrl.toString();
+    const requestBody = new URLSearchParams();
+    Object.entries(requestPayload).forEach(([key, value]) => {
+      if (value) {
+        requestBody.set(key, value);
+      }
+    });
     const response = await fetch(endpoint, {
       method,
       headers: {
-        "Content-Type": "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
         Accept: "application/json, text/plain;q=0.9"
       },
-      ...(method === "GET" ? {} : { body: JSON.stringify(requestPayload) })
+      ...(method === "GET" ? {} : { body: requestBody.toString() })
     });
     const text = await response.text();
     let parsed = null;
@@ -4299,9 +4305,13 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
         eventType: "click-to-call",
         phone: requestPayload.custnumber
       });
+      const setupHint = response.status === 404
+        ? "MCUBE returned 404. Please confirm whether this account uses the Cloud endpoint (/Restmcube-api/outbound-calls) or the VMC endpoint (/api/outboundcall), and confirm the saved method/path with MCUBE."
+        : "";
       return res.status(502).json({
         message: `MCUBE click-to-call failed with status ${response.status}.`,
-        details: parsed?.message || text || "Unknown MCUBE response"
+        details: parsed?.message || text || "Unknown MCUBE response",
+        setupHint
       });
     }
 

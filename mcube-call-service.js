@@ -25,7 +25,7 @@ export async function triggerMcubeClickToCall(lead, button, notify = () => {}) {
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(payload?.message || payload?.details || `HTTP ${response.status}`);
+      throw new Error([payload?.message, payload?.setupHint || payload?.details].filter(Boolean).join(" ") || `HTTP ${response.status}`);
     }
     notify(`Calling ${leadName || phone} through MCUBE.`, false);
     return payload;

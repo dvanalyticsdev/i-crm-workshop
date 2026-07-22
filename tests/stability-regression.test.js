@@ -829,6 +829,9 @@ test("MCUBE inbound document sample maps to CRM call event fields", () => {
 
 test("MCUBE outbound click-to-call uses documented payload fields", () => {
   const server = read("server.js");
+  const routeStart = server.indexOf('app.post("/api/mcube/click-to-call"');
+  const routeEnd = server.indexOf('app.get("/api/reachout/config"', routeStart);
+  const clickToCallRoute = server.slice(routeStart, routeEnd);
 
   assert.match(server, /apiBaseUrl: "https:\/\/api\.mcube\.com"/);
   assert.match(server, /clickToCallPath: "\/Restmcube-api\/outbound-calls"/);
@@ -839,6 +842,9 @@ test("MCUBE outbound click-to-call uses documented payload fields", () => {
   assert.match(server, /refurl: String\(req\.body\?\.refurl \|\| config\.outboundRefUrl \|\| "1"\)/);
   assert.match(server, /refid: String\(req\.body\?\.refid \|\| lead\?\.id \|\| leadId \|\| ""\)/);
   assert.doesNotMatch(server, /Authorization: `Bearer \$\{config\.accountToken\}`/);
+  assert.match(clickToCallRoute, /new URLSearchParams\(\)/);
+  assert.match(clickToCallRoute, /"Content-Type": "application\/x-www-form-urlencoded"/);
+  assert.doesNotMatch(clickToCallRoute, /body: JSON\.stringify\(requestPayload\)/);
   assert.match(server, /MCUBE executive number is missing/);
 });
 
@@ -895,6 +901,9 @@ test("MCUBE click-to-call dispatch logs are marked outbound", () => {
   assert.match(server, /callDisposition: "DISPATCH_FAILED"/);
   assert.match(server, /direction: "outbound"/);
   assert.match(server, /eventType: "click-to-call"/);
+  assert.match(server, /setupHint/);
+  assert.match(server, /Cloud endpoint/);
+  assert.match(server, /VMC endpoint/);
 });
 
 test("counselor lead list rows expose MCUBE click-to-call buttons", () => {
