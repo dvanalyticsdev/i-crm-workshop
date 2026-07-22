@@ -25,7 +25,13 @@ export async function triggerMcubeClickToCall(lead, button, notify = () => {}) {
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error([payload?.message, payload?.setupHint || payload?.details].filter(Boolean).join(" ") || `HTTP ${response.status}`);
+      const attemptSummary = Array.isArray(payload?.attempts)
+        ? payload.attempts.map((attempt) => {
+            const label = [attempt.offering, attempt.method].filter(Boolean).join(" ");
+            return `${label || "MCUBE"} HTTP ${attempt.httpStatus}: ${attempt.response || "[empty]"}`;
+          }).join("; ")
+        : "";
+      throw new Error([payload?.message, payload?.details, attemptSummary, payload?.setupHint].filter(Boolean).join(" ") || `HTTP ${response.status}`);
     }
     notify(`Calling ${leadName || phone} through MCUBE.`, false);
     return payload;

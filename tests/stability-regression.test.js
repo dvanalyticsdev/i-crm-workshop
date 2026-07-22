@@ -843,8 +843,9 @@ test("MCUBE outbound click-to-call uses documented payload fields", () => {
   assert.match(server, /refurl: String\(req\.body\?\.refurl \|\| config\.outboundRefUrl \|\| "1"\)/);
   assert.match(server, /refid: String\(req\.body\?\.refid \|\| lead\?\.id \|\| leadId \|\| ""\)/);
   assert.doesNotMatch(server, /Authorization: `Bearer \$\{config\.accountToken\}`/);
-  assert.match(clickToCallBuilder, /new URLSearchParams\(\)/);
-  assert.match(clickToCallRoute, /"Content-Type": "application\/x-www-form-urlencoded"/);
+  assert.match(clickToCallBuilder, /JSON\.stringify\(requestPayload\)/);
+  assert.match(clickToCallBuilder, /contentType: method === "GET" \? "" : "application\/json"/);
+  assert.match(clickToCallRoute, /\.\.\.\(activeRequest\.contentType \? \{ "Content-Type": activeRequest\.contentType \} : \{\}\)/);
   assert.doesNotMatch(clickToCallRoute, /body: JSON\.stringify\(requestPayload\)/);
   assert.match(clickToCallBuilder, /apikey: requestPayload\.HTTP_AUTHORIZATION/);
   assert.match(clickToCallBuilder, /url: requestPayload\.refurl/);
@@ -854,7 +855,14 @@ test("MCUBE outbound click-to-call uses documented payload fields", () => {
   assert.match(clickToCallRoute, /const targetPhone = normalizeMcubeDialNumber/);
   assert.match(clickToCallRoute, /const executiveNumber = normalizeMcubeDialNumber/);
   assert.match(server, /function isSuccessfulMcubeClickToCallResponse/);
+  assert.match(server, /function buildMcubeAttemptLog/);
+  assert.match(server, /function buildMcubeActivityMetadata/);
+  assert.match(server, /function describeFailedMcubeAttempts/);
+  assert.match(server, /sanitizeMcubeEndpointForLog/);
   assert.match(clickToCallRoute, /const mcubeAccepted = response\.ok && isSuccessfulMcubeClickToCallResponse/);
+  assert.match(clickToCallRoute, /attempts\.push\(buildMcubeAttemptLog/);
+  assert.match(clickToCallRoute, /mcubeAttempts: attempts/);
+  assert.match(clickToCallRoute, /callMetadata: buildMcubeActivityMetadata/);
   assert.match(clickToCallRoute, /MCUBE did not confirm that the call was created/);
   assert.match(server, /MCUBE executive number is missing/);
 });
@@ -896,12 +904,16 @@ test("MCUBE auto-created leads assign only when a picked call matches a CRM coun
 test("MCUBE logs show exact call status before picked interpretation", () => {
   const mcubeIntegration = read("mcube-integration.js");
   const mcubeHtml = read("mcube-integration.html");
+  const activityHistory = read("activity-history.js");
   const renderCallHandling = getNamedFunctionSource(mcubeIntegration, "renderCallHandling");
 
   assert.match(mcubeHtml, /<th>Call Status<\/th>/);
   assert.match(renderCallHandling, /const exactStatus = String\(log\.callDisposition \|\| log\.eventType \|\| log\.normalizedStatus/);
   assert.match(renderCallHandling, /const primary = exactStatus/);
   assert.match(renderCallHandling, /outcome,/);
+  assert.match(activityHistory, /function renderCallMetadata/);
+  assert.match(activityHistory, /timeline-recording-link/);
+  assert.match(activityHistory, /Call Recording/);
 });
 
 test("MCUBE click-to-call dispatch logs are marked outbound", () => {
@@ -929,6 +941,7 @@ test("counselor lead list rows expose MCUBE click-to-call buttons", () => {
 
   assert.match(service, /apiUrl\("\/api\/mcube\/click-to-call"\)/);
   assert.match(service, /body: JSON\.stringify\(\{ leadId, phone, leadName \}\)/);
+  assert.match(service, /payload\?\.attempts/);
   pages.forEach((file) => {
     const source = read(file);
     assert.match(source, /triggerMcubeClickToCall/);

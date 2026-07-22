@@ -6250,6 +6250,30 @@ html[data-theme="dark"] .diff-val {
   margin-top: 8px;
 }
 
+.timeline-call-details {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+
+.timeline-recording-link {
+  width: fit-content;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  color: var(--primary);
+  background: var(--surface);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.timeline-recording-link:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
 .timeline-footer {
   display: flex;
   justify-content: space-between;

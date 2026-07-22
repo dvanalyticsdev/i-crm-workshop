@@ -2082,7 +2082,8 @@ function buildMcubeClickToCallRequest(config = {}, requestPayload = {}, forcedVm
   return {
     endpoint: endpointUrl.toString(),
     method,
-    body: method === "GET" ? null : body.toString(),
+    body: method === "GET" ? null : JSON.stringify(requestPayload),
+    contentType: method === "GET" ? "" : "application/json",
     offering: useVmc ? "vmc" : "cloud"
   };
 }
@@ -2097,13 +2098,61 @@ function isSuccessfulMcubeClickToCallResponse(parsed, text, offering) {
   const bodyText = String(text || "").trim().toLowerCase();
   const status = String(parsed?.status || "").trim().toLowerCase();
   const message = String(parsed?.msg || parsed?.message || "").trim().toLowerCase();
+  const callId = String(parsed?.callid || parsed?.callId || parsed?.called || "").trim();
   if (offering === "cloud") {
-    return status === "succ" || status === "success";
+    return status === "succ" || status === "success" || !!callId;
   }
   if (offering === "vmc") {
-    return message === "success" || status === "success";
+    return message.includes("success") || status === "success" || !!callId;
   }
   return /\b(success|succ)\b/i.test(bodyText);
+}
+
+function buildMcubeActivityMetadata(event = {}, extra = {}) {
+  return {
+    provider: "MCUBE",
+    callId: String(event?.callId || extra.callId || "").trim(),
+    callDirection: String(event?.direction || extra.callDirection || "").trim(),
+    callStatus: String(event?.disposition || extra.callStatus || "").trim(),
+    normalizedCallStatus: String(extra.normalizedStatus || "").trim(),
+    recordingUrl: String(event?.recordingUrl || extra.recordingUrl || "").trim(),
+    agentName: String(event?.counselorName || extra.agentName || "").trim(),
+    agentPhone: String(event?.agentPhone || extra.agentPhone || "").trim(),
+    customerPhone: String(event?.phone || extra.customerPhone || "").trim(),
+    duration: Number(event?.duration || extra.duration || 0) || 0,
+    startedAt: String(event?.startedAt || extra.startedAt || "").trim(),
+    endedAt: String(event?.endedAt || extra.endedAt || "").trim()
+  };
+}
+
+function sanitizeMcubeEndpointForLog(endpoint) {
+  try {
+    const url = new URL(endpoint);
+    ["apikey", "apiKey", "HTTP_AUTHORIZATION"].forEach((key) => {
+      if (url.searchParams.has(key)) url.searchParams.set(key, "[redacted]");
+    });
+    return url.toString();
+  } catch {
+    return String(endpoint || "").replace(/(apikey|apiKey|HTTP_AUTHORIZATION)=([^&]+)/gi, "$1=[redacted]");
+  }
+}
+
+function buildMcubeAttemptLog(request, response, text) {
+  return {
+    offering: request?.offering || "",
+    method: request?.method || "",
+    endpoint: sanitizeMcubeEndpointForLog(request?.endpoint || ""),
+    httpStatus: Number(response?.status) || 0,
+    response: String(text || "").trim().slice(0, 300) || "[empty]"
+  };
+}
+
+function describeFailedMcubeAttempts(attempts = []) {
+  const parts = attempts.map((attempt) => {
+    const responseText = attempt.response === "[empty]" ? "empty response" : `response: ${attempt.response}`;
+    return `${attempt.offering || "unknown"} ${attempt.method || ""} returned HTTP ${attempt.httpStatus || "?"} with ${responseText}`.trim();
+  }).filter(Boolean);
+  return parts.length ? parts.join("; ") : "No MCUBE response details available.";
 }
 
 function normalizeMcubePhone(value) {
@@ -3398,7 +3447,16 @@ async function processMcubeWebhookPayload(req, body) {
     activityType: "Call Made",
     actionDescription: `MCUBE ${event.direction || "call"} event recorded${normalizedStatus ? ` with status ${normalizedStatus}` : ""}.`,
     previousValue: String(lead?.[stageConfig.statusField] || "").trim() || null,
-    newValue: normalizedStatus || String(event.disposition || "").trim() || null
+    newValue: [
+      `MCUBE status: ${event.disposition || normalizedStatus || "-"}`,
+      `Direction: ${event.direction || "-"}`,
+      event.callId ? `Call ID: ${event.callId}` : "",
+      event.recordingUrl && config.enableRecordingLinks ? "Recording available" : ""
+    ].filter(Boolean).join(", "),
+    callMetadata: buildMcubeActivityMetadata(event, {
+      normalizedStatus,
+      recordingUrl: config.enableRecordingLinks ? event.recordingUrl : ""
+    })
   });
 
   if (config.enableAutoTaskCreation && isMcubeCallbackStatus(normalizedStatus)) {
@@ -4319,25 +4377,28 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
     };
     const primaryRequest = buildMcubeClickToCallRequest(config, requestPayload);
     let activeRequest = primaryRequest;
+    const attempts = [];
     let response = await fetch(activeRequest.endpoint, {
       method: activeRequest.method,
       headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
+        ...(activeRequest.contentType ? { "Content-Type": activeRequest.contentType } : {}),
         Accept: "application/json, text/plain;q=0.9"
       },
       ...(activeRequest.body ? { body: activeRequest.body } : {})
     });
+    let text = await response.text();
+    attempts.push(buildMcubeAttemptLog(activeRequest, response, text));
     if (response.status === 404 && activeRequest.offering === "cloud") {
       activeRequest = buildMcubeClickToCallRequest(config, requestPayload, true);
       response = await fetch(activeRequest.endpoint, {
         method: activeRequest.method,
         headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
           Accept: "application/json, text/plain;q=0.9"
         }
       });
+      text = await response.text();
+      attempts.push(buildMcubeAttemptLog(activeRequest, response, text));
     }
-    const text = await response.text();
     let parsed = null;
     try {
       parsed = text ? JSON.parse(text) : null;
@@ -4363,16 +4424,36 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
         direction: "outbound",
         eventType: "click-to-call",
         phone: requestPayload.custnumber,
-        mcubeResponse: parsed || text || ""
+        mcubeResponse: parsed || text || "",
+        mcubeAttempts: attempts
       });
+      if (lead) {
+        await recordActivity({
+          leadId: lead.id,
+          leadName: lead.name,
+          counselorName: lead.counselor || session.name || "",
+          activityType: "Call Made",
+          actionDescription: "MCUBE click-to-call failed.",
+          newValue: describeFailedMcubeAttempts(attempts),
+          session,
+          callMetadata: buildMcubeActivityMetadata({}, {
+            callDirection: "outbound",
+            callStatus: "DISPATCH_FAILED",
+            customerPhone: requestPayload.custnumber,
+            agentPhone: requestPayload.exenumber
+          })
+        });
+      }
+      const attemptSummary = describeFailedMcubeAttempts(attempts);
       const setupHint = response.status === 404
         ? "MCUBE returned 404. Please confirm whether this account uses the Cloud endpoint (/Restmcube-api/outbound-calls) or the VMC endpoint (/api/outboundcall), and confirm the saved method/path with MCUBE."
         : "";
       return res.status(502).json({
         message: response.ok ? "MCUBE did not confirm that the call was created." : `MCUBE click-to-call failed with status ${response.status}.`,
-        details: parsed?.message || text || "Unknown MCUBE response",
+        details: parsed?.message || text || attemptSummary,
         setupHint,
-        attemptedOffering: activeRequest.offering
+        attemptedOffering: activeRequest.offering,
+        attempts
       });
     }
 
@@ -4384,7 +4465,13 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
         activityType: "Call Made",
         actionDescription: "MCUBE click-to-call triggered from CRM.",
         newValue: `Phone: ${requestPayload.custnumber}`,
-        session
+        session,
+        callMetadata: buildMcubeActivityMetadata({}, {
+          callDirection: "outbound",
+          callStatus: "DISPATCHED",
+          customerPhone: requestPayload.custnumber,
+          agentPhone: requestPayload.exenumber
+        })
       });
       await stateCollection.updateOne(
         { _id: STATE_DOC_ID },
@@ -6057,7 +6144,8 @@ async function recordActivity({
   previousValue = null,
   newValue = null,
   session = null,
-  remarks = null
+  remarks = null,
+  callMetadata = null
 }) {
   try {
     if (!activityLogsCollection) {
@@ -6086,7 +6174,9 @@ async function recordActivity({
       timestamp: now,
       date: dateStr,
       time: timeStr,
-      remarks: remarks ? String(remarks) : null
+      remarks: remarks ? String(remarks) : null,
+      callMetadata: callMetadata && typeof callMetadata === "object" ? callMetadata : null,
+      recordingUrl: callMetadata?.recordingUrl ? String(callMetadata.recordingUrl) : ""
     };
 
     await activityLogsCollection.insertOne(logEntry);

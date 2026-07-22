@@ -68,6 +68,28 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
+function renderCallMetadata(log) {
+  const metadata = log.callMetadata && typeof log.callMetadata === "object" ? log.callMetadata : {};
+  const recordingUrl = String(log.recordingUrl || metadata.recordingUrl || "").trim();
+  const details = [
+    metadata.callStatus ? `Status: ${metadata.callStatus}` : "",
+    metadata.callDirection ? `Direction: ${metadata.callDirection}` : "",
+    metadata.callId ? `Call ID: ${metadata.callId}` : "",
+    metadata.agentName ? `Agent: ${metadata.agentName}` : "",
+    metadata.agentPhone ? `Agent phone: ${metadata.agentPhone}` : "",
+    metadata.duration ? `Duration: ${metadata.duration}s` : ""
+  ].filter(Boolean);
+
+  if (!recordingUrl && !details.length) return "";
+
+  return `
+    <div class="timeline-call-details">
+      ${details.length ? `<div>${escapeHtml(details.join(" | "))}</div>` : ""}
+      ${recordingUrl ? `<a class="timeline-recording-link" href="${escapeHtml(recordingUrl)}" target="_blank" rel="noopener noreferrer">Call Recording</a>` : ""}
+    </div>
+  `;
+}
+
 function ensureModalInDom() {
   if (document.getElementById("activityHistoryModal")) {
     return;
@@ -262,6 +284,7 @@ async function fetchActivityLogs() {
         if (log.remarks) {
           remarksHtml = `<div class="timeline-remarks">${escapeHtml(log.remarks)}</div>`;
         }
+        const callMetadataHtml = renderCallMetadata(log);
 
         // Color coding for different activity types
         let typeClass = "timeline-type-default";
@@ -298,6 +321,7 @@ async function fetchActivityLogs() {
               ` : ""}
               
               ${remarksHtml}
+              ${callMetadataHtml}
             </div>
           </div>
         `;
