@@ -887,6 +887,16 @@ test("MCUBE logs show exact call status before picked interpretation", () => {
   assert.match(renderCallHandling, /outcome,/);
 });
 
+test("MCUBE click-to-call dispatch logs are marked outbound", () => {
+  const server = read("server.js");
+
+  assert.match(server, /message: `Click-to-call dispatched/);
+  assert.match(server, /callDisposition: "DISPATCHED"/);
+  assert.match(server, /callDisposition: "DISPATCH_FAILED"/);
+  assert.match(server, /direction: "outbound"/);
+  assert.match(server, /eventType: "click-to-call"/);
+});
+
 test("ReachOut templates do not respawn default seeded templates after removal", () => {
   const server = read("server.js");
   const defaultReachoutTemplates = getNamedFunctionSource(server, "getDefaultReachoutTemplates");

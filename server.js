@@ -4289,6 +4289,14 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
         type: "error",
         message: `Click-to-call failed with MCUBE HTTP ${response.status}.`,
         leadId: requestPayload.refid,
+        leadName: String(lead?.name || req.body?.leadName || "").trim(),
+        counselor: counselorName,
+        leadPipeline: lead?.leadPipeline || "",
+        assignmentStatus: shouldTreatLeadAsAssigned(counselorName) ? "Assigned" : "Unassigned",
+        callDisposition: "DISPATCH_FAILED",
+        normalizedStatus: "DISPATCH_FAILED",
+        direction: "outbound",
+        eventType: "click-to-call",
         phone: requestPayload.custnumber
       });
       return res.status(502).json({
@@ -4321,6 +4329,13 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
       message: `Click-to-call dispatched${lead?.name ? ` for ${lead.name}` : ""}.`,
       leadId: requestPayload.refid,
       leadName: String(lead?.name || req.body?.leadName || "").trim(),
+      counselor: counselorName,
+      leadPipeline: lead?.leadPipeline || "",
+      assignmentStatus: shouldTreatLeadAsAssigned(counselorName) ? "Assigned" : "Unassigned",
+      callDisposition: "DISPATCHED",
+      normalizedStatus: "DISPATCHED",
+      direction: "outbound",
+      eventType: "click-to-call",
       phone: requestPayload.custnumber,
       outboundPayload: {
         HTTP_AUTHORIZATION: "[redacted]",
