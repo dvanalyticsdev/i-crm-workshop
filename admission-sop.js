@@ -363,8 +363,11 @@ function getLeadRowModel(lead) {
 }
 
 function getAllRowModels() {
-  const sortedRows = getAdmissionLeadsForView()
-    .map((lead) => getLeadRowModel(lead))
+  return getAdmissionLeadsForView()
+    .map((lead, sourceIndex) => ({
+      ...getLeadRowModel(lead),
+      sourceIndex
+    }))
     .sort((left, right) => {
       const leftBlocked = left.sop?.blocked ? 1 : 0;
       const rightBlocked = right.sop?.blocked ? 1 : 0;
@@ -374,19 +377,13 @@ function getAllRowModels() {
       if (leftRisk !== rightRisk) return rightRisk - leftRisk;
       const leftRemaining = Number.isFinite(left.sop?.remainingMs) ? left.sop.remainingMs : Number.MAX_SAFE_INTEGER;
       const rightRemaining = Number.isFinite(right.sop?.remainingMs) ? right.sop.remainingMs : Number.MAX_SAFE_INTEGER;
-      return leftRemaining - rightRemaining;
-    });
-
-  const occurrenceCounts = new Map();
-  return sortedRows.map((model) => {
-    const baseKey = String(model.key || "");
-    const nextCount = (occurrenceCounts.get(baseKey) || 0) + 1;
-    occurrenceCounts.set(baseKey, nextCount);
-    return {
+      if (leftRemaining !== rightRemaining) return leftRemaining - rightRemaining;
+      return left.sourceIndex - right.sourceIndex;
+    })
+    .map((model) => ({
       ...model,
-      key: `${baseKey}::row-${nextCount}`
-    };
-  });
+      key: `${String(model.key || "")}::src-${model.sourceIndex}`
+    }));
 }
 
 function getBucketKey(model) {
