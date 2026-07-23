@@ -44,6 +44,116 @@ const DEFAULT_PERMISSIONS = {
   monitoring: true
 };
 
+const SIDEBAR_GROUP_STORAGE_KEY = "dvSidebarGroupState";
+const SIDEBAR_GROUPS = [
+  {
+    id: "home",
+    label: "Home",
+    routes: ["dashboard.html", "monitoring.html"]
+  },
+  {
+    id: "leads",
+    label: "Leads",
+    routes: ["lead-browse.html", "claim-raised.html", "lead-creation.html"]
+  },
+  {
+    id: "workflows",
+    label: "Workflows",
+    routes: ["pre-workshop.html", "registered-candidates.html", "lost-leads.html", "task-tracker.html"]
+  },
+  {
+    id: "control-center",
+    label: "Control Center",
+    routes: ["counselor-management.html", "lead-control.html"]
+  },
+  {
+    id: "channels",
+    label: "Channels",
+    routes: ["meta-integration.html", "reachout.html"]
+  }
+];
+
+function loadSidebarGroupState() {
+  try {
+    const raw = window.localStorage.getItem(SIDEBAR_GROUP_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSidebarGroupState(state) {
+  try {
+    window.localStorage.setItem(SIDEBAR_GROUP_STORAGE_KEY, JSON.stringify(state || {}));
+  } catch {
+    // Ignore storage failures and continue with in-memory UI state.
+  }
+}
+
+function getRouteGroupId(route) {
+  const group = SIDEBAR_GROUPS.find((item) => item.routes.includes(route));
+  return group?.id || null;
+}
+
+function setSidebarGroupExpanded(groupElement, expanded) {
+  if (!groupElement) {
+    return;
+  }
+
+  const toggle = groupElement.querySelector(".sidebar-group-toggle");
+  const content = groupElement.querySelector(".sidebar-group-content");
+  const nextExpanded = !!expanded;
+  groupElement.dataset.expanded = nextExpanded ? "true" : "false";
+  toggle?.setAttribute("aria-expanded", String(nextExpanded));
+  content?.classList.toggle("hidden", !nextExpanded);
+}
+
+function syncSidebarGroupState() {
+  const storedState = loadSidebarGroupState();
+  const activeGroupId = getRouteGroupId(currentRoute);
+
+  document.querySelectorAll(".sidebar-group").forEach((groupElement) => {
+    const groupId = groupElement.dataset.groupId;
+    const hasVisibleLinks = Array.from(groupElement.querySelectorAll(".sidebar-link")).some(
+      (link) => !link.classList.contains("hidden")
+    );
+
+    groupElement.classList.toggle("hidden", !hasVisibleLinks);
+    if (!hasVisibleLinks) {
+      return;
+    }
+
+    const shouldExpand = groupId === activeGroupId
+      ? true
+      : storedState[groupId] !== false;
+
+    setSidebarGroupExpanded(groupElement, shouldExpand);
+  });
+}
+
+function bindSidebarGroupToggles() {
+  document.querySelectorAll(".sidebar-group-toggle").forEach((toggle) => {
+    if (toggle.dataset.bound === "true") {
+      return;
+    }
+
+    toggle.dataset.bound = "true";
+    toggle.addEventListener("click", () => {
+      const groupElement = toggle.closest(".sidebar-group");
+      if (!groupElement) {
+        return;
+      }
+
+      const nextExpanded = groupElement.dataset.expanded !== "true";
+      setSidebarGroupExpanded(groupElement, nextExpanded);
+
+      const storedState = loadSidebarGroupState();
+      storedState[groupElement.dataset.groupId] = nextExpanded;
+      saveSidebarGroupState(storedState);
+    });
+  });
+}
+
 function applyActiveSidebarState() {
   const sidebarLinks = document.querySelectorAll(".sidebar-link");
   sidebarLinks.forEach((link) => {
@@ -54,6 +164,7 @@ function applyActiveSidebarState() {
     const isActive = link.getAttribute("href") === currentRoute || activeRoutes.includes(currentRoute);
     link.classList.toggle("active", isActive);
   });
+  syncSidebarGroupState();
 }
 
 function rebuildSidebarSections() {
@@ -74,9 +185,6 @@ function rebuildSidebarSections() {
       .map((link) => [link.getAttribute("href") || "", link])
       .filter(([href]) => href)
   );
-
-  const generalRoutes = ["dashboard.html", "lead-browse.html", "claim-raised.html", "lead-creation.html", "lost-leads.html", "monitoring.html", "task-tracker.html"];
-  const adminRoutes = ["counselor-management.html", "lead-control.html", "reachout.html"];
 
   const routeLabels = {
     "dashboard.html": "Dashboard",
@@ -124,52 +232,67 @@ function rebuildSidebarSections() {
   navContainer.innerHTML = "";
   bottomLinkContainer.innerHTML = "";
 
-  const primaryRoutes = ["dashboard.html", "lead-browse.html", "claim-raised.html", "lead-creation.html"];
-  const remainingRoutes = generalRoutes.filter((route) => !primaryRoutes.includes(route));
-
-  primaryRoutes.forEach((route) => {
-    const link = ensureLink(route, { counselorOnly: route === "task-tracker.html" });
-    if (link) {
-      navContainer.appendChild(link);
+  const routeOptions = {
+    "pre-workshop.html": {
+      activeRoutes: ["post-workshop.html"]
+    },
+    "registered-candidates.html": {
+      activeRoutes: ["main-admission-leads.html", "crash-course.html"]
+    },
+    "task-tracker.html": {
+      counselorOnly: true
+    },
+    "counselor-management.html": {
+      adminOnly: true,
+      bottom: true
+    },
+    "lead-control.html": {
+      adminOnly: true,
+      bottom: true
+    },
+    "meta-integration.html": {
+      adminOnly: true,
+      bottom: true,
+      activeRoutes: ["elementor-integration.html", "mcube-integration.html", "lead-flow-control.html"]
+    },
+    "reachout.html": {
+      adminOnly: true,
+      bottom: true
     }
+  };
+
+  SIDEBAR_GROUPS.forEach((group) => {
+    const section = document.createElement("section");
+    section.className = "sidebar-group";
+    section.dataset.groupId = group.id;
+
+    const groupToggle = document.createElement("button");
+    groupToggle.type = "button";
+    groupToggle.className = "sidebar-group-toggle";
+    groupToggle.setAttribute("aria-expanded", "false");
+    groupToggle.innerHTML = `
+      <span class="sidebar-group-label">${group.label}</span>
+      <span class="sidebar-group-chevron" aria-hidden="true"></span>
+    `;
+
+    const content = document.createElement("div");
+    content.className = "sidebar-group-content hidden";
+
+    group.routes.forEach((route) => {
+      const options = routeOptions[route] || {};
+      const link = ensureLink(route, options);
+      if (link) {
+        content.appendChild(link);
+      }
+    });
+
+    section.appendChild(groupToggle);
+    section.appendChild(content);
+    navContainer.appendChild(section);
   });
 
-  const workshopLink = ensureLink("pre-workshop.html", {
-    activeRoutes: ["post-workshop.html"]
-  });
-  if (workshopLink) {
-    navContainer.appendChild(workshopLink);
-  }
-
-  const admissionLink = ensureLink("registered-candidates.html", {
-    activeRoutes: ["main-admission-leads.html", "crash-course.html"]
-  });
-  if (admissionLink) {
-    navContainer.appendChild(admissionLink);
-  }
-
-  remainingRoutes.forEach((route) => {
-    const link = ensureLink(route, { counselorOnly: route === "task-tracker.html" });
-    if (link) {
-      navContainer.appendChild(link);
-    }
-  });
-
-  adminRoutes.forEach((route) => {
-    const link = ensureLink(route, { bottom: true, adminOnly: true });
-    if (link) {
-      bottomLinkContainer.appendChild(link);
-    }
-  });
-
-  const integrationLink = ensureLink("meta-integration.html", {
-    bottom: true,
-    adminOnly: true,
-    activeRoutes: ["elementor-integration.html", "mcube-integration.html", "lead-flow-control.html"]
-  });
-  if (integrationLink) {
-    bottomLinkContainer.appendChild(integrationLink);
-  }
+  bindSidebarGroupToggles();
+  syncSidebarGroupState();
 }
 
 function ensureIntegrationSidebarLinks() {
@@ -321,6 +444,7 @@ function applyRoleVisibility(session) {
       }
     });
   }
+  syncSidebarGroupState();
 }
 
 function enforceAccess(session) {
@@ -373,6 +497,8 @@ function enforceAccess(session) {
       link.classList.add("hidden");
     }
   });
+
+  syncSidebarGroupState();
 
   return true;
 }
