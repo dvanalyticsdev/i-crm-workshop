@@ -464,6 +464,16 @@ function ensureValidPage(totalItems) {
   return totalPages;
 }
 
+function getCurrentPageRowModels(rows) {
+  const pageStartIndex = (currentPage - 1) * PAGE_SIZE;
+  return rows
+    .slice(pageStartIndex, pageStartIndex + PAGE_SIZE)
+    .map((row, index) => ({
+      ...row,
+      pageSelectionKey: `page-row-${pageStartIndex + index}`
+    }));
+}
+
 function getActiveCounselors() {
   return [...new Set(getAllRowModels().map((model) => model.counselor).filter(Boolean))]
     .sort((left, right) => left.localeCompare(right));
@@ -655,11 +665,11 @@ function buildLeadRef(lead) {
 function renderLeadTable() {
   const rows = getFilteredRows();
   const totalPages = ensureValidPage(rows.length);
-  const pageRows = rows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const pageRows = getCurrentPageRowModels(rows);
   const pageBlockedRows = pageRows.filter((row) => row.sop?.blocked);
-  const pageBlockedKeys = pageBlockedRows.map((row) => row.key);
+  const pageBlockedKeys = pageBlockedRows.map((row) => row.pageSelectionKey);
   selectedBlockedLeadKeys = new Set([...selectedBlockedLeadKeys].filter((key) => pageBlockedKeys.includes(key)));
-  const selectedBlockedRows = pageBlockedRows.filter((row) => selectedBlockedLeadKeys.has(row.key));
+  const selectedBlockedRows = pageBlockedRows.filter((row) => selectedBlockedLeadKeys.has(row.pageSelectionKey));
   const allPageBlockedSelected = pageBlockedKeys.length > 0 && pageBlockedKeys.every((key) => selectedBlockedLeadKeys.has(key));
 
   leadTable.innerHTML = `
@@ -709,7 +719,7 @@ function renderLeadTable() {
               ${isAdminSession() ? `
                 <td>
                   ${model.sop?.blocked ? `
-                    <input type="checkbox" data-lead-key="${escapeHtml(model.key)}" ${selectedBlockedLeadKeys.has(model.key) ? "checked" : ""} />
+                    <input type="checkbox" data-lead-key="${escapeHtml(model.pageSelectionKey)}" ${selectedBlockedLeadKeys.has(model.pageSelectionKey) ? "checked" : ""} />
                   ` : `<span class="block-help">—</span>`}
                 </td>
               ` : ""}
@@ -816,7 +826,8 @@ async function reassignBlockedLeads() {
     showToast("Select a counselor first.", true);
     return;
   }
-  const selectedRows = getAllRowModels().filter((row) => selectedBlockedLeadKeys.has(row.key) && row.sop?.blocked);
+  const selectedRows = getCurrentPageRowModels(getFilteredRows())
+    .filter((row) => selectedBlockedLeadKeys.has(row.pageSelectionKey) && row.sop?.blocked);
   if (!selectedRows.length) {
     showToast("Select at least one blocked lead to reassign.", true);
     return;
