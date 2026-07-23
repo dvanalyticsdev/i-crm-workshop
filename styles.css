@@ -553,6 +553,11 @@ textarea:focus {
   display: flex;
 }
 
+.app-shell-pending .layout-root {
+  visibility: hidden;
+  opacity: 0;
+}
+
 .sidebar {
   display: flex;
   flex-direction: column;

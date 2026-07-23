@@ -73,6 +73,10 @@ const SIDEBAR_GROUPS = [
   }
 ];
 
+function revealAppShell() {
+  document.documentElement.classList.remove("app-shell-pending");
+}
+
 function loadSidebarGroupState() {
   try {
     const raw = window.localStorage.getItem(SIDEBAR_GROUP_STORAGE_KEY);
@@ -729,6 +733,7 @@ async function navigateToRoute(href, options = {}) {
     window.location.href = href;
   } finally {
     document.body.classList.remove("route-loading");
+    revealAppShell();
   }
 }
 
@@ -798,6 +803,7 @@ if (session) {
     injectNotificationBell();
     startNotificationPolling(session);
     startVersionCheck();
+    revealAppShell();
   }
 }
 

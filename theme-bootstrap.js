@@ -21,6 +21,7 @@
   const theme = getPreferredTheme();
   const root = document.documentElement;
 
+  root.classList.add("app-shell-pending");
   root.setAttribute("data-theme", theme);
   root.style.colorScheme = theme;
 })();
