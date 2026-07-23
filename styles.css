@@ -6576,6 +6576,28 @@ html[data-theme="dark"] .diff-val {
   overflow-wrap: anywhere;
 }
 
+.duplicate-group-card {
+  display: grid;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.duplicate-group-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.duplicate-group-card__header h3 {
+  margin: 0 0 6px;
+}
+
+.duplicate-group-card__header p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
 .lead-claim-modal {
   width: min(640px, calc(100vw - 48px));
   max-width: none;

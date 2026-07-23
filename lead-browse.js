@@ -3,6 +3,7 @@ import { trackLeadView } from "./lead-service.js";
 import { raiseLeadClaim } from "./lead-claim-service.js";
 import { openActivityHistory } from "./activity-history.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
+import { apiUrl } from "./api-client.js";
 
 const PAGE_SIZE = 25;
 const controls = document.getElementById("leadBrowseControls");
@@ -34,6 +35,10 @@ const filter = {
 let currentPage = 1;
 let latestLeadKey = "";
 let activeClaimLeadKey = "";
+let duplicateGroups = [];
+let duplicateGroupsLoading = false;
+let duplicateGroupsLoaded = false;
+const selectedDuplicateKeeperByGroup = new Map();
 
 function showLeadBrowseToast(message, isError = false) {
   let container = document.querySelector(".toast-container");
@@ -144,6 +149,10 @@ function getSessionCounselorName() {
   return String(session?.name || "").trim();
 }
 
+function isAdminSession() {
+  return getSession()?.role === "admin";
+}
+
 function canRaiseClaimForLead(lead) {
   const session = getSession();
   if (session?.role !== "counselor") return false;
@@ -157,6 +166,9 @@ function canRaiseClaimForLead(lead) {
 }
 
 function getCategoryLeads(leads) {
+  if (filter.category === "duplicates") {
+    return [];
+  }
   if (filter.category === "workshop") {
     return leads.filter(isWorkshopLead);
   }
@@ -174,6 +186,9 @@ function getUniqueValues(leads, getter) {
 }
 
 function getFilteredLeads() {
+  if (filter.category === "duplicates") {
+    return [];
+  }
   const categoryLeads = getCategoryLeads(getAllLeads());
   const query = normalize(filter.query);
   const counselor = normalize(filter.counselor);
@@ -199,6 +214,91 @@ function getFilteredLeads() {
   });
 }
 
+function getFilteredDuplicateGroups() {
+  const query = normalize(filter.query);
+  const groups = Array.isArray(duplicateGroups) ? duplicateGroups : [];
+  if (!query) {
+    return groups;
+  }
+  return groups.filter((group) => {
+    const haystack = [
+      ...(group.sharedEmails || []),
+      ...(group.sharedPhones || []),
+      ...((group.leads || []).flatMap((lead) => [
+        lead.name,
+        lead.email,
+        lead.phone,
+        lead.counselor,
+        lead.source,
+        lead.courseName,
+        lead.workshop,
+        lead.leadPipeline
+      ]))
+    ].map((value) => normalize(value)).join(" ");
+    return haystack.includes(query);
+  });
+}
+
+async function fetchDuplicateGroups() {
+  if (!isAdminSession()) {
+    duplicateGroups = [];
+    duplicateGroupsLoaded = false;
+    return;
+  }
+  duplicateGroupsLoading = true;
+  renderTable();
+  try {
+    const response = await fetch(apiUrl("/api/admin/duplicate-leads"), {
+      method: "GET",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json"
+      }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.message || "Failed to load duplicate leads.");
+    }
+    duplicateGroups = Array.isArray(payload?.groups) ? payload.groups : [];
+    duplicateGroupsLoaded = true;
+  } catch (error) {
+    duplicateGroups = [];
+    duplicateGroupsLoaded = true;
+    showLeadBrowseToast(error.message || "Could not load duplicate leads.", true);
+  } finally {
+    duplicateGroupsLoading = false;
+    if (filter.category === "duplicates") {
+      renderTable();
+    }
+  }
+}
+
+async function mergeDuplicateGroup(group) {
+  const keeperLeadId = selectedDuplicateKeeperByGroup.get(group.groupId) || String(group?.leads?.[0]?.id || "");
+  const duplicateLeadIds = (group.leads || []).map((lead) => String(lead.id || "")).filter((id) => id && id !== keeperLeadId);
+  if (!keeperLeadId || !duplicateLeadIds.length) {
+    showLeadBrowseToast("Select a keeper lead before merging.", true);
+    return;
+  }
+
+  const response = await fetch(apiUrl("/api/admin/duplicate-leads/merge"), {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    },
+    body: JSON.stringify({ keeperLeadId, duplicateLeadIds })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.message || "Failed to merge duplicate leads.");
+  }
+  await refreshState().catch(() => undefined);
+  await fetchDuplicateGroups();
+  showLeadBrowseToast("Duplicate leads merged successfully.");
+}
+
 function renderControls() {
   const categoryLeads = getCategoryLeads(getAllLeads());
   const counselors = getUniqueValues(categoryLeads, (lead) => lead.counselor || "Unassigned");
@@ -208,6 +308,7 @@ function renderControls() {
     <div class="lead-browse-tabs" role="tablist" aria-label="Lead categories">
       <button type="button" class="${filter.category === "workshop" ? "btn-primary" : "btn-ghost"}" data-category="workshop">Workshop Leads</button>
       <button type="button" class="${filter.category === "admission" ? "btn-primary" : "btn-ghost"}" data-category="admission">Admission Leads</button>
+      ${isAdminSession() ? `<button type="button" class="${filter.category === "duplicates" ? "btn-primary" : "btn-ghost"}" data-category="duplicates">Duplicate Leads</button>` : ""}
     </div>
     <div class="lead-browse-filters">
       ${filter.category === "admission" ? `
@@ -223,9 +324,9 @@ function renderControls() {
       ` : ""}
       <label>
         Search
-        <input id="leadBrowseSearch" type="search" value="${escapeHtml(filter.query)}" placeholder="Name, phone, email, course..." />
+        <input id="leadBrowseSearch" type="search" value="${escapeHtml(filter.query)}" placeholder="${filter.category === "duplicates" ? "Name, phone, email, counselor..." : "Name, phone, email, course..."}" />
       </label>
-      <label>
+      ${filter.category !== "duplicates" ? `<label>
         Counselor
         <select id="leadBrowseCounselor">
           <option value="">All Counselors</option>
@@ -239,6 +340,7 @@ function renderControls() {
           ${statuses.map((status) => `<option value="${escapeHtml(status)}" ${filter.status === status ? "selected" : ""}>${escapeHtml(status)}</option>`).join("")}
         </select>
       </label>
+      ` : ""}
     </div>
   `;
 
@@ -249,6 +351,9 @@ function renderControls() {
       filter.status = "";
       currentPage = 1;
       render();
+      if (filter.category === "duplicates" && !duplicateGroupsLoaded) {
+        void fetchDuplicateGroups();
+      }
     });
   });
 
@@ -270,12 +375,12 @@ function renderControls() {
     currentPage = 1;
     render();
   });
-  document.getElementById("leadBrowseCounselor").addEventListener("change", (event) => {
+  document.getElementById("leadBrowseCounselor")?.addEventListener("change", (event) => {
     filter.counselor = event.target.value;
     currentPage = 1;
     render();
   });
-  document.getElementById("leadBrowseStatus").addEventListener("change", (event) => {
+  document.getElementById("leadBrowseStatus")?.addEventListener("change", (event) => {
     filter.status = event.target.value;
     currentPage = 1;
     render();
@@ -303,6 +408,10 @@ function restoreActiveInputState(state) {
 }
 
 function renderTable() {
+  if (filter.category === "duplicates") {
+    renderDuplicateGroups();
+    return;
+  }
   const leads = getFilteredLeads();
   const totalPages = Math.max(1, Math.ceil(leads.length / PAGE_SIZE));
   currentPage = Math.min(currentPage, totalPages);
@@ -401,6 +510,120 @@ function renderTable() {
   document.getElementById("leadBrowseNext")?.addEventListener("click", () => {
     currentPage = Math.min(totalPages, currentPage + 1);
     render();
+  });
+}
+
+function renderDuplicateGroups() {
+  if (duplicateGroupsLoading) {
+    tableSection.innerHTML = `
+      <div class="empty-state">
+        <h3>Loading duplicate leads</h3>
+        <p>Fetching duplicate groups for admin review.</p>
+      </div>
+    `;
+    pagination.innerHTML = "";
+    return;
+  }
+
+  const groups = getFilteredDuplicateGroups();
+  if (!groups.length) {
+    tableSection.innerHTML = `
+      <div class="empty-state">
+        <h3>No duplicate leads found</h3>
+        <p>${duplicateGroupsLoaded ? "The system currently has no duplicate lead groups to merge." : "Open this section to scan the CRM for duplicate leads."}</p>
+      </div>
+    `;
+    pagination.innerHTML = "";
+    return;
+  }
+
+  tableSection.innerHTML = groups.map((group) => {
+    const defaultKeeper = selectedDuplicateKeeperByGroup.get(group.groupId) || String(group?.leads?.[0]?.id || "");
+    selectedDuplicateKeeperByGroup.set(group.groupId, defaultKeeper);
+    return `
+      <section class="card duplicate-group-card" data-duplicate-group="${escapeHtml(group.groupId)}">
+        <div class="duplicate-group-card__header">
+          <div>
+            <h3>Duplicate Group</h3>
+            <p>${escapeHtml(
+              [
+                group.sharedEmails?.length ? `Email: ${group.sharedEmails.join(", ")}` : "",
+                group.sharedPhones?.length ? `Phone: ${group.sharedPhones.join(", ")}` : ""
+              ].filter(Boolean).join(" | ") || "Matched by shared contact details"
+            )}</p>
+          </div>
+          <button type="button" class="btn-primary" data-merge-group="${escapeHtml(group.groupId)}">Merge Into Selected Keeper</button>
+        </div>
+        <div class="table-scroll">
+          <table class="lead-table">
+            <thead>
+              <tr>
+                <th>Keep</th>
+                <th>Lead</th>
+                <th>Counselor</th>
+                <th>Section</th>
+                <th>Course / Workshop</th>
+                <th>Source</th>
+                <th>Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${(group.leads || []).map((lead) => `
+                <tr>
+                  <td>
+                    <label>
+                      <input type="radio" name="duplicate-keeper-${escapeHtml(group.groupId)}" value="${escapeHtml(String(lead.id || ""))}" ${String(lead.id || "") === defaultKeeper ? "checked" : ""} />
+                      Keep
+                    </label>
+                  </td>
+                  <td>
+                    <strong>${escapeHtml(lead.name || "Unnamed lead")}</strong>
+                    <span>${escapeHtml(lead.email || "No email")} | ${escapeHtml(lead.phone || "No phone")}</span>
+                  </td>
+                  <td>${escapeHtml(lead.counselor || "Unassigned")}</td>
+                  <td><span class="lead-browse-pill">${escapeHtml(getCategoryLabel(lead))}</span></td>
+                  <td>${escapeHtml(getCourseLabel(lead))}</td>
+                  <td>${escapeHtml(lead.source || "Unknown")}</td>
+                  <td>${escapeHtml(getCreatedAt(lead))}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    `;
+  }).join("");
+
+  pagination.innerHTML = "";
+
+  tableSection.querySelectorAll("[data-duplicate-group]").forEach((container) => {
+    const groupId = container.getAttribute("data-duplicate-group");
+    container.querySelectorAll(`input[name="duplicate-keeper-${groupId}"]`).forEach((input) => {
+      input.addEventListener("change", () => {
+        selectedDuplicateKeeperByGroup.set(groupId, input.value);
+      });
+    });
+  });
+  tableSection.querySelectorAll("[data-merge-group]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const groupId = button.getAttribute("data-merge-group");
+      const group = groups.find((item) => item.groupId === groupId);
+      if (!group) {
+        showLeadBrowseToast("Duplicate group not found. Please refresh and try again.", true);
+        return;
+      }
+      const originalLabel = button.textContent;
+      button.disabled = true;
+      button.textContent = "Merging...";
+      try {
+        await mergeDuplicateGroup(group);
+      } catch (error) {
+        showLeadBrowseToast(error.message || "Could not merge duplicate leads.", true);
+      } finally {
+        button.disabled = false;
+        button.textContent = originalLabel;
+      }
+    });
   });
 }
 
@@ -551,12 +774,18 @@ claimForm?.addEventListener("submit", async (event) => {
 });
 
 await refreshState().catch(() => undefined);
+if (isAdminSession()) {
+  void fetchDuplicateGroups();
+}
 render();
 window.__dvMarkRouteViewReady?.();
 
 startStatePolling(() => {
   if (latestLeadKey && !findLeadByKey(latestLeadKey)) {
     closeDetails();
+  }
+  if (isAdminSession() && filter.category === "duplicates") {
+    void fetchDuplicateGroups();
   }
   render();
 }, 15000);

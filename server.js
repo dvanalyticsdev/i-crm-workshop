@@ -5291,6 +5291,7 @@ app.post("/api/public-course-registrations", async (req, res) => {
     const snapshot = await getStateDoc();
     const publicCourseSegment = getPublicCourseSegment(course);
     const isCrashCourseRegistration = publicCourseSegment === PUBLIC_COURSE_CRASH_SEGMENT;
+    const existingLead = findDuplicateLeadByEmailOrPhone(snapshot.leads, { email, phone });
     const masterLead = findDuplicateNonRegisteredLeadByEmailOrPhone(snapshot.leads, { email, phone });
     const effectiveMasterLead = isCrashCourseRegistration ? null : masterLead;
     const existingRegisteredLead = findDuplicateRegisteredLeadByEmailOrPhoneInSegment(snapshot.leads, { email, phone }, publicCourseSegment);
@@ -5298,19 +5299,8 @@ app.post("/api/public-course-registrations", async (req, res) => {
     const effectiveCounselorSourceLead = isCrashCourseRegistration ? (existingRegisteredLead || null) : counselorSourceLead;
     const isSameRegisteredCourse = !!existingRegisteredLead && publicCourseLeadMatchesCourse(existingRegisteredLead, course);
 
-    if (isSameRegisteredCourse) {
-      return res.status(200).json({
-        ok: true,
-        alreadyRegistered: true,
-        message: "You have already registered for this course.",
-        leadId: existingRegisteredLead.id,
-        assignedCounselor: String(existingRegisteredLead.counselor || "").trim() || "Unassigned"
-      });
-    }
-
-    // const counselorName = String(counselorSourceLead?.counselor || "").trim() || await assignPublicCourseCounselorRoundRobin(snapshot.counselors, publicCourseSegment);
     const counselorName = String(effectiveCounselorSourceLead?.counselor || "").trim() || await assignPublicCourseCounselorRoundRobin(snapshot.counselors, publicCourseSegment);
-    const nextId = await getNextMetaLeadId();
+    const nextId = existingLead?.id || await getNextMetaLeadId();
     const newLead = buildPublicCourseLead({
       name,
       email,
@@ -5321,6 +5311,55 @@ app.post("/api/public-course-registrations", async (req, res) => {
       country,
       segment: publicCourseSegment
     });
+
+    if (existingLead) {
+      const updatedLead = await updateExistingIntegrationLead(existingLead, newLead, {
+        source: "Public Registration"
+      });
+
+      await createNotification({
+        userId: "admin",
+        role: "admin",
+        type: "public_course_registration_update",
+        title: "Existing Lead Registered Again",
+        message: `Lead: ${formatLeadNotificationLabel(updatedLead)}. Registered again for ${course.name}. Existing record retained.`,
+        sound: true,
+        leadId: updatedLead.id,
+        leadName: updatedLead.name,
+        assignedCounselor: updatedLead.counselor || "Unassigned"
+      });
+
+      if (shouldTreatLeadAsAssigned(updatedLead.counselor)) {
+        const escapedName = updatedLead.counselor.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+        const counselorDoc = await counselorsCollection.findOne({
+          name: { $regex: new RegExp(`^${escapedName}$`, "i") }
+        });
+        if (counselorDoc?.email) {
+          await createNotification({
+            userId: counselorDoc.email,
+            role: "counselor",
+            type: "public_course_registration_update",
+            title: "Existing Lead Registered Again",
+            message: `${formatLeadNotificationLabel(updatedLead)} registered again for ${course.code}. Existing lead record was updated.`,
+            sound: true,
+            leadId: updatedLead.id,
+            leadName: updatedLead.name,
+            assignedCounselor: updatedLead.counselor
+          });
+        }
+      }
+
+      return res.status(200).json({
+        ok: true,
+        updatedExisting: true,
+        alreadyRegistered: isSameRegisteredCourse,
+        message: isSameRegisteredCourse
+          ? "Registration was already present on the existing lead."
+          : "Registration linked to the existing lead.",
+        leadId: updatedLead.id,
+        assignedCounselor: String(updatedLead.counselor || "").trim() || "Unassigned"
+      });
+    }
 
     const shouldReplaceExistingRegisteredLead = !!existingRegisteredLead && !isSameRegisteredCourse;
 
@@ -5947,6 +5986,11 @@ function buildProtectedIntegrationLeadUpdate(existingLead, incomingLead) {
     "courseName",
     "courseRawName",
     "courseKey",
+    "courseId",
+    "courseCode",
+    "courseDuration",
+    "country",
+    "publicCourseSegment",
     "workshop",
     "workshopKey",
     "workshopName",
@@ -5996,6 +6040,207 @@ function buildProtectedIntegrationLeadUpdate(existingLead, incomingLead) {
   nextLead.leadPipeline = String(existingLead?.leadPipeline || "").trim();
   nextLead.source = String(existingLead?.source || "").trim();
   nextLead.status = String(existingLead?.status || "").trim();
+
+  return decorateLeadForStorage(nextLead);
+}
+
+function buildDuplicateLeadGroups(leads = []) {
+  const list = Array.isArray(leads) ? leads.filter(Boolean) : [];
+  const idToLead = new Map();
+  const idToTokens = new Map();
+  const tokenToIds = new Map();
+
+  list.forEach((lead) => {
+    const id = String(lead?.id || "").trim();
+    if (!id) {
+      return;
+    }
+    idToLead.set(id, lead);
+
+    const tokens = [];
+    const email = normalizeLeadEmail(lead?.email);
+    const phone = normalizeLeadPhone(lead?.phone);
+    if (email) tokens.push(`email:${email}`);
+    if (phone) tokens.push(`phone:${phone}`);
+    idToTokens.set(id, tokens);
+    tokens.forEach((token) => {
+      if (!tokenToIds.has(token)) {
+        tokenToIds.set(token, new Set());
+      }
+      tokenToIds.get(token).add(id);
+    });
+  });
+
+  const adjacency = new Map();
+  idToLead.forEach((_lead, id) => adjacency.set(id, new Set()));
+  tokenToIds.forEach((ids) => {
+    const members = [...ids];
+    if (members.length < 2) {
+      return;
+    }
+    members.forEach((id) => {
+      const neighbors = adjacency.get(id) || new Set();
+      members.forEach((otherId) => {
+        if (otherId !== id) {
+          neighbors.add(otherId);
+        }
+      });
+      adjacency.set(id, neighbors);
+    });
+  });
+
+  const visited = new Set();
+  const groups = [];
+  const sortLeads = (items) => items.sort((left, right) => {
+    const leftDate = new Date(left?.createdAt || 0).getTime() || 0;
+    const rightDate = new Date(right?.createdAt || 0).getTime() || 0;
+    if (leftDate !== rightDate) return leftDate - rightDate;
+    return String(left?.id || "").localeCompare(String(right?.id || ""));
+  });
+
+  adjacency.forEach((neighbors, startId) => {
+    if (visited.has(startId) || neighbors.size < 1) {
+      return;
+    }
+    const queue = [startId];
+    const componentIds = new Set();
+    visited.add(startId);
+    while (queue.length) {
+      const currentId = queue.shift();
+      componentIds.add(currentId);
+      (adjacency.get(currentId) || []).forEach((neighborId) => {
+        if (!visited.has(neighborId)) {
+          visited.add(neighborId);
+          queue.push(neighborId);
+        }
+      });
+    }
+
+    if (componentIds.size < 2) {
+      return;
+    }
+
+    const componentLeads = sortLeads(
+      [...componentIds]
+        .map((id) => idToLead.get(id))
+        .filter(Boolean)
+    );
+    const sharedEmails = new Set();
+    const sharedPhones = new Set();
+    tokenToIds.forEach((ids, token) => {
+      const overlap = [...ids].filter((id) => componentIds.has(id));
+      if (overlap.length < 2) {
+        return;
+      }
+      if (token.startsWith("email:")) {
+        sharedEmails.add(token.slice("email:".length));
+      } else if (token.startsWith("phone:")) {
+        sharedPhones.add(token.slice("phone:".length));
+      }
+    });
+
+    groups.push({
+      groupId: componentLeads.map((lead) => String(lead.id)).join("__"),
+      sharedEmails: [...sharedEmails],
+      sharedPhones: [...sharedPhones],
+      leadIds: componentLeads.map((lead) => String(lead.id)),
+      leads: componentLeads
+    });
+  });
+
+  return groups.sort((left, right) => {
+    const leftTime = new Date(left?.leads?.[0]?.createdAt || 0).getTime() || 0;
+    const rightTime = new Date(right?.leads?.[0]?.createdAt || 0).getTime() || 0;
+    return rightTime - leftTime;
+  });
+}
+
+function mergeUniqueStringArrays(...values) {
+  return [...new Set(values.flatMap((value) => Array.isArray(value) ? value : []).map((item) => String(item || "").trim()).filter(Boolean))];
+}
+
+function mergeLeadActivityArrays(...values) {
+  const merged = values.flatMap((value) => Array.isArray(value) ? value : []);
+  return merged
+    .filter(Boolean)
+    .sort((left, right) => {
+      const leftTime = new Date(left?.timestamp || left?.updatedAt || 0).getTime() || 0;
+      const rightTime = new Date(right?.timestamp || right?.updatedAt || 0).getTime() || 0;
+      return leftTime - rightTime;
+    });
+}
+
+function buildMergedLeadFromDuplicates(keeperLead, duplicateLeads = []) {
+  const duplicates = Array.isArray(duplicateLeads) ? duplicateLeads.filter(Boolean) : [];
+  const nextLead = structuredClone(keeperLead || {});
+  const firstValue = (...candidates) => candidates.find((value) => hasMeaningfulLeadUpdateValue(value));
+
+  nextLead.leadNotes = mergeLeadActivityArrays(nextLead.leadNotes, ...duplicates.map((lead) => lead?.leadNotes));
+  nextLead.workshopActivityHistory = mergeLeadActivityArrays(nextLead.workshopActivityHistory, ...duplicates.map((lead) => lead?.workshopActivityHistory));
+  nextLead.admissionActivityHistory = mergeLeadActivityArrays(nextLead.admissionActivityHistory, ...duplicates.map((lead) => lead?.admissionActivityHistory));
+  nextLead.registeredCourseActivityHistory = mergeLeadActivityArrays(nextLead.registeredCourseActivityHistory, ...duplicates.map((lead) => lead?.registeredCourseActivityHistory));
+  nextLead.mainAdmissionActivityHistory = mergeLeadActivityArrays(nextLead.mainAdmissionActivityHistory, ...duplicates.map((lead) => lead?.mainAdmissionActivityHistory));
+  nextLead.importSourceFiles = mergeUniqueStringArrays(nextLead.importSourceFiles, ...duplicates.map((lead) => lead?.importSourceFiles));
+  nextLead.importSourceSheets = mergeUniqueStringArrays(nextLead.importSourceSheets, ...duplicates.map((lead) => lead?.importSourceSheets));
+  nextLead.metaExtraFields = {
+    ...(duplicates.map((lead) => lead?.metaExtraFields).filter((value) => value && typeof value === "object").reduce((accumulator, value) => ({ ...accumulator, ...value }), {})),
+    ...(nextLead.metaExtraFields && typeof nextLead.metaExtraFields === "object" ? nextLead.metaExtraFields : {})
+  };
+  nextLead.elementorExtraFields = {
+    ...(duplicates.map((lead) => lead?.elementorExtraFields).filter((value) => value && typeof value === "object").reduce((accumulator, value) => ({ ...accumulator, ...value }), {})),
+    ...(nextLead.elementorExtraFields && typeof nextLead.elementorExtraFields === "object" ? nextLead.elementorExtraFields : {})
+  };
+
+  [
+    "courseName",
+    "courseRawName",
+    "courseKey",
+    "courseId",
+    "courseCode",
+    "courseDuration",
+    "country",
+    "publicCourseSegment",
+    "workshop",
+    "workshopKey",
+    "workshopName",
+    "workshopNameKey",
+    "workshopDateLabel",
+    "workshopDateKey",
+    "admissionWorkshop",
+    "admissionWorkshopKey",
+    "admissionWorkshopName",
+    "admissionWorkshopNameKey",
+    "admissionWorkshopDateLabel",
+    "admissionWorkshopDateKey",
+    "highestQualification",
+    "metaLeadId",
+    "metaFormId",
+    "metaAdId",
+    "metaAdName",
+    "metaAdsetName",
+    "metaCampaignName",
+    "elementorFormId",
+    "elementorFormName",
+    "elementorPageUrl",
+    "elementorSubmittedDate",
+    "elementorSubmittedTime",
+    "elementorRemoteIp",
+    "elementorUserAgent"
+  ].forEach((field) => {
+    nextLead[field] = firstValue(nextLead[field], ...duplicates.map((lead) => lead?.[field])) ?? nextLead[field];
+  });
+
+  nextLead.mergedLeadIds = mergeUniqueStringArrays(nextLead.mergedLeadIds, duplicates.map((lead) => lead?.id));
+  nextLead.lastMergedAt = new Date().toISOString();
+  nextLead.duplicateLeadCount = nextLead.mergedLeadIds.length;
+  nextLead.name = String(keeperLead?.name || "").trim();
+  nextLead.email = String(keeperLead?.email || "").trim().toLowerCase();
+  nextLead.phone = String(keeperLead?.phone || "").trim();
+  nextLead.counselor = String(keeperLead?.counselor || "").trim();
+  nextLead.leadPipeline = String(keeperLead?.leadPipeline || "").trim();
+  nextLead.source = String(keeperLead?.source || "").trim();
+  nextLead.status = String(keeperLead?.status || "").trim();
+  nextLead.createdAt = String(keeperLead?.createdAt || "").trim();
 
   return decorateLeadForStorage(nextLead);
 }
@@ -7135,6 +7380,125 @@ app.put("/api/preferences/:scope", async (req, res) => {
     return res.json({ ok: true, value });
   } catch (error) {
     return res.status(500).json({ message: "Failed to save preference", details: error.message });
+  }
+});
+
+app.get("/api/admin/duplicate-leads", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, "admin");
+    if (!session) return;
+
+    const state = await getStateDoc();
+    const groups = buildDuplicateLeadGroups(state.leads || []).map((group) => ({
+      groupId: group.groupId,
+      sharedEmails: group.sharedEmails,
+      sharedPhones: group.sharedPhones,
+      leadIds: group.leadIds,
+      leads: group.leads.map((lead) => ({
+        id: lead.id,
+        name: lead.name,
+        email: lead.email,
+        phone: lead.phone,
+        counselor: lead.counselor || "Unassigned",
+        leadPipeline: lead.leadPipeline || "",
+        source: lead.source || "",
+        status: lead.status || "",
+        createdAt: lead.createdAt || "",
+        courseName: lead.courseName || "",
+        workshop: lead.workshop || "",
+        publicCourseSegment: lead.publicCourseSegment || ""
+      }))
+    }));
+
+    return res.json({ ok: true, groups });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load duplicate leads", details: error.message });
+  }
+});
+
+app.post("/api/admin/duplicate-leads/merge", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, "admin");
+    if (!session) return;
+
+    const keeperLeadId = String(req.body?.keeperLeadId || "").trim();
+    const duplicateLeadIds = [...new Set(
+      (Array.isArray(req.body?.duplicateLeadIds) ? req.body.duplicateLeadIds : [])
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+    )].filter((id) => id !== keeperLeadId);
+
+    if (!keeperLeadId || !duplicateLeadIds.length) {
+      return res.status(400).json({ message: "A keeper lead and at least one duplicate lead are required." });
+    }
+
+    const state = await getStateDoc();
+    const allLeads = Array.isArray(state.leads) ? state.leads : [];
+    const keeperLead = allLeads.find((lead) => String(lead?.id || "").trim() === keeperLeadId);
+    const duplicateLeads = duplicateLeadIds
+      .map((id) => allLeads.find((lead) => String(lead?.id || "").trim() === id))
+      .filter(Boolean);
+
+    if (!keeperLead) {
+      return res.status(404).json({ message: "Keeper lead not found." });
+    }
+    if (!duplicateLeads.length) {
+      return res.status(404).json({ message: "Duplicate leads not found." });
+    }
+
+    const mergedLead = buildMergedLeadFromDuplicates(keeperLead, duplicateLeads);
+    const duplicateIdCandidates = duplicateLeads.flatMap((lead) => getLeadIdCandidates(lead?.id)).map((value) => String(value));
+
+    await replaceLeadDocument(mergedLead);
+    await withMongoRetry(
+      () => leadsCollection.deleteMany({ id: { $in: duplicateIdCandidates } }),
+      { retries: 1, label: "Delete merged duplicate leads" }
+    );
+    await withMongoRetry(
+      () => tasksCollection.updateMany(
+        { leadId: { $in: duplicateIdCandidates } },
+        {
+          $set: {
+            leadId: String(mergedLead.id || ""),
+            leadName: String(mergedLead.name || ""),
+            leadPhone: String(mergedLead.phone || ""),
+            leadCounselor: String(mergedLead.counselor || ""),
+            counselor: String(mergedLead.counselor || "")
+          }
+        }
+      ),
+      { retries: 1, label: "Reassign merged lead tasks" }
+    );
+    await withMongoRetry(
+      () => activityLogsCollection.updateMany(
+        { leadId: { $in: duplicateIdCandidates } },
+        {
+          $set: {
+            leadId: String(mergedLead.id || ""),
+            leadName: String(mergedLead.name || ""),
+            counselorName: String(mergedLead.counselor || "")
+          }
+        }
+      ),
+      { retries: 1, label: "Reassign merged lead activity logs" }
+    );
+
+    await recordActivity({
+      leadId: mergedLead.id,
+      leadName: mergedLead.name,
+      counselorName: mergedLead.counselor || "",
+      activityType: "Lead Merged",
+      actionDescription: `Admin merged duplicate leads into this record`,
+      previousValue: duplicateLeads.map((lead) => `${lead.name || "Unknown"} (${lead.id})`).join(", "),
+      newValue: `${mergedLead.name || "Unknown"} (${mergedLead.id})`,
+      session
+    });
+
+    await touchStateUpdatedAt();
+    const nextState = await refreshStateAfterAtomicUpdate();
+    return res.json({ ok: true, lead: mergedLead, state: buildStateResponse(nextState) });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to merge duplicate leads", details: error.message });
   }
 });
 
