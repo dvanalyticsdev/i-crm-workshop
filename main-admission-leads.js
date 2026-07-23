@@ -99,6 +99,7 @@ let filter = { ...DEFAULT_FILTER, ...persistedFilter };
 filter.leadOwner = ["all", "direct", "reassigned"].includes(String(filter.leadOwner || "").trim())
   ? String(filter.leadOwner || "").trim()
   : DEFAULT_FILTER.leadOwner;
+filter.location = normalizeLocationLabel(filter.location);
 if (isCounselorSession() && (!persistedFilter.timeline || persistedFilter.timeline === "week")) {
   filter.timeline = "overall";
 }
@@ -588,6 +589,20 @@ function getTimelineLabel() {
   return "Overall";
 }
 
+function normalizeLocationLabel(value) {
+  const cleaned = String(value || "")
+    .trim()
+    .replace(/\s+/g, " ");
+
+  if (!cleaned) {
+    return "";
+  }
+
+  return cleaned
+    .toLowerCase()
+    .replace(/\b[a-z]/g, (match) => match.toUpperCase());
+}
+
 function getLeadLocation(lead) {
   const extraFields = getLeadExtraFields(lead);
   const cityCandidates = [
@@ -599,13 +614,13 @@ function getLeadLocation(lead) {
   ];
 
   for (const candidate of cityCandidates) {
-    const normalized = String(candidate || "").trim();
+    const normalized = normalizeLocationLabel(candidate);
     if (normalized) {
       return normalized;
     }
   }
 
-  return String(lead?.country || "").trim() || "India";
+  return normalizeLocationLabel(lead?.country) || "India";
 }
 
 function renderSegmentSection() {
