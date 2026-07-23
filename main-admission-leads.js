@@ -18,7 +18,7 @@ import {
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY } from "./task-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
-import { addLeadNote, assignLeads as assignLeadsOnServer, deleteLeadNote, deleteLeads as deleteLeadsOnServer, formatLeadAssignmentResult, trackLeadView, updateLeadActivity as updateLeadActivityOnServer, updateMainAdmissionLeadDetails } from "./lead-service.js";
+import { addLeadNote, assignLeads as assignLeadsOnServer, deleteLeadNote, deleteLeads as deleteLeadsOnServer, formatLeadAssignmentResult, getLeadIdsByActivityTypes, trackLeadView, updateLeadActivity as updateLeadActivityOnServer, updateMainAdmissionLeadDetails } from "./lead-service.js";
 
 await bootstrapLocalState();
 
@@ -85,7 +85,7 @@ const DEFAULT_FILTER = {
   activityStatus: "",
   whatsappActivity: ""
 };
-const WHATSAPP_ACTIVITY_FILTER_OPTIONS = ["WhatsApp Opened", "WhatsApp Clicked", "WhatsApp Replied"];
+const WHATSAPP_ACTIVITY_FILTER_OPTIONS = ["WhatsApp Read", "WhatsApp Opened", "WhatsApp Clicked", "WhatsApp Replied"];
 
 const persistedFilter = await loadLocalPreference(FILTER_STORAGE_KEY, {});
 if (persistedFilter.timeline === "daily") {
@@ -104,6 +104,8 @@ let detailsLeadRef = null;
 let detailsEditMode = false;
 let mainAdmissionActivityModalMode = "edit";
 let activeSegment = DEFAULT_SEGMENT;
+let whatsappActivityLeadIds = null;
+let whatsappActivityLookupKey = "";
 
 populateCrmCourseSelect("modalMainAdmissionCoursePitched", { includeNo: true });
 
@@ -155,6 +157,39 @@ function leadMatchesWhatsappActivity(lead, selectedActivity) {
 
   const history = Array.isArray(lead?.mainAdmissionActivityHistory) ? lead.mainAdmissionActivityHistory : [];
   return history.some((entry) => getActivityLabel(entry) === selectedActivity);
+}
+
+async function ensureWhatsappActivityLeadIds() {
+  const selectedActivity = String(filter.whatsappActivity || "").trim();
+  if (!selectedActivity) {
+    whatsappActivityLeadIds = null;
+    whatsappActivityLookupKey = "";
+    return;
+  }
+
+  if (whatsappActivityLeadIds && whatsappActivityLookupKey === selectedActivity) {
+    return;
+  }
+
+  const result = await getLeadIdsByActivityTypes([selectedActivity]);
+  if (result?.ok) {
+    whatsappActivityLeadIds = new Set((result.leadIds || []).map((item) => String(item || "").trim()));
+    whatsappActivityLookupKey = selectedActivity;
+    return;
+  }
+
+  whatsappActivityLeadIds = new Set();
+  whatsappActivityLookupKey = selectedActivity;
+}
+
+function leadMatchesWhatsappActivityFilter(lead) {
+  if (leadMatchesWhatsappActivity(lead, filter.whatsappActivity)) {
+    return true;
+  }
+  if (!(whatsappActivityLeadIds instanceof Set)) {
+    return false;
+  }
+  return whatsappActivityLeadIds.has(String(lead?.id || "").trim());
 }
 
 function toLocalDateKey(date = new Date()) {
@@ -873,9 +908,11 @@ function renderFilters(leads) {
   };
   document.getElementById("mainAdmissionResetFiltersBtn").onclick = () => {
     filter = { ...DEFAULT_FILTER };
+    whatsappActivityLeadIds = null;
+    whatsappActivityLookupKey = "";
     persistFilters();
     currentPage = 1;
-    renderAll();
+    void renderAll();
   };
 
   document.getElementById("mainAdmissionExportBtn").onclick = () => {
@@ -947,7 +984,7 @@ function filterLeads(leads) {
     if (filter.mainAdmissionCallStatus && filter.mainAdmissionCallStatus !== lead.mainAdmissionCallStatus) return false;
     if (filter.activityStatus === "Untouched" && lead.mainAdmissionActivityUpdates > 0) return false;
     if (filter.activityStatus === "Updated" && lead.mainAdmissionActivityUpdates === 0) return false;
-    if (filter.whatsappActivity && !leadMatchesWhatsappActivity(lead, filter.whatsappActivity)) return false;
+    if (filter.whatsappActivity && !leadMatchesWhatsappActivityFilter(lead)) return false;
     return true;
   });
 }
@@ -1910,7 +1947,7 @@ function restoreActiveInputState(state) {
   }
 }
 
-function renderAll() {
+async function renderAll() {
   const activeInputState = getActiveInputState();
   renderAdmissionSectionNav();
   renderSegmentSection();
@@ -1922,6 +1959,7 @@ function renderAll() {
       closeDetailsModal();
     }
   }
+  await ensureWhatsappActivityLeadIds();
   const allLeads = getScopedLeads(getAllLeads());
   const filteredLeads = filterLeads(allLeads);
   renderRegisteredRoutingPanel();
@@ -1957,9 +1995,9 @@ if (mainAdmissionTaskModal && mainAdmissionTaskForm) {
 }
 
 setupRegisteredRoutingPanel();
-renderAll();
+void renderAll();
 window.__dvMarkRouteViewReady?.();
 const stopStatePolling = startStatePolling(() => {
-  renderAll();
+  void renderAll();
 });
 registerPageCleanup(stopStatePolling);

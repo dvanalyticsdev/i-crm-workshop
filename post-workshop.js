@@ -19,6 +19,7 @@ import {
   deleteLeads as deleteLeadsOnServer,
   deleteLeadNote,
   formatLeadAssignmentResult,
+  getLeadIdsByActivityTypes,
   trackLeadView,
   updateLeadActivity as updateLeadActivityOnServer
 } from "./lead-service.js";
@@ -51,7 +52,7 @@ const EMPTY_FILTER_LABEL = "Use Filter";
 const SELECT_ALL_FILTER_VALUE = "__SELECT_ALL__";
 const BLANK_FILTER_VALUE = "__BLANK_FILTER__";
 const ADMISSION_STATUS_OPTIONS = ["In-Conversation", "Opportunity", "Offered", "Enrolled", "Won"];
-const WHATSAPP_ACTIVITY_FILTER_OPTIONS = ["WhatsApp Opened", "WhatsApp Clicked", "WhatsApp Replied"];
+const WHATSAPP_ACTIVITY_FILTER_OPTIONS = ["WhatsApp Read", "WhatsApp Opened", "WhatsApp Clicked", "WhatsApp Replied"];
 
 populateCrmCourseSelect("modalCoursePitched", { includeNo: true });
 
@@ -427,6 +428,8 @@ let selectedLeadKeys = new Set();
 let searchTimeout = null;
 let currentPage = 1;
 const pageSize = 50;
+let whatsappActivityLeadIds = null;
+let whatsappActivityLookupKey = "";
 
 const activityFields = ["modalPostDialed", "modalCoursePitched", "modalCourseStatus", "modalAdmissionStatus", "modalPostCallStatus", "modalAdmissionWorkshop", "modalWorkshopJoiningStatus", "modalPostActivityNote"];
 
@@ -581,6 +584,42 @@ function getLeadActivityUpdateCount(lead) {
   return Array.isArray(lead?.admissionActivityHistory)
     ? lead.admissionActivityHistory.length
     : Number(lead?.postActivityUpdates) || 0;
+}
+
+async function ensureWhatsappActivityLeadIds() {
+  const selectedActivities = getSelectedFilterValues(filter.whatsappActivity);
+  const lookupKey = selectedActivities.slice().sort().join("|");
+
+  if (!selectedActivities.length) {
+    whatsappActivityLeadIds = null;
+    whatsappActivityLookupKey = "";
+    return;
+  }
+
+  if (whatsappActivityLeadIds && whatsappActivityLookupKey === lookupKey) {
+    return;
+  }
+
+  const result = await getLeadIdsByActivityTypes(selectedActivities);
+  if (result?.ok) {
+    whatsappActivityLeadIds = new Set((result.leadIds || []).map((item) => String(item || "").trim()));
+    whatsappActivityLookupKey = lookupKey;
+    return;
+  }
+
+  whatsappActivityLeadIds = new Set();
+  whatsappActivityLookupKey = lookupKey;
+}
+
+function leadMatchesWhatsappActivityFilter(lead) {
+  const localHistoryMatch = leadMatchesWhatsappActivity(lead, filter.whatsappActivity, "admissionActivityHistory");
+  if (localHistoryMatch) {
+    return true;
+  }
+  if (!(whatsappActivityLeadIds instanceof Set)) {
+    return false;
+  }
+  return whatsappActivityLeadIds.has(String(lead?.id || "").trim());
 }
 
 function isUntouchedLead(lead) {
@@ -992,9 +1031,11 @@ function renderFilters(leads) {
 
   document.getElementById("postResetFilters").onclick = () => {
     filter = { ...DEFAULT_FILTER };
+    whatsappActivityLeadIds = null;
+    whatsappActivityLookupKey = "";
     persistFilterState();
     currentPage = 1;
-    renderAll();
+    void renderAll();
   };
 
   document.getElementById("exportPostWorkshopLeads").onclick = () => {
@@ -1101,7 +1142,7 @@ function filterLeads(leads) {
   }
 
   if (isSelectedFilterValue(filter.whatsappActivity)) {
-    filtered = filtered.filter((lead) => leadMatchesWhatsappActivity(lead, filter.whatsappActivity, "admissionActivityHistory"));
+    filtered = filtered.filter((lead) => leadMatchesWhatsappActivityFilter(lead));
   }
 
   if (isSelectedFilterValue(filter.workshopCallingDialed)) {
@@ -2075,10 +2116,11 @@ function initPostWorkshopPage() {
 
 initPostWorkshopPage();
 
-function renderAll() {
+async function renderAll() {
   renderWorkshopSectionNav();
   const allLeads = getAllLeads();
   normalizeLeadFields(allLeads);
+  await ensureWhatsappActivityLeadIds();
 
   const scopedLeads = getScopedLeads(allLeads);
   const admissionLeads = getAdmissionCallingLeads(scopedLeads);
@@ -2099,9 +2141,9 @@ function renderAll() {
   renderLeadTable(filteredLeads);
 }
 
-renderAll();
+void renderAll();
 window.__dvMarkRouteViewReady?.();
 const stopStatePolling = startStatePolling(() => {
-  renderAll();
+  void renderAll();
 });
 registerPageCleanup(stopStatePolling);

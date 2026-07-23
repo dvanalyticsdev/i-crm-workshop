@@ -5430,6 +5430,29 @@ app.post("/api/reachout/whatsapp/webhook", async (req, res) => {
       session: { role: "system", name: "ReachOut Webhook" }
     });
 
+    const historyEvent = {
+      at: new Date().toISOString(),
+      source: "ReachOut Webhook",
+      activityType: activity.activityType,
+      description: activity.actionDescription,
+      newValue: activity.newValue || normalized.phone || "",
+      remarks: activity.remarks || null,
+      by: "ReachOut Webhook"
+    };
+    const isMainAdmissionLead = String(lead?.leadPipeline || "").trim().toLowerCase() === "main-admission";
+    const historyField = isMainAdmissionLead ? "mainAdmissionActivityHistory" : "admissionActivityHistory";
+    const countField = isMainAdmissionLead ? "mainAdmissionActivityUpdates" : "postActivityUpdates";
+    const existingHistory = Array.isArray(lead?.[historyField]) ? lead[historyField] : [];
+    await leadsCollection.updateOne(
+      { id: { $in: getLeadIdCandidates(lead.id) } },
+      {
+        $push: { [historyField]: historyEvent },
+        $set: {
+          [countField]: existingHistory.length + 1
+        }
+      }
+    );
+
     return res.json({
       ok: true,
       matched: true,
@@ -5438,6 +5461,38 @@ app.post("/api/reachout/whatsapp/webhook", async (req, res) => {
     });
   } catch (err) {
     return res.status(500).json({ message: "Failed to process ReachOut webhook.", details: err.message });
+  }
+});
+
+app.get("/api/activity-history/lead-ids", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "counselor"]);
+    if (!session) return;
+
+    await initMongo();
+    const rawTypes = String(req.query?.activityTypes || "").trim();
+    const activityTypes = rawTypes
+      .split(",")
+      .map((item) => String(item || "").trim())
+      .filter(Boolean);
+
+    if (!activityTypes.length) {
+      return res.json({ ok: true, leadIds: [] });
+    }
+
+    const leadIds = await withMongoRetry(
+      () => activityLogsCollection.distinct("leadId", {
+        activityType: { $in: activityTypes }
+      }),
+      { retries: 1, label: "Fetch lead ids by activity types" }
+    );
+
+    return res.json({
+      ok: true,
+      leadIds: Array.isArray(leadIds) ? leadIds.map((item) => String(item || "").trim()).filter(Boolean) : []
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch activity lead ids", details: error.message });
   }
 });
 

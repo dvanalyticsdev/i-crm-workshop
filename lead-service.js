@@ -126,3 +126,16 @@ export function trackLeadView(leadId, leadEmail = "") {
     body: JSON.stringify({ leadEmail })
   });
 }
+
+export function getLeadIdsByActivityTypes(activityTypes = []) {
+  const types = Array.isArray(activityTypes)
+    ? activityTypes.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  const query = types.length
+    ? `?activityTypes=${encodeURIComponent(types.join(","))}`
+    : "";
+
+  return requestJson(`/api/activity-history/lead-ids${query}`, {
+    method: "GET"
+  });
+}

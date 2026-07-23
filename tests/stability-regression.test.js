@@ -416,9 +416,13 @@ test("workshop and admission filters support multiple selected values", () => {
   assert.match(preWorkshop, /item === BLANK_FILTER_VALUE \? normalizedValue === ""/);
   assert.match(postWorkshop, /item === BLANK_FILTER_VALUE \? normalizedValue === ""/);
   assert.match(postWorkshop, /postWhatsappActivitySelect/);
-  assert.match(postWorkshop, /leadMatchesWhatsappActivity\(lead, filter\.whatsappActivity, "admissionActivityHistory"\)/);
+  assert.match(postWorkshop, /getLeadIdsByActivityTypes/);
+  assert.match(postWorkshop, /WhatsApp Read/);
+  assert.match(postWorkshop, /leadMatchesWhatsappActivityFilter\(lead\)/);
   assert.match(mainAdmission, /mainAdmissionWhatsappActivitySelect/);
-  assert.match(mainAdmission, /leadMatchesWhatsappActivity\(lead, filter\.whatsappActivity\)/);
+  assert.match(mainAdmission, /getLeadIdsByActivityTypes/);
+  assert.match(mainAdmission, /WhatsApp Read/);
+  assert.match(mainAdmission, /leadMatchesWhatsappActivityFilter\(lead\)/);
 });
 
 test("admission workshop override stays scoped to admission calling", () => {
