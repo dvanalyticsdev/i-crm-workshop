@@ -4342,7 +4342,7 @@ app.get("/api/meta/config", async (req, res) => {
   try {
     await initMongo();
     const activeSession = await getSessionFromRequest(req);
-    if (!activeSession || !["admin", "marketing"].includes(activeSession.session.role)) {
+    if (!activeSession || !["super_admin", "admin", "marketing"].includes(activeSession.session.role)) {
       return res.status(403).json({ message: "Access required." });
     }
     const config = await getMetaConfig();
@@ -4372,7 +4372,7 @@ app.put("/api/meta/config", async (req, res) => {
   try {
     await initMongo();
     const activeSession = await getSessionFromRequest(req);
-    if (!activeSession || !["admin", "marketing"].includes(activeSession.session.role)) {
+    if (!activeSession || !["super_admin", "admin", "marketing"].includes(activeSession.session.role)) {
       return res.status(403).json({ message: "Access required." });
     }
 
@@ -4426,7 +4426,7 @@ app.get("/api/meta/logs", async (req, res) => {
   try {
     await initMongo();
     const activeSession = await getSessionFromRequest(req);
-    if (!activeSession || !["admin", "marketing"].includes(activeSession.session.role)) {
+    if (!activeSession || !["super_admin", "admin", "marketing"].includes(activeSession.session.role)) {
       return res.status(403).json({ message: "Access required." });
     }
     const limit = Math.min(Number(req.query.limit) || 50, MAX_META_LOGS);
@@ -4453,7 +4453,7 @@ app.get("/api/meta/retry-jobs", async (req, res) => {
   try {
     await initMongo();
     const activeSession = await getSessionFromRequest(req);
-    if (!activeSession || !["admin", "marketing"].includes(activeSession.session.role)) {
+    if (!activeSession || !["super_admin", "admin", "marketing"].includes(activeSession.session.role)) {
       return res.status(403).json({ message: "Access required." });
     }
     const limit = Math.min(Number(req.query.limit) || 50, 200);
@@ -4486,7 +4486,7 @@ app.delete("/api/meta/logs", async (req, res) => {
   try {
     await initMongo();
     const activeSession = await getSessionFromRequest(req);
-    if (!activeSession || activeSession.session.role !== "admin") {
+    if (!activeSession || !["super_admin", "admin"].includes(activeSession.session.role)) {
       return res.status(403).json({ message: "Admin access required." });
     }
     await metaLogsCollection.deleteMany({});
@@ -4521,7 +4521,7 @@ app.post("/api/meta/rr-state/reset", async (req, res) => {
   try {
     await initMongo();
     const activeSession = await getSessionFromRequest(req);
-    if (!activeSession || activeSession.session.role !== "admin") {
+    if (!activeSession || !["super_admin", "admin"].includes(activeSession.session.role)) {
       return res.status(403).json({ message: "Admin access required." });
     }
     await metaConfigCollection.updateOne(
@@ -4539,7 +4539,7 @@ app.get("/api/elementor/config", async (req, res) => {
   try {
     await initMongo();
     const activeSession = await getSessionFromRequest(req);
-    if (!activeSession || !["admin", "marketing"].includes(activeSession.session.role)) {
+    if (!activeSession || !["super_admin", "admin", "marketing"].includes(activeSession.session.role)) {
       return res.status(403).json({ message: "Access required." });
     }
 
@@ -4569,7 +4569,7 @@ app.put("/api/elementor/config", async (req, res) => {
   try {
     await initMongo();
     const activeSession = await getSessionFromRequest(req);
-    if (!activeSession || !["admin", "marketing"].includes(activeSession.session.role)) {
+    if (!activeSession || !["super_admin", "admin", "marketing"].includes(activeSession.session.role)) {
       return res.status(403).json({ message: "Access required." });
     }
 
@@ -4626,7 +4626,7 @@ app.get("/api/elementor/logs", async (req, res) => {
   try {
     await initMongo();
     const activeSession = await getSessionFromRequest(req);
-    if (!activeSession || !["admin", "marketing"].includes(activeSession.session.role)) {
+    if (!activeSession || !["super_admin", "admin", "marketing"].includes(activeSession.session.role)) {
       return res.status(403).json({ message: "Access required." });
     }
     const limit = Math.min(Number(req.query.limit) || 50, MAX_ELEMENTOR_LOGS);
@@ -4653,7 +4653,7 @@ app.delete("/api/elementor/logs", async (req, res) => {
   try {
     await initMongo();
     const activeSession = await getSessionFromRequest(req);
-    if (!activeSession || activeSession.session.role !== "admin") {
+    if (!activeSession || !["super_admin", "admin"].includes(activeSession.session.role)) {
       return res.status(403).json({ message: "Admin access required." });
     }
     await elementorLogsCollection.deleteMany({});
@@ -4689,7 +4689,7 @@ app.post("/api/elementor/rr-state/reset", async (req, res) => {
   try {
     await initMongo();
     const activeSession = await getSessionFromRequest(req);
-    if (!activeSession || activeSession.session.role !== "admin") {
+    if (!activeSession || !["super_admin", "admin"].includes(activeSession.session.role)) {
       return res.status(403).json({ message: "Admin access required." });
     }
     await elementorConfigCollection.updateOne(
@@ -4707,7 +4707,7 @@ app.get("/api/mcube/config", async (req, res) => {
   try {
     await initMongo();
     const activeSession = await getSessionFromRequest(req);
-    if (!activeSession || !["admin", "marketing"].includes(activeSession.session.role)) {
+    if (!activeSession || !["super_admin", "admin", "marketing"].includes(activeSession.session.role)) {
       return res.status(403).json({ message: "Access required." });
     }
 
@@ -4747,7 +4747,7 @@ app.put("/api/mcube/config", async (req, res) => {
   try {
     await initMongo();
     const activeSession = await getSessionFromRequest(req);
-    if (!activeSession || !["admin", "marketing"].includes(activeSession.session.role)) {
+    if (!activeSession || !["super_admin", "admin", "marketing"].includes(activeSession.session.role)) {
       return res.status(403).json({ message: "Access required." });
     }
 
@@ -4829,7 +4829,7 @@ app.post("/api/mcube/test", async (req, res) => {
   try {
     await initMongo();
     const activeSession = await getSessionFromRequest(req);
-    if (!activeSession || !["admin", "marketing"].includes(activeSession.session.role)) {
+    if (!activeSession || !["super_admin", "admin", "marketing"].includes(activeSession.session.role)) {
       return res.status(403).json({ message: "Access required." });
     }
 
@@ -4860,7 +4860,7 @@ app.get("/api/mcube/logs", async (req, res) => {
   try {
     await initMongo();
     const activeSession = await getSessionFromRequest(req);
-    if (!activeSession || !["admin", "marketing"].includes(activeSession.session.role)) {
+    if (!activeSession || !["super_admin", "admin", "marketing"].includes(activeSession.session.role)) {
       return res.status(403).json({ message: "Access required." });
     }
     const limit = Math.min(Number(req.query.limit) || 50, MAX_MCUBE_LOGS);
@@ -4887,7 +4887,7 @@ app.delete("/api/mcube/logs", async (req, res) => {
   try {
     await initMongo();
     const activeSession = await getSessionFromRequest(req);
-    if (!activeSession || activeSession.session.role !== "admin") {
+    if (!activeSession || !["super_admin", "admin"].includes(activeSession.session.role)) {
       return res.status(403).json({ message: "Admin access required." });
     }
     await mcubeLogsCollection.deleteMany({});
@@ -4931,7 +4931,7 @@ app.post("/api/mcube/rr-state/reset", async (req, res) => {
   try {
     await initMongo();
     const activeSession = await getSessionFromRequest(req);
-    if (!activeSession || activeSession.session.role !== "admin") {
+    if (!activeSession || !["super_admin", "admin"].includes(activeSession.session.role)) {
       return res.status(403).json({ message: "Admin access required." });
     }
     await mcubeConfigCollection.updateOne(
