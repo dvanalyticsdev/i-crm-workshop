@@ -47,7 +47,7 @@ const taskDueDateInput = document.getElementById("taskDueDate");
 const taskMessage = document.getElementById("taskMessage");
 
 const session = getSession();
-const isAdmin = session?.role === "admin";
+const isAdmin = session?.role === "admin" || session?.role === "super_admin";
 const canCreateTasks = session?.role === "counselor";
 
 preFilterBar.classList.add("filter-bar--crm");

@@ -23,7 +23,7 @@ import { addLeadNote, deleteLeadNote, deleteLeads as deleteLeadsOnServer, getLea
 await bootstrapLocalState();
 
 const session = getSession();
-const isAdmin = session?.role === "admin";
+const isAdmin = session?.role === "admin" || session?.role === "super_admin";
 const canCreateTasks = session?.role === "counselor";
 
 const mainAdmissionRoutingPanel = document.getElementById("mainAdmissionRoutingPanel");
@@ -2028,17 +2028,6 @@ async function handleTaskSubmit(event) {
 
 function setupRegisteredRoutingPanel() {
   renderSegmentSection();
-  renderRegisteredRoutingPanel();
-
-  if (!isAdmin) {
-    return;
-  }
-
-  if (clearMainAdmissionLeadDataBtn) {
-    clearMainAdmissionLeadDataBtn.onclick = () => {
-      void clearRegisteredCandidateData();
-    };
-  }
 }
 
 function getActiveInputState() {

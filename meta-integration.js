@@ -149,7 +149,7 @@ function renderIntegrationSectionNav(activeRoute = "meta-integration.html") {
     {
       route: "lead-flow-control.html",
       label: "Lead Flow Control",
-      description: "Manage counselor rotation, branch routing, and course-wise lead eligibility."
+      description: "Manage workshop counselor rotation for Meta and Elementor leads."
     },
     {
       route: "mcube-integration.html",

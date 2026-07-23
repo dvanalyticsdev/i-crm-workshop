@@ -121,7 +121,7 @@ function renderIntegrationSectionNav(activeRoute = "elementor-integration.html")
     {
       route: "lead-flow-control.html",
       label: "Lead Flow Control",
-      description: "Manage counselor rotation, branch routing, and course-wise lead eligibility."
+      description: "Manage workshop counselor rotation for Meta and Elementor leads."
     },
     {
       route: "mcube-integration.html",
@@ -209,7 +209,9 @@ function updateRotationSnapshot(rrIdx = 0) {
   const workshopCounselors = counselors.filter(isCounselorInWorkshopRotation);
   const admissionCounselors = counselors.filter(isCounselorInAdmissionRotation);
   rrCounselorCount.textContent = String(workshopCounselors.length);
-  admissionRrCounselorCount.textContent = String(admissionCounselors.length);
+  if (admissionRrCounselorCount) {
+    admissionRrCounselorCount.textContent = String(admissionCounselors.length);
+  }
 
   if (!workshopCounselors.length) {
     rrNextCounselor.textContent = "No counselors";

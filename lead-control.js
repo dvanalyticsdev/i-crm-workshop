@@ -43,7 +43,7 @@ const assignmentSuggestionList = document.getElementById("assignmentSuggestionLi
 const assignmentSuggestionMessage = document.getElementById("assignmentSuggestionMessage");
 
 const session = getSession();
-const isAdmin = session?.role === "admin";
+const isAdmin = session?.role === "admin" || session?.role === "super_admin";
 
 let lastAssignmentSuggestions = [];
 const DEFAULT_ALLOCATION = [];

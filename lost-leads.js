@@ -230,7 +230,7 @@ function renderKpi(lostLeads) {
 }
 
 function renderTable(lostLeads) {
-  const isAdmin = session?.role === "admin";
+  const isAdmin = session?.role === "admin" || session?.role === "super_admin";
   let html = `
     <div class="table-scroll">
       <table>

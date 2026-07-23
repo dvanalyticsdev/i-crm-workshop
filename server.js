@@ -5810,11 +5810,9 @@ app.post("/api/public-course-registrations", async (req, res) => {
     const masterLead = findDuplicateNonRegisteredLeadByEmailOrPhone(snapshot.leads, { email, phone });
     const effectiveMasterLead = isCrashCourseRegistration ? null : masterLead;
     const existingRegisteredLead = findDuplicateRegisteredLeadByEmailOrPhoneInSegment(snapshot.leads, { email, phone }, publicCourseSegment);
-    const counselorSourceLead = masterLead || existingRegisteredLead || null;
-    const effectiveCounselorSourceLead = isCrashCourseRegistration ? (existingRegisteredLead || null) : counselorSourceLead;
     const isSameRegisteredCourse = !!existingRegisteredLead && publicCourseLeadMatchesCourse(existingRegisteredLead, course);
 
-    const counselorName = String(effectiveCounselorSourceLead?.counselor || "").trim() || await assignPublicCourseCounselorRoundRobin(snapshot.counselors, publicCourseSegment);
+    const counselorName = "Unassigned";
     const nextId = existingLead?.id || await getNextMetaLeadId();
     const newLead = buildPublicCourseLead({
       name,
@@ -5904,7 +5902,7 @@ app.post("/api/public-course-registrations", async (req, res) => {
       newValue: `Name: ${newLead.name}, Phone: ${newLead.phone}, Email: ${newLead.email}`
     });
 
-    if (newLead.counselor) {
+    if (shouldTreatLeadAsAssigned(newLead.counselor)) {
       await recordActivity({
         leadId: newLead.id,
         leadName: newLead.name,
@@ -5929,7 +5927,7 @@ app.post("/api/public-course-registrations", async (req, res) => {
       role: "admin",
       type: "public_course_registration",
       title: "New Course Registration",
-      message: `Lead: ${formatLeadNotificationLabel(newLead)}. Registered for ${course.name}. Assigned counselor: ${counselorName}${!isCrashCourseRegistration && effectiveMasterLead ? " (linked to existing CRM lead)" : ""}${shouldReplaceExistingRegisteredLead ? " (updated registered section)" : ""}`,
+      message: `Lead: ${formatLeadNotificationLabel(newLead)}. Registered for ${course.name}. Awaiting manual counselor assignment.${!isCrashCourseRegistration && effectiveMasterLead ? " (linked to existing CRM lead)" : ""}${shouldReplaceExistingRegisteredLead ? " (updated registered section)" : ""}`,
       sound: true,
       leadId: nextId,
       leadName: newLead.name,
@@ -6123,31 +6121,8 @@ function isCounselorEligibleForCourseRegistrations(counselor) {
   return !!counselor && !counselor.disabled;
 }
 
-async function assignPublicCourseCounselorRoundRobin(counselors = [], segment = PUBLIC_COURSE_DEFAULT_SEGMENT) {
-  const routingSegmentConfig = getPublicCourseSegmentConfig(segment);
-  const routingConfig = await getPublicCourseRoutingConfig(segment).catch(() => ({ selectedCounselors: [], isConfigured: false }));
-  const selectedCounselorSet = new Set(routingConfig.selectedCounselors.map((name) => name.toLowerCase()));
-  const eligibleCounselors = (Array.isArray(counselors) ? counselors : [])
-    .filter(isCounselorEligibleForCourseRegistrations);
-  const activeCounselors = routingConfig.isConfigured
-    ? eligibleCounselors.filter((counselor) => selectedCounselorSet.has(String(counselor.name || "").trim().toLowerCase()))
-    : eligibleCounselors;
-  if (!activeCounselors.length) {
-    return "Unassigned";
-  }
-
-  const result = await withMongoRetry(
-    () => stateCollection.findOneAndUpdate(
-      { _id: STATE_DOC_ID },
-      { $inc: { [routingSegmentConfig.roundRobinField]: 1 } },
-      { returnDocument: "after", upsert: true }
-    ),
-    { retries: 1, label: "Advance public course round robin" }
-  );
-
-  const newIndex = Number(result?.[routingSegmentConfig.roundRobinField]) || 1;
-  const counselorIndex = ((newIndex - 1) % activeCounselors.length + activeCounselors.length) % activeCounselors.length;
-  return activeCounselors[counselorIndex].name;
+async function assignPublicCourseCounselorRoundRobin(_counselors = [], _segment = PUBLIC_COURSE_DEFAULT_SEGMENT) {
+  return "Unassigned";
 }
 
 function shouldTreatLeadAsAssigned(counselorName) {
@@ -11517,12 +11492,8 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
   });
   const isAdmissionLead = leadType === "admission" || isKnownPublicCourseIdentity(forcedAdmissionCourseIdentity);
   const effectiveLeadType = isAdmissionLead ? "admission" : leadType;
-  const admissionRoutingCourseName = getAdmissionRoutingCourseName(inferredAdmissionCourse, forcedAdmissionCourseIdentity);
   const counselorName = isAdmissionLead
-    ? await assignAdmissionCounselorRoundRobin(snapshot.counselors, {
-        branch: inferredAdmissionBranch,
-        courseName: admissionRoutingCourseName
-      })
+    ? "Unassigned"
     : await assignCounselorRoundRobin(snapshot.counselors);
   const nextId = await getNextMetaLeadId();
   const newLead = buildMetaLead(
@@ -11724,12 +11695,8 @@ async function processElementorLeadRecord(payload, config) {
   });
   const isAdmissionLead = leadType === "admission" || isKnownPublicCourseIdentity(forcedAdmissionCourseIdentity);
   const effectiveLeadType = isAdmissionLead ? "admission" : leadType;
-  const admissionRoutingCourseName = getAdmissionRoutingCourseName(inferredAdmissionCourse, forcedAdmissionCourseIdentity);
   const counselorName = isAdmissionLead
-    ? await assignAdmissionCounselorRoundRobin(snapshot.counselors, {
-        branch: inferredAdmissionBranch,
-        courseName: admissionRoutingCourseName
-      })
+    ? "Unassigned"
     : await assignElementorCounselorRoundRobin(snapshot.counselors);
   const nextId = await getNextMetaLeadId();
   const newLead = buildElementorLead(fields, metaInfo, counselorName, nextId, { leadType: effectiveLeadType });
