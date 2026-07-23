@@ -772,17 +772,19 @@ textarea:focus {
 }
 
 .main-content.route-loading .main-content-window::before {
-  content: "Loading content...";
+  content: "";
   position: absolute;
   inset: 0;
   z-index: 1;
+}
+
+.route-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
   display: grid;
   place-items: center;
-  color: var(--text-muted);
-  font-size: 0.92rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  pointer-events: none;
 }
 
 .topbar {

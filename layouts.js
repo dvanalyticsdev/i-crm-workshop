@@ -82,6 +82,64 @@ function revealAppShell() {
   document.querySelector(".app-shell-loading")?.remove();
 }
 
+function clearRouteLoadingTimer(mainContent) {
+  if (mainContent?.__dvRouteLoadingTimer) {
+    window.clearInterval(mainContent.__dvRouteLoadingTimer);
+    delete mainContent.__dvRouteLoadingTimer;
+  }
+}
+
+function showRouteLoadingOverlay(mainContent) {
+  if (!mainContent) {
+    return;
+  }
+
+  const { contentWindow } = ensureMainContentStructure(mainContent);
+  if (!contentWindow) {
+    return;
+  }
+
+  clearRouteLoadingTimer(mainContent);
+  mainContent.classList.add("route-loading");
+
+  let overlay = contentWindow.querySelector(".route-loading-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.className = "route-loading-overlay";
+    overlay.setAttribute("aria-live", "polite");
+    overlay.innerHTML = `
+      <div class="app-shell-loading__content">
+        <div class="app-shell-loading__dot" aria-hidden="true"></div>
+        <div class="app-shell-loading__text">Loading</div>
+        <div class="app-shell-loading__timer">0.0s</div>
+      </div>
+    `;
+    contentWindow.appendChild(overlay);
+  }
+
+  const timerElement = overlay.querySelector(".app-shell-loading__timer");
+  const startedAt = Date.now();
+  if (timerElement) {
+    timerElement.textContent = "0.0s";
+  }
+
+  mainContent.__dvRouteLoadingTimer = window.setInterval(() => {
+    if (timerElement) {
+      timerElement.textContent = `${((Date.now() - startedAt) / 1000).toFixed(1)}s`;
+    }
+  }, 100);
+}
+
+function hideRouteLoadingOverlay(mainContent) {
+  if (!mainContent) {
+    return;
+  }
+
+  clearRouteLoadingTimer(mainContent);
+  mainContent.classList.remove("route-loading");
+  mainContent.querySelector(".route-loading-overlay")?.remove();
+}
+
 function ensureMainContentStructure(mainContent) {
   if (!mainContent) {
     return { topbar: null, contentWindow: null };
@@ -677,8 +735,8 @@ async function navigateToRoute(href, options = {}) {
       throw new Error("Missing current .main-content container.");
     }
 
-    const currentStructure = ensureMainContentStructure(currentMainContent);
-    currentMainContent.classList.add("route-loading");
+    ensureMainContentStructure(currentMainContent);
+    showRouteLoadingOverlay(currentMainContent);
 
     const response = await fetch(url.href, {
       credentials: "same-origin",
@@ -777,7 +835,7 @@ async function navigateToRoute(href, options = {}) {
     console.error("Soft navigation failed, falling back to a full page load.", error);
     window.location.href = href;
   } finally {
-    document.querySelector(".main-content")?.classList.remove("route-loading");
+    hideRouteLoadingOverlay(document.querySelector(".main-content"));
     revealAppShell();
   }
 }
