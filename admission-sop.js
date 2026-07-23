@@ -6,12 +6,14 @@ const KOLKATA_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const NEW_WINDOW_MS = 48 * 60 * 60 * 1000;
 const ACTIVE_WINDOW_DAYS = 15;
 const OFFERED_WINDOW_DAYS = 30;
+const PAGE_SIZE = 20;
 
 const kpiGrid = document.getElementById("sopKpiGrid");
 const filterCard = document.getElementById("sopFilterCard");
 const adminSummary = document.getElementById("sopAdminSummary");
 const leadTable = document.getElementById("sopLeadTable");
 const liveClock = document.getElementById("sopLiveClock");
+const pagination = document.getElementById("sopPagination");
 
 const filter = {
   bucket: "all",
@@ -22,6 +24,7 @@ const filter = {
 
 let selectedBlockedLeadKeys = new Set();
 let bulkAssignInFlight = false;
+let currentPage = 1;
 
 function showToast(message, isError = false) {
   let container = document.querySelector(".toast-container");
@@ -123,6 +126,36 @@ function getTrackingConfig(lead) {
   return null;
 }
 
+function resolveLeadBaseTimestamp(lead) {
+  const candidates = [
+    lead?.admissionSopAssignedAt,
+    lead?.counselorAssignedAt,
+    lead?.createdAtExact,
+    lead?.updatedAt
+  ].map((value) => String(value || "").trim()).filter(Boolean);
+
+  for (const candidate of candidates) {
+    const parsed = new Date(candidate).getTime();
+    if (Number.isFinite(parsed)) {
+      return candidate;
+    }
+  }
+
+  const createdAt = String(lead?.createdAt || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(createdAt)) {
+    return `${createdAt}T00:00:00+05:30`;
+  }
+
+  if (createdAt) {
+    const parsed = new Date(createdAt).getTime();
+    if (Number.isFinite(parsed)) {
+      return createdAt;
+    }
+  }
+
+  return null;
+}
+
 function getKolkataShiftedDate(value) {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return null;
@@ -213,7 +246,7 @@ function deriveSopState(lead) {
   if (!config) return null;
 
   const counselor = String(lead?.counselor || "").trim();
-  const assignedAt = String(lead?.admissionSopAssignedAt || lead?.counselorAssignedAt || lead?.createdAtExact || "").trim() || null;
+  const assignedAt = resolveLeadBaseTimestamp(lead);
   const progressAt = getLatestHistoryTimestamp(lead, config);
   const status = getAdmissionStatus(lead);
   const normalizedStatus = normalizeAdmissionStatus(status);
@@ -357,6 +390,12 @@ function getFilteredRows() {
   });
 }
 
+function ensureValidPage(totalItems) {
+  const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
+  currentPage = Math.min(Math.max(1, currentPage), totalPages);
+  return totalPages;
+}
+
 function getActiveCounselors() {
   return [...new Set(getAllRowModels().map((model) => model.counselor).filter(Boolean))]
     .sort((left, right) => left.localeCompare(right));
@@ -400,7 +439,6 @@ function renderFilters() {
       </label>`
     : "";
 
-  const blockedSelectedRows = getAllRowModels().filter((model) => selectedBlockedLeadKeys.has(model.key) && model.sop?.blocked);
 
   filterCard.innerHTML = `
     <div class="sop-filter-grid">
@@ -432,7 +470,7 @@ function renderFilters() {
         <input id="sopQueryFilter" type="search" value="${escapeHtml(filter.query)}" placeholder="Lead, phone, course, counselor..." />
       </label>
     </div>
-    ${isAdminSession() ? `
+    ${false && isAdminSession() ? `
       <div class="sop-assign-bar">
         <span class="block-help">Blocked selected: ${blockedSelectedRows.length}</span>
         <select id="sopAssignCounselor">
@@ -446,18 +484,22 @@ function renderFilters() {
 
   document.getElementById("sopBucketFilter")?.addEventListener("change", (event) => {
     filter.bucket = event.target.value;
+    currentPage = 1;
     render();
   });
   document.getElementById("sopSectionFilter")?.addEventListener("change", (event) => {
     filter.section = event.target.value;
+    currentPage = 1;
     render();
   });
   document.getElementById("sopCounselorFilter")?.addEventListener("change", (event) => {
     filter.counselor = event.target.value;
+    currentPage = 1;
     render();
   });
   document.getElementById("sopQueryFilter")?.addEventListener("input", (event) => {
     filter.query = event.target.value;
+    currentPage = 1;
     render();
   });
   document.getElementById("sopAssignSelectedBtn")?.addEventListener("click", () => {
@@ -544,7 +586,13 @@ function buildLeadRef(lead) {
 
 function renderLeadTable() {
   const rows = getFilteredRows();
+  const totalPages = ensureValidPage(rows.length);
+  const pageRows = rows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
   selectedBlockedLeadKeys = new Set([...selectedBlockedLeadKeys].filter((key) => rows.some((row) => row.key === key && row.sop?.blocked)));
+  const selectedBlockedRows = rows.filter((row) => selectedBlockedLeadKeys.has(row.key) && row.sop?.blocked);
+  const pageBlockedRows = pageRows.filter((row) => row.sop?.blocked);
+  const pageBlockedKeys = pageBlockedRows.map((row) => row.key);
+  const allPageBlockedSelected = pageBlockedKeys.length > 0 && pageBlockedKeys.every((key) => selectedBlockedLeadKeys.has(key));
 
   leadTable.innerHTML = `
     <div class="section-head">
@@ -553,6 +601,20 @@ function renderLeadTable() {
         <p class="block-help">${isAdminSession() ? "Blocked leads can be reassigned here. All admission leads remain visible for counselor-wise diagnosis." : "These are your admission-side leads, sorted by urgency and SOP risk."}</p>
       </div>
     </div>
+    ${isAdminSession() ? `
+      <div class="sop-bulk-toolbar">
+        <label class="sop-bulk-toolbar__select-all">
+          <input type="checkbox" id="sopSelectAllPageBlocked" ${allPageBlockedSelected ? "checked" : ""} ${pageBlockedKeys.length ? "" : "disabled"} />
+          <span>Select All</span>
+        </label>
+        <span class="selected-count">Selected: ${selectedBlockedRows.length}</span>
+        <select id="sopAssignCounselor">
+          <option value="">Assign to</option>
+          ${getActiveCounselors().map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("")}
+        </select>
+        <button type="button" class="btn-ghost bulk-action-btn" id="sopAssignSelectedBtn" ${selectedBlockedRows.length && !bulkAssignInFlight ? "" : "disabled"}>${bulkAssignInFlight ? "Assigning..." : "Assign Selected"}</button>
+      </div>
+    ` : ""}
     <div class="table-shell">
       <table class="data-table sop-lead-table">
         <thead>
@@ -570,7 +632,7 @@ function renderLeadTable() {
           </tr>
         </thead>
         <tbody>
-          ${rows.map((model) => `
+          ${pageRows.map((model) => `
             <tr>
               ${isAdminSession() ? `
                 <td>
@@ -604,6 +666,29 @@ function renderLeadTable() {
     </div>
   `;
 
+  if (!pageRows.length) {
+    pagination.innerHTML = "";
+  } else {
+    const pageStart = (currentPage - 1) * PAGE_SIZE + 1;
+    const pageEnd = Math.min(rows.length, currentPage * PAGE_SIZE);
+    pagination.innerHTML = `
+      <span class="pagination-info">Showing ${pageStart}-${pageEnd} of ${rows.length}</span>
+      <div class="pagination-buttons">
+        <button type="button" class="btn-ghost pagination-btn" id="sopPrevPage" ${currentPage <= 1 ? "disabled" : ""}>Prev</button>
+        <span class="pagination-info">Page ${currentPage} of ${totalPages}</span>
+        <button type="button" class="btn-ghost pagination-btn" id="sopNextPage" ${currentPage >= totalPages ? "disabled" : ""}>Next</button>
+      </div>
+    `;
+    document.getElementById("sopPrevPage")?.addEventListener("click", () => {
+      currentPage = Math.max(1, currentPage - 1);
+      renderLeadTable();
+    });
+    document.getElementById("sopNextPage")?.addEventListener("click", () => {
+      currentPage = Math.min(totalPages, currentPage + 1);
+      renderLeadTable();
+    });
+  }
+
   leadTable.querySelectorAll("input[type='checkbox'][data-lead-key]").forEach((checkbox) => {
     checkbox.addEventListener("change", (event) => {
       const leadKey = String(event.target.getAttribute("data-lead-key") || "");
@@ -614,8 +699,23 @@ function renderLeadTable() {
         next.delete(leadKey);
       }
       selectedBlockedLeadKeys = next;
-      renderFilters();
+      renderLeadTable();
     });
+  });
+
+  document.getElementById("sopSelectAllPageBlocked")?.addEventListener("change", (event) => {
+    const next = new Set(selectedBlockedLeadKeys);
+    if (event.target.checked) {
+      pageBlockedKeys.forEach((key) => next.add(key));
+    } else {
+      pageBlockedKeys.forEach((key) => next.delete(key));
+    }
+    selectedBlockedLeadKeys = next;
+    renderLeadTable();
+  });
+
+  document.getElementById("sopAssignSelectedBtn")?.addEventListener("click", () => {
+    void reassignBlockedLeads();
   });
 
   leadTable.querySelectorAll("[data-history-key]").forEach((button) => {
@@ -657,11 +757,11 @@ async function reassignBlockedLeads() {
   }
 
   bulkAssignInFlight = true;
-  renderFilters();
+  renderLeadTable();
   const result = await assignLeads(selectedRows.map((row) => buildLeadRef(row.lead)), counselor);
   bulkAssignInFlight = false;
   if (!result?.ok) {
-    renderFilters();
+    renderLeadTable();
     showToast(result?.message || "Failed to reassign blocked leads.", true);
     return;
   }

@@ -5883,6 +5883,36 @@ function getAdmissionSopAnchorAt(lead, trackingConfig) {
   return null;
 }
 
+function resolveAdmissionSopBaseTimestamp(lead) {
+  const candidates = [
+    lead?.admissionSopAssignedAt,
+    lead?.counselorAssignedAt,
+    lead?.createdAtExact,
+    lead?.updatedAt
+  ].map((value) => String(value || "").trim()).filter(Boolean);
+
+  for (const candidate of candidates) {
+    const parsed = new Date(candidate).getTime();
+    if (Number.isFinite(parsed)) {
+      return candidate;
+    }
+  }
+
+  const createdAt = String(lead?.createdAt || "").trim();
+  if (isDateOnlyString(createdAt)) {
+    return `${createdAt}T00:00:00+05:30`;
+  }
+
+  if (createdAt) {
+    const parsed = new Date(createdAt).getTime();
+    if (Number.isFinite(parsed)) {
+      return createdAt;
+    }
+  }
+
+  return null;
+}
+
 function deriveAdmissionSopState(lead, nowValue = Date.now()) {
   if (!isAdmissionSopScopedLead(lead)) {
     return null;
@@ -5894,8 +5924,7 @@ function deriveAdmissionSopState(lead, nowValue = Date.now()) {
   }
 
   const counselor = String(lead?.counselor || "").trim();
-  const assignedAt = String(lead?.admissionSopAssignedAt || lead?.counselorAssignedAt || lead?.createdAtExact || "").trim()
-    || null;
+  const assignedAt = resolveAdmissionSopBaseTimestamp(lead);
   const currentStatus = String(lead?.[trackingConfig.admissionStatusField] || "").trim();
   const normalizedStatus = normalizeAdmissionSopStatus(currentStatus);
   const progressAnchorAt = getAdmissionSopAnchorAt(lead, trackingConfig);

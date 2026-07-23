@@ -6924,6 +6924,33 @@ html[data-theme="dark"] .diff-val {
   gap: var(--space-3);
 }
 
+.sop-bulk-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 0 var(--space-3);
+}
+
+.sop-bulk-toolbar__select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.sop-bulk-toolbar select {
+  min-width: 220px;
+  min-height: 42px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  padding: 10px 12px;
+}
+
 .section-head {
   display: flex;
   justify-content: space-between;
