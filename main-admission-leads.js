@@ -2,6 +2,7 @@ import { registerPageCleanup } from "./page-runtime.js";
 import { openActivityHistory } from "./activity-history.js";
 import { exportLeadRowsToExcel } from "./lead-export.js";
 import {
+  CRM_FIXED_COURSE_OPTIONS,
   getCanonicalPublicCourseIdentity,
   normalizeCrmCourseValue,
   populateCrmCourseSelect
@@ -1018,6 +1019,22 @@ function renderEditableDetailValue(lead, item) {
   const value = String(getEditableDetailFieldValue(lead, item) ?? "");
   const isProtectedContact = ["name", "email", "phone"].includes(item.field);
   const canEditValue = !isProtectedContact || isReplaceableLeadContactValue(item.field, value);
+  if (item.scope === "lead" && item.field === "courseName") {
+    const normalizedCourseValue = normalizeCrmCourseValue(value, { preserveUnknown: true });
+    return `
+      <select
+        class="main-admission-details-input"
+        data-detail-scope="${escapeHtml(item.scope)}"
+        data-detail-field="${escapeHtml(item.field)}"
+        ${canEditValue ? "" : "disabled"}
+      >
+        <option value="">Select</option>
+        ${CRM_FIXED_COURSE_OPTIONS.map((course) => `
+          <option value="${escapeHtml(course.label)}" ${normalizedCourseValue === course.label ? "selected" : ""}>${escapeHtml(course.label)}</option>
+        `).join("")}
+      </select>
+    `;
+  }
   const type = item.field === "email" ? "email" : item.field.toLowerCase().includes("phone") ? "tel" : "text";
   return `
     <input
@@ -1480,7 +1497,13 @@ function collectDetailsModalUpdates() {
 
     const value = String(input.value || "").trim();
     if (scope === "lead") {
-      fields[field] = field === "email" ? value.toLowerCase() : value;
+      if (field === "email") {
+        fields[field] = value.toLowerCase();
+      } else if (field === "courseName") {
+        fields[field] = normalizeCrmCourseValue(value);
+      } else {
+        fields[field] = value;
+      }
     } else if (scope === "extra") {
       extraFields[field] = value;
     }

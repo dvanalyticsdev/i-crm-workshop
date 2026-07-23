@@ -1,4 +1,5 @@
 import { getSession, refreshSession } from "./state-sync.js";
+import { normalizeCrmCourseValue, populateCrmCourseSelect } from "./course-catalog.js";
 import {
   clearLeadCreationRequests,
   decideLeadCreationRequest,
@@ -22,6 +23,8 @@ const clearButton = document.getElementById("clearLeadCreationBtn");
 
 let requests = [];
 let session = getSession() || await refreshSession().catch(() => null);
+
+populateCrmCourseSelect("leadCreationCourse");
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -64,6 +67,22 @@ function updatePipelineFields() {
   const isAdmission = normalize(pipelineInput?.value) === "main-admission";
   workshopWrap?.classList.toggle("hidden", isAdmission);
   courseWrap?.classList.toggle("hidden", !isAdmission);
+  const workshopInput = document.getElementById("leadCreationWorkshop");
+  const courseInput = document.getElementById("leadCreationCourse");
+  if (workshopInput) {
+    workshopInput.required = !isAdmission;
+    workshopInput.disabled = isAdmission;
+    if (isAdmission) {
+      workshopInput.value = "";
+    }
+  }
+  if (courseInput) {
+    courseInput.required = isAdmission;
+    courseInput.disabled = !isAdmission;
+    if (!isAdmission) {
+      courseInput.value = "";
+    }
+  }
 }
 
 function renderKpis() {
@@ -180,7 +199,7 @@ function getFormPayload() {
     phone: document.getElementById("leadCreationPhone").value,
     email: document.getElementById("leadCreationEmail").value,
     workshop: document.getElementById("leadCreationWorkshop").value,
-    courseName: document.getElementById("leadCreationCourse").value,
+    courseName: normalizeCrmCourseValue(document.getElementById("leadCreationCourse").value),
     source: document.getElementById("leadCreationSource").value,
     notes: document.getElementById("leadCreationNotes").value
   };
