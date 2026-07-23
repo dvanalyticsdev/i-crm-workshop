@@ -604,12 +604,13 @@ textarea:focus {
   color: var(--heading);
   border-radius: var(--radius-sm);
   padding: 10px 12px;
-  font-size: 0.82rem;
+  font-size: 0.76rem;
   font-weight: 800;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   cursor: pointer;
   transition: background var(--ease), border-color var(--ease), color var(--ease);
+  min-height: 48px;
 }
 
 .sidebar-group-toggle:hover {
@@ -619,6 +620,11 @@ textarea:focus {
 
 .sidebar-group-label {
   min-width: 0;
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sidebar-group-chevron {
