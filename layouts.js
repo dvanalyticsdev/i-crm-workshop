@@ -82,6 +82,26 @@ function revealAppShell() {
   document.querySelector(".app-shell-loading")?.remove();
 }
 
+function ensureMainContentStructure(mainContent) {
+  if (!mainContent) {
+    return { topbar: null, contentWindow: null };
+  }
+
+  const topbar = mainContent.querySelector(":scope > .topbar");
+  let contentWindow = mainContent.querySelector(":scope > .main-content-window");
+
+  if (!contentWindow) {
+    contentWindow = document.createElement("div");
+    contentWindow.className = "main-content-window";
+
+    const childrenToMove = Array.from(mainContent.children).filter((child) => child !== topbar);
+    childrenToMove.forEach((child) => contentWindow.appendChild(child));
+    mainContent.appendChild(contentWindow);
+  }
+
+  return { topbar, contentWindow };
+}
+
 function loadSidebarGroupState() {
   try {
     const raw = window.localStorage.getItem(SIDEBAR_GROUP_STORAGE_KEY);
@@ -652,7 +672,13 @@ async function navigateToRoute(href, options = {}) {
   const navigationToken = ++activeNavigationToken;
 
   try {
-    document.body.classList.add("route-loading");
+    const currentMainContent = document.querySelector(".main-content");
+    if (!currentMainContent) {
+      throw new Error("Missing current .main-content container.");
+    }
+
+    const currentStructure = ensureMainContentStructure(currentMainContent);
+    currentMainContent.classList.add("route-loading");
 
     const response = await fetch(url.href, {
       credentials: "same-origin",
@@ -677,6 +703,8 @@ async function navigateToRoute(href, options = {}) {
       throw new Error(`Missing .main-content in ${route}`);
     }
 
+    const nextStructure = ensureMainContentStructure(nextMainContent);
+
     await ensureRouteAssets(targetDocument, url.href);
     if (navigationToken !== activeNavigationToken) {
       return;
@@ -698,13 +726,25 @@ async function navigateToRoute(href, options = {}) {
     }
 
     runPageCleanup();
-
-    const currentMainContent = document.querySelector(".main-content");
-    if (!currentMainContent) {
+    const activeMainContent = document.querySelector(".main-content");
+    if (!activeMainContent) {
       throw new Error("Missing current .main-content container.");
     }
 
-    currentMainContent.replaceWith(nextMainContent);
+    const activeStructure = ensureMainContentStructure(activeMainContent);
+
+    if (nextStructure.topbar && activeStructure.topbar) {
+      activeStructure.topbar.replaceWith(nextStructure.topbar);
+    } else if (nextStructure.topbar && !activeStructure.topbar) {
+      activeMainContent.prepend(nextStructure.topbar);
+    }
+
+    if (activeStructure.contentWindow && nextStructure.contentWindow) {
+      activeStructure.contentWindow.replaceChildren(...Array.from(nextStructure.contentWindow.childNodes));
+    } else {
+      activeMainContent.replaceWith(nextMainContent);
+    }
+
     document.title = targetDocument.title || document.title;
     document.body.className = targetDocument.body.className;
 
@@ -737,7 +777,7 @@ async function navigateToRoute(href, options = {}) {
     console.error("Soft navigation failed, falling back to a full page load.", error);
     window.location.href = href;
   } finally {
-    document.body.classList.remove("route-loading");
+    document.querySelector(".main-content")?.classList.remove("route-loading");
     revealAppShell();
   }
 }
@@ -782,6 +822,7 @@ function bindClientRouter() {
 async function guardProtectedPages() {
   await bootstrapLocalState();
   initThemeSystem();
+  ensureMainContentStructure(document.querySelector(".main-content"));
   const session = getSession() || await refreshSession().catch(() => null);
   if (!session?.role) {
     window.location.href = "index.html";
