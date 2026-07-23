@@ -8502,12 +8502,12 @@ app.post("/api/auth/login", async (req, res) => {
       if (identifier === ADMIN_USER.id && password === authConfig.superAdminPassword) {
         if (!passcode) {
           return res.status(428).json({
-            message: "Super admin passcode is required.",
+            message: "Passcode is required.",
             requiresPasscode: true
           });
         }
         if (passcode !== authConfig.superAdminPasscode) {
-          return res.status(401).json({ message: "Invalid super admin passcode.", requiresPasscode: true });
+          return res.status(401).json({ message: "Invalid passcode.", requiresPasscode: true });
         }
 
         const session = await persistSession(res, {
