@@ -12,6 +12,8 @@ if (!session || !["admin", "marketing"].includes(session.role)) {
 const authKeyInput = document.getElementById("authKeyInput");
 const authKeyStatus = document.getElementById("authKeyStatus");
 const countryCodeInput = document.getElementById("countryCodeInput");
+const statusWebhookUrlInput = document.getElementById("statusWebhookUrlInput");
+const statusCallbackUrlInput = document.getElementById("statusCallbackUrlInput");
 const enabledToggle = document.getElementById("enabledToggle");
 const saveConfigBtn = document.getElementById("saveConfigBtn");
 const configMessage = document.getElementById("configMessage");
@@ -92,6 +94,8 @@ function applyConfig(nextConfig, preferred = {}) {
   config = nextConfig;
   enabledToggle.checked = config.enabled !== false;
   countryCodeInput.value = config.defaultCountryCode || "91";
+  statusWebhookUrlInput.value = config.statusWebhookUrl || "";
+  statusCallbackUrlInput.value = config.statusCallbackUrl || statusCallbackUrlInput.value || "";
   authKeyStatus.textContent = config.authKeySet ? "Saved" : "Not set";
   authKeyStatus.className = `cred-status ${config.authKeySet ? "cred-status--ok" : "cred-status--err"}`;
   authKeyInput.value = "";
@@ -221,6 +225,7 @@ async function saveConfig() {
   try {
     const payload = {
       enabled: enabledToggle.checked,
+      statusWebhookUrl: statusWebhookUrlInput.value.trim(),
       defaultCountryCode: countryCodeInput.value.trim(),
       whatsappNumbers: config.whatsappNumbers || [],
       templates: config.templates || []
@@ -265,6 +270,7 @@ async function saveTemplateMediaUrl() {
     ));
     const payload = {
       enabled: enabledToggle.checked,
+      statusWebhookUrl: statusWebhookUrlInput.value.trim(),
       defaultCountryCode: countryCodeInput.value.trim(),
       whatsappNumbers: config.whatsappNumbers || [],
       templates: updatedTemplates
@@ -374,7 +380,7 @@ async function sendSelected() {
     sendSummary.textContent = `${submitted} / ${json.failed || 0}`;
     showMessage(
       sendMessage,
-      `Submitted ${submitted} of ${json.attempted || 0} to MSG91. Check MSG91 delivery logs for delivered/failed status.`,
+      `Submitted ${submitted} of ${json.attempted || 0} to MSG91. Delivery/read/reply updates can sync back through the webhook callback URL.`,
       Number(json.failed) > 0
     );
     await loadLogs();

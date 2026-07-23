@@ -8,21 +8,27 @@ let totalPages = 1;
 let debounceTimeout = null;
 
 const ACTIVITY_ICONS = {
-  "Lead Created": "✨",
-  "Lead Assigned": "👤",
-  "Lead Reassigned": "🔄",
-  "Counselor Changed": "🔄",
-  "Status Changed": "⚙️",
-  "Call Made": "📞",
-  "WhatsApp Sent": "💬",
-  "Notes Added": "📝",
-  "Notes Deleted": "🗑️",
-  "Follow-Up Added": "📅",
-  "Follow-Up Completed": "✅",
-  "Follow-Up Removed": "❌",
-  "Course Discussed": "🎓",
-  "Lead Converted": "🎉",
-  "Lead Closed": "🔒"
+  "Lead Created": "[+]",
+  "Lead Assigned": "[U]",
+  "Lead Reassigned": "[R]",
+  "Counselor Changed": "[R]",
+  "Status Changed": "[S]",
+  "Call Made": "[C]",
+  "ReachOut Message": "[WA]",
+  "WhatsApp Sent": "[WA]",
+  "WhatsApp Delivered": "[WD]",
+  "WhatsApp Read": "[WR]",
+  "WhatsApp Opened": "[WO]",
+  "WhatsApp Replied": "[RP]",
+  "WhatsApp Failed": "[WF]",
+  "Notes Added": "[N]",
+  "Notes Deleted": "[X]",
+  "Follow-Up Added": "[F]",
+  "Follow-Up Completed": "[OK]",
+  "Follow-Up Removed": "[X]",
+  "Course Discussed": "[CR]",
+  "Lead Converted": "[WIN]",
+  "Lead Closed": "[CL]"
 };
 
 function getRelativeTime(timestamp) {
@@ -180,7 +186,13 @@ function ensureModalInDom() {
               <option value="Counselor Changed">Counselor Changed</option>
               <option value="Status Changed">Status Changed</option>
               <option value="Call Made">Call Made</option>
+              <option value="ReachOut Message">ReachOut Message</option>
               <option value="WhatsApp Sent">WhatsApp Sent</option>
+              <option value="WhatsApp Delivered">WhatsApp Delivered</option>
+              <option value="WhatsApp Read">WhatsApp Read</option>
+              <option value="WhatsApp Opened">WhatsApp Opened</option>
+              <option value="WhatsApp Replied">WhatsApp Replied</option>
+              <option value="WhatsApp Failed">WhatsApp Failed</option>
               <option value="Notes Added">Notes Added</option>
               <option value="Notes Deleted">Notes Deleted</option>
               <option value="Follow-Up Added">Follow-Up Added</option>
@@ -362,7 +374,16 @@ async function fetchActivityLogs() {
         let typeClass = "timeline-type-default";
         if (log.activityType === "Lead Converted") typeClass = "timeline-type-success";
         else if (log.activityType === "Lead Closed" || log.activityType === "Follow-Up Removed" || log.activityType === "Notes Deleted") typeClass = "timeline-type-danger";
-        else if (log.activityType === "Call Made" || log.activityType === "WhatsApp Sent") typeClass = "timeline-type-comm";
+        else if ([
+          "Call Made",
+          "ReachOut Message",
+          "WhatsApp Sent",
+          "WhatsApp Delivered",
+          "WhatsApp Read",
+          "WhatsApp Opened",
+          "WhatsApp Replied",
+          "WhatsApp Failed"
+        ].includes(log.activityType)) typeClass = "timeline-type-comm";
         else if (log.activityType === "Follow-Up Added" || log.activityType === "Follow-Up Completed") typeClass = "timeline-type-task";
         else if (log.activityType === "Notes Added") typeClass = "timeline-type-note";
         else if (log.activityType === "Lead Created") typeClass = "timeline-type-create";
@@ -433,3 +454,4 @@ export function openActivityHistory(leadId, leadName, leadEmail = "") {
   // Fetch
   fetchActivityLogs();
 }
+

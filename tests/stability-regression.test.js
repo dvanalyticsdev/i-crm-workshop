@@ -1004,8 +1004,11 @@ test("ReachOut is simplified to synced WhatsApp number and template sending", ()
   const reachout = read("reachout.js");
 
   assert.match(server, /app\.post\("\/api\/reachout\/whatsapp\/sync"/);
+  assert.match(server, /app\.post\("\/api\/reachout\/whatsapp\/webhook"/);
   assert.match(server, /whatsappNumbers/);
   assert.match(server, /ReachOut now supports WhatsApp templates only/);
+  assert.match(server, /statusWebhookUrl/);
+  assert.match(server, /statusCallbackUrl/);
   assert.match(server, /integratedNumber = String\(req\.body\?\.integratedNumber/);
   assert.match(server, /to_and_components/);
   assert.match(server, /get-template-plugins/);
@@ -1018,6 +1021,8 @@ test("ReachOut is simplified to synced WhatsApp number and template sending", ()
   assert.match(reachoutHtml, /saveMediaUrlBtn/);
   assert.match(reachoutHtml, /mediaFileInput/);
   assert.match(reachoutHtml, /uploadMediaBtn/);
+  assert.match(reachoutHtml, /statusWebhookUrlInput/);
+  assert.match(reachoutHtml, /statusCallbackUrlInput/);
   assert.match(reachoutHtml, /reachout-media-control/);
   assert.doesNotMatch(reachoutHtml, /Add Template|SMS, WhatsApp, and email|MSG91 Template ID|From Email|Email Domain/);
   assert.match(reachout, /syncWhatsapp/);
@@ -1025,6 +1030,8 @@ test("ReachOut is simplified to synced WhatsApp number and template sending", ()
   assert.match(reachout, /needsMediaHeader/);
   assert.match(reachout, /saveTemplateMediaUrl/);
   assert.match(reachout, /uploadTemplateMedia/);
+  assert.match(reachout, /statusWebhookUrlInput/);
+  assert.match(reachout, /statusCallbackUrlInput/);
   assert.match(reachout, /apiUrl\("\/api\/reachout\/media"\)/);
   assert.match(reachout, /defaultHeaderMediaUrl: mediaUrl/);
   assert.doesNotMatch(reachout, /blankTemplate|data-remove-template|New SMS Template|New Email Template/);
@@ -1040,8 +1047,8 @@ test("ReachOut labels MSG91 accepted WhatsApp API calls as submitted, not delive
   assert.match(server, /submitted to MSG91/);
   assert.match(server, /doc\?\.logSummary\?\.submitted \?\? doc\?\.logSummary\?\.success/);
   assert.match(reachoutHtml, /Submitted \/ Failed/);
-  assert.match(reachoutHtml, /Final delivery status remains in MSG91 delivery logs/);
-  assert.match(reachout, /Submitted \$\{submitted\} of \$\{json\.attempted \|\| 0\} to MSG91/);
+  assert.match(reachoutHtml, /Delivery, read, and reply events can now flow back into lead activity history/);
+  assert.match(reachout, /Submitted \$\{submitted\} of \$\{json\.attempted \|\| 0\} to MSG91\. Delivery\/read\/reply updates can sync back through the webhook callback URL\./);
   assert.match(reachout, /log\.type === "error" \? "Failed" : "Submitted"/);
 });
 

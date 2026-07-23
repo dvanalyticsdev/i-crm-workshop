@@ -57,6 +57,14 @@
               <label for="countryCodeInput">Default Country Code</label>
               <input id="countryCodeInput" type="text" placeholder="91" inputmode="numeric" />
             </div>
+            <div class="form-group">
+              <label for="statusWebhookUrlInput">Status Forward Webhook</label>
+              <input id="statusWebhookUrlInput" type="url" placeholder="https://..." />
+            </div>
+            <div class="form-group">
+              <label for="statusCallbackUrlInput">CRM Status Callback URL</label>
+              <input id="statusCallbackUrlInput" type="text" readonly />
+            </div>
           </div>
           <div class="save-bar">
             <label class="enable-row" style="margin-right:auto;">
@@ -166,7 +174,7 @@
         <section class="card">
           <div class="meta-section-title">
             <h3>Recent Sends</h3>
-            <p>Latest CRM submissions to MSG91. Final delivery status remains in MSG91 delivery logs.</p>
+            <p>Latest CRM submissions to MSG91. Delivery, read, and reply events can now flow back into lead activity history through the webhook callback.</p>
           </div>
           <div class="log-table-wrap">
             <table class="log-table">
