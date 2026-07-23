@@ -8,14 +8,12 @@ import {
   getLeads as getStoredLeads,
   getSession,
   loadLocalPreference,
-  saveLeads as persistLeads,
   saveLocalPreference,
-  startStatePolling,
-  syncStateFromLocalAndVerify
+  startStatePolling
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY } from "./task-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
-import { addLeadNote, assignLeads as assignLeadsOnServer, deleteLeadNote, formatLeadAssignmentResult, trackLeadView, updateLeadActivity as updateLeadActivityOnServer } from "./lead-service.js";
+import { addLeadNote, assignLeads as assignLeadsOnServer, deleteLeadNote, deleteLeads as deleteLeadsOnServer, formatLeadAssignmentResult, trackLeadView, updateLeadActivity as updateLeadActivityOnServer } from "./lead-service.js";
 
 await bootstrapLocalState();
 
@@ -1371,37 +1369,31 @@ async function saveActivity(event) {
 
 async function deleteRegisteredLead(leadKey) {
   if (!isAdmin) {
-    return;
+    return false;
   }
 
   const lead = getAllLeads().find((item) => buildLeadKey(item) === leadKey);
   if (!lead) {
     showToast("Lead not found.", true);
-    return;
+    return false;
   }
 
   const confirmed = window.confirm("Delete this registered lead? This cannot be undone.");
   if (!confirmed) {
-    return;
+    return false;
   }
 
-  const remainingLeads = getStoredLeads().filter((item) => buildLeadKey(item) !== leadKey);
-  const saveResult = await persistLeads(remainingLeads);
-  if (!saveResult || saveResult.ok === false) {
-    showToast(saveResult?.message || "Failed to delete lead.", true);
-    return;
-  }
-
-  const syncResult = await syncStateFromLocalAndVerify();
-  if (!syncResult.ok) {
-    showToast(syncResult.message || "Lead deleted locally, but backend verification failed.", true);
-    return;
+  const deleteResult = await deleteLeadsOnServer([buildLeadRef(lead)]);
+  if (!deleteResult || deleteResult.ok === false) {
+    showToast(deleteResult?.message || "Failed to delete lead.", true);
+    return false;
   }
 
   selectedLeadKeys.delete(leadKey);
   setMessage("Registered lead deleted successfully.");
-  showToast("Registered lead deleted.");
+  showToast("Registered lead deleted successfully.");
   renderAll();
+  return true;
 }
 
 async function deleteSelectedLeads(leads) {
@@ -1414,30 +1406,24 @@ async function deleteSelectedLeads(leads) {
     return false;
   }
 
-  const allLeads = getAllRegisteredCandidateLeads();
-  const selectedKeys = new Set([...selectedLeadKeys].map((key) => String(key)));
-  const remainingLeads = allLeads.filter((lead) => !selectedKeys.has(buildLeadKey(lead)));
-  const removedCount = allLeads.length - remainingLeads.length;
+  const deleteRefs = leads
+    .filter((lead) => selectedLeadKeys.has(buildLeadKey(lead)))
+    .map(buildLeadRef);
+  const removedCount = deleteRefs.length;
   if (!removedCount) {
     return false;
   }
 
-  const saveResult = await persistLeads(remainingLeads);
-  if (!saveResult || saveResult.ok === false) {
-    showToast(saveResult?.message || "Failed to delete selected leads.", true);
-    return false;
-  }
-
-  const syncResult = await syncStateFromLocalAndVerify();
-  if (!syncResult.ok) {
-    showToast(syncResult.message || "Selected leads were deleted locally, but backend verification failed.", true);
+  const deleteResult = await deleteLeadsOnServer(deleteRefs);
+  if (!deleteResult || deleteResult.ok === false) {
+    showToast(deleteResult?.message || "Failed to delete selected leads.", true);
     return false;
   }
 
   selectedLeadKeys = new Set();
   currentPage = 1;
-  setMessage(`Deleted ${removedCount} selected lead${removedCount === 1 ? "" : "s"}.`);
-  showToast(`Deleted ${removedCount} selected lead${removedCount === 1 ? "" : "s"}.`);
+  setMessage(`Deleted ${removedCount} registered lead${removedCount === 1 ? "" : "s"} successfully.`);
+  showToast(`Deleted ${removedCount} registered lead${removedCount === 1 ? "" : "s"} successfully.`);
   return true;
 }
 
