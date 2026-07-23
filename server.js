@@ -1832,6 +1832,15 @@ function normalizeReachoutWebhookStatus(value) {
   return normalized.replace(/\s+/g, "_");
 }
 
+function normalizeReachoutStatusCode(value) {
+  const code = String(value || "").trim();
+  if (!code) return "";
+  if (code === "5") return "read";
+  if (code === "4") return "delivered";
+  if (code === "3") return "sent";
+  return "";
+}
+
 function normalizeReachoutWebhookEvent(body = {}) {
   const payload = body?.payload && typeof body.payload === "object" ? body.payload : body;
   const lead = payload?.lead && typeof payload.lead === "object" ? payload.lead : {};
@@ -1875,7 +1884,6 @@ function normalizeReachoutWebhookEvent(body = {}) {
     payload.type,
     payload.action,
     payload.webhookType,
-    payload.id,
     body.status,
     body.eventType,
     body.event_type
@@ -1884,9 +1892,11 @@ function normalizeReachoutWebhookEvent(body = {}) {
   if (!String(rawStatus || "").trim()) {
     if (inferredClick) normalizedStatus = "clicked";
     else if (inferredInboundReply) normalizedStatus = "replied";
+    else normalizedStatus = normalizeReachoutStatusCode(payload.statusCode) || normalizedStatus;
   } else if (normalizedStatus === "updated") {
     if (inferredClick) normalizedStatus = "clicked";
     else if (inferredInboundReply) normalizedStatus = "replied";
+    else normalizedStatus = normalizeReachoutStatusCode(payload.statusCode) || normalizedStatus;
   }
 
   return {
