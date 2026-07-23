@@ -73,10 +73,10 @@ const PUBLIC_COURSE_CATALOG = [
 ];
 
 const COURSE_IDENTITY_RULES = [
-  { pattern: /\bapids\b|\bindustrial data science\b|\bdata science\b/i, label: "APIDS", key: "apids" },
-  { pattern: /\bapida\b|\bindustrial data analytics\b/i, label: "APIDA", key: "apida" },
-  { pattern: /\b7\s*days?\b.*\bgen\s*ai\b|\bgen\s*ai\b.*\b7\s*days?\b|\b7days\b|\bdays7[_\s-]*genai\b/i, label: "7DAYS_GENAI", key: "days7_genai" },
-  { pattern: /\badvanced\b.*\b(ai\s*\/?\s*ml|aiml)\b|\badv\b.*\b(ai\s*\/?\s*ml|aiml)\b|\baiml\b/i, label: "AIML + GenAI", key: "advanced-aiml-genai-agentic" },
+  { pattern: /\bapids\b|\bindustrial data science\b|\badvanced program in industrial data science\b|\bdata science\b|\bdata scientist\b/i, label: "APIDS", key: "apids" },
+  { pattern: /\bapida\b|\bindustrial data analytics\b|\badvanced program in industrial data analytics\b|\bdata analytics\b|\bdata analyst\b/i, label: "APIDA", key: "apida" },
+  { pattern: /\b7\s*days?\b.*\b(gen\s*ai|agentic ai)\b|\b(gen\s*ai|agentic ai)\b.*\b7\s*days?\b|\b7days\b|\bdays7[_\s-]*genai\b|\bgen\s*ai\b.*\bcrash\s*course\b|\bcrash\s*course\b.*\b(gen\s*ai|agentic ai)\b/i, label: "7DAYS_GENAI", key: "days7_genai" },
+  { pattern: /\badvanced\b.*\b(ai\s*\/?\s*ml|aiml)\b|\badv\b.*\b(ai\s*\/?\s*ml|aiml)\b|\bai\s*\/?\s*ml\b|\bartificial intelligence\b.*\bmachine learning\b|\baiml\b/i, label: "AIML + GenAI", key: "advanced-aiml-genai-agentic" },
   { pattern: /\bcyber\s*security\b|\bcybersecurity\b|\bcyber\s*ai\b|\bcyberai\b|\bapcs\b|\bforensics\b/i, label: "APCS", key: "apcs" },
   { pattern: /\bdata analytics specialist\b|\bdas\b/i, label: "DAS", key: "data-analytics-specialist" },
   { pattern: /\bmaster\b.*\bgen\s*ai\b|\bgen\s*ai\b.*\bmaster\b|\bgenai\s*master\b|\bagentic\b/i, label: "GenAI Master", key: "master-genai-agentic" }
@@ -2923,17 +2923,46 @@ function classifyIncomingElementorLead(fields = {}, meta = {}, config = {}) {
 }
 
 function inferElementorProgram(fields = {}, meta = {}, leadType = "workshop") {
-  const rawProgram = [
+  const preferredCandidates = [
+    fields.course,
+    fields.course_name,
+    fields.course_title,
+    fields.program,
+    fields.program_name,
+    fields.program_title,
+    fields.selected_course,
+    fields.select_course,
+    fields.course_pitched,
     fields.workshop,
     fields.workshop_name,
     fields.workshop_title,
-    fields.course,
-    fields.course_name,
-    fields.program,
-    fields.page_url,
-    meta.formName
-  ].find(Boolean);
+    fields.workshop_topic
+  ].map((value) => normalizeMetaLabel(value)).filter(Boolean);
+
+  const dynamicCandidates = Object.entries(fields || {})
+    .filter(([key, value]) => {
+      if (!value) {
+        return false;
+      }
+      return /(^|_)(course|program|workshop|training|bootcamp|masterclass|webinar|session|career)(_|$)/i.test(String(key || ""));
+    })
+    .map(([, value]) => normalizeMetaLabel(value))
+    .filter(Boolean);
+
+  const metaCandidates = [
+    meta.formName,
+    meta.pageUrl,
+    fields.page_url
+  ].map((value) => normalizeMetaLabel(value)).filter(Boolean);
+
+  const orderedCandidates = [...new Set([...preferredCandidates, ...dynamicCandidates, ...metaCandidates])];
+  const canonicalCandidate = orderedCandidates.find((candidate) => isKnownPublicCourseIdentity(buildCourseIdentity(candidate, {
+    elementorFormName: meta.formName,
+    elementorPageUrl: meta.pageUrl
+  })));
+  const rawProgram = canonicalCandidate || orderedCandidates[0] || "";
   const normalized = normalizeMetaLabel(rawProgram);
+
   if (!normalized && leadType === "workshop") {
     return "Elementor Workshop";
   }
@@ -3264,6 +3293,7 @@ function buildMetaLead(fieldData, meta, counselorName, nextId, options = {}) {
   const isAdmissionLead = leadType === "admission";
   const workshop = isAdmissionLead ? "" : inferredProgram;
   const courseName = isAdmissionLead ? inferredProgram : "";
+  const courseRawName = courseName;
 
   const knownKeys = new Set(["full_name", "name", "first_name", "last_name", "email", "email_address", "phone_number", "phone", "mobile_phone", "mobile", "workshop", "workshop_name", "workshop_title", "workshop_topic", "course", "course_name", "program"]);
   const extraEntries = Object.entries(fields).filter(([k]) => !knownKeys.has(k) && fields[k]);
@@ -3276,6 +3306,7 @@ function buildMetaLead(fieldData, meta, counselorName, nextId, options = {}) {
     phone,
     workshop,
     courseName,
+    courseRawName,
     status: "New",
     source: isAdmissionLead ? "Meta Admission Lead" : "Meta",
     leadPipeline: isAdmissionLead ? MAIN_ADMISSION_PIPELINE : "",
@@ -3330,6 +3361,7 @@ function buildElementorLead(fields, meta, counselorName, nextId, options = {}) {
   const inferredProgram = inferElementorProgram(fields, meta, leadType);
   const workshop = isAdmissionLead ? "" : inferredProgram;
   const courseName = isAdmissionLead ? inferredProgram : "";
+  const courseRawName = courseName;
   const knownKeys = new Set([
     "full_name", "name", "first_name", "last_name", "email", "email_address",
     "phone_number", "phone", "mobile_phone", "mobile", "highest_qualification",
@@ -3346,6 +3378,7 @@ function buildElementorLead(fields, meta, counselorName, nextId, options = {}) {
     phone,
     workshop,
     courseName,
+    courseRawName,
     highestQualification: String(fields.highest_qualification || "").trim(),
     status: "New",
     source: isAdmissionLead ? "Elementor Admission Lead" : "Elementor",
@@ -5858,6 +5891,9 @@ function buildFreshWorkshopLead(existingLead, incomingLead, options = {}) {
     ...existingLead,
     ...incomingLead,
     id: existingLead.id,
+    name: String(existingLead?.name || incomingLead?.name || "").trim() || "Unknown",
+    email: String(existingLead?.email || incomingLead?.email || "").trim().toLowerCase(),
+    phone: String(existingLead?.phone || incomingLead?.phone || "").trim(),
     counselor: preservedCounselor,
     workshop: String(incomingLead?.workshop || "").trim() || String(existingLead?.workshop || "").trim(),
     admissionWorkshop: String(incomingLead?.workshop || "").trim() || String(existingLead?.admissionWorkshop || existingLead?.workshop || "").trim(),
@@ -5887,6 +5923,79 @@ function buildFreshWorkshopLead(existingLead, incomingLead, options = {}) {
   };
 
   return decorateLeadForStorage(nextLead);
+}
+
+function hasMeaningfulLeadUpdateValue(value) {
+  if (value === null || value === undefined) {
+    return false;
+  }
+  if (typeof value === "string") {
+    return value.trim().length > 0;
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  if (typeof value === "object") {
+    return Object.keys(value).length > 0;
+  }
+  return true;
+}
+
+function buildProtectedIntegrationLeadUpdate(existingLead, incomingLead) {
+  const protectedFields = new Set([
+    "id",
+    "_id",
+    "name",
+    "email",
+    "phone",
+    "normalizedEmail",
+    "normalizedPhone",
+    "createdAt"
+  ]);
+  const nextLead = { ...existingLead };
+
+  Object.entries(incomingLead || {}).forEach(([key, value]) => {
+    if (protectedFields.has(key) || !hasMeaningfulLeadUpdateValue(value)) {
+      return;
+    }
+    nextLead[key] = value;
+  });
+
+  nextLead.id = existingLead.id;
+  nextLead.name = String(existingLead?.name || incomingLead?.name || "").trim() || "Unknown";
+  nextLead.email = String(existingLead?.email || incomingLead?.email || "").trim().toLowerCase();
+  nextLead.phone = String(existingLead?.phone || incomingLead?.phone || "").trim();
+  nextLead.createdAt = String(existingLead?.createdAt || incomingLead?.createdAt || "").trim();
+
+  return decorateLeadForStorage(nextLead);
+}
+
+async function updateExistingIntegrationLead(existingLead, incomingLead, options = {}) {
+  const nextLead = buildProtectedIntegrationLeadUpdate(existingLead, incomingLead);
+  await replaceLeadDocument(nextLead);
+
+  const previousCourse = String(existingLead?.courseName || existingLead?.workshop || existingLead?.admissionWorkshop || "").trim();
+  const nextCourse = String(nextLead?.courseName || nextLead?.workshop || nextLead?.admissionWorkshop || "").trim();
+  await recordActivity({
+    leadId: nextLead.id,
+    leadName: nextLead.name,
+    counselorName: nextLead.counselor || "",
+    activityType: "Lead Updated",
+    actionDescription: `${String(options.source || "Integration").trim() || "Integration"} duplicate matched existing lead and refreshed lead details`,
+    previousValue: previousCourse || "Existing lead retained",
+    newValue: nextCourse || "Existing lead retained"
+  });
+
+  const now = new Date().toISOString();
+  await stateCollection.updateOne(
+    { _id: STATE_DOC_ID },
+    { $set: { updatedAt: now } },
+    { upsert: true }
+  );
+
+  cachedStateDoc = null;
+  cachedStateDocAt = 0;
+  return nextLead;
 }
 
 function buildLeadOwnerMap(leads, field) {
@@ -6015,6 +6124,64 @@ function findDuplicateLeadByEmailOrPhone(leads, incomingLead) {
     const matchesEmail = incomingEmail && normalizeLeadEmail(lead?.email) === incomingEmail;
     const matchesPhone = incomingPhone && normalizeLeadPhone(lead?.phone) === incomingPhone;
     return matchesEmail || matchesPhone;
+  }) || null;
+}
+
+function findDuplicateLeadByPhone(leads, incomingLead) {
+  const incomingPhone = normalizeLeadPhone(incomingLead?.phone);
+  if (!incomingPhone) {
+    return null;
+  }
+  return (Array.isArray(leads) ? leads : []).find(
+    (lead) => normalizeLeadPhone(lead?.phone) === incomingPhone
+  ) || null;
+}
+
+function buildElementorSubmissionDuplicateKey(lead = {}) {
+  const submittedDate = normalizeMetaLabel(lead?.elementorSubmittedDate);
+  const submittedTime = normalizeMetaLabel(lead?.elementorSubmittedTime);
+  if (!submittedDate && !submittedTime) {
+    return "";
+  }
+
+  const formId = normalizeMetaLabel(lead?.elementorFormId);
+  const formName = normalizeMetaLabel(lead?.elementorFormName);
+  const pageUrl = normalizeMetaLabel(lead?.elementorPageUrl);
+  const normalizedEmail = normalizeLeadEmail(lead?.email);
+  const normalizedPhone = normalizeLeadPhone(lead?.phone);
+  const courseToken = String(
+    lead?.courseKey
+    || buildCourseIdentity(lead?.courseRawName || lead?.courseName, lead)?.key
+    || normalizeCourseSourceText(lead?.courseRawName || lead?.courseName || "")
+  ).trim().toLowerCase();
+
+  if ((!normalizedEmail && !normalizedPhone) || (!formId && !formName && !pageUrl)) {
+    return "";
+  }
+
+  return [
+    formId,
+    formName,
+    pageUrl,
+    submittedDate,
+    submittedTime,
+    normalizedEmail,
+    normalizedPhone,
+    courseToken
+  ].join("|");
+}
+
+function findDuplicateElementorLeadBySubmission(leads, incomingLead) {
+  const incomingKey = buildElementorSubmissionDuplicateKey(incomingLead);
+  if (!incomingKey) {
+    return null;
+  }
+
+  return (Array.isArray(leads) ? leads : []).find((lead) => {
+    if (!String(lead?.source || "").toLowerCase().includes("elementor")) {
+      return false;
+    }
+    return buildElementorSubmissionDuplicateKey(lead) === incomingKey;
   }) || null;
 }
 
@@ -9401,6 +9568,8 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
     metaFields.program ||
     metaFields.workshop ||
     metaFields.workshop_name ||
+    metaFields.workshop_title ||
+    metaFields.workshop_topic ||
     metaInfo.adsetName ||
     metaInfo.adName ||
     metaInfo.campaignName ||
@@ -9459,15 +9628,18 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
           { retries: 1, label: "Delete duplicate Meta retry job" }
         );
       }
+      const updatedLead = await updateExistingIntegrationLead(duplicateLead, newLead, {
+        source: "Meta"
+      });
       const duplicateField = normalizeLeadEmail(duplicateLead.email) === normalizeLeadEmail(newLead.email)
         ? "email"
         : "phone";
       await saveMetaLog({
-        type: "ignored",
-        message: `Duplicate lead blocked by ${duplicateField} match`,
+        type: "updated",
+        message: `Duplicate lead updated by ${duplicateField} match`,
         leadgenId,
         formId,
-        leadId: duplicateLead.id
+        leadId: updatedLead.id
       });
       return;
     }
@@ -9625,6 +9797,7 @@ async function processElementorLeadRecord(payload, config) {
     metaInfo.formName
   );
   const inferredAdmissionCourse = String(
+    inferElementorProgram(fields, metaInfo, leadType) ||
     fields.course ||
     fields.course_name ||
     fields.program ||
@@ -9676,16 +9849,19 @@ async function processElementorLeadRecord(payload, config) {
     }
 
     if (shouldBlockDuplicate) {
+      const updatedLead = await updateExistingIntegrationLead(duplicateLead, newLead, {
+        source: "Elementor"
+      });
       const duplicateField = normalizeLeadEmail(duplicateLead.email) === normalizeLeadEmail(newLead.email)
         ? "email"
         : "phone";
       await saveElementorLog({
-        type: "ignored",
-        message: `Duplicate lead blocked by ${duplicateField} match`,
+        type: "updated",
+        message: `Duplicate lead updated by ${duplicateField} match`,
         formId,
         formName,
         pageUrl,
-        leadId: duplicateLead.id
+        leadId: updatedLead.id
       });
       return;
     }
