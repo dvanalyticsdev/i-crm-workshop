@@ -26,6 +26,7 @@ const PAGE_PERMISSION_MAP = {
   "lead-browse.html": "leadBrowse",
   "claim-raised.html": "claimRaised",
   "lead-creation.html": "leadCreation",
+  "admission-sop.html": "admissionSop",
   "pre-workshop.html": "preWorkshop",
   "post-workshop.html": "postWorkshop",
   "task-tracker.html": "taskTracker",
@@ -38,6 +39,7 @@ const DEFAULT_PERMISSIONS = {
   leadBrowse: true,
   claimRaised: true,
   leadCreation: true,
+  admissionSop: true,
   preWorkshop: true,
   postWorkshop: true,
   taskTracker: true,
@@ -61,6 +63,11 @@ const SIDEBAR_GROUPS = [
     id: "workflows",
     label: "Workflows",
     routes: ["pre-workshop.html", "registered-candidates.html", "lost-leads.html", "task-tracker.html"]
+  },
+  {
+    id: "sop-tracker",
+    label: "SOP Tracker",
+    routes: ["admission-sop.html"]
   },
   {
     id: "control-center",
@@ -376,6 +383,7 @@ function rebuildSidebarSections() {
     "lead-browse.html": "Lead Browse",
     "claim-raised.html": "Claim Raised",
     "lead-creation.html": "Lead Creation",
+    "admission-sop.html": "Admission SOP",
     "pre-workshop.html": "Workshop",
     "registered-candidates.html": "Admission",
     "task-tracker.html": "Task Tracker",

@@ -6825,4 +6825,219 @@ html[data-theme="dark"] .diff-val {
   }
 }
 
+.sop-hero-card,
+.sop-filter-card,
+.sop-admin-summary,
+.sop-table-card {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.sop-hero-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.sop-hero-copy h2,
+.section-head h2 {
+  margin: 0 0 8px;
+}
+
+.sop-hero-copy p,
+.section-head p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.sop-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.sop-kpi-card {
+  display: grid;
+  gap: 10px;
+  padding: var(--space-4);
+}
+
+.sop-kpi-card__label {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.sop-kpi-card__value {
+  font-size: clamp(1.8rem, 3vw, 2.5rem);
+  line-height: 1;
+}
+
+.sop-kpi-card--warning {
+  border-color: color-mix(in srgb, var(--warning, #f59e0b) 45%, var(--border));
+}
+
+.sop-kpi-card--danger {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+
+.sop-kpi-card--success {
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border));
+}
+
+.sop-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.sop-filter-grid label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.sop-filter-grid select,
+.sop-filter-grid input,
+.sop-assign-bar select {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  padding: 10px 12px;
+}
+
+.sop-filter-grid__search {
+  grid-column: span 2;
+}
+
+.sop-assign-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  align-items: flex-start;
+}
+
+.table-shell {
+  overflow: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th,
+.data-table td {
+  padding: 14px 12px;
+  border-top: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.data-table th {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.table-meta {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.btn-sm {
+  min-height: 34px;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.76rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.pill--neutral {
+  background: var(--surface-muted);
+  color: var(--text-muted);
+}
+
+.pill--warning {
+  border-color: color-mix(in srgb, var(--warning, #f59e0b) 42%, var(--border));
+  background: color-mix(in srgb, var(--warning, #f59e0b) 14%, var(--surface));
+  color: color-mix(in srgb, var(--warning, #f59e0b) 85%, var(--text));
+}
+
+.pill--danger {
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--border));
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+  color: var(--danger);
+}
+
+.pill--success {
+  border-color: color-mix(in srgb, var(--success) 42%, var(--border));
+  background: color-mix(in srgb, var(--success) 12%, var(--surface));
+  color: var(--success);
+}
+
+@media (max-width: 1100px) {
+  .sop-kpi-grid,
+  .sop-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sop-filter-grid__search {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 720px) {
+  .sop-hero-card,
+  .section-head,
+  .sop-assign-bar {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .sop-kpi-grid,
+  .sop-filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sop-filter-grid__search {
+    grid-column: span 1;
+  }
+}
+
 

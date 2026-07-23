@@ -62,6 +62,10 @@ const PUBLIC_COURSE_SEGMENT_CONFIG = {
 };
 const MAIN_ADMISSION_PIPELINE = "main-admission";
 const MAIN_ADMISSION_ROUND_ROBIN_FIELD = "mainAdmissionRoundRobinIndex";
+const KOLKATA_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+const ADMISSION_SOP_NEW_WINDOW_MS = 48 * 60 * 60 * 1000;
+const ADMISSION_SOP_ACTIVE_WINDOW_DAYS = 15;
+const ADMISSION_SOP_OFFERED_WINDOW_DAYS = 30;
 const PUBLIC_COURSE_CATALOG = [
   { id: "apids", code: "APIDS", name: "Advanced Program in Industrial Data Science & AI", duration: "6-8 Months" },
   { id: "apida", code: "APIDA", name: "Advanced Program in Industrial Data Analytics & AI", duration: "4-5 Months" },
@@ -2500,6 +2504,8 @@ function buildMcubeLead(event, assignment, nextId) {
     mainAdmissionActivityUpdated: false,
     mainAdmissionActivityUpdates: 0,
     mainAdmissionActivityHistory: [],
+    admissionSopAssignedAt: shouldTreatLeadAsAssigned(counselorName) ? now : null,
+    admissionSopLastProgressAt: null,
     mcubeAutoCreated: true,
     mcubePickedBy: String(assignment?.pickedBy || "").trim(),
     mcubePickedByPhone: String(assignment?.pickedByPhone || "").trim(),
@@ -3302,6 +3308,7 @@ async function forwardMetaWebhook(req, fallbackBody) {
 }
 
 function buildMetaLead(fieldData, meta, counselorName, nextId, options = {}) {
+  const now = new Date().toISOString();
   const fields = getMetaLeadFieldMap(fieldData);
   const firstName = String(fields.first_name || "").trim();
   const lastName = String(fields.last_name || "").trim();
@@ -3347,7 +3354,7 @@ function buildMetaLead(fieldData, meta, counselorName, nextId, options = {}) {
     metaAdsetName: String(meta.adsetName || ""),
     metaCampaignName: String(meta.campaignName || ""),
     metaExtraFields,
-    createdAtExact: new Date().toISOString(),
+    createdAtExact: now,
     createdAt: toKolkataDateKey(),
     dialed: "",
     callStatus: "",
@@ -3372,6 +3379,8 @@ function buildMetaLead(fieldData, meta, counselorName, nextId, options = {}) {
     mainAdmissionActivityUpdated: false,
     mainAdmissionActivityUpdates: 0,
     mainAdmissionActivityHistory: [],
+    admissionSopAssignedAt: isAdmissionLead && shouldTreatLeadAsAssigned(counselorName) ? now : null,
+    admissionSopLastProgressAt: null,
     whatsappGroupStatus: "",
     leadNotes: [],
     importSourceFiles: ["Meta Lead Ads"],
@@ -3380,6 +3389,7 @@ function buildMetaLead(fieldData, meta, counselorName, nextId, options = {}) {
 }
 
 function buildElementorLead(fields, meta, counselorName, nextId, options = {}) {
+  const now = new Date().toISOString();
   const name = String(
     fields.full_name ||
     fields.name ||
@@ -3425,7 +3435,7 @@ function buildElementorLead(fields, meta, counselorName, nextId, options = {}) {
       ...Object.fromEntries(extraEntries),
       poweredBy: String(fields.powered_by || meta.poweredBy || "").trim()
     },
-    createdAtExact: new Date().toISOString(),
+    createdAtExact: now,
     createdAt: toKolkataDateKey(),
     dialed: "",
     callStatus: "",
@@ -3450,6 +3460,8 @@ function buildElementorLead(fields, meta, counselorName, nextId, options = {}) {
     mainAdmissionActivityUpdated: false,
     mainAdmissionActivityUpdates: 0,
     mainAdmissionActivityHistory: [],
+    admissionSopAssignedAt: isAdmissionLead && shouldTreatLeadAsAssigned(counselorName) ? now : null,
+    admissionSopLastProgressAt: null,
     whatsappGroupStatus: "",
     leadNotes: [],
     importSourceFiles: ["Elementor Webhook"],
@@ -5670,6 +5682,7 @@ function shouldTreatLeadAsAssigned(counselorName) {
 }
 
 function buildPublicCourseLead({ name, email, phone, course, counselorName, nextId, country, segment }) {
+  const now = new Date().toISOString();
   return {
     id: nextId,
     name: String(name || "").trim(),
@@ -5685,7 +5698,7 @@ function buildPublicCourseLead({ name, email, phone, course, counselorName, next
     source: "Public Course Registration",
     leadPipeline: "course-registration",
     publicCourseSegment: normalizePublicCourseSegment(segment),
-    createdAtExact: new Date().toISOString(),
+    createdAtExact: now,
     createdAt: toKolkataDateKey(),
     counselor: counselorName,
     registeredDialed: "",
@@ -5696,6 +5709,8 @@ function buildPublicCourseLead({ name, email, phone, course, counselorName, next
     registeredActivityUpdated: false,
     registeredCourseActivityUpdates: 0,
     registeredCourseActivityHistory: [],
+    admissionSopAssignedAt: shouldTreatLeadAsAssigned(counselorName) ? now : null,
+    admissionSopLastProgressAt: null,
     leadNotes: [],
     importSourceFiles: ["Public Course Landing Page"],
     importSourceSheets: []
@@ -5713,6 +5728,267 @@ function isMainAdmissionLead(lead) {
 function isCrashCourseRegistrationLead(lead) {
   return isPublicCourseRegistrationLead(lead)
     && normalizePublicCourseSegment(lead?.publicCourseSegment || getPublicCourseSegment(lead)) === PUBLIC_COURSE_CRASH_SEGMENT;
+}
+
+function isAdmissionSopScopedLead(lead) {
+  return isMainAdmissionLead(lead) || isPublicCourseRegistrationLead(lead);
+}
+
+function getKolkataShiftedDate(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return new Date(date.getTime() + KOLKATA_OFFSET_MS);
+}
+
+function getKolkataWeekday(value) {
+  const shifted = getKolkataShiftedDate(value);
+  return shifted ? shifted.getUTCDay() : null;
+}
+
+function getNextKolkataMidnightTs(value) {
+  const shifted = getKolkataShiftedDate(value);
+  if (!shifted) {
+    return null;
+  }
+  const nextMidnightUtc = Date.UTC(
+    shifted.getUTCFullYear(),
+    shifted.getUTCMonth(),
+    shifted.getUTCDate() + 1,
+    0,
+    0,
+    0,
+    0
+  );
+  return nextMidnightUtc - KOLKATA_OFFSET_MS;
+}
+
+function addNonSundayWorkingMs(startValue, durationMs) {
+  const startTs = new Date(startValue).getTime();
+  let remaining = Math.max(0, Number(durationMs) || 0);
+  if (!Number.isFinite(startTs) || remaining <= 0) {
+    return Number.isFinite(startTs) ? startTs : null;
+  }
+
+  let cursor = startTs;
+  while (remaining > 0) {
+    const nextBoundary = getNextKolkataMidnightTs(cursor);
+    if (!Number.isFinite(nextBoundary) || nextBoundary <= cursor) {
+      return cursor + remaining;
+    }
+    const segmentEnd = cursor + remaining < nextBoundary ? cursor + remaining : nextBoundary;
+    const segmentDuration = segmentEnd - cursor;
+    if (getKolkataWeekday(cursor) !== 0) {
+      remaining -= segmentDuration;
+    }
+    cursor = segmentEnd;
+  }
+
+  return cursor;
+}
+
+function addNonSundayWorkingDays(startValue, days) {
+  return addNonSundayWorkingMs(startValue, Math.max(0, Number(days) || 0) * 24 * 60 * 60 * 1000);
+}
+
+function getNonSundayElapsedMs(startValue, endValue = Date.now()) {
+  const startTs = new Date(startValue).getTime();
+  const endTs = new Date(endValue).getTime();
+  if (!Number.isFinite(startTs) || !Number.isFinite(endTs) || endTs <= startTs) {
+    return 0;
+  }
+
+  let total = 0;
+  let cursor = startTs;
+  while (cursor < endTs) {
+    const nextBoundary = getNextKolkataMidnightTs(cursor);
+    const segmentEnd = !Number.isFinite(nextBoundary) || nextBoundary <= cursor
+      ? endTs
+      : Math.min(endTs, nextBoundary);
+    if (getKolkataWeekday(cursor) !== 0) {
+      total += segmentEnd - cursor;
+    }
+    cursor = segmentEnd;
+  }
+  return total;
+}
+
+function formatRemainingWorkingTime(ms) {
+  const remainingMs = Math.max(0, Number(ms) || 0);
+  const totalMinutes = Math.ceil(remainingMs / 60000);
+  const totalHours = totalMinutes / 60;
+  if (totalHours < 24) {
+    return `${Math.max(0, Math.ceil(totalHours))}h`;
+  }
+  const totalDays = totalHours / 24;
+  if (totalDays < 10) {
+    return `${totalDays.toFixed(1)}d`;
+  }
+  return `${Math.ceil(totalDays)}d`;
+}
+
+function getAdmissionSopTrackingConfig(lead) {
+  if (isMainAdmissionLead(lead)) {
+    return {
+      scope: "main-admission",
+      admissionStatusField: "mainAdmissionAdmissionStatus",
+      activityUpdatedField: "mainAdmissionActivityUpdated",
+      activityHistoryField: "mainAdmissionActivityHistory",
+      route: "main-admission-leads.html",
+      sectionLabel: "Main Admission"
+    };
+  }
+  if (isPublicCourseRegistrationLead(lead)) {
+    return {
+      scope: normalizePublicCourseSegment(lead?.publicCourseSegment || getPublicCourseSegment(lead)) === PUBLIC_COURSE_CRASH_SEGMENT
+        ? "crash-course"
+        : "registered-candidates",
+      admissionStatusField: "registeredAdmissionStatus",
+      activityUpdatedField: "registeredActivityUpdated",
+      activityHistoryField: "registeredCourseActivityHistory",
+      route: "registered-candidates.html",
+      sectionLabel: normalizePublicCourseSegment(lead?.publicCourseSegment || getPublicCourseSegment(lead)) === PUBLIC_COURSE_CRASH_SEGMENT
+        ? "Crash Course"
+        : "Registered Candidates"
+    };
+  }
+  return null;
+}
+
+function normalizeAdmissionSopStatus(value) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function getAdmissionSopAnchorAt(lead, trackingConfig) {
+  const explicit = String(lead?.admissionSopLastProgressAt || "").trim();
+  if (explicit) {
+    return explicit;
+  }
+
+  const history = Array.isArray(lead?.[trackingConfig?.activityHistoryField]) ? lead[trackingConfig.activityHistoryField] : [];
+  const latestEntry = history
+    .map((entry) => String(entry?.at || "").trim())
+    .filter(Boolean)
+    .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0];
+  if (latestEntry) {
+    return latestEntry;
+  }
+
+  const hasActivity = Boolean(lead?.[trackingConfig?.activityUpdatedField]);
+  if (hasActivity) {
+    return String(lead?.updatedAt || lead?.createdAtExact || "").trim() || null;
+  }
+
+  return null;
+}
+
+function deriveAdmissionSopState(lead, nowValue = Date.now()) {
+  if (!isAdmissionSopScopedLead(lead)) {
+    return null;
+  }
+
+  const trackingConfig = getAdmissionSopTrackingConfig(lead);
+  if (!trackingConfig) {
+    return null;
+  }
+
+  const counselor = String(lead?.counselor || "").trim();
+  const assignedAt = String(lead?.admissionSopAssignedAt || lead?.counselorAssignedAt || lead?.createdAtExact || "").trim()
+    || null;
+  const currentStatus = String(lead?.[trackingConfig.admissionStatusField] || "").trim();
+  const normalizedStatus = normalizeAdmissionSopStatus(currentStatus);
+  const progressAnchorAt = getAdmissionSopAnchorAt(lead, trackingConfig);
+  const hasStartedProgress = Boolean(progressAnchorAt);
+  const isWon = normalizedStatus === "won" || normalizedStatus === "enrolled";
+  const isOfferedStage = normalizedStatus === "opportunity" || normalizedStatus === "offered";
+  const isAssigned = counselor && counselor.toLowerCase() !== "unassigned";
+  const nowTs = new Date(nowValue).getTime();
+
+  if (!isAssigned) {
+    return {
+      scope: trackingConfig.scope,
+      sectionLabel: trackingConfig.sectionLabel,
+      route: trackingConfig.route,
+      stageKey: "unassigned",
+      stageLabel: "Unassigned",
+      blocked: false,
+      isDueSoon: false,
+      countdownLabel: "",
+      assignedAt,
+      lastProgressAt: progressAnchorAt,
+      deadlineAt: null,
+      remainingMs: null
+    };
+  }
+
+  if (isWon) {
+    return {
+      scope: trackingConfig.scope,
+      sectionLabel: trackingConfig.sectionLabel,
+      route: trackingConfig.route,
+      stageKey: "won",
+      stageLabel: currentStatus || "Won / Enrolled",
+      blocked: false,
+      isDueSoon: false,
+      countdownLabel: "No expiry",
+      assignedAt,
+      lastProgressAt: progressAnchorAt,
+      deadlineAt: null,
+      remainingMs: null
+    };
+  }
+
+  const anchorAt = hasStartedProgress ? progressAnchorAt : assignedAt;
+  if (!anchorAt) {
+    return {
+      scope: trackingConfig.scope,
+      sectionLabel: trackingConfig.sectionLabel,
+      route: trackingConfig.route,
+      stageKey: "unassigned",
+      stageLabel: "Awaiting assignment",
+      blocked: false,
+      isDueSoon: false,
+      countdownLabel: "",
+      assignedAt: null,
+      lastProgressAt: progressAnchorAt,
+      deadlineAt: null,
+      remainingMs: null
+    };
+  }
+
+  const deadlineTs = hasStartedProgress
+    ? (isOfferedStage
+        ? addNonSundayWorkingDays(anchorAt, ADMISSION_SOP_OFFERED_WINDOW_DAYS)
+        : addNonSundayWorkingDays(anchorAt, ADMISSION_SOP_ACTIVE_WINDOW_DAYS))
+    : addNonSundayWorkingMs(anchorAt, ADMISSION_SOP_NEW_WINDOW_MS);
+  const remainingMs = Number.isFinite(deadlineTs) ? deadlineTs - nowTs : null;
+  const blocked = Number.isFinite(remainingMs) ? remainingMs <= 0 : false;
+  const elapsedMs = getNonSundayElapsedMs(anchorAt, nowTs);
+  const dueSoonThresholdMs = hasStartedProgress
+    ? ((isOfferedStage ? 5 : 3) * 24 * 60 * 60 * 1000)
+    : (12 * 60 * 60 * 1000);
+  const stageKey = !hasStartedProgress
+    ? "new"
+    : (isOfferedStage ? "offered" : "active");
+  const baseLabel = !hasStartedProgress
+    ? "New window"
+    : (isOfferedStage ? "Opportunity / Offered" : "Active management");
+
+  return {
+    scope: trackingConfig.scope,
+    sectionLabel: trackingConfig.sectionLabel,
+    route: trackingConfig.route,
+    stageKey,
+    stageLabel: baseLabel,
+    blocked,
+    isDueSoon: !blocked && elapsedMs >= 0 && remainingMs !== null && remainingMs <= dueSoonThresholdMs,
+    countdownLabel: blocked ? "Blocked" : formatRemainingWorkingTime(remainingMs),
+    assignedAt,
+    lastProgressAt: progressAnchorAt,
+    deadlineAt: Number.isFinite(deadlineTs) ? new Date(deadlineTs).toISOString() : null,
+    remainingMs: Number.isFinite(remainingMs) ? remainingMs : null
+  };
 }
 
 function publicCourseLeadMatchesCourse(lead, course) {
@@ -6972,18 +7248,31 @@ function getSessionCounselorName(state, session) {
   return String(match?.name || sessionName || "").trim();
 }
 
-function canMutateLead(session, state, lead) {
+function getLeadMutationRestrictionMessage(session, state, lead) {
   if (session?.role === "admin") {
-    return true;
+    return "";
   }
 
   if (session?.role !== "counselor") {
-    return false;
+    return "Only the assigned counselor can update this lead.";
   }
 
   const counselorName = getSessionCounselorName(state, session).toLowerCase();
   const leadCounselor = String(lead?.counselor || "").trim().toLowerCase();
-  return !!counselorName && leadCounselor === counselorName;
+  if (!counselorName || leadCounselor !== counselorName) {
+    return "Only the assigned counselor can update this lead.";
+  }
+
+  const sopState = deriveAdmissionSopState(lead);
+  if (sopState?.blocked) {
+    return "This admission lead is blocked by the SOP timer and must be reassigned by an admin before further edits.";
+  }
+
+  return "";
+}
+
+function canMutateLead(session, state, lead) {
+  return !getLeadMutationRestrictionMessage(session, state, lead);
 }
 
 function canViewLeadActivity(session, state, lead) {
@@ -6998,13 +7287,23 @@ function canViewLeadActivity(session, state, lead) {
   return false;
 }
 
-function getLeadAssignmentResetPatch(counselor, assignedAt) {
-  return {
+function getLeadAssignmentResetPatch(lead, counselor, assignedAt) {
+  const patch = {
     counselor,
     counselorAssignedAt: assignedAt,
     workshopActivityTouchedByAssignee: false,
     admissionActivityTouchedByAssignee: false
   };
+
+  if (!isAdmissionSopScopedLead(lead)) {
+    return patch;
+  }
+
+  patch.admissionSopAssignedAt = assignedAt;
+  const trackingConfig = getAdmissionSopTrackingConfig(lead);
+  const hasProgress = Boolean(getAdmissionSopAnchorAt(lead, trackingConfig));
+  patch.admissionSopLastProgressAt = hasProgress ? assignedAt : null;
+  return patch;
 }
 
 const PROTECTED_ASSIGNMENT_ADMISSION_STATUSES = new Set(["inconversation", "enrolled", "won"]);
@@ -7997,6 +8296,7 @@ function buildApprovedLeadFromCreationRequest(request = {}, nextId, approvedAt =
     email: normalized.email,
     phone: normalized.phone,
     source: normalized.source || "Counselor Lead Creation Request",
+    createdAtExact: approvedAt,
     createdAt,
     counselor: normalized.requesterName || "Unassigned",
     leadCreationRequestId: normalized.id,
@@ -8016,6 +8316,8 @@ function buildApprovedLeadFromCreationRequest(request = {}, nextId, approvedAt =
       ...baseLead,
       leadPipeline: MAIN_ADMISSION_PIPELINE,
       courseName: normalized.courseName,
+      admissionSopAssignedAt: shouldTreatLeadAsAssigned(baseLead.counselor) ? approvedAt : null,
+      admissionSopLastProgressAt: null,
       mainAdmissionDialed: "",
       mainAdmissionCoursePitched: "",
       mainAdmissionCourseStatus: "",
@@ -8217,8 +8519,9 @@ app.patch("/api/main-admission-leads/:leadId/details", async (req, res) => {
     if (!isMainAdmissionLead(lead)) {
       return res.status(400).json({ message: "Lead details can be edited only from Main Admission Leads." });
     }
-    if (!canMutateLead(session, state, lead)) {
-      return res.status(403).json({ message: "Only the assigned counselor can update this lead." });
+    const mutationRestriction = getLeadMutationRestrictionMessage(session, state, lead);
+    if (mutationRestriction) {
+      return res.status(403).json({ message: mutationRestriction });
     }
 
     const patch = sanitizeMainAdmissionDetailsPatch(lead, req.body || {});
@@ -8312,8 +8615,9 @@ app.post("/api/leads/:leadId/activity", async (req, res) => {
     if (!lead) {
       return res.status(404).json({ message: "Lead not found." });
     }
-    if (!canMutateLead(session, state, lead)) {
-      return res.status(403).json({ message: "Only the assigned counselor can update this lead." });
+    const mutationRestriction = getLeadMutationRestrictionMessage(session, state, lead);
+    if (mutationRestriction) {
+      return res.status(403).json({ message: mutationRestriction });
     }
 
     const config = stage === "admission"
@@ -8420,6 +8724,13 @@ app.post("/api/leads/:leadId/activity", async (req, res) => {
       }
     };
 
+    if (stage === "registered-course" || stage === "main-admission") {
+      update.$set.admissionSopLastProgressAt = event.at;
+      if (!String(lead?.admissionSopAssignedAt || "").trim()) {
+        update.$set.admissionSopAssignedAt = event.at;
+      }
+    }
+
     const result = await leadsCollection.updateOne(query, update);
 
     if (result.modifiedCount) {
@@ -8522,8 +8833,9 @@ app.post("/api/leads/:leadId/notes", async (req, res) => {
     if (!lead) {
       return res.status(404).json({ message: "Lead not found." });
     }
-    if (!canMutateLead(session, state, lead)) {
-      return res.status(403).json({ message: "Only the assigned counselor can edit notes." });
+    const mutationRestriction = getLeadMutationRestrictionMessage(session, state, lead);
+    if (mutationRestriction) {
+      return res.status(403).json({ message: mutationRestriction });
     }
 
     const note = {
@@ -8582,8 +8894,9 @@ app.delete("/api/leads/:leadId/notes/:noteIndex", async (req, res) => {
     if (!lead) {
       return res.status(404).json({ message: "Lead not found." });
     }
-    if (!canMutateLead(session, state, lead)) {
-      return res.status(403).json({ message: "Only the assigned counselor can delete notes." });
+    const mutationRestriction = getLeadMutationRestrictionMessage(session, state, lead);
+    if (mutationRestriction) {
+      return res.status(403).json({ message: mutationRestriction });
     }
 
     const notes = Array.isArray(lead.leadNotes) ? lead.leadNotes : [];
@@ -8726,14 +9039,27 @@ async function assignLeadsHandler(req, res) {
     }
 
     const protectedLeads = [];
+    const blockedSameCounselorLeads = [];
     const assignableLeads = [];
     let skippedProtectedCount = 0;
     let skippedInterestedCount = 0;
+    let skippedBlockedSameCounselorCount = 0;
 
     leadsToUpdate.forEach((lead) => {
       const skipReason = getLeadBulkAssignmentSkipReason(lead);
       if (!skipReason) {
-        assignableLeads.push(lead);
+        const sopState = deriveAdmissionSopState(lead);
+        const isBlockedSameCounselor = Boolean(
+          sopState?.blocked &&
+          isAdmissionSopScopedLead(lead) &&
+          String(lead?.counselor || "").trim().toLowerCase() === counselor.toLowerCase()
+        );
+        if (isBlockedSameCounselor) {
+          blockedSameCounselorLeads.push(lead);
+          skippedBlockedSameCounselorCount += 1;
+        } else {
+          assignableLeads.push(lead);
+        }
         return;
       }
 
@@ -8762,6 +9088,7 @@ async function assignLeadsHandler(req, res) {
         assignedCount: 0,
         skippedProtectedCount,
         skippedInterestedCount,
+        skippedBlockedSameCounselorCount,
         state: buildStateResponse(nextState)
       });
     }
@@ -8769,10 +9096,8 @@ async function assignLeadsHandler(req, res) {
     const assignableLeadIds = assignableLeads
       .map((lead) => lead.id)
       .filter((id) => id !== undefined && id !== null);
-    const assignmentChangedLeadIds = assignableLeads
-      .filter((lead) => String(lead.counselor || "").trim().toLowerCase() !== counselor.toLowerCase())
-      .map((lead) => lead.id)
-      .filter((id) => id !== undefined && id !== null);
+    const assignmentChangedLeads = assignableLeads
+      .filter((lead) => String(lead.counselor || "").trim().toLowerCase() !== counselor.toLowerCase());
     const now = new Date().toISOString();
     const result = await leadsCollection.updateMany(
       { id: { $in: assignableLeadIds } },
@@ -8786,11 +9111,13 @@ async function assignLeadsHandler(req, res) {
       return res.status(409).json({ message: "Leads changed before they could be assigned. Please reload and retry." });
     }
 
-    if (assignmentChangedLeadIds.length) {
-      await leadsCollection.updateMany(
-        { id: { $in: assignmentChangedLeadIds } },
-        { $set: getLeadAssignmentResetPatch(counselor, now) }
-      );
+    if (assignmentChangedLeads.length) {
+      for (const lead of assignmentChangedLeads) {
+        await leadsCollection.updateOne(
+          { id: { $in: getLeadIdCandidates(lead.id) } },
+          { $set: getLeadAssignmentResetPatch(lead, counselor, now) }
+        );
+      }
     }
 
     // Trigger notifications for reassigned leads
@@ -8873,6 +9200,7 @@ async function assignLeadsHandler(req, res) {
       assignedCount: matchedCount,
       skippedProtectedCount,
       skippedInterestedCount,
+      skippedBlockedSameCounselorCount,
       state: buildStateResponse(nextState)
     });
   } catch (error) {
@@ -9324,7 +9652,7 @@ app.patch("/api/lead-claims/:claimId/decision", async (req, res) => {
       } else {
         const result = await leadsCollection.updateOne(
           { id: { $in: getLeadIdCandidates(claim.leadId) }, counselor: currentLeadOwner },
-          { $set: getLeadAssignmentResetPatch(claim.requesterName, now) }
+          { $set: getLeadAssignmentResetPatch(lead, claim.requesterName, now) }
         );
 
         if (!result.modifiedCount && !result.matchedCount) {

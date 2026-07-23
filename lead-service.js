@@ -96,21 +96,27 @@ export function formatLeadAssignmentResult(result, requestedCount, counselor) {
   ) || 0;
   const skippedProtectedCount = Number(result?.skippedProtectedCount || 0);
   const skippedInterestedCount = Number(result?.skippedInterestedCount || 0);
+  const skippedBlockedSameCounselorCount = Number(result?.skippedBlockedSameCounselorCount || 0);
   const assignedLabel = assignedCount === 1 ? "lead" : "leads";
   const interestedLabel = skippedInterestedCount === 1 ? "lead" : "leads";
   const skippedLabel = skippedProtectedCount === 1 ? "lead" : "leads";
+  const blockedSameCounselorLabel = skippedBlockedSameCounselorCount === 1 ? "lead" : "leads";
   const interestedText = skippedInterestedCount
     ? ` Skipped ${skippedInterestedCount} workshop ${interestedLabel} with Course Status marked Interested.`
     : "";
   const skippedText = skippedProtectedCount
     ? ` Skipped ${skippedProtectedCount} admission ${skippedLabel} with status In-Conversation, Enrolled, or Won.`
     : "";
+  const blockedSameCounselorText = skippedBlockedSameCounselorCount
+    ? ` Skipped ${skippedBlockedSameCounselorCount} blocked admission ${blockedSameCounselorLabel} because they cannot be reassigned to the same counselor again.`
+    : "";
 
   return {
     assignedCount,
     skippedProtectedCount,
     skippedInterestedCount,
-    message: `Assigned ${assignedCount} ${assignedLabel} to ${counselor}.${interestedText}${skippedText}`
+    skippedBlockedSameCounselorCount,
+    message: `Assigned ${assignedCount} ${assignedLabel} to ${counselor}.${interestedText}${skippedText}${blockedSameCounselorText}`
   };
 }
 
