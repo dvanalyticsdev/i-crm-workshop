@@ -18,7 +18,7 @@ import {
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY } from "./task-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
-import { addLeadNote, assignLeads as assignLeadsOnServer, deleteLeadNote, deleteLeads as deleteLeadsOnServer, formatLeadAssignmentResult, trackLeadView, updateLeadActivity as updateLeadActivityOnServer } from "./lead-service.js";
+import { addLeadNote, deleteLeadNote, deleteLeads as deleteLeadsOnServer, getLeadIdsByActivityTypes, trackLeadView, updateLeadActivity as updateLeadActivityOnServer } from "./lead-service.js";
 
 await bootstrapLocalState();
 
@@ -84,8 +84,10 @@ const DEFAULT_FILTER = {
   registeredAdmissionStatus: "",
   registeredCallStatus: "",
   activityStatus: "",
-  repeatEnquiryStatus: ""
+  repeatEnquiryStatus: "",
+  whatsappActivity: ""
 };
+const WHATSAPP_ACTIVITY_FILTER_OPTIONS = ["WhatsApp Read", "WhatsApp Clicked", "WhatsApp Replied"];
 
 const persistedFilter = await loadLocalPreference(FILTER_STORAGE_KEY, {});
 if (persistedFilter.timeline === "daily") {
@@ -103,6 +105,8 @@ let notesLeadRef = null;
 let registeredRoutingConfig = { selectedCounselors: [], isConfigured: false };
 let registeredActivityModalMode = "edit";
 let activeSegment = normalizeSegment(window.location.hash.replace(/^#/, "")) || DEFAULT_SEGMENT;
+let whatsappActivityLeadIds = null;
+let whatsappActivityLookupKey = "";
 
 populateCrmCourseSelect("modalRegisteredCoursePitched", { includeNo: true });
 
@@ -117,6 +121,59 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function getActivityLabel(activity = {}) {
+  return String(
+    activity?.activityType
+    || activity?.type
+    || activity?.eventType
+    || activity?.actionType
+    || activity?.label
+    || ""
+  ).trim();
+}
+
+function leadMatchesWhatsappActivity(lead, selectedActivity) {
+  if (!selectedActivity) {
+    return true;
+  }
+
+  const history = Array.isArray(lead?.registeredCourseActivityHistory) ? lead.registeredCourseActivityHistory : [];
+  return history.some((entry) => getActivityLabel(entry) === selectedActivity);
+}
+
+async function ensureWhatsappActivityLeadIds() {
+  const selectedActivity = String(filter.whatsappActivity || "").trim();
+  if (!selectedActivity) {
+    whatsappActivityLeadIds = null;
+    whatsappActivityLookupKey = "";
+    return;
+  }
+
+  if (whatsappActivityLeadIds && whatsappActivityLookupKey === selectedActivity) {
+    return;
+  }
+
+  const result = await getLeadIdsByActivityTypes([selectedActivity]);
+  if (result?.ok) {
+    whatsappActivityLeadIds = new Set((result.leadIds || []).map((item) => String(item || "").trim()));
+    whatsappActivityLookupKey = selectedActivity;
+    return;
+  }
+
+  whatsappActivityLeadIds = new Set();
+  whatsappActivityLookupKey = selectedActivity;
+}
+
+function leadMatchesWhatsappActivityFilter(lead) {
+  if (leadMatchesWhatsappActivity(lead, filter.whatsappActivity)) {
+    return true;
+  }
+  if (!(whatsappActivityLeadIds instanceof Set)) {
+    return false;
+  }
+  return whatsappActivityLeadIds.has(String(lead?.id || "").trim());
 }
 
 function toLocalDateKey(date = new Date()) {
@@ -884,6 +941,13 @@ function renderFilters(leads) {
           </select>
         </div>
         <div class="filter-item">
+          <label for="registeredWhatsappActivitySelect">WhatsApp Activity</label>
+          <select id="registeredWhatsappActivitySelect">
+            <option value="">All</option>
+            ${WHATSAPP_ACTIVITY_FILTER_OPTIONS.map((item) => `<option value="${escapeHtml(item)}" ${filter.whatsappActivity === item ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="filter-item">
           <label for="registeredRepeatEnquirySelect">Repeat Enquiry</label>
           <select id="registeredRepeatEnquirySelect">
             <option value="">All</option>
@@ -993,6 +1057,14 @@ function renderFilters(leads) {
     currentPage = 1;
     renderAll();
   };
+  document.getElementById("registeredWhatsappActivitySelect").onchange = (event) => {
+    filter.whatsappActivity = event.target.value;
+    whatsappActivityLeadIds = null;
+    whatsappActivityLookupKey = "";
+    persistFilters();
+    currentPage = 1;
+    renderAll();
+  };
   document.getElementById("registeredRepeatEnquirySelect").onchange = (event) => {
     filter.repeatEnquiryStatus = event.target.value;
     persistFilters();
@@ -1001,6 +1073,8 @@ function renderFilters(leads) {
   };
   document.getElementById("registeredResetFiltersBtn").onclick = () => {
     filter = { ...DEFAULT_FILTER };
+    whatsappActivityLeadIds = null;
+    whatsappActivityLookupKey = "";
     persistFilters();
     currentPage = 1;
     renderAll();
@@ -1070,6 +1144,7 @@ function filterLeads(leads) {
     if (filter.registeredCallStatus && filter.registeredCallStatus !== lead.registeredCallStatus) return false;
     if (filter.activityStatus === "Untouched" && lead.registeredCourseActivityUpdates > 0) return false;
     if (filter.activityStatus === "Updated" && lead.registeredCourseActivityUpdates === 0) return false;
+    if (filter.whatsappActivity && !leadMatchesWhatsappActivityFilter(lead)) return false;
     if (filter.repeatEnquiryStatus === "Repeat Enquiry" && !isRepeatEnquiryLead(lead)) return false;
     if (filter.repeatEnquiryStatus === "First Time" && isRepeatEnquiryLead(lead)) return false;
     return true;
@@ -1100,10 +1175,6 @@ function renderLeadTable(leads) {
   syncSelectedLeadIds(leads);
   const selectedCount = isAdmin ? getSelectedLeadCount(leads) : 0;
   const allSelected = isAdmin && pageLeads.length > 0 && pageLeads.every(isLeadSelected);
-  const assignableCounselors = getStoredCounselors()
-    .map((item) => String(item.name || "").trim())
-    .filter(Boolean)
-    .filter((name, index, items) => items.indexOf(name) === index);
 
   const bulkToolbar = isAdmin ? `
     <div class="bulk-toolbar">
@@ -1119,13 +1190,6 @@ function renderLeadTable(leads) {
         <div class="bulk-inline-group">
           <input id="registeredBulkCountInput" class="bulk-count-input" type="number" min="1" max="${leads.length || 1}" placeholder="Count" />
           <button id="registeredBulkCountApply" type="button" class="btn-ghost bulk-action-btn" ${leads.length ? "" : "disabled"}>Select Count</button>
-        </div>
-        <div class="bulk-inline-group">
-          <select id="registeredBulkAssignCounselor" class="bulk-assign-select">
-            <option value="">Assign to</option>
-            ${assignableCounselors.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("")}
-          </select>
-          <button id="registeredBulkAssignBtn" type="button" class="btn-ghost bulk-action-btn" ${selectedCount ? "" : "disabled"}>Assign Selected</button>
         </div>
       </div>
     </div>
@@ -1241,31 +1305,6 @@ function renderLeadTable(leads) {
 
       renderAll();
       showToast(`Selected ${selectedBatchCount} lead${selectedBatchCount === 1 ? "" : "s"}.`);
-    };
-  }
-
-  const bulkAssignBtn = document.getElementById("registeredBulkAssignBtn");
-  const bulkAssignCounselor = document.getElementById("registeredBulkAssignCounselor");
-  if (bulkAssignBtn && bulkAssignCounselor) {
-    bulkAssignBtn.onclick = async () => {
-      const targetCounselor = bulkAssignCounselor.value;
-      if (!targetCounselor) {
-        showToast("Select a counselor first.", true);
-        return;
-      }
-
-      const refs = leads.filter((lead) => selectedLeadKeys.has(buildLeadKey(lead))).map(buildLeadRef);
-      const result = await assignLeadsOnServer(refs, targetCounselor);
-      if (!result || result.ok === false) {
-        showToast(result?.message || "Failed to assign selected leads.", true);
-        return;
-      }
-
-      selectedLeadKeys = new Set();
-      const assignmentSummary = formatLeadAssignmentResult(result, refs.length, targetCounselor);
-      setMessage(assignmentSummary.message, assignmentSummary.assignedCount === 0);
-      showToast(assignmentSummary.message, assignmentSummary.assignedCount === 0);
-      renderAll();
     };
   }
 
@@ -1642,11 +1681,12 @@ function restoreActiveInputState(state) {
   }
 }
 
-function renderAll() {
+async function renderAll() {
   const activeInputState = getActiveInputState();
   renderAdmissionSectionNav();
   renderSegmentSection();
   const allLeads = getScopedLeads(getAllLeads());
+  await ensureWhatsappActivityLeadIds();
   const filteredLeads = filterLeads(allLeads);
   renderRegisteredRoutingPanel();
   renderKpis(filteredLeads);
@@ -1667,9 +1707,9 @@ if (registeredTaskModal && registeredTaskForm) {
 }
 
 setupRegisteredRoutingPanel();
-renderAll();
+void renderAll();
 window.__dvMarkRouteViewReady?.();
 const stopStatePolling = startStatePolling(() => {
-  renderAll();
+  void renderAll();
 });
 registerPageCleanup(stopStatePolling);
