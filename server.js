@@ -7008,17 +7008,39 @@ function getLeadAssignmentResetPatch(counselor, assignedAt) {
 }
 
 const PROTECTED_ASSIGNMENT_ADMISSION_STATUSES = new Set(["inconversation", "enrolled", "won"]);
+const PROTECTED_ASSIGNMENT_WORKSHOP_STATUSES = new Set(["interested"]);
 
 function normalizeAssignmentAdmissionStatus(value) {
   return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-function isLeadProtectedFromBulkAssignment(lead) {
-  return [
+function normalizeAssignmentWorkshopStatus(value) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function getLeadBulkAssignmentSkipReason(lead) {
+  const hasProtectedWorkshopStatus = [
+    lead?.courseStatus,
+    lead?.wsStatus
+  ].some((status) => PROTECTED_ASSIGNMENT_WORKSHOP_STATUSES.has(normalizeAssignmentWorkshopStatus(status)));
+  if (hasProtectedWorkshopStatus) {
+    return "workshopInterested";
+  }
+
+  const hasProtectedAdmissionStatus = [
     lead?.admissionStatus,
     lead?.registeredAdmissionStatus,
     lead?.mainAdmissionAdmissionStatus
   ].some((status) => PROTECTED_ASSIGNMENT_ADMISSION_STATUSES.has(normalizeAssignmentAdmissionStatus(status)));
+  if (hasProtectedAdmissionStatus) {
+    return "admissionProtected";
+  }
+
+  return null;
+}
+
+function isLeadProtectedFromBulkAssignment(lead) {
+  return Boolean(getLeadBulkAssignmentSkipReason(lead));
 }
 
 function getLeadActivityAssigneePatch(stage, session) {
@@ -8703,9 +8725,25 @@ async function assignLeadsHandler(req, res) {
       return res.status(404).json({ message: "No matching leads were assigned." });
     }
 
-    const protectedLeads = leadsToUpdate.filter(isLeadProtectedFromBulkAssignment);
-    const assignableLeads = leadsToUpdate.filter((lead) => !isLeadProtectedFromBulkAssignment(lead));
-    const skippedProtectedCount = protectedLeads.length;
+    const protectedLeads = [];
+    const assignableLeads = [];
+    let skippedProtectedCount = 0;
+    let skippedInterestedCount = 0;
+
+    leadsToUpdate.forEach((lead) => {
+      const skipReason = getLeadBulkAssignmentSkipReason(lead);
+      if (!skipReason) {
+        assignableLeads.push(lead);
+        return;
+      }
+
+      protectedLeads.push(lead);
+      if (skipReason === "workshopInterested") {
+        skippedInterestedCount += 1;
+      } else {
+        skippedProtectedCount += 1;
+      }
+    });
 
     if (!assignableLeads.length) {
       const now = new Date().toISOString();
@@ -8723,6 +8761,7 @@ async function assignLeadsHandler(req, res) {
         matchedCount: 0,
         assignedCount: 0,
         skippedProtectedCount,
+        skippedInterestedCount,
         state: buildStateResponse(nextState)
       });
     }
@@ -8833,6 +8872,7 @@ async function assignLeadsHandler(req, res) {
       matchedCount: result.matchedCount,
       assignedCount: matchedCount,
       skippedProtectedCount,
+      skippedInterestedCount,
       state: buildStateResponse(nextState)
     });
   } catch (error) {
