@@ -760,6 +760,7 @@ const DEFAULT_FILTER = {
   startDate: "",
   endDate: "",
   search: "",
+  leadOwner: isCounselorSession() ? "direct" : "all",
   counselor: EMPTY_FILTER_VALUE,
   activityStatus: EMPTY_FILTER_VALUE,
   workshopName: EMPTY_FILTER_VALUE,
@@ -788,6 +789,9 @@ let filter = {
   ...DEFAULT_FILTER,
   ...persistedFilter
 };
+filter.leadOwner = ["all", "direct", "reassigned"].includes(String(filter.leadOwner || "").trim())
+  ? String(filter.leadOwner || "").trim()
+  : DEFAULT_FILTER.leadOwner;
 
 if (isCounselorSession() && (!persistedFilter.timeline || persistedFilter.timeline === "week")) {
   filter.timeline = "overall";
@@ -828,6 +832,47 @@ function parseLocalDate(value) {
     return null;
   }
   return parsed;
+}
+
+function getLeadOwnerType(lead) {
+  return String(lead?.leadOwnerType || "").trim().toLowerCase() === "reassigned"
+    || (String(lead?.assignedFromCounselor || "").trim() && String(lead?.assignedFromCounselor || "").trim().toLowerCase() !== "unassigned")
+    ? "reassigned"
+    : "direct";
+}
+
+function getLeadOwnerTimelineValue(lead) {
+  if (getLeadOwnerType(lead) === "reassigned") {
+    return String(
+      lead?.leadOwnerTimelineAt
+      || lead?.counselorAssignedAt
+      || lead?.updatedAt
+      || lead?.createdAtExact
+      || lead?.createdAt
+      || ""
+    ).trim();
+  }
+
+  return String(lead?.createdAtExact || lead?.createdAt || "").trim();
+}
+
+function filterByLeadOwner(leads) {
+  if (filter.leadOwner === "all") {
+    return leads;
+  }
+
+  return leads.filter((lead) => {
+    const ownerType = getLeadOwnerType(lead);
+    return filter.leadOwner === "reassigned"
+      ? ownerType === "reassigned"
+      : ownerType === "direct";
+  });
+}
+
+function getLeadOwnerFilterLabel() {
+  if (filter.leadOwner === "reassigned") return "Assigned From Someone Else";
+  if (filter.leadOwner === "direct") return "Directly Assigned";
+  return "All Leads";
 }
 
 function setMessage(element, text, isError = true) {
@@ -919,6 +964,7 @@ function normalizeFilterState(leads) {
 
   const nextFilter = {
     ...filter,
+    leadOwner: ["all", "direct", "reassigned"].includes(String(filter.leadOwner || "").trim()) ? filter.leadOwner : DEFAULT_FILTER.leadOwner,
     workshopName: normalizeSelectedFilterValue(filter.workshopName, workshopNames),
     workshopDate: normalizeSelectedFilterValue(filter.workshopDate, workshopDates),
     counselor: normalizeSelectedFilterValue(filter.counselor, counselorOptions),
@@ -1208,15 +1254,16 @@ function getUniqueWorkshops(leads) {
 }
 
 function filterByTimeline(leads) {
+  const scopedLeads = filterByLeadOwner(leads);
   if (filter.timeline === "overall") {
-    return leads;
+    return scopedLeads;
   }
 
   if (filter.timeline === "today") {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    return leads.filter((lead) => {
-      const created = parseLocalDate(lead.createdAt);
+    return scopedLeads.filter((lead) => {
+      const created = parseLocalDate(getLeadOwnerTimelineValue(lead));
       if (!created) {
         return false;
       }
@@ -1229,8 +1276,8 @@ function filterByTimeline(leads) {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     yesterday.setHours(0, 0, 0, 0);
-    return leads.filter((lead) => {
-      const created = parseLocalDate(lead.createdAt);
+    return scopedLeads.filter((lead) => {
+      const created = parseLocalDate(getLeadOwnerTimelineValue(lead));
       if (!created) {
         return false;
       }
@@ -1247,8 +1294,8 @@ function filterByTimeline(leads) {
     start.setDate(start.getDate() - 6);
     start.setHours(0, 0, 0, 0);
 
-    return leads.filter((lead) => {
-      const created = parseLocalDate(lead.createdAt);
+    return scopedLeads.filter((lead) => {
+      const created = parseLocalDate(getLeadOwnerTimelineValue(lead));
       if (!created) {
         return false;
       }
@@ -1258,12 +1305,12 @@ function filterByTimeline(leads) {
 
   if (filter.timeline === "custom") {
     if (!filter.startDate || !filter.endDate) {
-      return leads;
+      return scopedLeads;
     }
 
     const start = parseLocalDate(filter.startDate);
     if (!start) {
-      return leads;
+      return scopedLeads;
     }
     start.setHours(0, 0, 0, 0);
 
@@ -1273,8 +1320,8 @@ function filterByTimeline(leads) {
     }
     end.setHours(23, 59, 59, 999);
 
-    return leads.filter((lead) => {
-      const created = parseLocalDate(lead.createdAt);
+    return scopedLeads.filter((lead) => {
+      const created = parseLocalDate(getLeadOwnerTimelineValue(lead));
       if (!created) {
         return false;
       }
@@ -1282,7 +1329,7 @@ function filterByTimeline(leads) {
     });
   }
 
-  return leads;
+  return scopedLeads;
 }
 
 function filterLeads(leads) {
@@ -1469,6 +1516,15 @@ function renderFilters(leads) {
         <input id="searchLeadInput" type="text" placeholder="Name, email, phone, workshop, counselor" />
       </div>
 
+      <div class="filter-item">
+        <label for="leadOwnerSelect">Lead Owner</label>
+        <select id="leadOwnerSelect">
+          <option value="all">All Leads</option>
+          <option value="direct">Directly Assigned</option>
+          <option value="reassigned">Assigned From Someone Else</option>
+        </select>
+      </div>
+
       ${renderMultiSelectControl({
         id: "counselorSelect",
         label: "Counselor",
@@ -1548,6 +1604,7 @@ function renderFilters(leads) {
   document.getElementById("startDateInput").value = filter.startDate;
   document.getElementById("endDateInput").value = filter.endDate;
   document.getElementById("searchLeadInput").value = filter.search;
+  document.getElementById("leadOwnerSelect").value = filter.leadOwner;
   bindMultiFilterOutsideClick();
   bindMultiFilter("counselorSelect", "counselor");
   bindMultiFilter("activityStatusSelect", "activityStatus");
@@ -1567,6 +1624,13 @@ function renderFilters(leads) {
     persistFilterState();
     document.getElementById("startDateWrap").classList.toggle("hidden", filter.timeline !== "custom");
     document.getElementById("endDateWrap").classList.toggle("hidden", filter.timeline !== "custom");
+    currentPage = 1;
+    renderAll();
+  };
+
+  document.getElementById("leadOwnerSelect").onchange = (event) => {
+    filter.leadOwner = event.target.value;
+    persistFilterState();
     currentPage = 1;
     renderAll();
   };

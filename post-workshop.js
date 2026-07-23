@@ -373,6 +373,7 @@ const DEFAULT_FILTER = {
   startDate: "",
   endDate: "",
   search: "",
+  leadOwner: isCounselorSession() ? "direct" : "all",
   workshopName: EMPTY_FILTER_VALUE,
   workshopDate: EMPTY_FILTER_VALUE,
   counselor: EMPTY_FILTER_VALUE,
@@ -417,6 +418,9 @@ let filter = {
   ...DEFAULT_FILTER,
   ...persistedFilter
 };
+filter.leadOwner = ["all", "direct", "reassigned"].includes(String(filter.leadOwner || "").trim())
+  ? String(filter.leadOwner || "").trim()
+  : DEFAULT_FILTER.leadOwner;
 
 if (isCounselorSession() && (!persistedFilter.timeline || persistedFilter.timeline === "week")) {
   filter.timeline = "overall";
@@ -450,6 +454,61 @@ function persistFilterState() {
 function parseDateKey(dateKey) {
   const [year, month, day] = dateKey.split("-").map(Number);
   return new Date(year, month - 1, day);
+}
+
+function parseLeadOwnerDate(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return parseDateKey(raw);
+  }
+
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getLeadOwnerType(lead) {
+  return String(lead?.leadOwnerType || "").trim().toLowerCase() === "reassigned"
+    || (String(lead?.assignedFromCounselor || "").trim() && String(lead?.assignedFromCounselor || "").trim().toLowerCase() !== "unassigned")
+    ? "reassigned"
+    : "direct";
+}
+
+function getLeadOwnerTimelineValue(lead) {
+  if (getLeadOwnerType(lead) === "reassigned") {
+    return String(
+      lead?.leadOwnerTimelineAt
+      || lead?.counselorAssignedAt
+      || lead?.updatedAt
+      || lead?.createdAtExact
+      || lead?.createdAt
+      || ""
+    ).trim();
+  }
+
+  return String(lead?.createdAtExact || lead?.createdAt || "").trim();
+}
+
+function filterByLeadOwner(leads) {
+  if (filter.leadOwner === "all") {
+    return leads;
+  }
+
+  return leads.filter((lead) => {
+    const ownerType = getLeadOwnerType(lead);
+    return filter.leadOwner === "reassigned"
+      ? ownerType === "reassigned"
+      : ownerType === "direct";
+  });
+}
+
+function getLeadOwnerFilterLabel() {
+  if (filter.leadOwner === "reassigned") return "Assigned From Someone Else";
+  if (filter.leadOwner === "direct") return "Directly Assigned";
+  return "All Leads";
 }
 
 function formatReadableDate(date) {
@@ -551,20 +610,21 @@ function getTimelineRange(leads) {
 }
 
 function filterLeadsByTimeline(leads, range) {
+  const scopedLeads = filterByLeadOwner(leads);
   if (!range) {
-    return leads;
+    return scopedLeads;
   }
 
   if (!range.start || !range.end) {
-    return leads;
+    return scopedLeads;
   }
 
   const startTime = range.start.getTime();
   const endTime = range.end.getTime();
 
-  return leads.filter((lead) => {
-    const leadDate = parseDateKey(String(lead.createdAt || "").trim());
-    if (Number.isNaN(leadDate.getTime())) {
+  return scopedLeads.filter((lead) => {
+    const leadDate = parseLeadOwnerDate(getLeadOwnerTimelineValue(lead));
+    if (!leadDate || Number.isNaN(leadDate.getTime())) {
       return false;
     }
 
@@ -914,6 +974,14 @@ function renderFilters(leads) {
           <label for="postSearchLeadInput">Search Lead</label>
           <input id="postSearchLeadInput" type="text" placeholder="Name, email, phone, workshop, counselor" />
         </div>
+        <div class="filter-item">
+          <label for="postLeadOwnerSelect">Lead Owner</label>
+          <select id="postLeadOwnerSelect">
+            <option value="all">All Leads</option>
+            <option value="direct">Directly Assigned</option>
+            <option value="reassigned">Assigned From Someone Else</option>
+          </select>
+        </div>
         ${renderMultiSelectControl({
           id: "postCounselorSelect",
           label: "Counselor",
@@ -1011,6 +1079,7 @@ function renderFilters(leads) {
   document.getElementById("postStartDateWrap").classList.toggle("hidden", filter.timeline !== "custom");
   document.getElementById("postEndDateWrap").classList.toggle("hidden", filter.timeline !== "custom");
   document.getElementById("postSearchLeadInput").value = filter.search;
+  document.getElementById("postLeadOwnerSelect").value = filter.leadOwner;
   bindMultiFilter("postCounselorSelect", "counselor");
   bindMultiFilter("postActivityStatusSelect", "activityStatus");
   bindMultiFilter("postRepeatEnquirySelect", "repeatEnquiryStatus");
@@ -1065,6 +1134,13 @@ function renderFilters(leads) {
     persistFilterState();
       currentPage = 1;
       renderAll();
+  };
+
+  document.getElementById("postLeadOwnerSelect").onchange = (event) => {
+    filter.leadOwner = event.target.value;
+    persistFilterState();
+    currentPage = 1;
+    renderAll();
   };
 
   document.getElementById("postResetFilters").onclick = () => {

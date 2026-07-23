@@ -75,6 +75,7 @@ const DEFAULT_FILTER = {
   startDate: "",
   endDate: "",
   search: "",
+  leadOwner: isCounselorSession() ? "direct" : "all",
   counselor: "",
   courseName: "",
   location: "",
@@ -93,6 +94,9 @@ if (persistedFilter.timeline === "daily") {
   persistedFilter.timeline = "today";
 }
 let filter = { ...DEFAULT_FILTER, ...persistedFilter };
+filter.leadOwner = ["all", "direct", "reassigned"].includes(String(filter.leadOwner || "").trim())
+  ? String(filter.leadOwner || "").trim()
+  : DEFAULT_FILTER.leadOwner;
 if (isCounselorSession() && (!persistedFilter.timeline || persistedFilter.timeline === "week")) {
   filter.timeline = "overall";
 }
@@ -198,6 +202,41 @@ function toLocalDateKey(date = new Date()) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function getLeadOwnerType(lead) {
+  return String(lead?.leadOwnerType || "").trim().toLowerCase() === "reassigned"
+    || (String(lead?.assignedFromCounselor || "").trim() && String(lead?.assignedFromCounselor || "").trim().toLowerCase() !== "unassigned")
+    ? "reassigned"
+    : "direct";
+}
+
+function getLeadOwnerTimelineValue(lead) {
+  if (getLeadOwnerType(lead) === "reassigned") {
+    return String(
+      lead?.leadOwnerTimelineAt
+      || lead?.counselorAssignedAt
+      || lead?.updatedAt
+      || lead?.createdAtExact
+      || lead?.createdAt
+      || ""
+    ).trim();
+  }
+
+  return String(lead?.createdAtExact || lead?.createdAt || "").trim();
+}
+
+function filterByLeadOwner(leads) {
+  if (filter.leadOwner === "all") {
+    return leads;
+  }
+
+  return leads.filter((lead) => {
+    const ownerType = getLeadOwnerType(lead);
+    return filter.leadOwner === "reassigned"
+      ? ownerType === "reassigned"
+      : ownerType === "direct";
+  });
 }
 
 function getCanonicalCourseIdentity(lead = {}) {
@@ -512,18 +551,19 @@ function getTimelineRange() {
 }
 
 function filterLeadsByTimeline(leads) {
+  const scopedLeads = filterByLeadOwner(leads);
   const range = getTimelineRange();
   if (!range) {
-    return leads;
+    return scopedLeads;
   }
   if (!range.start || !range.end) {
-    return leads;
+    return scopedLeads;
   }
 
   const startTime = range.start.getTime();
   const endTime = range.end.getTime();
-  return leads.filter((lead) => {
-    const created = parseTimelineDate(lead.createdAt);
+  return scopedLeads.filter((lead) => {
+    const created = parseTimelineDate(getLeadOwnerTimelineValue(lead));
     if (!created) {
       return false;
     }
@@ -756,6 +796,14 @@ function renderFilters(leads) {
           <label for="mainAdmissionSearchInput">Search Lead</label>
           <input id="mainAdmissionSearchInput" type="text" placeholder="Name, email, phone, course, counselor" value="${escapeHtml(filter.search)}" />
         </div>
+        <div class="filter-item">
+          <label for="mainAdmissionLeadOwnerSelect">Lead Owner</label>
+          <select id="mainAdmissionLeadOwnerSelect">
+            <option value="all" ${filter.leadOwner === "all" ? "selected" : ""}>All Leads</option>
+            <option value="direct" ${filter.leadOwner === "direct" ? "selected" : ""}>Directly Assigned</option>
+            <option value="reassigned" ${filter.leadOwner === "reassigned" ? "selected" : ""}>Assigned From Someone Else</option>
+          </select>
+        </div>
         ${isAdmin ? `
         <div class="filter-item">
           <label for="mainAdmissionCounselorSelect">Counselor</label>
@@ -884,6 +932,12 @@ function renderFilters(leads) {
     }
     event.preventDefault();
     filter.search = event.target.value.trim();
+    persistFilters();
+    currentPage = 1;
+    renderAll();
+  };
+  document.getElementById("mainAdmissionLeadOwnerSelect").onchange = (event) => {
+    filter.leadOwner = event.target.value;
     persistFilters();
     currentPage = 1;
     renderAll();

@@ -6914,6 +6914,63 @@ async function getLeadCreatedMetadataMap(leadIds = []) {
   return metadataMap;
 }
 
+async function getLeadAssignmentMetadataMap(leads = []) {
+  const normalizedLeads = Array.isArray(leads) ? leads : [];
+  const ids = [...new Set(
+    normalizedLeads
+      .map((lead) => String(lead?.id || "").trim())
+      .filter(Boolean)
+  )];
+  const metadataMap = new Map();
+  if (!ids.length || !activityLogsCollection) {
+    return metadataMap;
+  }
+
+  const logs = await withMongoRetry(
+    () => activityLogsCollection.find({
+      leadId: { $in: ids },
+      activityType: { $in: ["Lead Assigned", "Lead Reassigned"] }
+    }).sort({ timestamp: -1 }).toArray(),
+    { retries: 1, label: "Load lead assignment activity logs" }
+  ).catch(() => []);
+
+  const currentCounselorByLeadId = new Map(
+    normalizedLeads.map((lead) => [
+      String(lead?.id || "").trim(),
+      String(lead?.counselor || "").trim().toLowerCase()
+    ])
+  );
+
+  (Array.isArray(logs) ? logs : []).forEach((log) => {
+    const leadId = String(log?.leadId || "").trim();
+    if (!leadId || metadataMap.has(leadId)) {
+      return;
+    }
+
+    const currentCounselor = currentCounselorByLeadId.get(leadId) || "";
+    const nextCounselor = String(log?.newValue || log?.counselorName || "").trim();
+    if (currentCounselor && nextCounselor && nextCounselor.toLowerCase() !== currentCounselor) {
+      return;
+    }
+
+    const previousCounselor = String(log?.previousValue || "").trim();
+    const assignedAt = String(log?.timestamp || "").trim();
+    const isTransferredFromCounselor = (
+      String(log?.activityType || "").trim() === "Lead Reassigned" &&
+      previousCounselor &&
+      previousCounselor.toLowerCase() !== "unassigned"
+    );
+
+    metadataMap.set(leadId, {
+      ownerType: isTransferredFromCounselor ? "reassigned" : "direct",
+      sourceCounselor: isTransferredFromCounselor ? previousCounselor : "",
+      assignedAt
+    });
+  });
+
+  return metadataMap;
+}
+
 function resolveLeadCreatedMetadata(lead = {}, createdMetadataMap = new Map()) {
   const leadId = String(lead?.id || "").trim();
   const activityCreated = createdMetadataMap.get(leadId) || null;
@@ -7498,11 +7555,30 @@ async function getStateDoc() {
     withMongoRetry(() => tasksCollection.find({}).toArray(), { retries: 1, label: "Load tasks" }),
     withMongoRetry(() => allocationCollection.find({}).toArray(), { retries: 1, label: "Load allocation" })
   ]);
+  const decoratedLeads = decorateLeadListForStorage(leads || []);
+  const assignmentMetadataMap = await getLeadAssignmentMetadataMap(decoratedLeads);
+  const enrichedLeads = decoratedLeads.map((lead) => {
+    const leadId = String(lead?.id || "").trim();
+    const assignmentMetadata = assignmentMetadataMap.get(leadId) || null;
+    const explicitOwnerType = String(lead?.leadOwnerType || "").trim().toLowerCase();
+    const explicitSourceCounselor = String(lead?.assignedFromCounselor || "").trim();
+    const explicitTimelineAt = String(lead?.leadOwnerTimelineAt || lead?.counselorAssignedAt || "").trim();
+    const ownerType = explicitOwnerType || assignmentMetadata?.ownerType || "direct";
+    const sourceCounselor = explicitSourceCounselor || assignmentMetadata?.sourceCounselor || "";
+    const timelineAt = explicitTimelineAt || assignmentMetadata?.assignedAt || "";
+
+    return {
+      ...lead,
+      leadOwnerType: ownerType === "reassigned" ? "reassigned" : "direct",
+      assignedFromCounselor: sourceCounselor,
+      leadOwnerTimelineAt: timelineAt
+    };
+  });
 
   if (globalMeta) {
     return cacheStateDoc({
       ...globalMeta,
-      leads: decorateLeadListForStorage(leads || []),
+      leads: enrichedLeads,
       counselors: counselors || [],
       tasks: tasks || [],
       allocation: allocation || []
@@ -7523,7 +7599,7 @@ async function getStateDoc() {
 
   return cacheStateDoc({
     ...initialMeta,
-    leads: decorateLeadListForStorage(leads || []),
+    leads: enrichedLeads,
     counselors: counselors || [],
     tasks: tasks || [],
     allocation: allocation || []
@@ -7715,9 +7791,14 @@ function canViewLeadActivity(session, state, lead) {
 }
 
 function getLeadAssignmentResetPatch(lead, counselor, assignedAt) {
+  const previousCounselor = String(lead?.counselor || "").trim();
+  const hasPreviousCounselor = previousCounselor && previousCounselor.toLowerCase() !== "unassigned";
   const patch = {
     counselor,
     counselorAssignedAt: assignedAt,
+    assignedFromCounselor: hasPreviousCounselor ? previousCounselor : "",
+    leadOwnerType: hasPreviousCounselor ? "reassigned" : "direct",
+    leadOwnerTimelineAt: assignedAt,
     workshopActivityTouchedByAssignee: false,
     admissionActivityTouchedByAssignee: false
   };
