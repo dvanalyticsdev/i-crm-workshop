@@ -420,6 +420,47 @@ function getFilteredRows() {
   });
 }
 
+function getSelectableBlockedRowKeys(rows) {
+  return rows
+    .filter((row) => row.sop?.blocked)
+    .map((row) => String(row.key || "").trim())
+    .filter(Boolean);
+}
+
+function getSelectedBlockedLeadCount(rows) {
+  const selectableKeys = new Set(getSelectableBlockedRowKeys(rows));
+  let count = 0;
+
+  selectedBlockedLeadKeys.forEach((leadKey) => {
+    if (selectableKeys.has(String(leadKey))) {
+      count += 1;
+    }
+  });
+
+  return count;
+}
+
+function syncSelectedBlockedLeadKeys(rows) {
+  const selectableKeys = new Set(getSelectableBlockedRowKeys(rows));
+  selectedBlockedLeadKeys = new Set(
+    [...selectedBlockedLeadKeys].filter((leadKey) => selectableKeys.has(String(leadKey)))
+  );
+}
+
+function toggleBlockedLeadSelection(leadKey, isChecked) {
+  const next = new Set(selectedBlockedLeadKeys);
+  if (isChecked) {
+    next.add(String(leadKey));
+  } else {
+    next.delete(String(leadKey));
+  }
+  selectedBlockedLeadKeys = next;
+}
+
+function toggleAllBlockedLeadSelection(rows, isChecked) {
+  selectedBlockedLeadKeys = isChecked ? new Set(getSelectableBlockedRowKeys(rows)) : new Set();
+}
+
 function ensureValidPage(totalItems) {
   const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
   currentPage = Math.min(Math.max(1, currentPage), totalPages);
@@ -616,13 +657,12 @@ function buildLeadRef(lead) {
 
 function renderLeadTable() {
   const rows = getFilteredRows();
+  syncSelectedBlockedLeadKeys(rows);
+  const selectedBlockedCount = getSelectedBlockedLeadCount(rows);
+  const allBlockedKeys = getSelectableBlockedRowKeys(rows);
   const totalPages = ensureValidPage(rows.length);
   const pageRows = rows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-  const pageBlockedRows = pageRows.filter((row) => row.sop?.blocked);
-  const pageBlockedKeys = pageBlockedRows.map((row) => row.key);
-  selectedBlockedLeadKeys = new Set([...selectedBlockedLeadKeys].filter((key) => pageBlockedKeys.includes(key)));
-  const selectedBlockedRows = pageBlockedRows.filter((row) => selectedBlockedLeadKeys.has(row.key));
-  const allPageBlockedSelected = pageBlockedKeys.length > 0 && pageBlockedKeys.every((key) => selectedBlockedLeadKeys.has(key));
+  const allBlockedSelected = allBlockedKeys.length > 0 && allBlockedKeys.every((key) => selectedBlockedLeadKeys.has(key));
 
   leadTable.innerHTML = `
     <div class="section-head">
@@ -634,10 +674,10 @@ function renderLeadTable() {
     ${isAdminSession() ? `
       <div class="bulk-select-actions sop-bulk-toolbar">
         <label class="bulk-select-control sop-bulk-toolbar__select-all">
-          <input type="checkbox" id="sopSelectAllPageBlocked" ${allPageBlockedSelected ? "checked" : ""} ${pageBlockedKeys.length ? "" : "disabled"} />
+          <input type="checkbox" id="sopSelectAllPageBlocked" ${allBlockedSelected ? "checked" : ""} ${allBlockedKeys.length ? "" : "disabled"} />
           <span>Select All</span>
         </label>
-        <span class="selected-count">Selected: ${selectedBlockedRows.length}</span>
+        <span class="selected-count">Selected: ${selectedBlockedCount}</span>
         <div class="bulk-admin-tools">
           <input type="text" class="bulk-count-input" placeholder="Count" disabled />
           <button type="button" class="btn-ghost bulk-action-btn" disabled>Select Count</button>
@@ -645,7 +685,7 @@ function renderLeadTable() {
             <option value="">Assign to</option>
             ${getActiveCounselors().map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("")}
           </select>
-          <button type="button" class="btn-ghost bulk-action-btn" id="sopAssignSelectedBtn" ${selectedBlockedRows.length && !bulkAssignInFlight ? "" : "disabled"}>${bulkAssignInFlight ? "Assigning..." : "Assign Selected"}</button>
+          <button type="button" class="btn-ghost bulk-action-btn" id="sopAssignSelectedBtn" ${selectedBlockedCount && !bulkAssignInFlight ? "" : "disabled"}>${bulkAssignInFlight ? "Assigning..." : "Assign Selected"}</button>
         </div>
       </div>
     ` : ""}
@@ -726,25 +766,13 @@ function renderLeadTable() {
   leadTable.querySelectorAll("input[type='checkbox'][data-lead-key]").forEach((checkbox) => {
     checkbox.addEventListener("change", (event) => {
       const leadKey = String(event.target.getAttribute("data-lead-key") || "");
-      const next = new Set(selectedBlockedLeadKeys);
-      if (event.target.checked) {
-        next.add(leadKey);
-      } else {
-        next.delete(leadKey);
-      }
-      selectedBlockedLeadKeys = next;
+      toggleBlockedLeadSelection(leadKey, event.target.checked);
       renderLeadTable();
     });
   });
 
   document.getElementById("sopSelectAllPageBlocked")?.addEventListener("change", (event) => {
-    const next = new Set(selectedBlockedLeadKeys);
-    if (event.target.checked) {
-      pageBlockedKeys.forEach((key) => next.add(key));
-    } else {
-      pageBlockedKeys.forEach((key) => next.delete(key));
-    }
-    selectedBlockedLeadKeys = next;
+    toggleAllBlockedLeadSelection(rows, event.target.checked);
     renderLeadTable();
   });
 
