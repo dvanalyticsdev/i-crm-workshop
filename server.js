@@ -7386,6 +7386,14 @@ async function refreshStateAfterAtomicUpdate() {
   return getStateDoc();
 }
 
+async function loadFreshLeadsForDuplicateReview() {
+  const leads = await withMongoRetry(
+    () => leadsCollection.find({}).toArray(),
+    { retries: 1, label: "Load fresh leads for duplicate review" }
+  );
+  return decorateLeadListForStorage(leads || []);
+}
+
 app.post("/api/auth/login", async (req, res) => {
   try {
     const role = String(req.body?.role || "").trim().toLowerCase();
@@ -7594,9 +7602,9 @@ app.get("/api/admin/duplicate-leads", async (req, res) => {
     const session = await requireRole(req, res, "admin");
     if (!session) return;
 
-    const state = await getStateDoc();
-    const createdMetadataMap = await getLeadCreatedMetadataMap((state.leads || []).map((lead) => lead?.id));
-    const groups = buildDuplicateLeadGroups(state.leads || []).map((group) => ({
+    const leads = await loadFreshLeadsForDuplicateReview();
+    const createdMetadataMap = await getLeadCreatedMetadataMap((leads || []).map((lead) => lead?.id));
+    const groups = buildDuplicateLeadGroups(leads || []).map((group) => ({
       groupId: group.groupId,
       sharedEmails: group.sharedEmails,
       sharedPhones: group.sharedPhones,
@@ -7654,8 +7662,7 @@ app.post("/api/admin/duplicate-leads/merge", async (req, res) => {
       return res.status(400).json({ message: "A keeper lead and at least one duplicate lead are required." });
     }
 
-    const state = await getStateDoc();
-    const allLeads = Array.isArray(state.leads) ? state.leads : [];
+    const allLeads = await loadFreshLeadsForDuplicateReview();
     const keeperLead = allLeads.find((lead) => String(lead?.id || "").trim() === keeperLeadId);
     const duplicateLeads = duplicateLeadIds
       .map((id) => allLeads.find((lead) => String(lead?.id || "").trim() === id))
@@ -7687,9 +7694,9 @@ app.post("/api/admin/duplicate-leads/merge-all", async (req, res) => {
     const session = await requireRole(req, res, "admin");
     if (!session) return;
 
-    const state = await getStateDoc();
-    const createdMetadataMap = await getLeadCreatedMetadataMap((state.leads || []).map((lead) => lead?.id));
-    const groups = buildDuplicateLeadGroups(state.leads || []);
+    const leads = await loadFreshLeadsForDuplicateReview();
+    const createdMetadataMap = await getLeadCreatedMetadataMap((leads || []).map((lead) => lead?.id));
+    const groups = buildDuplicateLeadGroups(leads || []);
     let mergedGroups = 0;
     const failedGroups = [];
     const disallowedKeeperSections = [...new Set(
