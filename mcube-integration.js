@@ -530,4 +530,5 @@ renderIntegrationSectionNav();
 const config = await loadConfig();
 applyConfig(config);
 renderLogSummary(config?.logSummary);
+await loadLogs();
 registerPageCleanup(() => undefined);

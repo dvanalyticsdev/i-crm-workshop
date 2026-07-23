@@ -719,4 +719,5 @@ const config = await loadConfig();
 applyConfig(config);
 renderRoundRobinCounselors();
 renderAdmissionRotationCounselors();
+await loadLogs();
 registerPageCleanup(() => undefined);

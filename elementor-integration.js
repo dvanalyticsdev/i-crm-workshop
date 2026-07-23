@@ -424,4 +424,5 @@ webhookUrlInput.value = buildWebhookUrl();
 renderIntegrationSectionNav();
 const config = await loadConfig();
 applyConfig(config);
+await loadLogs();
 registerPageCleanup(() => undefined);
