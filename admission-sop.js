@@ -1,5 +1,5 @@
 import { bootstrapLocalState, getLeads, getSession, refreshState, startStatePolling } from "./state-sync.js";
-import { assignLeads, formatLeadAssignmentResult, trackLeadView } from "./lead-service.js";
+import { deleteLeads, trackLeadView } from "./lead-service.js";
 import { openActivityHistory } from "./activity-history.js";
 
 const KOLKATA_OFFSET_MS = 5.5 * 60 * 60 * 1000;
@@ -24,7 +24,6 @@ const filter = {
 };
 
 let selectedBlockedLeadKeys = new Set();
-let bulkAssignInFlight = false;
 let currentPage = 1;
 
 function showToast(message, isError = false) {
@@ -566,16 +565,6 @@ function renderFilters() {
         <button type="button" class="btn-ghost" id="sopResetFiltersBtn">Reset Filters</button>
       </div>
     </div>
-    ${false && isAdminSession() ? `
-      <div class="sop-assign-bar">
-        <span class="block-help">Blocked selected: ${blockedSelectedRows.length}</span>
-        <select id="sopAssignCounselor">
-          <option value="">Assign blocked leads to…</option>
-          ${getActiveCounselors().map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("")}
-        </select>
-        <button type="button" class="btn-primary" id="sopAssignSelectedBtn" ${blockedSelectedRows.length && !bulkAssignInFlight ? "" : "disabled"}>${bulkAssignInFlight ? "Assigning..." : "Reassign Blocked Leads"}</button>
-      </div>
-    ` : ""}
   `;
 
   document.getElementById("sopBucketFilter")?.addEventListener("change", (event) => {
@@ -611,9 +600,6 @@ function renderFilters() {
     filter.query = "";
     currentPage = 1;
     render();
-  });
-  document.getElementById("sopAssignSelectedBtn")?.addEventListener("click", () => {
-    void reassignBlockedLeads();
   });
 }
 
@@ -708,7 +694,7 @@ function renderLeadTable() {
     <div class="section-head">
       <div>
         <h2>${isAdminSession() ? "Admission Reallocation Queue" : "My Admission SOP Queue"}</h2>
-        <p class="block-help">${isAdminSession() ? "Blocked leads can be reassigned here. All admission leads remain visible for counselor-wise diagnosis." : "These are your admission-side leads, sorted by urgency and SOP risk."}</p>
+        <p class="block-help">${isAdminSession() ? "Blocked leads can be bulk deleted here. All admission leads remain visible for counselor-wise diagnosis." : "These are your admission-side leads, sorted by urgency and SOP risk."}</p>
       </div>
     </div>
     ${isAdminSession() ? `
@@ -721,11 +707,7 @@ function renderLeadTable() {
         <div class="bulk-admin-tools">
           <input type="text" class="bulk-count-input" placeholder="Count" disabled />
           <button type="button" class="btn-ghost bulk-action-btn" disabled>Select Count</button>
-          <select id="sopAssignCounselor" class="bulk-assign-select">
-            <option value="">Assign to</option>
-            ${getActiveCounselors().map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("")}
-          </select>
-          <button type="button" class="btn-ghost bulk-action-btn" id="sopAssignSelectedBtn" ${selectedBlockedRows.length && !bulkAssignInFlight ? "" : "disabled"}>${bulkAssignInFlight ? "Assigning..." : "Assign Selected"}</button>
+          <button type="button" class="btn-delete bulk-delete-btn" id="sopBulkDeleteBtn" ${selectedBlockedRows.length ? "" : "disabled"}>Delete Selected</button>
         </div>
       </div>
     ` : ""}
@@ -821,8 +803,8 @@ function renderLeadTable() {
     renderLeadTable();
   });
 
-  document.getElementById("sopAssignSelectedBtn")?.addEventListener("click", () => {
-    void reassignBlockedLeads();
+  document.getElementById("sopBulkDeleteBtn")?.addEventListener("click", () => {
+    void deleteSelectedBlockedLeads();
   });
 
   leadTable.querySelectorAll("[data-history-key]").forEach((button) => {
@@ -836,35 +818,29 @@ function renderLeadTable() {
   });
 }
 
-async function reassignBlockedLeads() {
-  if (!isAdminSession() || bulkAssignInFlight) return;
-  const counselorSelect = document.getElementById("sopAssignCounselor");
-  const counselor = String(counselorSelect?.value || "").trim();
-  if (!counselor) {
-    showToast("Select a counselor first.", true);
-    return;
-  }
+async function deleteSelectedBlockedLeads() {
+  if (!isAdminSession()) return;
   const selectedRows = getCurrentPageRowModels(getFilteredRows())
     .filter((row) => selectedBlockedLeadKeys.has(row.pageSelectionKey) && row.sop?.blocked);
   if (!selectedRows.length) {
-    showToast("Select at least one blocked lead to reassign.", true);
+    showToast("Select at least one blocked lead to delete.", true);
     return;
   }
 
-  bulkAssignInFlight = true;
-  renderLeadTable();
-  const result = await assignLeads(selectedRows.map((row) => buildLeadRef(row.lead)), counselor);
-  bulkAssignInFlight = false;
+  const confirmed = window.confirm(`Delete ${selectedRows.length} selected blocked lead${selectedRows.length === 1 ? "" : "s"}? This cannot be undone.`);
+  if (!confirmed) {
+    return;
+  }
+
+  const result = await deleteLeads(selectedRows.map((row) => buildLeadRef(row.lead)));
   if (!result?.ok) {
-    renderLeadTable();
-    showToast(result?.message || "Failed to reassign blocked leads.", true);
+    showToast(result?.message || "Failed to delete selected blocked leads.", true);
     return;
   }
 
-  const summary = formatLeadAssignmentResult(result, selectedRows.length, counselor);
   selectedBlockedLeadKeys = new Set();
   render();
-  showToast(summary.message);
+  showToast(`Deleted ${selectedRows.length} blocked lead${selectedRows.length === 1 ? "" : "s"}.`);
 }
 
 function render() {
@@ -887,3 +863,4 @@ startStatePolling(() => {
 window.setInterval(() => {
   render();
 }, 30000);
+

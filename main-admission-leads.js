@@ -18,7 +18,7 @@ import {
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY } from "./task-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
-import { addLeadNote, assignLeads as assignLeadsOnServer, deleteLeadNote, deleteLeads as deleteLeadsOnServer, formatLeadAssignmentResult, getLeadIdsByActivityTypes, trackLeadView, updateLeadActivity as updateLeadActivityOnServer, updateMainAdmissionLeadDetails } from "./lead-service.js";
+import { addLeadNote, deleteLeadNote, deleteLeads as deleteLeadsOnServer, getLeadIdsByActivityTypes, trackLeadView, updateLeadActivity as updateLeadActivityOnServer, updateMainAdmissionLeadDetails } from "./lead-service.js";
 
 await bootstrapLocalState();
 
@@ -1355,11 +1355,6 @@ function renderLeadTable(leads) {
   syncSelectedLeadIds(leads);
   const selectedCount = isAdmin ? getSelectedLeadCount(leads) : 0;
   const allSelected = isAdmin && pageLeads.length > 0 && pageLeads.every(isLeadSelected);
-  const assignableCounselors = getStoredCounselors()
-    .map((item) => String(item.name || "").trim())
-    .filter(Boolean)
-    .filter((name, index, items) => items.indexOf(name) === index);
-
   const bulkToolbar = isAdmin ? `
     <div class="bulk-toolbar">
       <label class="bulk-select-control">
@@ -1374,13 +1369,6 @@ function renderLeadTable(leads) {
         <div class="bulk-inline-group">
           <input id="mainAdmissionBulkCountInput" class="bulk-count-input" type="number" min="1" max="${leads.length || 1}" placeholder="Count" />
           <button id="mainAdmissionBulkCountApply" type="button" class="btn-ghost bulk-action-btn" ${leads.length ? "" : "disabled"}>Select Count</button>
-        </div>
-        <div class="bulk-inline-group">
-          <select id="mainAdmissionBulkAssignCounselor" class="bulk-assign-select">
-            <option value="">Assign to</option>
-            ${assignableCounselors.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("")}
-          </select>
-          <button id="mainAdmissionBulkAssignBtn" type="button" class="btn-ghost bulk-action-btn" ${selectedCount ? "" : "disabled"}>Assign Selected</button>
         </div>
       </div>
     </div>
@@ -1505,27 +1493,6 @@ mainAdmissionLeadTableSection.addEventListener("click", async (event) => {
     return;
   }
 
-  if (event.target.id === "mainAdmissionBulkAssignBtn") {
-    const targetCounselor = document.getElementById("mainAdmissionBulkAssignCounselor")?.value;
-    if (!targetCounselor) {
-      showToast("Select a counselor first.", true);
-      return;
-    }
-
-    const leads = getCurrentFilteredLeads();
-    const refs = leads.filter((lead) => selectedLeadKeys.has(buildLeadKey(lead))).map(buildLeadRef);
-    const result = await assignLeadsOnServer(refs, targetCounselor);
-    if (!result || result.ok === false) {
-      showToast(result?.message || "Failed to assign selected leads.", true);
-      return;
-    }
-
-    selectedLeadKeys = new Set();
-    const assignmentSummary = formatLeadAssignmentResult(result, refs.length, targetCounselor);
-    setMessage(assignmentSummary.message, assignmentSummary.assignedCount === 0);
-    showToast(assignmentSummary.message, assignmentSummary.assignedCount === 0);
-    renderAll();
-  }
 });
 
 mainAdmissionLeadTableSection.addEventListener("change", (event) => {
