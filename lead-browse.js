@@ -301,7 +301,7 @@ async function mergeDuplicateGroup(group) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload?.message || "Failed to merge duplicate leads.");
+    throw new Error(payload?.details || payload?.message || "Failed to merge duplicate leads.");
   }
   await refreshState().catch(() => undefined);
   await fetchDuplicateGroups();
@@ -320,7 +320,7 @@ async function mergeAllDuplicateGroupsByOldest() {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload?.message || "Failed to merge duplicate leads.");
+    throw new Error(payload?.details || payload?.message || "Failed to merge duplicate leads.");
   }
   await refreshState().catch(() => undefined);
   await fetchDuplicateGroups();

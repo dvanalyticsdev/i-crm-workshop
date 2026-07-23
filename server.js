@@ -6408,39 +6408,58 @@ async function performDuplicateLeadMerge(keeperLead, duplicateLeads = [], sessio
     duplicateDocumentIdCandidates.map((value) => String(value))
   )];
 
-  await replaceLeadDocument(mergedLead);
-  await withMongoRetry(
-    () => leadsCollection.deleteMany({ id: { $in: duplicateDocumentIdCandidates } }),
-    { retries: 1, label: "Delete merged duplicate leads" }
-  );
-  await withMongoRetry(
-    () => tasksCollection.updateMany(
-      { leadId: { $in: duplicateReferenceIdCandidates } },
-      {
-        $set: {
-          leadId: String(mergedLead.id || ""),
-          leadName: String(mergedLead.name || ""),
-          leadPhone: String(mergedLead.phone || ""),
-          leadCounselor: String(mergedLead.counselor || ""),
-          counselor: String(mergedLead.counselor || "")
+  try {
+    await withMongoRetry(
+      () => leadsCollection.deleteMany({ id: { $in: duplicateDocumentIdCandidates } }),
+      { retries: 1, label: "Delete merged duplicate leads" }
+    );
+  } catch (error) {
+    throw new Error(`Could not remove duplicate lead records before merge: ${error.message}`);
+  }
+
+  try {
+    await replaceLeadDocument(mergedLead);
+  } catch (error) {
+    throw new Error(`Could not update the keeper lead after duplicate removal: ${error.message}`);
+  }
+
+  try {
+    await withMongoRetry(
+      () => tasksCollection.updateMany(
+        { leadId: { $in: duplicateReferenceIdCandidates } },
+        {
+          $set: {
+            leadId: String(mergedLead.id || ""),
+            leadName: String(mergedLead.name || ""),
+            leadPhone: String(mergedLead.phone || ""),
+            leadCounselor: String(mergedLead.counselor || ""),
+            counselor: String(mergedLead.counselor || "")
+          }
         }
-      }
-    ),
-    { retries: 1, label: "Reassign merged lead tasks" }
-  );
-  await withMongoRetry(
-    () => activityLogsCollection.updateMany(
-      { leadId: { $in: duplicateReferenceIdCandidates } },
-      {
-        $set: {
-          leadId: String(mergedLead.id || ""),
-          leadName: String(mergedLead.name || ""),
-          counselorName: String(mergedLead.counselor || "")
+      ),
+      { retries: 1, label: "Reassign merged lead tasks" }
+    );
+  } catch (error) {
+    throw new Error(`Duplicate lead records were removed, but task reassignment failed: ${error.message}`);
+  }
+
+  try {
+    await withMongoRetry(
+      () => activityLogsCollection.updateMany(
+        { leadId: { $in: duplicateReferenceIdCandidates } },
+        {
+          $set: {
+            leadId: String(mergedLead.id || ""),
+            leadName: String(mergedLead.name || ""),
+            counselorName: String(mergedLead.counselor || "")
+          }
         }
-      }
-    ),
-    { retries: 1, label: "Reassign merged lead activity logs" }
-  );
+      ),
+      { retries: 1, label: "Reassign merged lead activity logs" }
+    );
+  } catch (error) {
+    throw new Error(`Duplicate lead records were removed, but activity history reassignment failed: ${error.message}`);
+  }
 
   await recordActivity({
     leadId: mergedLead.id,
