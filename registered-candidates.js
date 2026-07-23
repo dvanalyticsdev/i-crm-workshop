@@ -51,6 +51,8 @@ const registeredTaskNotesInput = document.getElementById("registeredTaskNotes");
 const registeredTaskDueDateInput = document.getElementById("registeredTaskDueDate");
 const registeredTaskMessage = document.getElementById("registeredTaskMessage");
 
+registeredFilterBar.classList.add("filter-bar--crm");
+
 const FILTER_STORAGE_KEY = "dvRegisteredCandidatesFilters";
 const PUBLIC_COURSE_ROUTING_ENDPOINT = apiUrl("/api/public-course-routing");
 const DEFAULT_SEGMENT = "standard";
@@ -886,7 +888,7 @@ function renderFilters(leads) {
 
   registeredFilterBar.innerHTML = `
     <div class="filter-section">
-      <div class="filter-section-title">${escapeHtml(segmentConfig.label)} Filters</div>
+      <div class="filter-section-title">Timeline</div>
       <div class="filter-row">
         <div class="filter-item">
           <label for="registeredTimelineSelect">Timeline</label>
@@ -906,7 +908,13 @@ function renderFilters(leads) {
           <label for="registeredEndDate">End Date</label>
           <input id="registeredEndDate" type="date" value="${escapeHtml(filter.endDate)}" />
         </div>
-        <div class="filter-item">
+      </div>
+    </div>
+
+    <div class="filter-section">
+      <div class="filter-section-title">Lead Search & Ownership</div>
+      <div class="filter-row">
+        <div class="filter-item filter-item--search">
           <label for="registeredSearchInput">Search Lead</label>
           <input id="registeredSearchInput" type="text" placeholder="Name, email, phone, course, counselor" value="${escapeHtml(filter.search)}" />
         </div>
@@ -927,6 +935,12 @@ function renderFilters(leads) {
           </select>
         </div>
         ` : ""}
+      </div>
+    </div>
+
+    <div class="filter-section">
+      <div class="filter-section-title">Lead Details</div>
+      <div class="filter-row">
         ${activeSegment === DEFAULT_SEGMENT ? `
         <div class="filter-item">
           <label for="registeredCourseSelect">Course Name</label>
@@ -951,6 +965,12 @@ function renderFilters(leads) {
             <option value="No" ${filter.registeredDialed === "No" ? "selected" : ""}>No</option>
           </select>
         </div>
+      </div>
+    </div>
+
+    <div class="filter-section">
+      <div class="filter-section-title">Pipeline Status</div>
+      <div class="filter-row">
         <div class="filter-item">
           <label for="registeredCourseStatusSelect">Course Status</label>
           <select id="registeredCourseStatusSelect">
@@ -1003,6 +1023,12 @@ function renderFilters(leads) {
             <option value="First Time" ${filter.repeatEnquiryStatus === "First Time" ? "selected" : ""}>First Time</option>
           </select>
         </div>
+      </div>
+    </div>
+
+    <div class="filter-section">
+      <div class="filter-section-title">Actions</div>
+      <div class="filter-row">
         <div class="filter-item filter-item-cta">
           <label>&nbsp;</label>
           <div class="filter-actions">

@@ -47,6 +47,8 @@ const session = getSession();
 const isAdmin = session?.role === "admin";
 const canCreateTasks = session?.role === "counselor";
 
+postFilterBar.classList.add("filter-bar--crm");
+
 const EMPTY_FILTER_VALUE = "__EMPTY_FILTER__";
 const EMPTY_FILTER_LABEL = "Use Filter";
 const SELECT_ALL_FILTER_VALUE = "__SELECT_ALL__";
@@ -922,18 +924,56 @@ function renderFilters(leads) {
           <label for="postEndDateInput">End Date</label>
           <input id="postEndDateInput" type="date" />
         </div>
-        <div class="filter-item filter-item-cta">
-          <label>&nbsp;</label>
-          <div class="filter-actions">
-            <button id="postResetTimeline" class="btn-ghost" type="button">Reset Timeline</button>
-          </div>
-        </div>
       </div>
     </div>
 
     <div class="filter-section">
-      <div class="filter-section-title">Workshop Calling</div>
+      <div class="filter-section-title">Lead Search & Ownership</div>
       <div class="filter-row">
+        <div class="filter-item filter-item--search">
+          <label for="postSearchLeadInput">Search Lead</label>
+          <input id="postSearchLeadInput" type="text" placeholder="Name, email, phone, workshop, counselor" />
+        </div>
+        <div class="filter-item">
+          <label for="postLeadOwnerSelect">Lead Owner</label>
+          <select id="postLeadOwnerSelect">
+            <option value="all">All Leads</option>
+            <option value="direct">Directly Assigned</option>
+            <option value="reassigned">Assigned From Someone Else</option>
+          </select>
+        </div>
+        ${renderMultiSelectControl({
+          id: "postCounselorSelect",
+          label: "Counselor",
+          options: counselorOptions,
+          value: filter.counselor,
+          itemClass: isAdmin ? "" : " hidden",
+          itemAttrs: 'data-admin-only="true"'
+        })}
+        ${renderMultiSelectControl({
+          id: "postActivityStatusSelect",
+          label: "Untouched Leads",
+          options: ["Untouched", "Updated"],
+          value: filter.activityStatus
+        })}
+      </div>
+    </div>
+
+    <div class="filter-section">
+      <div class="filter-section-title">Workshop Filters</div>
+      <div class="filter-row">
+        ${renderMultiSelectControl({
+          id: "postWorkshopNameSelect",
+          label: "Workshop Name",
+          options: workshopNames,
+          value: filter.workshopName
+        })}
+        ${renderMultiSelectControl({
+          id: "postWorkshopDateSelect",
+          label: "Workshop Date",
+          options: workshopDates,
+          value: filter.workshopDate
+        })}
         ${renderMultiSelectControl({
           id: "postWorkshopCallingDialedSelect",
           label: "Dialed",
@@ -964,38 +1004,18 @@ function renderFilters(leads) {
           options: withSelectFilterOption(["Joined", "Not Joined"]),
           value: filter.workshopCallingWhatsappGroupStatus
         })}
+        ${renderMultiSelectControl({
+          id: "postWorkshopJoiningStatusSelect",
+          label: "Workshop Joining Status",
+          options: withSelectFilterOption(["Joined", "Not Joined"]),
+          value: filter.workshopJoiningStatus
+        })}
       </div>
     </div>
 
     <div class="filter-section">
-      <div class="filter-section-title">Admission Calling</div>
+      <div class="filter-section-title">Admission Filters</div>
       <div class="filter-row">
-        <div class="filter-item">
-          <label for="postSearchLeadInput">Search Lead</label>
-          <input id="postSearchLeadInput" type="text" placeholder="Name, email, phone, workshop, counselor" />
-        </div>
-        <div class="filter-item">
-          <label for="postLeadOwnerSelect">Lead Owner</label>
-          <select id="postLeadOwnerSelect">
-            <option value="all">All Leads</option>
-            <option value="direct">Directly Assigned</option>
-            <option value="reassigned">Assigned From Someone Else</option>
-          </select>
-        </div>
-        ${renderMultiSelectControl({
-          id: "postCounselorSelect",
-          label: "Counselor",
-          options: counselorOptions,
-          value: filter.counselor,
-          itemClass: isAdmin ? "" : " hidden",
-          itemAttrs: 'data-admin-only="true"'
-        })}
-        ${renderMultiSelectControl({
-          id: "postActivityStatusSelect",
-          label: "Untouched Leads",
-          options: ["Untouched", "Updated"],
-          value: filter.activityStatus
-        })}
         ${renderMultiSelectControl({
           id: "postRepeatEnquirySelect",
           label: "Repeat Enquiry",
@@ -1007,18 +1027,6 @@ function renderFilters(leads) {
           label: "WhatsApp Activity",
           options: WHATSAPP_ACTIVITY_FILTER_OPTIONS,
           value: filter.whatsappActivity
-        })}
-        ${renderMultiSelectControl({
-          id: "postWorkshopNameSelect",
-          label: "Workshop Name",
-          options: workshopNames,
-          value: filter.workshopName
-        })}
-        ${renderMultiSelectControl({
-          id: "postWorkshopDateSelect",
-          label: "Workshop Date",
-          options: workshopDates,
-          value: filter.workshopDate
         })}
         ${renderMultiSelectControl({
           id: "postDialedSelect",
@@ -1050,15 +1058,16 @@ function renderFilters(leads) {
           options: withSelectFilterOption(["Connected", "CBL", "DNP", "CNC"]),
           value: filter.postCallStatus
         })}
-        ${renderMultiSelectControl({
-          id: "postWorkshopJoiningStatusSelect",
-          label: "Workshop Joining Status",
-          options: withSelectFilterOption(["Joined", "Not Joined"]),
-          value: filter.workshopJoiningStatus
-        })}
+      </div>
+    </div>
+
+    <div class="filter-section">
+      <div class="filter-section-title">Actions</div>
+      <div class="filter-row">
         <div class="filter-item filter-item-cta">
           <label>&nbsp;</label>
           <div class="filter-actions">
+            <button id="postResetTimeline" class="btn-ghost" type="button">Reset Timeline</button>
             <button id="exportPostWorkshopLeads" class="btn-primary" type="button">Export Leads</button>
             <button id="postResetFilters" class="btn-ghost" type="button">Reset</button>
           </div>

@@ -59,6 +59,8 @@ const editMainAdmissionDetailsBtn = document.getElementById("editMainAdmissionDe
 const saveMainAdmissionDetailsBtn = document.getElementById("saveMainAdmissionDetailsBtn");
 const cancelMainAdmissionDetailsEditBtn = document.getElementById("cancelMainAdmissionDetailsEditBtn");
 
+mainAdmissionFilterBar.classList.add("filter-bar--crm");
+
 const FILTER_STORAGE_KEY = "dvMainAdmissionLeadFilters";
 const DEFAULT_SEGMENT = "standard";
 const SEGMENT_CONFIG = {
@@ -772,7 +774,7 @@ function renderFilters(leads) {
 
   mainAdmissionFilterBar.innerHTML = `
     <div class="filter-section">
-      <div class="filter-section-title">${escapeHtml(segmentConfig.label)} Filters</div>
+      <div class="filter-section-title">Timeline</div>
       <div class="filter-row">
         <div class="filter-item">
           <label for="mainAdmissionTimelineSelect">Timeline</label>
@@ -792,7 +794,13 @@ function renderFilters(leads) {
           <label for="mainAdmissionEndDate">End Date</label>
           <input id="mainAdmissionEndDate" type="date" value="${escapeHtml(filter.endDate)}" />
         </div>
-        <div class="filter-item">
+      </div>
+    </div>
+
+    <div class="filter-section">
+      <div class="filter-section-title">Lead Search & Ownership</div>
+      <div class="filter-row">
+        <div class="filter-item filter-item--search">
           <label for="mainAdmissionSearchInput">Search Lead</label>
           <input id="mainAdmissionSearchInput" type="text" placeholder="Name, email, phone, course, counselor" value="${escapeHtml(filter.search)}" />
         </div>
@@ -813,6 +821,12 @@ function renderFilters(leads) {
           </select>
         </div>
         ` : ""}
+      </div>
+    </div>
+
+    <div class="filter-section">
+      <div class="filter-section-title">Lead Details</div>
+      <div class="filter-row">
         ${activeSegment === DEFAULT_SEGMENT ? `
         <div class="filter-item">
           <label for="mainAdmissionCourseSelect">Course Name</label>
@@ -837,6 +851,12 @@ function renderFilters(leads) {
             <option value="No" ${filter.mainAdmissionDialed === "No" ? "selected" : ""}>No</option>
           </select>
         </div>
+      </div>
+    </div>
+
+    <div class="filter-section">
+      <div class="filter-section-title">Pipeline Status</div>
+      <div class="filter-row">
         <div class="filter-item">
           <label for="mainAdmissionCourseStatusSelect">Course Status</label>
           <select id="mainAdmissionCourseStatusSelect">
@@ -889,6 +909,12 @@ function renderFilters(leads) {
             ${WHATSAPP_ACTIVITY_FILTER_OPTIONS.map((item) => `<option value="${escapeHtml(item)}" ${filter.whatsappActivity === item ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
           </select>
         </div>
+      </div>
+    </div>
+
+    <div class="filter-section">
+      <div class="filter-section-title">Actions</div>
+      <div class="filter-row">
         <div class="filter-item filter-item-cta">
           <label>&nbsp;</label>
           <div class="filter-actions">

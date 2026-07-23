@@ -1430,6 +1430,107 @@ textarea:focus {
   gap: 8px;
 }
 
+.filter-bar--crm {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.filter-bar--crm .filter-section {
+  gap: var(--space-2);
+}
+
+.filter-bar--crm .filter-section + .filter-section {
+  margin-top: 0;
+  padding-top: var(--space-2);
+}
+
+.filter-bar--crm .filter-section-title {
+  font-size: 0.78rem;
+}
+
+.filter-bar--crm .filter-row {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--space-2);
+  align-items: end;
+}
+
+.filter-bar--crm .filter-item {
+  grid-column: span 3;
+  justify-items: stretch;
+  text-align: left;
+}
+
+.filter-bar--crm .filter-item label {
+  text-align: left;
+}
+
+.filter-bar--crm .filter-item select,
+.filter-bar--crm .filter-item input,
+.filter-bar--crm .filter-item button,
+.filter-bar--crm .multi-filter-trigger {
+  text-align: left;
+}
+
+.filter-bar--crm .filter-item select {
+  text-align-last: left;
+}
+
+.filter-bar--crm .multi-filter-trigger {
+  justify-content: flex-start;
+}
+
+.filter-bar--crm .filter-item--search {
+  grid-column: span 6;
+}
+
+.filter-bar--crm .filter-item--wide {
+  grid-column: span 4;
+}
+
+.filter-bar--crm .filter-item-cta {
+  grid-column: 1 / -1;
+}
+
+.filter-bar--crm .filter-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 1100px) {
+  .filter-bar--crm .filter-row {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+
+  .filter-bar--crm .filter-item {
+    grid-column: span 4;
+  }
+
+  .filter-bar--crm .filter-item--search,
+  .filter-bar--crm .filter-item--wide {
+    grid-column: span 8;
+  }
+}
+
+@media (max-width: 720px) {
+  .filter-bar--crm .filter-row {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+
+  .filter-bar--crm .filter-item,
+  .filter-bar--crm .filter-item--search,
+  .filter-bar--crm .filter-item--wide {
+    grid-column: 1;
+  }
+
+  .filter-bar--crm .filter-actions {
+    justify-content: stretch;
+  }
+
+  .filter-bar--crm .filter-actions > * {
+    flex: 1 1 100%;
+  }
+}
+
 .table-scroll {
   overflow-x: auto;
 }
