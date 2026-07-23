@@ -190,14 +190,12 @@ function formatLeadCreatedDisplay(value) {
   return String(value || "Not available");
 }
 
-function buildAdminAuthVersion() {
+function buildAdminAuthVersion(password = ADMIN_USER.password) {
   return crypto
     .createHash("sha256")
-    .update(`${ADMIN_USER.id}:${ADMIN_USER.password}`)
+    .update(`${ADMIN_USER.id}:${String(password || "").trim()}`)
     .digest("hex");
 }
-
-const ADMIN_AUTH_VERSION = buildAdminAuthVersion();
 
 const DEFAULT_PERMISSIONS = {
   dashboard: false,
@@ -461,10 +459,14 @@ async function getSessionFromRequest(req) {
       await sessionCollection.deleteOne({ token }).catch(() => undefined);
       return null;
     }
-    if (cached.role === "super_admin" && cached.adminAuthVersion !== ADMIN_AUTH_VERSION) {
-      sessionCache.delete(token);
-      await sessionCollection.deleteOne({ token }).catch(() => undefined);
-      return null;
+    if (cached.role === "super_admin") {
+      const authConfig = await getAuthConfig();
+      const activeAdminAuthVersion = buildAdminAuthVersion(authConfig.superAdminPassword);
+      if (cached.adminAuthVersion !== activeAdminAuthVersion) {
+        sessionCache.delete(token);
+        await sessionCollection.deleteOne({ token }).catch(() => undefined);
+        return null;
+      }
     }
     return { token, session: cached.session };
   }
@@ -484,8 +486,11 @@ async function getSessionFromRequest(req) {
   }
 
   if (String(sessionDoc.role || "").trim().toLowerCase() === "super_admin") {
+    const authConfig = await getAuthConfig();
+    const activeAdminAuthVersion = buildAdminAuthVersion(authConfig.superAdminPassword);
     const storedAdminAuthVersion = String(sessionDoc.adminAuthVersion || "").trim();
-    if (!storedAdminAuthVersion || storedAdminAuthVersion !== ADMIN_AUTH_VERSION) {
+    if (!storedAdminAuthVersion || storedAdminAuthVersion !== activeAdminAuthVersion) {
+      sessionCache.delete(token);
       await sessionCollection.deleteOne({ token }).catch(() => undefined);
       return null;
     }
@@ -505,11 +510,15 @@ async function persistSession(res, session) {
   const now = new Date();
   const expiresAt = new Date(now.getTime() + SESSION_TTL_MS).toISOString();
   const normalized = sanitizeSession(session);
+  const authConfig = normalized.role === "super_admin" ? await getAuthConfig() : null;
+  const adminAuthVersion = normalized.role === "super_admin"
+    ? buildAdminAuthVersion(authConfig?.superAdminPassword)
+    : "";
 
   await sessionCollection.insertOne({
     token,
     ...normalized,
-    ...(normalized.role === "super_admin" ? { adminAuthVersion: ADMIN_AUTH_VERSION } : {}),
+    ...(normalized.role === "super_admin" ? { adminAuthVersion } : {}),
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
     expiresAt
