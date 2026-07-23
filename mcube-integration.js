@@ -9,6 +9,7 @@ if (!session || !["super_admin", "admin", "marketing"].includes(session.role)) {
   window.location.href = "index.html";
   throw new Error("Access required.");
 }
+const isAdminLike = session.role === "admin" || session.role === "super_admin";
 
 const integrationSectionNav = document.getElementById("integrationSectionNav");
 const webhookUrlInput = document.getElementById("webhookUrl");
@@ -524,7 +525,7 @@ clearLogsBtn.addEventListener("click", clearLogs);
 resetRrBtn.addEventListener("click", resetRoundRobin);
 logTypeFilter.addEventListener("change", () => renderLogs(allLogs));
 
-if (session.role !== "admin") {
+if (!isAdminLike) {
   clearLogsBtn.disabled = true;
   resetRrBtn.disabled = true;
 }

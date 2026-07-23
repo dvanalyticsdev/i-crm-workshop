@@ -10,6 +10,7 @@ if (!session || !["super_admin", "admin", "marketing"].includes(session.role)) {
   window.location.href = "index.html";
   throw new Error("Access required.");
 }
+const isAdminLike = session.role === "admin" || session.role === "super_admin";
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 
@@ -322,7 +323,7 @@ function renderAdmissionRotationCounselors() {
                   data-counselor-id="${escapeHtml(counselor.id || counselor.email || "")}"
                   data-course-id="${escapeHtml(course.id)}"
                   ${courses.includes(course.id) ? "checked" : ""}
-                  ${session.role === "admin" ? "" : "disabled"}
+                  ${isAdminLike ? "" : "disabled"}
                 />
                 <span>${escapeHtml(course.label)}</span>
               </label>
@@ -332,7 +333,7 @@ function renderAdmissionRotationCounselors() {
         <div class="rr-roster-control">
           <span class="rr-roster-status">${checked ? "In rotation" : "Paused"}</span>
           <label class="switch" aria-label="Toggle ${escapeHtml(counselor.name || "counselor")} in admission round-robin">
-            <input type="checkbox" class="rr-counselor-toggle" data-rotation-kind="admission" data-rotation-field="admissionRoundRobinEnabled" data-counselor-id="${escapeHtml(counselor.id || counselor.email || "")}" ${checked ? "checked" : ""} ${session.role === "admin" ? "" : "disabled"} />
+            <input type="checkbox" class="rr-counselor-toggle" data-rotation-kind="admission" data-rotation-field="admissionRoundRobinEnabled" data-counselor-id="${escapeHtml(counselor.id || counselor.email || "")}" ${checked ? "checked" : ""} ${isAdminLike ? "" : "disabled"} />
             <span class="switch-slider"></span>
           </label>
         </div>
@@ -373,7 +374,7 @@ function renderCounselorRotationRows(counselors, options) {
         <div class="rr-roster-control">
           <span class="rr-roster-status">${status}</span>
           <label class="switch" aria-label="Toggle ${escapeHtml(counselor.name || "counselor")} in ${escapeHtml(options.label)} round-robin">
-            <input type="checkbox" class="rr-counselor-toggle" data-rotation-kind="${escapeHtml(options.kind)}" data-rotation-field="${escapeHtml(options.field)}" data-counselor-id="${escapeHtml(counselor.id || counselor.email || "")}" ${checked ? "checked" : ""} ${session.role === "admin" ? "" : "disabled"} />
+            <input type="checkbox" class="rr-counselor-toggle" data-rotation-kind="${escapeHtml(options.kind)}" data-rotation-field="${escapeHtml(options.field)}" data-counselor-id="${escapeHtml(counselor.id || counselor.email || "")}" ${checked ? "checked" : ""} ${isAdminLike ? "" : "disabled"} />
             <span class="switch-slider"></span>
           </label>
         </div>
@@ -383,7 +384,7 @@ function renderCounselorRotationRows(counselors, options) {
 }
 
 async function updateCounselorRoundRobinStatus(counselorId, field, enabled) {
-  if (session.role !== "admin") return;
+  if (!isAdminLike) return;
   const safeField = String(field || "roundRobinEnabled").trim() || "roundRobinEnabled";
   const targetMessage = safeField === "admissionRoundRobinEnabled" || safeField === "admissionCoursePermissions"
     ? admissionRrRosterMessage

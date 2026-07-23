@@ -9,6 +9,7 @@ if (!session || !["super_admin", "admin", "marketing"].includes(session.role)) {
   window.location.href = "index.html";
   throw new Error("Access required.");
 }
+const isAdminLike = session.role === "admin" || session.role === "super_admin";
 
 const integrationSectionNav = document.getElementById("integrationSectionNav");
 const rrIndexDisplay = document.getElementById("rrIndexDisplay");
@@ -146,7 +147,7 @@ function renderWorkshopRotationCounselors() {
         <div class="rr-roster-control">
           <span class="rr-roster-status">${checked ? "In rotation" : "Paused"}</span>
           <label class="switch" aria-label="Toggle ${escapeHtml(counselor.name || "counselor")} in workshop round-robin">
-            <input type="checkbox" class="rr-counselor-toggle" data-counselor-id="${escapeHtml(counselor.id || counselor.email || "")}" ${checked ? "checked" : ""} ${session.role === "admin" ? "" : "disabled"} />
+            <input type="checkbox" class="rr-counselor-toggle" data-counselor-id="${escapeHtml(counselor.id || counselor.email || "")}" ${checked ? "checked" : ""} ${isAdminLike ? "" : "disabled"} />
             <span class="switch-slider"></span>
           </label>
         </div>
@@ -167,7 +168,7 @@ function renderRosters() {
 }
 
 async function updateCounselorLeadFlowSetting(counselorId, enabled) {
-  if (session.role !== "admin") return;
+  if (!isAdminLike) return;
 
   showMessage(rrRosterMessage, "Saving counselor rotation...");
 
