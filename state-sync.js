@@ -577,7 +577,31 @@ export async function saveCounselors(counselors) {
 }
 
 export async function saveAdminUsers(adminUsers) {
-  return updateStateFields({ adminUsers });
+  const nextAdminUsers = Array.isArray(adminUsers) ? adminUsers : [];
+  setCurrentState({ ...currentState, adminUsers: nextAdminUsers });
+
+  try {
+    const { response, payload } = await fetchJson("/api/admin-users", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
+      body: JSON.stringify(nextAdminUsers)
+    }, PUT_TIMEOUT_MS);
+
+    if (!response.ok) {
+      void refreshState().catch(() => undefined);
+      return { ok: false, message: payload?.message || "Failed to save admin users." };
+    }
+
+    lastSuccessfulMutationAt = Date.now();
+    await refreshState().catch(() => undefined);
+    return { ok: true, payload: getStateSnapshot() };
+  } catch (error) {
+    void refreshState().catch(() => undefined);
+    return { ok: false, message: error?.message || "Failed to save admin users." };
+  }
 }
 
 export function getMarketingUsers() {
@@ -585,7 +609,31 @@ export function getMarketingUsers() {
 }
 
 export async function saveMarketingUsers(marketingUsers) {
-  return updateStateFields({ marketingUsers });
+  const nextMarketingUsers = Array.isArray(marketingUsers) ? marketingUsers : [];
+  setCurrentState({ ...currentState, marketingUsers: nextMarketingUsers });
+
+  try {
+    const { response, payload } = await fetchJson("/api/marketing-users", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
+      body: JSON.stringify(nextMarketingUsers)
+    }, PUT_TIMEOUT_MS);
+
+    if (!response.ok) {
+      void refreshState().catch(() => undefined);
+      return { ok: false, message: payload?.message || "Failed to save marketing users." };
+    }
+
+    lastSuccessfulMutationAt = Date.now();
+    await refreshState().catch(() => undefined);
+    return { ok: true, payload: getStateSnapshot() };
+  } catch (error) {
+    void refreshState().catch(() => undefined);
+    return { ok: false, message: error?.message || "Failed to save marketing users." };
+  }
 }
 
 export async function saveAllocation(allocation) {

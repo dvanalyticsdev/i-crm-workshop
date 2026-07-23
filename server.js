@@ -11152,6 +11152,64 @@ app.put("/api/counselors", async (req, res) => {
   }
 });
 
+app.put("/api/admin-users", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, "admin");
+    if (!session) return;
+
+    if (!Array.isArray(req.body)) {
+      return res.status(400).json({ message: "Admin users payload must be an array." });
+    }
+
+    const now = new Date().toISOString();
+    await stateCollection.updateOne(
+      { _id: STATE_DOC_ID },
+      {
+        $set: {
+          adminUsers: req.body,
+          updatedAt: now
+        }
+      },
+      { upsert: true }
+    );
+
+    cachedStateDoc = null;
+    cachedStateDocAt = 0;
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to save admin users", details: error.message });
+  }
+});
+
+app.put("/api/marketing-users", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, "admin");
+    if (!session) return;
+
+    if (!Array.isArray(req.body)) {
+      return res.status(400).json({ message: "Marketing users payload must be an array." });
+    }
+
+    const now = new Date().toISOString();
+    await stateCollection.updateOne(
+      { _id: STATE_DOC_ID },
+      {
+        $set: {
+          marketingUsers: req.body,
+          updatedAt: now
+        }
+      },
+      { upsert: true }
+    );
+
+    cachedStateDoc = null;
+    cachedStateDocAt = 0;
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to save marketing users", details: error.message });
+  }
+});
+
 app.put("/api/counselors/rotation", async (req, res) => {
   try {
     const session = await requireRole(req, res, "admin");
