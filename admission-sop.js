@@ -562,6 +562,9 @@ function renderFilters() {
         Search
         <input id="sopQueryFilter" type="search" value="${escapeHtml(filter.query)}" placeholder="Lead, phone, course, counselor..." />
       </label>
+      <div class="sop-filter-grid__actions">
+        <button type="button" class="btn-ghost" id="sopResetFiltersBtn">Reset Filters</button>
+      </div>
     </div>
     ${false && isAdminSession() ? `
       <div class="sop-assign-bar">
@@ -597,6 +600,15 @@ function renderFilters() {
   });
   document.getElementById("sopQueryFilter")?.addEventListener("input", (event) => {
     filter.query = event.target.value;
+    currentPage = 1;
+    render();
+  });
+  document.getElementById("sopResetFiltersBtn")?.addEventListener("click", () => {
+    filter.bucket = "all";
+    filter.counselor = "all";
+    filter.section = "all";
+    filter.course = "all";
+    filter.query = "";
     currentPage = 1;
     render();
   });
