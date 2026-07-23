@@ -6401,16 +6401,21 @@ function chooseDuplicateKeeperLead(groupLeads = [], createdMetadataMap = new Map
 
 async function performDuplicateLeadMerge(keeperLead, duplicateLeads = [], session = null, actionDescription = "Admin merged duplicate leads into this record") {
   const mergedLead = buildMergedLeadFromDuplicates(keeperLead, duplicateLeads);
-  const duplicateIdCandidates = duplicateLeads.flatMap((lead) => getLeadIdCandidates(lead?.id)).map((value) => String(value));
+  const duplicateDocumentIdCandidates = [...new Set(
+    duplicateLeads.flatMap((lead) => getLeadIdCandidates(lead?.id))
+  )];
+  const duplicateReferenceIdCandidates = [...new Set(
+    duplicateDocumentIdCandidates.map((value) => String(value))
+  )];
 
   await replaceLeadDocument(mergedLead);
   await withMongoRetry(
-    () => leadsCollection.deleteMany({ id: { $in: duplicateIdCandidates } }),
+    () => leadsCollection.deleteMany({ id: { $in: duplicateDocumentIdCandidates } }),
     { retries: 1, label: "Delete merged duplicate leads" }
   );
   await withMongoRetry(
     () => tasksCollection.updateMany(
-      { leadId: { $in: duplicateIdCandidates } },
+      { leadId: { $in: duplicateReferenceIdCandidates } },
       {
         $set: {
           leadId: String(mergedLead.id || ""),
@@ -6425,7 +6430,7 @@ async function performDuplicateLeadMerge(keeperLead, duplicateLeads = [], sessio
   );
   await withMongoRetry(
     () => activityLogsCollection.updateMany(
-      { leadId: { $in: duplicateIdCandidates } },
+      { leadId: { $in: duplicateReferenceIdCandidates } },
       {
         $set: {
           leadId: String(mergedLead.id || ""),
