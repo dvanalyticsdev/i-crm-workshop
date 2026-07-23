@@ -118,9 +118,10 @@ function showRouteLoadingOverlay(mainContent) {
   mainContent.classList.add("route-loading");
 
   const timerElement = overlay.querySelector(".app-shell-loading__timer");
-  const startedAt = Date.now();
+  const startedAt = Number(mainContent.__dvRouteLoadingStartedAt) || Date.now();
+  mainContent.__dvRouteLoadingStartedAt = startedAt;
   if (timerElement) {
-    timerElement.textContent = "0.0s";
+    timerElement.textContent = `${((Date.now() - startedAt) / 1000).toFixed(1)}s`;
   }
 
   mainContent.__dvRouteLoadingTimer = window.setInterval(() => {
@@ -136,6 +137,7 @@ function hideRouteLoadingOverlay(mainContent) {
   }
 
   clearRouteLoadingTimer(mainContent);
+  delete mainContent.__dvRouteLoadingStartedAt;
   mainContent.classList.remove("route-loading");
   mainContent.querySelector(".route-loading-overlay")?.remove();
 }
@@ -802,6 +804,8 @@ async function navigateToRoute(href, options = {}) {
     } else {
       activeMainContent.replaceWith(nextMainContent);
     }
+
+    showRouteLoadingOverlay(activeMainContent);
 
     document.title = targetDocument.title || document.title;
     document.body.className = targetDocument.body.className;
