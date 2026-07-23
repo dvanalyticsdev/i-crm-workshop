@@ -33,7 +33,10 @@ const mediaFileInput = document.getElementById("mediaFileInput");
 const uploadMediaBtn = document.getElementById("uploadMediaBtn");
 const mediaPreviewWrap = document.getElementById("mediaPreviewWrap");
 const mediaPreviewImage = document.getElementById("mediaPreviewImage");
-const mediaPreviewLink = document.getElementById("mediaPreviewLink");
+const mediaPreviewOpenBtn = document.getElementById("mediaPreviewOpenBtn");
+const mediaLightboxModal = document.getElementById("mediaLightboxModal");
+const mediaLightboxImage = document.getElementById("mediaLightboxImage");
+const mediaLightboxCloseBtn = document.getElementById("mediaLightboxCloseBtn");
 const selectFilteredBtn = document.getElementById("selectFilteredBtn");
 const clearSelectionBtn = document.getElementById("clearSelectionBtn");
 const sendBtn = document.getElementById("sendBtn");
@@ -69,14 +72,26 @@ function renderMediaPreview(url = "") {
   const normalizedUrl = String(url || "").trim();
   const isPreviewable = /^https?:\/\//i.test(normalizedUrl);
   mediaPreviewWrap.hidden = !isPreviewable;
+  mediaPreviewOpenBtn.disabled = !isPreviewable;
   if (!isPreviewable) {
     mediaPreviewImage.removeAttribute("src");
-    mediaPreviewLink.setAttribute("href", "#");
+    mediaLightboxImage.removeAttribute("src");
     return;
   }
 
   mediaPreviewImage.src = normalizedUrl;
-  mediaPreviewLink.href = normalizedUrl;
+  mediaLightboxImage.src = normalizedUrl;
+}
+
+function openMediaLightbox() {
+  if (!mediaLightboxImage.getAttribute("src")) {
+    return;
+  }
+  mediaLightboxModal.classList.remove("hidden");
+}
+
+function closeMediaLightbox() {
+  mediaLightboxModal.classList.add("hidden");
 }
 
 function uniqueOptions(leads, getter) {
@@ -494,6 +509,13 @@ uploadMediaBtn.addEventListener("click", uploadTemplateMedia);
 mediaUrlInput.addEventListener("input", () => {
   renderMediaPreview(mediaUrlInput.value);
 });
+mediaPreviewOpenBtn.addEventListener("click", openMediaLightbox);
+mediaLightboxCloseBtn.addEventListener("click", closeMediaLightbox);
+mediaLightboxModal.addEventListener("click", (event) => {
+  if (event.target === mediaLightboxModal) {
+    closeMediaLightbox();
+  }
+});
 sendBtn.addEventListener("click", sendSelected);
 clearRecentSendsBtn.addEventListener("click", clearRecentSends);
 selectFilteredBtn.addEventListener("click", () => {
@@ -513,11 +535,24 @@ selectPageToggle.addEventListener("change", () => {
   renderLeadTable();
 });
 searchInput.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !mediaLightboxModal.classList.contains("hidden")) {
+    event.preventDefault();
+    closeMediaLightbox();
+    return;
+  }
   if (event.key !== "Enter") {
     return;
   }
   event.preventDefault();
   filterLeadList();
+});
+[document].forEach((target) => {
+  target.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !mediaLightboxModal.classList.contains("hidden")) {
+      event.preventDefault();
+      closeMediaLightbox();
+    }
+  });
 });
 [pipelineFilter, workshopFilter, campaignFilter, locationFilter, counselorFilter].forEach((input) => {
   input.addEventListener("input", filterLeadList);

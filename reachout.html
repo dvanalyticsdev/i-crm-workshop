@@ -105,7 +105,7 @@
                 <div id="mediaPreviewWrap" class="reachout-media-preview" hidden>
                   <div class="reachout-media-preview__head">
                     <span>Current Image Preview</span>
-                    <a id="mediaPreviewLink" href="#" target="_blank" rel="noopener noreferrer">Open full image</a>
+                    <button id="mediaPreviewOpenBtn" type="button" class="btn-ghost">Open full image</button>
                   </div>
                   <img id="mediaPreviewImage" alt="Current template header media preview" />
                 </div>
@@ -190,6 +190,18 @@
             </table>
           </div>
         </section>
+      </div>
+    </div>
+  </div>
+
+  <div id="mediaLightboxModal" class="modal hidden">
+    <div class="modal-content reachout-lightbox" role="dialog" aria-modal="true" aria-labelledby="mediaLightboxTitle">
+      <div class="reachout-lightbox__header">
+        <h3 id="mediaLightboxTitle">Header Image Preview</h3>
+        <button id="mediaLightboxCloseBtn" type="button" class="close-btn" aria-label="Close preview">&times;</button>
+      </div>
+      <div class="reachout-lightbox__body">
+        <img id="mediaLightboxImage" alt="Full header media preview" />
       </div>
     </div>
   </div>

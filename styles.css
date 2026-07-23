@@ -3604,6 +3604,37 @@ html[data-theme="dark"] .bell-badge {
   background: rgba(15, 23, 42, 0.85);
 }
 
+.reachout-lightbox {
+  width: min(92vw, 1080px);
+  max-height: 90vh;
+  padding: 0;
+  overflow: hidden;
+}
+
+.reachout-lightbox__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem 1.2rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.reachout-lightbox__body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(2, 6, 23, 0.95);
+}
+
+.reachout-lightbox__body img {
+  max-width: 100%;
+  max-height: calc(90vh - 84px);
+  object-fit: contain;
+  border-radius: 12px;
+}
+
 @media (max-width: 720px) {
   .reachout-media-control__row {
     grid-template-columns: 1fr;
