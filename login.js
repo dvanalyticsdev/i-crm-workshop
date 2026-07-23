@@ -1,14 +1,25 @@
 import { initThemeSystem } from "./theme.js";
 import { bootstrapLocalState, getSession, login, refreshSession } from "./state-sync.js";
 
+function revealAuthShell() {
+  if (window.__dvLoadingOverlayTimer) {
+    window.clearInterval(window.__dvLoadingOverlayTimer);
+    delete window.__dvLoadingOverlayTimer;
+  }
+  document.documentElement.classList.remove("app-shell-pending");
+  document.querySelector(".app-shell-loading")?.remove();
+}
+
 const SYSTEM_UI_VERSION = "v2.0";
 const storedVersion = localStorage.getItem("dv_crm_ui_version");
 if (storedVersion !== SYSTEM_UI_VERSION) {
   localStorage.setItem("dv_crm_ui_version", SYSTEM_UI_VERSION);
 }
 
-await bootstrapLocalState();
 initThemeSystem();
+revealAuthShell();
+
+void bootstrapLocalState().catch(() => undefined);
 
 const existingSession = await refreshSession().catch(() => null);
 if (existingSession?.role) {
