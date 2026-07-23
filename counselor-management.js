@@ -25,6 +25,52 @@ const DEFAULT_PERMISSIONS = {
   lostLeads: true,
   monitoring: true
 };
+const ADMIN_DEFAULT_PERMISSIONS = {
+  dashboard: true,
+  leadBrowse: true,
+  claimRaised: true,
+  leadCreation: true,
+  admissionSop: true,
+  preWorkshop: true,
+  postWorkshop: true,
+  registeredCandidates: true,
+  mainAdmissionLeads: true,
+  taskTracker: true,
+  lostLeads: true,
+  monitoring: true,
+  leadControl: true,
+  metaIntegration: true,
+  elementorIntegration: true,
+  mcubeIntegration: true,
+  leadFlowControl: true,
+  reachout: true
+};
+const COUNSELOR_PERMISSION_OPTIONS = [
+  { key: "preWorkshop", label: "Workshop Calling" },
+  { key: "postWorkshop", label: "Admission Calling" },
+  { key: "lostLeads", label: "Lost Leads" },
+  { key: "monitoring", label: "Monitoring" }
+];
+const ADMIN_PERMISSION_OPTIONS = [
+  { key: "dashboard", label: "Dashboard" },
+  { key: "preWorkshop", label: "Workshop Calling" },
+  { key: "postWorkshop", label: "Admission Calling" },
+  { key: "registeredCandidates", label: "Registered Candidates" },
+  { key: "mainAdmissionLeads", label: "Main Admission Leads" },
+  { key: "lostLeads", label: "Lost Leads" },
+  { key: "monitoring", label: "Monitoring" },
+  { key: "leadControl", label: "Lead & Data Control" },
+  { key: "metaIntegration", label: "Meta Integration" },
+  { key: "elementorIntegration", label: "Elementor Integration" },
+  { key: "mcubeIntegration", label: "MCUBE Integration" },
+  { key: "leadFlowControl", label: "Lead Flow Control" },
+  { key: "reachout", label: "ReachOut" },
+  { key: "leadBrowse", label: "Lead Browse" },
+  { key: "claimRaised", label: "Claim Raised" },
+  { key: "leadCreation", label: "Lead Creation" },
+  { key: "admissionSop", label: "SOP Tracker" },
+  { key: "taskTracker", label: "Task Tracker" }
+];
 const BRANCH_OPTIONS = ["Bangalore", "Bhubaneswar"];
 const DEFAULT_BRANCH = "Bangalore";
 const COURSE_PERMISSION_OPTIONS = PUBLIC_COURSES.map((course) => ({
@@ -40,6 +86,7 @@ const counselorSearchInput = document.getElementById("counselorSearchInput");
 const adminSearchInput = document.getElementById("adminSearchInput");
 const marketingSearchInput = document.getElementById("marketingSearchInput");
 const managementSummarySection = document.getElementById("managementSummarySection");
+const adminPermissionsGrid = document.getElementById("adminPermissionsGrid");
 const userDetailsModal = document.getElementById("userDetailsModal");
 const userDetailsTitle = document.getElementById("userDetailsTitle");
 const userDetailsSubtitle = document.getElementById("userDetailsSubtitle");
@@ -60,11 +107,13 @@ const userEditType = document.getElementById("userEditType");
 const userEditId = document.getElementById("userEditId");
 const userEditName = document.getElementById("userEditName");
 const userEditEmail = document.getElementById("userEditEmail");
+const userEditEmailRow = document.getElementById("userEditEmailRow");
 const userEditPhone = document.getElementById("userEditPhone");
 const userEditPhoneRow = document.getElementById("userEditPhoneRow");
 const userEditBranch = document.getElementById("userEditBranch");
 const userEditBranchRow = document.getElementById("userEditBranchRow");
 const userEditPermissionsRow = document.getElementById("userEditPermissionsRow");
+const editPermissionsGrid = document.getElementById("editPermissionsGrid");
 const userEditMessage = document.getElementById("userEditMessage");
 let counselorSearchTerm = "";
 let adminSearchTerm = "";
@@ -112,17 +161,41 @@ function setUserEditMessage(text, isError = true) {
 }
 
 function getSelectedEditPermissions() {
-  const checked = Array.from(
-    document.querySelectorAll("input[name='editPermission']:checked")
-  ).map((item) => item.value);
+  const fallback = userEditType.value === "admin"
+    ? ADMIN_DEFAULT_PERMISSIONS
+    : DEFAULT_PERMISSIONS;
+  return getSelectedPermissionMap("editPermission", fallback);
+}
 
-  return {
-    dashboard: false,
-    preWorkshop: checked.includes("preWorkshop"),
-    postWorkshop: checked.includes("postWorkshop"),
-    lostLeads: checked.includes("lostLeads"),
-    monitoring: checked.includes("monitoring")
-  };
+function renderPermissionOptions(container, options, inputName, selectedPermissions = {}) {
+  if (!container) {
+    return;
+  }
+
+  container.innerHTML = options.map((option) => `
+    <label class="permission-option">
+      <input
+        type="checkbox"
+        name="${escapeHtml(inputName)}"
+        value="${escapeHtml(option.key)}"
+        ${selectedPermissions[option.key] ? "checked" : ""}
+      />
+      ${escapeHtml(option.label)}
+    </label>
+  `).join("");
+}
+
+function getSelectedPermissionMap(inputName, fallback = {}) {
+  const selectedKeys = new Set(
+    Array.from(document.querySelectorAll(`input[name='${inputName}']:checked`))
+      .map((item) => String(item.value || "").trim())
+      .filter(Boolean)
+  );
+
+  return Object.keys(fallback).reduce((accumulator, key) => {
+    accumulator[key] = selectedKeys.has(key);
+    return accumulator;
+  }, {});
 }
 
 function normalizeBranch(value, fallback = DEFAULT_BRANCH) {
@@ -163,9 +236,14 @@ function closeUserEditModal() {
   userEditType.value = "";
   userEditId.value = "";
   setUserEditMessage("");
+  userEditEmailRow.classList.remove("hidden");
+  userEditEmail.required = true;
   userEditPhoneRow.classList.add("hidden");
   userEditBranchRow.classList.add("hidden");
   userEditPermissionsRow.classList.add("hidden");
+  if (editPermissionsGrid) {
+    editPermissionsGrid.innerHTML = "";
+  }
   userEditModal.classList.add("hidden");
 }
 
@@ -181,10 +259,16 @@ function openUserEditModal({ userType, user }) {
   setUserEditMessage("");
 
   const isCounselor = userType === "counselor";
+  const isAdmin = userType === "admin";
   userEditTitle.textContent = isCounselor ? "Edit Counselor" : "Edit Marketing User";
-  userEditPhoneRow.classList.toggle("hidden", !isCounselor);
+  if (isAdmin) {
+    userEditTitle.textContent = "Edit Admin";
+  }
+  userEditEmailRow.classList.toggle("hidden", isAdmin);
+  userEditEmail.required = !isAdmin;
+  userEditPhoneRow.classList.toggle("hidden", !(isCounselor || isAdmin));
   userEditBranchRow.classList.toggle("hidden", !isCounselor);
-  userEditPermissionsRow.classList.toggle("hidden", !isCounselor);
+  userEditPermissionsRow.classList.toggle("hidden", !(isCounselor || isAdmin));
 
   if (isCounselor) {
     userEditPhone.value = user.phone || "";
@@ -193,15 +277,22 @@ function openUserEditModal({ userType, user }) {
       ...DEFAULT_PERMISSIONS,
       ...(user.permissions || {})
     };
-    document.querySelectorAll("input[name='editPermission']").forEach((item) => {
-      item.checked = Boolean(permissions[item.value]);
-    });
+    renderPermissionOptions(editPermissionsGrid, COUNSELOR_PERMISSION_OPTIONS, "editPermission", permissions);
+  } else if (isAdmin) {
+    userEditPhone.value = user.phone || "";
+    userEditBranch.value = "";
+    userEditEmail.value = user.email || "";
+    const permissions = {
+      ...ADMIN_DEFAULT_PERMISSIONS,
+      ...(user.permissions || {})
+    };
+    renderPermissionOptions(editPermissionsGrid, ADMIN_PERMISSION_OPTIONS, "editPermission", permissions);
   } else {
     userEditPhone.value = "";
     userEditBranch.value = "";
-    document.querySelectorAll("input[name='editPermission']").forEach((item) => {
-      item.checked = false;
-    });
+    if (editPermissionsGrid) {
+      editPermissionsGrid.innerHTML = "";
+    }
   }
 
   userEditModal.classList.remove("hidden");
@@ -263,7 +354,11 @@ function getLeads() {
 function getAdminUsers() {
   return getStoredAdminUsers().map((item) => ({
     ...item,
-    phone: String(item.phone || "").trim()
+    phone: String(item.phone || "").trim(),
+    permissions: {
+      ...ADMIN_DEFAULT_PERMISSIONS,
+      ...(item.permissions || {})
+    }
   }));
 }
 
@@ -398,19 +493,21 @@ async function removeCounselor(counselorId) {
 
 function permissionText(permissions) {
   const names = [];
-  if (permissions.preWorkshop) names.push("Workshop Calling");
-  if (permissions.postWorkshop) names.push("Admission Calling");
-  if (permissions.lostLeads) names.push("Lost Leads");
-  if (permissions.monitoring) names.push("Monitoring");
+  [...COUNSELOR_PERMISSION_OPTIONS, ...ADMIN_PERMISSION_OPTIONS].forEach((option) => {
+    if (permissions?.[option.key] && !names.includes(option.label)) {
+      names.push(option.label);
+    }
+  });
   return names.length ? names.join(", ") : "No access";
 }
 
 function renderPermissionBadges(permissions) {
   const items = [];
-  if (permissions.preWorkshop) items.push("Workshop");
-  if (permissions.postWorkshop) items.push("Admission");
-  if (permissions.lostLeads) items.push("Lost Leads");
-  if (permissions.monitoring) items.push("Monitoring");
+  [...COUNSELOR_PERMISSION_OPTIONS, ...ADMIN_PERMISSION_OPTIONS].forEach((option) => {
+    if (permissions?.[option.key] && !items.includes(option.label)) {
+      items.push(option.label);
+    }
+  });
 
   return items.length
     ? `<div class="permission-badge-row">${items.map((item) => `<span class="permission-badge">${escapeHtml(item)}</span>`).join("")}</div>`
@@ -468,6 +565,12 @@ function openUserDetailsModal({ userType, user }) {
               ["Name", user.name],
               ["Phone Number", user.phone]
             ]
+          },
+          {
+            title: "Page Access",
+            rows: [
+              ["Allowed Pages", permissionText(user.permissions || ADMIN_DEFAULT_PERMISSIONS)]
+            ]
           }
         ]
       : [
@@ -487,11 +590,12 @@ function openUserDetailsModal({ userType, user }) {
         ${buildDetailsRows(section.rows)}
       </dl>
       ${section.title === "Lead Permissions" && isCounselor ? renderPermissionBadges(user.permissions || DEFAULT_PERMISSIONS) : ""}
+      ${section.title === "Page Access" && isAdmin ? renderPermissionBadges(user.permissions || ADMIN_DEFAULT_PERMISSIONS) : ""}
     </section>
   `).join("");
 
   userDetailsActions.innerHTML = `
-    ${isAdmin ? "" : '<button type="button" class="btn-primary" id="userDetailsEditBtn">Edit</button>'}
+    <button type="button" class="btn-primary" id="userDetailsEditBtn">Edit</button>
     <button type="button" class="btn-ghost" id="userDetailsPasswordBtn">Change Password</button>
     <button type="button" class="btn-ghost" id="userDetailsRemoveBtn">Remove</button>
   `;
@@ -607,17 +711,7 @@ function renderCounselorList() {
 }
 
 function getSelectedPermissions() {
-  const checked = Array.from(
-    document.querySelectorAll("input[name='permission']:checked")
-  ).map((item) => item.value);
-
-  return {
-    dashboard: false,
-    preWorkshop: checked.includes("preWorkshop"),
-    postWorkshop: checked.includes("postWorkshop"),
-    lostLeads: checked.includes("lostLeads"),
-    monitoring: checked.includes("monitoring")
-  };
+  return getSelectedPermissionMap("permission", DEFAULT_PERMISSIONS);
 }
 
 counselorForm.addEventListener("submit", async (event) => {
@@ -686,6 +780,12 @@ counselorForm.addEventListener("submit", async (event) => {
 
 renderCounselorList();
 renderManagementSummary();
+renderPermissionOptions(
+  adminPermissionsGrid,
+  ADMIN_PERMISSION_OPTIONS,
+  "adminPermission",
+  ADMIN_DEFAULT_PERMISSIONS
+);
 const stopStatePolling = startStatePolling(() => {
   renderManagementSummary();
   renderCounselorList();
@@ -777,6 +877,7 @@ if (adminForm) {
     const name = document.getElementById("adminName").value.trim();
     const phone = document.getElementById("adminPhone").value.trim();
     const password = document.getElementById("adminPassword").value.trim();
+    const permissions = getSelectedPermissionMap("adminPermission", ADMIN_DEFAULT_PERMISSIONS);
     if (!name || !phone || !password) {
       setAdminMessage("Name, phone number, and password are required.", true);
       return;
@@ -793,7 +894,7 @@ if (adminForm) {
       name,
       phone,
       password,
-      permissions: { ...DEFAULT_PERMISSIONS, dashboard: true }
+      permissions
     });
 
     const result = await saveAdminUsers(users);
@@ -809,6 +910,12 @@ if (adminForm) {
     }
 
     adminForm.reset();
+    renderPermissionOptions(
+      adminPermissionsGrid,
+      ADMIN_PERMISSION_OPTIONS,
+      "adminPermission",
+      ADMIN_DEFAULT_PERMISSIONS
+    );
     setAdminMessage("Admin created successfully.", false);
     renderAdminList();
   });
@@ -1052,12 +1159,12 @@ if (userEditForm) {
     const phone = userEditPhone.value.trim();
     const branch = normalizeBranch(userEditBranch.value, "");
 
-    if (!userType || !id || !name || !email) {
+    if (!userType || !id || !name || (userType !== "admin" && !email)) {
       setUserEditMessage("All required fields must be filled.", true);
       return;
     }
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (userType !== "admin" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       setUserEditMessage("Enter a valid email address.", true);
       return;
     }
@@ -1095,6 +1202,35 @@ if (userEditForm) {
         setUserEditMessage(result?.message || "Failed to save counselor changes.", true);
         return;
       }
+    } else if (userType === "admin") {
+      if (!phone) {
+        setUserEditMessage("Phone number is required for admins.", true);
+        return;
+      }
+
+      const permissions = getSelectedEditPermissions();
+      if (!Object.values(permissions).some(Boolean)) {
+        setUserEditMessage("Select at least one access permission.", true);
+        return;
+      }
+
+      const users = getAdminUsers();
+      if (users.some((item) => item.id !== id && item.phone === phone)) {
+        setUserEditMessage("Another admin already uses this phone number.", true);
+        return;
+      }
+
+      const nextUsers = users.map((item) => (
+        item.id === id
+          ? { ...item, name, phone, permissions }
+          : item
+      ));
+
+      const result = await saveAdminUsers(nextUsers);
+      if (!result || result.ok === false) {
+        setUserEditMessage(result?.message || "Failed to save admin changes.", true);
+        return;
+      }
     } else if (userType === "marketing") {
       const users = getMarketingUsers();
       if (users.some((item) => item.id !== id && item.email === email)) {
@@ -1128,6 +1264,9 @@ if (userEditForm) {
     if (userType === "marketing") {
       setMarketingMessage("Marketing user updated successfully.", false);
       renderMarketingList();
+    } else if (userType === "admin") {
+      setAdminMessage("Admin updated successfully.", false);
+      renderAdminList();
     } else {
       setMessage("Counselor updated successfully.", false);
       renderCounselorList();

@@ -95,6 +95,9 @@
               <label for="adminPassword">Password</label>
               <input id="adminPassword" type="password" required />
 
+              <label>Access Permissions</label>
+              <div class="permissions-grid" id="adminPermissionsGrid"></div>
+
               <div class="management-actions">
                 <button type="submit" class="btn-primary management-submit-btn">Create Admin</button>
               </div>
@@ -280,7 +283,7 @@
               <label for="userEditName">Name</label>
               <input id="userEditName" type="text" required />
             </div>
-            <div class="modal-row">
+            <div class="modal-row" id="userEditEmailRow">
               <label for="userEditEmail">Email</label>
               <input id="userEditEmail" type="email" required />
             </div>
@@ -298,12 +301,7 @@
             </div>
             <div class="modal-row hidden" id="userEditPermissionsRow">
               <label>Access Permissions</label>
-              <div class="permissions-grid">
-                <label class="permission-option"><input type="checkbox" name="editPermission" value="preWorkshop" /> Workshop Calling</label>
-                <label class="permission-option"><input type="checkbox" name="editPermission" value="postWorkshop" /> Admission Calling</label>
-                <label class="permission-option"><input type="checkbox" name="editPermission" value="lostLeads" /> Lost Leads</label>
-                <label class="permission-option"><input type="checkbox" name="editPermission" value="monitoring" /> Monitoring</label>
-              </div>
+              <div class="permissions-grid" id="editPermissionsGrid"></div>
             </div>
             <p id="userEditMessage" class="message" aria-live="polite"></p>
             <div class="modal-actions">
