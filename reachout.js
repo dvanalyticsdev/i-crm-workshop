@@ -37,6 +37,7 @@ const mediaPreviewOpenBtn = document.getElementById("mediaPreviewOpenBtn");
 const mediaLightboxModal = document.getElementById("mediaLightboxModal");
 const mediaLightboxImage = document.getElementById("mediaLightboxImage");
 const mediaLightboxCloseBtn = document.getElementById("mediaLightboxCloseBtn");
+const resetFiltersBtn = document.getElementById("resetFiltersBtn");
 const selectFilteredBtn = document.getElementById("selectFilteredBtn");
 const clearSelectionBtn = document.getElementById("clearSelectionBtn");
 const sendBtn = document.getElementById("sendBtn");
@@ -111,10 +112,27 @@ function getPipeline(lead) {
   return lead.leadPipeline || (lead.registeredCourseStatus || lead.registeredAdmissionStatus ? "registered-course" : "workshop");
 }
 
-function renderSelect(select, values, current = "") {
-  select.innerHTML = `<option value="">All</option>${values.map((value) => (
-    `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""}>${escapeHtml(value)}</option>`
-  )).join("")}`;
+function formatWorkshopLabel(value = "") {
+  const normalized = String(value || "")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b(\d{1,2}(?:st|nd|rd|th)\s+[A-Za-z]+)(?:\s+\1)+/gi, "$1");
+  if (!normalized) {
+    return "";
+  }
+  return normalized.length > 42
+    ? `${normalized.slice(0, 39).trimEnd()}...`
+    : normalized;
+}
+
+function renderSelect(select, values, current = "", labelGetter = null) {
+  select.innerHTML = `<option value="">All</option>${values.map((value) => {
+    const label = typeof labelGetter === "function" ? labelGetter(value) : value;
+    return (
+      `<option value="${escapeHtml(value)}" ${value === current ? "selected" : ""} title="${escapeHtml(String(value || ""))}">${escapeHtml(label)}</option>`
+    );
+  }).join("")}`;
 }
 
 function optionExists(select, value) {
@@ -210,10 +228,21 @@ function filterLeadList() {
 function renderFilters() {
   const leads = getLeads();
   renderSelect(pipelineFilter, uniqueOptions(leads, getPipeline), pipelineFilter.value);
-  renderSelect(workshopFilter, uniqueOptions(leads, (lead) => lead.workshop), workshopFilter.value);
+  renderSelect(workshopFilter, uniqueOptions(leads, (lead) => lead.workshop), workshopFilter.value, formatWorkshopLabel);
   renderSelect(campaignFilter, uniqueOptions(leads, getCampaign), campaignFilter.value);
   renderSelect(locationFilter, uniqueOptions(leads, getLocation), locationFilter.value);
   renderSelect(counselorFilter, uniqueOptions(leads, (lead) => lead.counselor), counselorFilter.value);
+}
+
+function resetAudienceFilters() {
+  searchInput.value = "";
+  pipelineFilter.value = "";
+  workshopFilter.value = "";
+  campaignFilter.value = "";
+  locationFilter.value = "";
+  counselorFilter.value = "";
+  renderFilters();
+  filterLeadList();
 }
 
 function renderLeadTable() {
@@ -518,6 +547,7 @@ mediaLightboxModal.addEventListener("click", (event) => {
 });
 sendBtn.addEventListener("click", sendSelected);
 clearRecentSendsBtn.addEventListener("click", clearRecentSends);
+resetFiltersBtn.addEventListener("click", resetAudienceFilters);
 selectFilteredBtn.addEventListener("click", () => {
   filteredLeads.forEach((lead) => selectedLeadIds.add(String(lead.id)));
   renderLeadTable();
