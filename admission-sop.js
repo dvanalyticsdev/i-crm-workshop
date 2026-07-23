@@ -363,7 +363,7 @@ function getLeadRowModel(lead) {
 }
 
 function getAllRowModels() {
-  return getAdmissionLeadsForView()
+  const sortedRows = getAdmissionLeadsForView()
     .map((lead) => getLeadRowModel(lead))
     .sort((left, right) => {
       const leftBlocked = left.sop?.blocked ? 1 : 0;
@@ -376,6 +376,17 @@ function getAllRowModels() {
       const rightRemaining = Number.isFinite(right.sop?.remainingMs) ? right.sop.remainingMs : Number.MAX_SAFE_INTEGER;
       return leftRemaining - rightRemaining;
     });
+
+  const occurrenceCounts = new Map();
+  return sortedRows.map((model) => {
+    const baseKey = String(model.key || "");
+    const nextCount = (occurrenceCounts.get(baseKey) || 0) + 1;
+    occurrenceCounts.set(baseKey, nextCount);
+    return {
+      ...model,
+      key: `${baseKey}::row-${nextCount}`
+    };
+  });
 }
 
 function getBucketKey(model) {
