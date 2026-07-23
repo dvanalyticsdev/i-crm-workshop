@@ -23,7 +23,9 @@ void bootstrapLocalState().catch(() => undefined);
 
 const existingSession = await refreshSession().catch(() => null);
 if (existingSession?.role) {
-  window.location.href = existingSession.role === "admin"
+  window.location.href = existingSession.role === "super_admin"
+    ? "dashboard.html"
+    : existingSession.role === "admin"
     ? "dashboard.html"
     : existingSession.role === "marketing"
       ? "meta-integration.html"
@@ -42,15 +44,42 @@ const roleButtons = document.querySelectorAll(".role-btn");
 const selectedRoleInput = document.getElementById("selectedRole");
 const loginForm = document.getElementById("loginForm");
 const loginMessage = document.getElementById("loginMessage");
+const identifierLabel = document.getElementById("identifierLabel");
+const identifierInput = document.getElementById("email");
 const passcodeRow = document.getElementById("passcodeRow");
 const passcodeInput = document.getElementById("passcode");
 let awaitingSuperAdminPasscode = false;
+
+const ROLE_COPY = {
+  admin: {
+    label: "Admin ID / Admin Phone",
+    placeholder: "Enter super admin ID or admin phone number"
+  },
+  counselor: {
+    label: "Counselor Email",
+    placeholder: "Enter counselor email"
+  },
+  marketing: {
+    label: "Marketing Email",
+    placeholder: "Enter marketing email"
+  }
+};
 
 function togglePasscodePrompt(visible) {
   awaitingSuperAdminPasscode = visible;
   passcodeRow?.classList.toggle("hidden", !visible);
   if (!visible && passcodeInput) {
     passcodeInput.value = "";
+  }
+}
+
+function applyRoleCopy(role) {
+  const copy = ROLE_COPY[role] || ROLE_COPY.admin;
+  if (identifierLabel) {
+    identifierLabel.textContent = copy.label;
+  }
+  if (identifierInput) {
+    identifierInput.placeholder = copy.placeholder;
   }
 }
 
@@ -61,8 +90,11 @@ roleButtons.forEach((button) => {
     selectedRoleInput.value = button.dataset.role;
     loginMessage.textContent = "";
     togglePasscodePrompt(false);
+    applyRoleCopy(button.dataset.role);
   });
 });
+
+applyRoleCopy(selectedRoleInput.value);
 
 loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
