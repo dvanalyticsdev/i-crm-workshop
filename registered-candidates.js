@@ -851,6 +851,8 @@ function renderFilters(leads) {
           <select id="registeredAdmissionStatusSelect">
             <option value="">All</option>
             <option value="In-Conversation" ${filter.registeredAdmissionStatus === "In-Conversation" ? "selected" : ""}>In-Conversation</option>
+            <option value="Opportunity" ${filter.registeredAdmissionStatus === "Opportunity" ? "selected" : ""}>Opportunity</option>
+            <option value="Offered" ${filter.registeredAdmissionStatus === "Offered" ? "selected" : ""}>Offered</option>
             <option value="Enrolled" ${filter.registeredAdmissionStatus === "Enrolled" ? "selected" : ""}>Enrolled</option>
             <option value="Won" ${filter.registeredAdmissionStatus === "Won" ? "selected" : ""}>Won</option>
           </select>

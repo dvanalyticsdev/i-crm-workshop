@@ -49,6 +49,7 @@ const EMPTY_FILTER_VALUE = "__EMPTY_FILTER__";
 const EMPTY_FILTER_LABEL = "Use Filter";
 const SELECT_ALL_FILTER_VALUE = "__SELECT_ALL__";
 const BLANK_FILTER_VALUE = "__BLANK_FILTER__";
+const ADMISSION_STATUS_OPTIONS = ["In-Conversation", "Opportunity", "Offered", "Enrolled", "Won"];
 
 function getSelectedFilterValues(value) {
   const rawValues = Array.isArray(value) ? value : [value];
@@ -737,7 +738,7 @@ function renderFilters(leads) {
   const workshopCallingWhatsappInviteOptions = getUniqueValues(leads, "whatsappInvite");
   const postDialedOptions = getUniqueValues(leads, "postDialed");
   const coursePitchedOptions = getUniqueValues(leads, "coursePitched");
-  const admissionOptions = getUniqueValues(leads, "admissionStatus");
+  const admissionOptions = ADMISSION_STATUS_OPTIONS;
 
   postFilterBar.innerHTML = `
     <div class="filter-section">
