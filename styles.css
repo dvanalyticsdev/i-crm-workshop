@@ -6949,6 +6949,31 @@ html[data-theme="dark"] .diff-val {
   flex: 1 1 520px;
 }
 
+.sop-lead-table {
+  min-width: 1480px;
+}
+
+.sop-lead-table th,
+.sop-lead-table td {
+  white-space: normal;
+}
+
+.sop-lead-table td:nth-child(5),
+.sop-lead-table td:nth-child(6),
+.sop-lead-table td:nth-child(7),
+.sop-lead-table td:nth-child(9),
+.sop-lead-table td:nth-child(10) {
+  min-width: 150px;
+}
+
+.sop-lead-table th:nth-child(5),
+.sop-lead-table th:nth-child(6),
+.sop-lead-table th:nth-child(7),
+.sop-lead-table th:nth-child(9),
+.sop-lead-table th:nth-child(10) {
+  min-width: 150px;
+}
+
 .section-head {
   display: flex;
   justify-content: space-between;

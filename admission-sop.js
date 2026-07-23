@@ -19,6 +19,7 @@ const filter = {
   bucket: "all",
   counselor: "all",
   section: "all",
+  course: "all",
   query: ""
 };
 
@@ -402,6 +403,7 @@ function getFilteredRows() {
     if (filter.bucket !== "all" && getBucketKey(model) !== filter.bucket) return false;
     if (filter.counselor !== "all" && normalize(model.counselor) !== normalize(filter.counselor)) return false;
     if (filter.section !== "all" && model.sectionKey !== filter.section) return false;
+    if (filter.course !== "all" && model.courseLabel !== filter.course) return false;
     if (!query) return true;
 
     const haystack = [
@@ -479,6 +481,11 @@ function getActiveCounselors() {
     .sort((left, right) => left.localeCompare(right));
 }
 
+function getActiveCourses() {
+  return [...new Set(getAllRowModels().map((model) => model.courseLabel).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right));
+}
+
 function renderClock() {
   if (!liveClock) return;
   liveClock.textContent = new Date().toLocaleString("en-IN", {
@@ -489,7 +496,7 @@ function renderClock() {
 }
 
 function renderKpis() {
-  const rows = getAllRowModels();
+  const rows = getFilteredRows();
   const metrics = [
     { label: "Admission Leads", value: rows.length, tone: "neutral" },
     { label: "New Window", value: rows.filter((row) => row.sop?.stageKey === "new" && !row.sop?.blocked).length, tone: "neutral" },
@@ -516,6 +523,13 @@ function renderFilters() {
         </select>
       </label>`
     : "";
+  const courseOptions = `<label>
+        Course
+        <select id="sopCourseFilter">
+          <option value="all">All courses</option>
+          ${getActiveCourses().map((name) => `<option value="${escapeHtml(name)}" ${filter.course === name ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}
+        </select>
+      </label>`;
 
 
   filterCard.innerHTML = `
@@ -542,6 +556,7 @@ function renderFilters() {
           <option value="crash-course" ${filter.section === "crash-course" ? "selected" : ""}>Crash Course</option>
         </select>
       </label>
+      ${courseOptions}
       ${counselorOptions}
       <label class="sop-filter-grid__search">
         Search
@@ -572,6 +587,11 @@ function renderFilters() {
   });
   document.getElementById("sopCounselorFilter")?.addEventListener("change", (event) => {
     filter.counselor = event.target.value;
+    currentPage = 1;
+    render();
+  });
+  document.getElementById("sopCourseFilter")?.addEventListener("change", (event) => {
+    filter.course = event.target.value;
     currentPage = 1;
     render();
   });
@@ -738,7 +758,6 @@ function renderLeadTable() {
               <td>
                 <div class="table-actions">
                   <button type="button" class="btn-ghost btn-sm" data-history-key="${escapeHtml(model.key)}">Activity History</button>
-                  <button type="button" class="btn-ghost btn-sm" data-open-key="${escapeHtml(model.key)}">Open Section</button>
                 </div>
               </td>
             </tr>
@@ -801,19 +820,6 @@ function renderLeadTable() {
       if (!model) return;
       await trackLeadView(model.lead.id, model.lead.email || "").catch(() => undefined);
       openActivityHistory(model.lead.id, model.lead.name || "Lead", model.lead.email || "");
-    });
-  });
-
-  leadTable.querySelectorAll("[data-open-key]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const key = String(button.getAttribute("data-open-key") || "");
-      const model = getAllRowModels().find((item) => item.key === key);
-      if (!model?.sop?.route) return;
-      if (typeof window.__dvNavigateToRoute === "function") {
-        void window.__dvNavigateToRoute(model.sop.route);
-        return;
-      }
-      window.location.href = model.sop.route;
     });
   });
 }
