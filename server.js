@@ -7170,11 +7170,22 @@ async function performDuplicateLeadMerge(keeperLead, duplicateLeads = [], sessio
 
 async function updateExistingIntegrationLead(existingLead, incomingLead, options = {}) {
   const nextLead = buildProtectedIntegrationLeadUpdate(existingLead, incomingLead);
+  const previousRepeatCount = Number.isFinite(Number(existingLead?.repeatEnquiryCount))
+    ? Number(existingLead.repeatEnquiryCount)
+    : 0;
+  const sourceLabel = String(options.source || "Integration").trim() || "Integration";
+  const existingRepeatSources = Array.isArray(existingLead?.repeatEnquirySources)
+    ? existingLead.repeatEnquirySources.map((value) => String(value || "").trim()).filter(Boolean)
+    : [];
+  const now = new Date().toISOString();
+  nextLead.repeatEnquiryCount = previousRepeatCount + 1;
+  nextLead.lastRepeatEnquiryAt = now;
+  nextLead.lastRepeatEnquirySource = sourceLabel;
+  nextLead.repeatEnquirySources = [...new Set([...existingRepeatSources, sourceLabel])];
   await replaceLeadDocument(nextLead);
 
   const previousCourse = String(existingLead?.courseName || existingLead?.workshop || existingLead?.admissionWorkshop || "").trim();
   const nextCourse = String(nextLead?.courseName || nextLead?.workshop || nextLead?.admissionWorkshop || "").trim();
-  const sourceLabel = String(options.source || "Integration").trim() || "Integration";
   await recordActivity({
     leadId: nextLead.id,
     leadName: nextLead.name,
@@ -7185,7 +7196,6 @@ async function updateExistingIntegrationLead(existingLead, incomingLead, options
     newValue: nextCourse || previousCourse || "Existing lead retained"
   });
 
-  const now = new Date().toISOString();
   await stateCollection.updateOne(
     { _id: STATE_DOC_ID },
     { $set: { updatedAt: now } },

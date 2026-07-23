@@ -384,6 +384,7 @@ const DEFAULT_FILTER = {
   courseStatus: EMPTY_FILTER_VALUE,
   postCallStatus: EMPTY_FILTER_VALUE,
   workshopJoiningStatus: EMPTY_FILTER_VALUE,
+  repeatEnquiryStatus: EMPTY_FILTER_VALUE,
   workshopCallingDialed: EMPTY_FILTER_VALUE,
   workshopCallingCallStatus: EMPTY_FILTER_VALUE,
   workshopCallingWsStatus: EMPTY_FILTER_VALUE,
@@ -457,6 +458,36 @@ function formatReadableDate(date) {
     month: "short",
     year: "numeric"
   });
+}
+
+function getRepeatEnquiryCount(lead) {
+  const explicitCount = Number.isFinite(Number(lead?.repeatEnquiryCount))
+    ? Number(lead.repeatEnquiryCount)
+    : 0;
+  const workshopReentryCount = Array.isArray(lead?.workshopMigrationHistory)
+    ? lead.workshopMigrationHistory.length
+    : 0;
+  if (explicitCount > 0 || workshopReentryCount > 0) {
+    return Math.max(explicitCount, workshopReentryCount);
+  }
+
+  return lead?.lastRepeatEnquiryAt || lead?.lastWorkshopMigrationAt ? 1 : 0;
+}
+
+function isRepeatEnquiryLead(lead) {
+  return getRepeatEnquiryCount(lead) > 0;
+}
+
+function renderRepeatEnquiryBadge(lead) {
+  if (!isRepeatEnquiryLead(lead)) {
+    return "";
+  }
+
+  const repeatCount = getRepeatEnquiryCount(lead);
+  const badgeTitle = repeatCount > 1
+    ? `Repeat enquiry received ${repeatCount} times`
+    : "Repeat enquiry received";
+  return `<span class="badge badge-warning" title="${escapeHtml(badgeTitle)}">Repeat Enquiry</span>`;
 }
 
 function getTimelineRange(leads) {
@@ -898,6 +929,12 @@ function renderFilters(leads) {
           value: filter.activityStatus
         })}
         ${renderMultiSelectControl({
+          id: "postRepeatEnquirySelect",
+          label: "Repeat Enquiry",
+          options: withSelectFilterOption(["Repeat Enquiry", "First Time"]),
+          value: filter.repeatEnquiryStatus
+        })}
+        ${renderMultiSelectControl({
           id: "postWhatsappActivitySelect",
           label: "WhatsApp Activity",
           options: WHATSAPP_ACTIVITY_FILTER_OPTIONS,
@@ -976,6 +1013,7 @@ function renderFilters(leads) {
   document.getElementById("postSearchLeadInput").value = filter.search;
   bindMultiFilter("postCounselorSelect", "counselor");
   bindMultiFilter("postActivityStatusSelect", "activityStatus");
+  bindMultiFilter("postRepeatEnquirySelect", "repeatEnquiryStatus");
   bindMultiFilter("postWhatsappActivitySelect", "whatsappActivity");
   bindMultiFilter("postWorkshopNameSelect", "workshopName");
   bindMultiFilter("postWorkshopDateSelect", "workshopDate");
@@ -1075,6 +1113,7 @@ function exportFilteredLeads() {
       { label: "Email", getter: (lead) => lead.email },
       { label: "Workshop Name", getter: (lead) => getAdmissionWorkshopName(lead) || "-" },
       { label: "Counselor", getter: (lead) => lead.counselor || "Unassigned" },
+      { label: "Repeat Enquiry", getter: (lead) => isRepeatEnquiryLead(lead) ? "Yes" : "No" },
       { label: "Dialed", getter: (lead) => lead.postDialed || "" },
       { label: "Course Pitched", getter: (lead) => lead.coursePitched || "" },
       { label: "Course Status", getter: (lead) => lead.courseStatus || "" },
@@ -1139,6 +1178,16 @@ function filterLeads(leads) {
 
   if (activityStatuses.length === 1 && activityStatuses.includes("Updated")) {
     filtered = filtered.filter((lead) => !isUntouchedLead(lead));
+  }
+
+  if (isSelectedFilterValue(filter.repeatEnquiryStatus)) {
+    const selectedRepeatStatuses = getSelectedFilterValues(filter.repeatEnquiryStatus);
+    if (selectedRepeatStatuses.length === 1 && selectedRepeatStatuses.includes("Repeat Enquiry")) {
+      filtered = filtered.filter((lead) => isRepeatEnquiryLead(lead));
+    }
+    if (selectedRepeatStatuses.length === 1 && selectedRepeatStatuses.includes("First Time")) {
+      filtered = filtered.filter((lead) => !isRepeatEnquiryLead(lead));
+    }
   }
 
   if (isSelectedFilterValue(filter.whatsappActivity)) {
@@ -1288,7 +1337,7 @@ function renderLeadTable(leads) {
         </td>
         ` : ""}
         <td>${escapeHtml(lead.createdAt)}</td>
-        <td>${escapeHtml(lead.name)}</td>
+        <td><div class="lead-name-cell"><span>${escapeHtml(lead.name)}</span>${renderRepeatEnquiryBadge(lead)}</div></td>
         <td>${escapeHtml(lead.phone || "-")}</td>
         <td>${escapeHtml(lead.email)}</td>
         <td>${escapeHtml(getAdmissionWorkshopName(lead))}</td>

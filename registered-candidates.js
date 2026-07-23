@@ -83,7 +83,8 @@ const DEFAULT_FILTER = {
   registeredCourseStatus: "",
   registeredAdmissionStatus: "",
   registeredCallStatus: "",
-  activityStatus: ""
+  activityStatus: "",
+  repeatEnquiryStatus: ""
 };
 
 const persistedFilter = await loadLocalPreference(FILTER_STORAGE_KEY, {});
@@ -204,6 +205,40 @@ function normalizeLeadFields(leads) {
       || (Number.isFinite(Number(lead.registeredCourseActivityUpdates)) ? Number(lead.registeredCourseActivityUpdates) : 0);
     lead.leadNotes = Array.isArray(lead.leadNotes) ? lead.leadNotes : [];
   });
+}
+
+function getRepeatEnquiryCount(lead) {
+  const explicitCount = Number.isFinite(Number(lead?.repeatEnquiryCount))
+    ? Number(lead.repeatEnquiryCount)
+    : 0;
+  if (explicitCount > 0) {
+    return explicitCount;
+  }
+
+  const workshopReentryCount = Array.isArray(lead?.workshopMigrationHistory)
+    ? lead.workshopMigrationHistory.length
+    : 0;
+  if (workshopReentryCount > 0) {
+    return workshopReentryCount;
+  }
+
+  return lead?.lastRepeatEnquiryAt || lead?.lastWorkshopMigrationAt ? 1 : 0;
+}
+
+function isRepeatEnquiryLead(lead) {
+  return getRepeatEnquiryCount(lead) > 0;
+}
+
+function renderRepeatEnquiryBadge(lead) {
+  if (!isRepeatEnquiryLead(lead)) {
+    return "";
+  }
+
+  const repeatCount = getRepeatEnquiryCount(lead);
+  const badgeTitle = repeatCount > 1
+    ? `Repeat enquiry received ${repeatCount} times`
+    : "Repeat enquiry received";
+  return `<span class="badge badge-warning" title="${escapeHtml(badgeTitle)}">Repeat Enquiry</span>`;
 }
 
 function getStoredRegisteredCandidateLeads() {
@@ -848,6 +883,14 @@ function renderFilters(leads) {
             <option value="Updated" ${filter.activityStatus === "Updated" ? "selected" : ""}>Updated</option>
           </select>
         </div>
+        <div class="filter-item">
+          <label for="registeredRepeatEnquirySelect">Repeat Enquiry</label>
+          <select id="registeredRepeatEnquirySelect">
+            <option value="">All</option>
+            <option value="Repeat Enquiry" ${filter.repeatEnquiryStatus === "Repeat Enquiry" ? "selected" : ""}>Repeat Enquiry</option>
+            <option value="First Time" ${filter.repeatEnquiryStatus === "First Time" ? "selected" : ""}>First Time</option>
+          </select>
+        </div>
         <div class="filter-item filter-item-cta">
           <label>&nbsp;</label>
           <div class="filter-actions">
@@ -950,6 +993,12 @@ function renderFilters(leads) {
     currentPage = 1;
     renderAll();
   };
+  document.getElementById("registeredRepeatEnquirySelect").onchange = (event) => {
+    filter.repeatEnquiryStatus = event.target.value;
+    persistFilters();
+    currentPage = 1;
+    renderAll();
+  };
   document.getElementById("registeredResetFiltersBtn").onclick = () => {
     filter = { ...DEFAULT_FILTER };
     persistFilters();
@@ -981,6 +1030,7 @@ function exportFilteredLeads() {
       { label: "Course Name", getter: (lead) => lead.courseName || "-" },
       { label: activeSegment === CRASH_SEGMENT ? "Location" : "Country", getter: (lead) => lead.country || "India" },
       { label: "Counselor", getter: (lead) => lead.counselor || "Unassigned" },
+      { label: "Repeat Enquiry", getter: (lead) => isRepeatEnquiryLead(lead) ? "Yes" : "No" },
       { label: "Dialed", getter: (lead) => lead.registeredDialed || "" },
       { label: "Course Pitched", getter: (lead) => lead.registeredCoursePitched || "" },
       { label: "Course Status", getter: (lead) => lead.registeredCourseStatus || "" },
@@ -1020,6 +1070,8 @@ function filterLeads(leads) {
     if (filter.registeredCallStatus && filter.registeredCallStatus !== lead.registeredCallStatus) return false;
     if (filter.activityStatus === "Untouched" && lead.registeredCourseActivityUpdates > 0) return false;
     if (filter.activityStatus === "Updated" && lead.registeredCourseActivityUpdates === 0) return false;
+    if (filter.repeatEnquiryStatus === "Repeat Enquiry" && !isRepeatEnquiryLead(lead)) return false;
+    if (filter.repeatEnquiryStatus === "First Time" && isRepeatEnquiryLead(lead)) return false;
     return true;
   });
 }
@@ -1101,7 +1153,7 @@ function renderLeadTable(leads) {
             <tr>
               ${isAdmin ? `<td><input type="checkbox" class="registered-lead-checkbox" data-lead-key="${escapeHtml(buildLeadKey(lead))}" ${selectedLeadKeys.has(buildLeadKey(lead)) ? "checked" : ""} /></td>` : ""}
               <td>${escapeHtml(lead.createdAt)}</td>
-              <td>${escapeHtml(lead.name)}</td>
+              <td><div class="lead-name-cell"><span>${escapeHtml(lead.name)}</span>${renderRepeatEnquiryBadge(lead)}</div></td>
               <td>${escapeHtml(lead.phone || "-")}</td>
               <td>${escapeHtml(lead.email)}</td>
               <td>${escapeHtml(lead.courseName || "-")}</td>

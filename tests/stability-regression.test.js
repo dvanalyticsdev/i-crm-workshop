@@ -671,6 +671,25 @@ test("incoming Meta leads route admission traffic into Main Admission Leads", ()
   assert.match(taskTracker, /mainAdmissionTaskSection/);
 });
 
+test("repeat enquiry filters and badges are available across admission and post-workshop views", () => {
+  const server = read("server.js");
+  const mainAdmission = read("main-admission-leads.js");
+  const registeredCandidates = read("registered-candidates.js");
+  const postWorkshop = read("post-workshop.js");
+  const styles = read("styles.css");
+
+  assert.match(server, /nextLead\.repeatEnquiryCount = previousRepeatCount \+ 1;/);
+  assert.match(server, /nextLead\.lastRepeatEnquirySource = sourceLabel;/);
+  assert.match(mainAdmission, /repeatEnquiryStatus/);
+  assert.match(mainAdmission, /mainAdmissionRepeatEnquirySelect/);
+  assert.match(mainAdmission, /renderRepeatEnquiryBadge\(lead\)/);
+  assert.match(registeredCandidates, /registeredRepeatEnquirySelect/);
+  assert.match(registeredCandidates, /renderRepeatEnquiryBadge\(lead\)/);
+  assert.match(postWorkshop, /postRepeatEnquirySelect/);
+  assert.match(postWorkshop, /renderRepeatEnquiryBadge\(lead\)/);
+  assert.match(styles, /\.badge-warning/);
+});
+
 test("Integration exposes lead flow control subsection", () => {
   const metaHtml = read("meta-integration.html");
   const metaJs = read("meta-integration.js");

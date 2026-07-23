@@ -6543,6 +6543,19 @@ html[data-theme="dark"] .diff-val {
   border: 1px solid var(--success);
 }
 
+.badge-warning {
+  background: rgba(217, 119, 6, 0.12);
+  color: #b45309;
+  border: 1px solid rgba(217, 119, 6, 0.4);
+}
+
+.lead-name-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .lead-browse-controls {
   display: grid;
   gap: var(--space-4);

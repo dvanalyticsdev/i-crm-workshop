@@ -83,6 +83,7 @@ const DEFAULT_FILTER = {
   mainAdmissionAdmissionStatus: "",
   mainAdmissionCallStatus: "",
   activityStatus: "",
+  repeatEnquiryStatus: "",
   whatsappActivity: ""
 };
 const WHATSAPP_ACTIVITY_FILTER_OPTIONS = ["WhatsApp Read", "WhatsApp Clicked", "WhatsApp Replied"];
@@ -273,6 +274,40 @@ function normalizeLeadFields(leads) {
     lead.metaExtraFields = lead.metaExtraFields && typeof lead.metaExtraFields === "object" ? lead.metaExtraFields : {};
     lead.elementorExtraFields = lead.elementorExtraFields && typeof lead.elementorExtraFields === "object" ? lead.elementorExtraFields : {};
   });
+}
+
+function getRepeatEnquiryCount(lead) {
+  const explicitCount = Number.isFinite(Number(lead?.repeatEnquiryCount))
+    ? Number(lead.repeatEnquiryCount)
+    : 0;
+  if (explicitCount > 0) {
+    return explicitCount;
+  }
+
+  const workshopReentryCount = Array.isArray(lead?.workshopMigrationHistory)
+    ? lead.workshopMigrationHistory.length
+    : 0;
+  if (workshopReentryCount > 0) {
+    return workshopReentryCount;
+  }
+
+  return lead?.lastRepeatEnquiryAt || lead?.lastWorkshopMigrationAt ? 1 : 0;
+}
+
+function isRepeatEnquiryLead(lead) {
+  return getRepeatEnquiryCount(lead) > 0;
+}
+
+function renderRepeatEnquiryBadge(lead) {
+  if (!isRepeatEnquiryLead(lead)) {
+    return "";
+  }
+
+  const repeatCount = getRepeatEnquiryCount(lead);
+  const badgeTitle = repeatCount > 1
+    ? `Repeat enquiry received ${repeatCount} times`
+    : "Repeat enquiry received";
+  return `<span class="badge badge-warning" title="${escapeHtml(badgeTitle)}">Repeat Enquiry</span>`;
 }
 
 function getStoredRegisteredCandidateLeads() {
@@ -792,6 +827,14 @@ function renderFilters(leads) {
           </select>
         </div>
         <div class="filter-item">
+          <label for="mainAdmissionRepeatEnquirySelect">Repeat Enquiry</label>
+          <select id="mainAdmissionRepeatEnquirySelect">
+            <option value="">All</option>
+            <option value="Repeat Enquiry" ${filter.repeatEnquiryStatus === "Repeat Enquiry" ? "selected" : ""}>Repeat Enquiry</option>
+            <option value="First Time" ${filter.repeatEnquiryStatus === "First Time" ? "selected" : ""}>First Time</option>
+          </select>
+        </div>
+        <div class="filter-item">
           <label for="mainAdmissionWhatsappActivitySelect">WhatsApp Activity</label>
           <select id="mainAdmissionWhatsappActivitySelect">
             <option value="">All</option>
@@ -900,6 +943,12 @@ function renderFilters(leads) {
     currentPage = 1;
     renderAll();
   };
+  document.getElementById("mainAdmissionRepeatEnquirySelect").onchange = (event) => {
+    filter.repeatEnquiryStatus = event.target.value;
+    persistFilters();
+    currentPage = 1;
+    renderAll();
+  };
   document.getElementById("mainAdmissionWhatsappActivitySelect").onchange = (event) => {
     filter.whatsappActivity = event.target.value;
     persistFilters();
@@ -944,6 +993,7 @@ function exportFilteredLeads() {
       { label: "Location", getter: (lead) => getLeadLocation(lead) },
       { label: "Counselor", getter: (lead) => lead.counselor || "Unassigned" },
       { label: "Lead Source", getter: (lead) => getDisplayLeadSource(lead) },
+      { label: "Repeat Enquiry", getter: (lead) => isRepeatEnquiryLead(lead) ? "Yes" : "No" },
       { label: "Dialed", getter: (lead) => lead.mainAdmissionDialed || "" },
       { label: "Course Pitched", getter: (lead) => lead.mainAdmissionCoursePitched || "" },
       { label: "Course Status", getter: (lead) => lead.mainAdmissionCourseStatus || "" },
@@ -984,6 +1034,8 @@ function filterLeads(leads) {
     if (filter.mainAdmissionCallStatus && filter.mainAdmissionCallStatus !== lead.mainAdmissionCallStatus) return false;
     if (filter.activityStatus === "Untouched" && lead.mainAdmissionActivityUpdates > 0) return false;
     if (filter.activityStatus === "Updated" && lead.mainAdmissionActivityUpdates === 0) return false;
+    if (filter.repeatEnquiryStatus === "Repeat Enquiry" && !isRepeatEnquiryLead(lead)) return false;
+    if (filter.repeatEnquiryStatus === "First Time" && isRepeatEnquiryLead(lead)) return false;
     if (filter.whatsappActivity && !leadMatchesWhatsappActivityFilter(lead)) return false;
     return true;
   });
@@ -1356,7 +1408,7 @@ function renderLeadTable(leads) {
             <tr>
               ${isAdmin ? `<td><input type="checkbox" class="main-admission-lead-checkbox" data-lead-key="${escapeHtml(buildLeadKey(lead))}" ${selectedLeadKeys.has(buildLeadKey(lead)) ? "checked" : ""} /></td>` : ""}
               <td>${escapeHtml(lead.createdAt)}</td>
-              <td>${escapeHtml(lead.name)}</td>
+              <td><div class="lead-name-cell"><span>${escapeHtml(lead.name)}</span>${renderRepeatEnquiryBadge(lead)}</div></td>
               <td>${escapeHtml(lead.phone || "-")}</td>
               <td>${escapeHtml(lead.email)}</td>
               <td>${escapeHtml(lead.courseName || "-")}</td>
