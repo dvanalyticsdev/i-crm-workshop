@@ -429,4 +429,5 @@ renderIntegrationSectionNav();
 const config = await loadConfig();
 applyConfig(config);
 await loadLogs();
+window.__dvMarkRouteViewReady?.();
 registerPageCleanup(() => undefined);

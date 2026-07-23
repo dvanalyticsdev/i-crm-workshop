@@ -16,6 +16,7 @@ if (localStorage.getItem("dv_crm_ui_version") !== SYSTEM_UI_VERSION) {
 let currentRoute = window.location.pathname.split("/").pop() || "dashboard.html";
 let activeSession = null;
 let activeNavigationToken = 0;
+let pendingRouteReadyState = null;
 const loadedAssetUrls = new Set(
   Array.from(document.querySelectorAll("script[src]:not([type='module'])"), (script) => script.src)
 );
@@ -155,6 +156,47 @@ function waitForNextPaint(frameCount = 1) {
     };
     step(Math.max(1, Number(frameCount) || 1));
   });
+}
+
+function createRouteReadyState(navigationToken) {
+  let resolveReady;
+  const promise = new Promise((resolve) => {
+    resolveReady = resolve;
+  });
+
+  pendingRouteReadyState = {
+    navigationToken,
+    promise,
+    resolve: () => {
+      if (pendingRouteReadyState?.navigationToken !== navigationToken) {
+        return;
+      }
+      resolveReady?.();
+    }
+  };
+}
+
+function clearRouteReadyState(navigationToken = null) {
+  if (!pendingRouteReadyState) {
+    return;
+  }
+  if (navigationToken !== null && pendingRouteReadyState.navigationToken !== navigationToken) {
+    return;
+  }
+  pendingRouteReadyState = null;
+}
+
+async function waitForRouteReady(navigationToken, timeoutMs = 15000) {
+  if (!pendingRouteReadyState || pendingRouteReadyState.navigationToken !== navigationToken) {
+    return;
+  }
+
+  await Promise.race([
+    pendingRouteReadyState.promise,
+    new Promise((resolve) => {
+      window.setTimeout(resolve, timeoutMs);
+    })
+  ]);
 }
 
 function ensureMainContentStructure(mainContent) {
@@ -853,19 +895,25 @@ async function navigateToRoute(href, options = {}) {
       window.history.pushState({ route }, "", route);
     }
 
+    createRouteReadyState(navigationToken);
     window.scrollTo({ top: 0, behavior: "instant" });
     await loadRouteModules(targetDocument, url.href);
+    await waitForRouteReady(navigationToken);
     await waitForNextPaint(2);
   } catch (error) {
     console.error("Soft navigation failed, falling back to a full page load.", error);
     window.location.href = href;
   } finally {
+    clearRouteReadyState(navigationToken);
     hideRouteLoadingOverlay(document.querySelector(".main-content"));
     revealAppShell();
   }
 }
 
 window.__dvNavigateToRoute = (href, options = {}) => navigateToRoute(href, options);
+window.__dvMarkRouteViewReady = () => {
+  pendingRouteReadyState?.resolve?.();
+};
 
 function bindClientRouter() {
   document.addEventListener("click", (event) => {

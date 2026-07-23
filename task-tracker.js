@@ -264,6 +264,7 @@ function renderAll() {
 }
 
 renderAll();
+window.__dvMarkRouteViewReady?.();
 const stopStatePolling = startStatePolling(() => {
   renderAll();
 });

@@ -504,6 +504,7 @@ function hydrate(leads) {
 
 await loadDashboardSummary();
 hydrate(getLeads());
+window.__dvMarkRouteViewReady?.();
 const stopThemeListener = onThemeChange(() => {
   hydrate(getLeads());
 });

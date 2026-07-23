@@ -237,3 +237,4 @@ refreshButton?.addEventListener("click", loadClaims);
 clearButton?.addEventListener("click", clearClaimsList);
 
 await loadClaims();
+window.__dvMarkRouteViewReady?.();

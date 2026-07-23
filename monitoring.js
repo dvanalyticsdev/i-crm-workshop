@@ -1486,6 +1486,7 @@ function renderAll() {
 
 bindTimelineControls();
 renderAll();
+window.__dvMarkRouteViewReady?.();
 const stopStatePolling = startStatePolling(() => {
   renderAll();
 });

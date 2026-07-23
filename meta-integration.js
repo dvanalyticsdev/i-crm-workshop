@@ -724,4 +724,5 @@ applyConfig(config);
 renderRoundRobinCounselors();
 renderAdmissionRotationCounselors();
 await loadLogs();
+window.__dvMarkRouteViewReady?.();
 registerPageCleanup(() => undefined);

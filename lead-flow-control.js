@@ -343,6 +343,7 @@ renderIntegrationSectionNav();
 const config = await loadMetaConfig();
 rrIndexDisplay.textContent = String(Number(config?.roundRobinIndex) || 0);
 renderRosters();
+window.__dvMarkRouteViewReady?.();
 
 resetRrBtn.addEventListener("click", resetMetaRoundRobin);
 

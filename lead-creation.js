@@ -255,3 +255,4 @@ clearButton?.addEventListener("click", clearRequestsList);
 
 updatePipelineFields();
 await loadRequests();
+window.__dvMarkRouteViewReady?.();

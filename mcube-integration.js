@@ -535,4 +535,5 @@ const config = await loadConfig();
 applyConfig(config);
 renderLogSummary(config?.logSummary);
 await loadLogs();
+window.__dvMarkRouteViewReady?.();
 registerPageCleanup(() => undefined);
