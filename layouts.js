@@ -74,6 +74,10 @@ const SIDEBAR_GROUPS = [
 ];
 
 function revealAppShell() {
+  if (window.__dvLoadingOverlayTimer) {
+    window.clearInterval(window.__dvLoadingOverlayTimer);
+    delete window.__dvLoadingOverlayTimer;
+  }
   document.documentElement.classList.remove("app-shell-pending");
   document.querySelector(".app-shell-loading")?.remove();
 }

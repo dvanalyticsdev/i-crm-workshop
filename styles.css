@@ -575,7 +575,7 @@ textarea:focus {
 .app-shell-loading__content {
   display: grid;
   justify-items: center;
-  gap: 14px;
+  gap: 10px;
   color: var(--heading);
 }
 
@@ -594,6 +594,15 @@ textarea:focus {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-muted);
+  line-height: 1;
+}
+
+.app-shell-loading__timer {
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: color-mix(in srgb, var(--text-muted) 82%, white 18%);
+  line-height: 1;
 }
 
 .sidebar {
