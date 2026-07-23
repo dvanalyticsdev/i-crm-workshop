@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Counselor Management</title>
+  <title>Role Management</title>
   <link rel="icon" type="image/png" href="Logos/DV-Logo.png" />
   <script src="theme-bootstrap.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -36,7 +36,7 @@
         <a href="monitoring.html" class="sidebar-link">Monitoring</a>
       </nav>
       <div class="sidebar-bottom-links" style="display:flex;flex-direction:column;gap:0;">
-        <a href="counselor-management.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Counselor Management</a>
+        <a href="counselor-management.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Role Management</a>
         <a href="lead-control.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Lead & Data Control</a>
         <a href="meta-integration.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Meta Integration</a>
       </div>
@@ -45,8 +45,8 @@
     <div class="main-content">
       <header class="topbar">
         <div class="topbar-title">
-          <h1>Counselor Management</h1>
-          <p>Create counselors and assign page access permissions.</p>
+          <h1>Role Management</h1>
+          <p>Create admins, counselors, and marketing users with controlled page access.</p>
         </div>
         <div class="topbar-profile">
           <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">
@@ -73,6 +73,52 @@
       <section class="management-summary-grid" id="managementSummarySection"></section>
 
       <section class="card admin-panel">
+        <div class="management-section-head">
+          <div>
+            <h3>Admins</h3>
+            <p>Create operational admin accounts that use the existing admin login tab.</p>
+          </div>
+        </div>
+        <div class="management-grid">
+          <div class="import-block management-form-card">
+            <div class="management-card-head">
+              <h4>Create Admin</h4>
+              <p>Only name, phone number, and password are required.</p>
+            </div>
+            <form id="adminForm" class="auth-form">
+              <label for="adminName">Name</label>
+              <input id="adminName" type="text" required />
+
+              <label for="adminPhone">Phone Number</label>
+              <input id="adminPhone" type="tel" required />
+
+              <label for="adminPassword">Password</label>
+              <input id="adminPassword" type="password" required />
+
+              <div class="management-actions">
+                <button type="submit" class="btn-primary management-submit-btn">Create Admin</button>
+              </div>
+            </form>
+            <p id="adminFormMessage" class="message" aria-live="polite"></p>
+          </div>
+
+          <div class="import-block management-list-card">
+            <div class="management-card-head">
+              <div>
+                <h4>Existing Admins</h4>
+                <p>Manage operational admins and update access when needed.</p>
+              </div>
+              <div class="management-search-wrap">
+                <label for="adminSearchInput" class="sr-only">Search admins</label>
+                <input id="adminSearchInput" type="search" placeholder="Search admins" />
+              </div>
+            </div>
+            <div id="adminList"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card admin-panel" style="margin-top:1.5rem;">
         <div class="management-section-head">
           <div>
             <h3>Counselors</h3>

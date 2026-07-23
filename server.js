@@ -39,6 +39,7 @@ const MAX_META_LOGS = 200;
 const MAX_ELEMENTOR_LOGS = 200;
 const MAX_MCUBE_LOGS = 200;
 const MAX_REACHOUT_LOGS = 500;
+const SESSION_SCHEMA_VERSION = "2026-07-23-super-admin-v1";
 const SESSION_COOKIE_NAME = "dvWorkshopSession";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const FORWARDED_WEBHOOK_HEADER = "x-dv-webhook-forwarded";
@@ -89,8 +90,64 @@ const COURSE_IDENTITY_RULES = [
 const ADMIN_USER = {
   id: ADMIN_LOGIN_ID,
   password: ADMIN_LOGIN_PASSWORD,
-  name: "Admin"
+  name: "Super Admin"
 };
+
+const AUTH_CONFIG_OWNER = "system:auth";
+const AUTH_CONFIG_SCOPE = "super-admin";
+const DEFAULT_SUPER_ADMIN_PASSCODE = "2817";
+const PAGE_ACCESS_KEYS = [
+  "dashboard",
+  "leadBrowse",
+  "claimRaised",
+  "leadCreation",
+  "admissionSop",
+  "preWorkshop",
+  "postWorkshop",
+  "registeredCandidates",
+  "mainAdmissionLeads",
+  "taskTracker",
+  "lostLeads",
+  "monitoring",
+  "counselorManagement",
+  "leadControl",
+  "metaIntegration",
+  "elementorIntegration",
+  "mcubeIntegration",
+  "leadFlowControl",
+  "reachout"
+];
+const FULL_PAGE_ACCESS = Object.freeze(Object.fromEntries(PAGE_ACCESS_KEYS.map((key) => [key, true])));
+const COUNSELOR_DEFAULT_PAGE_ACCESS = Object.freeze({
+  dashboard: false,
+  leadBrowse: true,
+  claimRaised: true,
+  leadCreation: true,
+  admissionSop: true,
+  preWorkshop: true,
+  registeredCandidates: false,
+  mainAdmissionLeads: false,
+  taskTracker: true,
+  lostLeads: true,
+  monitoring: true,
+  counselorManagement: false,
+  leadControl: false,
+  metaIntegration: false,
+  elementorIntegration: false,
+  mcubeIntegration: false,
+  leadFlowControl: false,
+  reachout: false,
+  postWorkshop: true
+});
+const MARKETING_DEFAULT_PAGE_ACCESS = Object.freeze({
+  ...FULL_PAGE_ACCESS,
+  counselorManagement: false,
+  leadControl: false
+});
+const ADMIN_DEFAULT_PAGE_ACCESS = Object.freeze({
+  ...FULL_PAGE_ACCESS,
+  counselorManagement: false
+});
 
 function toKolkataDateKey(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -341,6 +398,7 @@ function setCachedSession(token, session, options = {}) {
   sessionCache.set(token, {
     session,
     role: String(options.role || session?.role || "").trim().toLowerCase(),
+    sessionSchemaVersion: String(options.sessionSchemaVersion || session?.sessionSchemaVersion || "").trim(),
     adminAuthVersion: String(options.adminAuthVersion || "").trim(),
     cachedAt: Date.now()
   });
@@ -377,11 +435,13 @@ function sanitizeSession(session = {}) {
     role: String(session.role || "").trim(),
     name: String(session.name || "").trim(),
     email: String(session.email || "").trim().toLowerCase(),
+    phone: String(session.phone || "").trim(),
     permissions: {
-      ...DEFAULT_PERMISSIONS,
+      ...FULL_PAGE_ACCESS,
       ...(session.permissions || {})
     },
-    loginTime: session.loginTime || Date.now()
+    loginTime: session.loginTime || Date.now(),
+    sessionSchemaVersion: String(session.sessionSchemaVersion || SESSION_SCHEMA_VERSION).trim()
   };
 }
 
@@ -396,7 +456,12 @@ async function getSessionFromRequest(req) {
   // authenticated API call (e.g. every 15 s state poll hits this path).
   const cached = getCachedSession(token);
   if (cached) {
-    if (cached.role === "admin" && cached.adminAuthVersion !== ADMIN_AUTH_VERSION) {
+    if (cached.sessionSchemaVersion !== SESSION_SCHEMA_VERSION) {
+      sessionCache.delete(token);
+      await sessionCollection.deleteOne({ token }).catch(() => undefined);
+      return null;
+    }
+    if (cached.role === "super_admin" && cached.adminAuthVersion !== ADMIN_AUTH_VERSION) {
       sessionCache.delete(token);
       await sessionCollection.deleteOne({ token }).catch(() => undefined);
       return null;
@@ -413,7 +478,12 @@ async function getSessionFromRequest(req) {
     return null;
   }
 
-  if (String(sessionDoc.role || "").trim().toLowerCase() === "admin") {
+  if (String(sessionDoc.sessionSchemaVersion || "").trim() !== SESSION_SCHEMA_VERSION) {
+    await sessionCollection.deleteOne({ token }).catch(() => undefined);
+    return null;
+  }
+
+  if (String(sessionDoc.role || "").trim().toLowerCase() === "super_admin") {
     const storedAdminAuthVersion = String(sessionDoc.adminAuthVersion || "").trim();
     if (!storedAdminAuthVersion || storedAdminAuthVersion !== ADMIN_AUTH_VERSION) {
       await sessionCollection.deleteOne({ token }).catch(() => undefined);
@@ -424,6 +494,7 @@ async function getSessionFromRequest(req) {
   const session = sanitizeSession(sessionDoc);
   setCachedSession(token, session, {
     role: sessionDoc.role,
+    sessionSchemaVersion: sessionDoc.sessionSchemaVersion,
     adminAuthVersion: sessionDoc.adminAuthVersion
   });
   return { token, session };
@@ -438,7 +509,7 @@ async function persistSession(res, session) {
   await sessionCollection.insertOne({
     token,
     ...normalized,
-    ...(normalized.role === "admin" ? { adminAuthVersion: ADMIN_AUTH_VERSION } : {}),
+    ...(normalized.role === "super_admin" ? { adminAuthVersion: ADMIN_AUTH_VERSION } : {}),
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
     expiresAt
@@ -459,6 +530,7 @@ function normalizeStateDoc(state = {}) {
     _id: STATE_DOC_ID,
     leads: Array.isArray(state.leads) ? state.leads : [],
     counselors: Array.isArray(state.counselors) ? state.counselors : [],
+    adminUsers: Array.isArray(state.adminUsers) ? state.adminUsers : [],
     marketingUsers: Array.isArray(state.marketingUsers) ? state.marketingUsers : [],
     allocation: Array.isArray(state.allocation) ? state.allocation : [],
     tasks: Array.isArray(state.tasks) ? state.tasks : [],
@@ -479,6 +551,7 @@ function buildStateResponse(state) {
   return {
     leads: normalized.leads,
     counselors: normalized.counselors,
+    adminUsers: normalized.adminUsers,
     marketingUsers: normalized.marketingUsers,
     allocation: normalized.allocation,
     tasks: normalized.tasks,
@@ -500,6 +573,7 @@ function buildStateVersionResponse(state) {
     counts: {
       leads: Array.isArray(normalized.leads) ? normalized.leads.length : 0,
       counselors: Array.isArray(normalized.counselors) ? normalized.counselors.length : 0,
+      adminUsers: Array.isArray(normalized.adminUsers) ? normalized.adminUsers.length : 0,
       tasks: Array.isArray(normalized.tasks) ? normalized.tasks.length : 0,
       allocation: Array.isArray(normalized.allocation) ? normalized.allocation.length : 0
     }
@@ -5945,6 +6019,9 @@ function sanitizeState(payload = {}) {
   if (Array.isArray(payload.counselors)) {
     next.counselors = payload.counselors;
   }
+  if (Array.isArray(payload.adminUsers)) {
+    next.adminUsers = payload.adminUsers;
+  }
   if (Array.isArray(payload.marketingUsers)) {
     next.marketingUsers = payload.marketingUsers;
   }
@@ -7623,12 +7700,82 @@ async function requireRole(req, res, roles) {
   }
 
   const allowedRoles = Array.isArray(roles) ? roles : [roles];
-  if (!allowedRoles.includes(session.role)) {
+  const sessionRole = String(session.role || "").trim().toLowerCase();
+  const normalizedAllowed = allowedRoles.map((role) => String(role || "").trim().toLowerCase());
+  const isAllowed = normalizedAllowed.includes(sessionRole)
+    || (sessionRole === "super_admin" && normalizedAllowed.includes("admin"));
+
+  if (!isAllowed) {
     res.status(403).json({ message: "Access required." });
     return null;
   }
 
   return session;
+}
+
+function normalizePagePermissions(permissions = {}, fallback = FULL_PAGE_ACCESS) {
+  return PAGE_ACCESS_KEYS.reduce((accumulator, key) => {
+    const defaultValue = Boolean(fallback?.[key]);
+    accumulator[key] = Object.prototype.hasOwnProperty.call(permissions || {}, key)
+      ? Boolean(permissions[key])
+      : defaultValue;
+    return accumulator;
+  }, {});
+}
+
+async function getAuthConfig() {
+  const config = await preferenceCollection.findOne({
+    ownerKey: AUTH_CONFIG_OWNER,
+    scope: AUTH_CONFIG_SCOPE
+  }).catch(() => null);
+
+  return {
+    superAdminPassword: String(config?.value?.superAdminPassword || ADMIN_USER.password || "").trim(),
+    superAdminPasscode: String(config?.value?.superAdminPasscode || DEFAULT_SUPER_ADMIN_PASSCODE).trim()
+  };
+}
+
+async function saveAuthConfig(config = {}) {
+  const now = new Date().toISOString();
+  await preferenceCollection.updateOne(
+    { ownerKey: AUTH_CONFIG_OWNER, scope: AUTH_CONFIG_SCOPE },
+    {
+      $set: {
+        value: {
+          superAdminPassword: String(config.superAdminPassword || ADMIN_USER.password || "").trim(),
+          superAdminPasscode: String(config.superAdminPasscode || DEFAULT_SUPER_ADMIN_PASSCODE).trim()
+        },
+        updatedAt: now
+      },
+      $setOnInsert: {
+        ownerKey: AUTH_CONFIG_OWNER,
+        scope: AUTH_CONFIG_SCOPE,
+        createdAt: now
+      }
+    },
+    { upsert: true }
+  );
+}
+
+function canManageRoles(session) {
+  return session?.role === "super_admin";
+}
+
+function getSessionPagePermissions(session = {}) {
+  const role = String(session.role || "").trim().toLowerCase();
+  if (role === "super_admin") {
+    return normalizePagePermissions(FULL_PAGE_ACCESS, FULL_PAGE_ACCESS);
+  }
+  if (role === "admin") {
+    return normalizePagePermissions(session.permissions || {}, ADMIN_DEFAULT_PAGE_ACCESS);
+  }
+  if (role === "marketing") {
+    return normalizePagePermissions(session.permissions || {}, MARKETING_DEFAULT_PAGE_ACCESS);
+  }
+  if (role === "counselor") {
+    return normalizePagePermissions(session.permissions || {}, COUNSELOR_DEFAULT_PAGE_ACCESS);
+  }
+  return normalizePagePermissions({}, {});
 }
 
 function getLeadIdCandidates(leadId) {
@@ -8342,29 +8489,59 @@ app.post("/api/auth/login", async (req, res) => {
     const role = String(req.body?.role || "").trim().toLowerCase();
     const identifier = String(req.body?.identifier || "").trim();
     const password = String(req.body?.password || "").trim();
+    const passcode = String(req.body?.passcode || "").trim();
 
     if (!role || !identifier || !password) {
       return res.status(400).json({ message: "Role, identifier, and password are required." });
     }
 
     if (role === "admin") {
-      if (identifier !== ADMIN_USER.id || password !== ADMIN_USER.password) {
+      const state = await getStateDoc();
+      const authConfig = await getAuthConfig();
+
+      if (identifier === ADMIN_USER.id && password === authConfig.superAdminPassword) {
+        if (!passcode) {
+          return res.status(428).json({
+            message: "Super admin passcode is required.",
+            requiresPasscode: true
+          });
+        }
+        if (passcode !== authConfig.superAdminPasscode) {
+          return res.status(401).json({ message: "Invalid super admin passcode.", requiresPasscode: true });
+        }
+
+        const session = await persistSession(res, {
+          role: "super_admin",
+          name: ADMIN_USER.name,
+          email: ADMIN_USER.id,
+          permissions: FULL_PAGE_ACCESS
+        });
+
+        return res.json({
+          session,
+          landing: "dashboard.html"
+        });
+      }
+
+      const adminUsers = Array.isArray(state.adminUsers) ? state.adminUsers : [];
+      const normalizedIdentifier = identifier.toLowerCase();
+      const adminUser = adminUsers.find((item) => {
+        const phone = String(item.phone || "").trim().toLowerCase();
+        const email = String(item.email || "").trim().toLowerCase();
+        return String(item.password || "") === password
+          && (phone === normalizedIdentifier || email === normalizedIdentifier);
+      });
+
+      if (!adminUser) {
         return res.status(401).json({ message: "Invalid credentials for selected role." });
       }
 
       const session = await persistSession(res, {
-        role,
-        name: ADMIN_USER.name,
-        email: ADMIN_USER.id,
-        permissions: {
-          ...DEFAULT_PERMISSIONS,
-          dashboard: true,
-          preWorkshop: true,
-          postWorkshop: true,
-          taskTracker: false,
-          lostLeads: true,
-          monitoring: true
-        }
+        role: "admin",
+        name: adminUser.name,
+        email: adminUser.email || `admin:${String(adminUser.phone || "").trim()}`,
+        phone: adminUser.phone || "",
+        permissions: normalizePagePermissions(adminUser.permissions || {}, ADMIN_DEFAULT_PAGE_ACCESS)
       });
 
       return res.json({
@@ -8394,10 +8571,11 @@ app.post("/api/auth/login", async (req, res) => {
         role,
         name: marketingUser.name,
         email: marketingUser.email,
-        permissions: { metaIntegration: true }
+        phone: marketingUser.phone || "",
+        permissions: normalizePagePermissions(marketingUser.permissions || {}, MARKETING_DEFAULT_PAGE_ACCESS)
       });
 
-      return res.json({ session, landing: "meta-integration.html" });
+      return res.json({ session, landing: "dashboard.html" });
     }
 
     if (role !== "counselor") {
@@ -8422,7 +8600,7 @@ app.post("/api/auth/login", async (req, res) => {
     }
 
     const permissions = {
-      ...DEFAULT_PERMISSIONS,
+      ...COUNSELOR_DEFAULT_PAGE_ACCESS,
       ...(counselor.permissions || {}),
       dashboard: false
     };
@@ -8431,6 +8609,7 @@ app.post("/api/auth/login", async (req, res) => {
       role,
       name: counselor.name,
       email: counselor.email,
+      phone: counselor.phone || "",
       permissions
     });
 
@@ -8476,6 +8655,90 @@ app.post("/api/auth/logout", async (req, res) => {
     return res.json({ ok: true });
   } catch (error) {
     return res.status(500).json({ message: "Logout failed", details: error.message });
+  }
+});
+
+app.post("/api/auth/change-password", async (req, res) => {
+  try {
+    const activeSession = await getSessionFromRequest(req);
+    if (!activeSession?.session) {
+      return res.status(401).json({ message: "No active session." });
+    }
+
+    const currentPassword = String(req.body?.currentPassword || "").trim();
+    const newPassword = String(req.body?.newPassword || "").trim();
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: "Current password and new password are required." });
+    }
+
+    const session = activeSession.session;
+    if (session.role === "super_admin") {
+      const authConfig = await getAuthConfig();
+      if (currentPassword !== authConfig.superAdminPassword) {
+        return res.status(401).json({ message: "Current password is incorrect." });
+      }
+      await saveAuthConfig({
+        ...authConfig,
+        superAdminPassword: newPassword
+      });
+      return res.json({ ok: true });
+    }
+
+    const state = await getStateDoc();
+    const now = new Date().toISOString();
+
+    if (session.role === "admin") {
+      const adminUsers = Array.isArray(state.adminUsers) ? state.adminUsers : [];
+      const nextAdminUsers = adminUsers.map((user) => ({ ...user }));
+      const index = nextAdminUsers.findIndex((user) => String(user.phone || "").trim() === String(session.phone || "").trim());
+      if (index === -1 || String(nextAdminUsers[index].password || "") !== currentPassword) {
+        return res.status(401).json({ message: "Current password is incorrect." });
+      }
+      nextAdminUsers[index].password = newPassword;
+      await stateCollection.updateOne(
+        { _id: STATE_DOC_ID },
+        { $set: { adminUsers: nextAdminUsers, updatedAt: now } },
+        { upsert: true }
+      );
+    } else if (session.role === "marketing") {
+      const marketingUsers = Array.isArray(state.marketingUsers) ? state.marketingUsers : [];
+      const nextMarketingUsers = marketingUsers.map((user) => ({ ...user }));
+      const index = nextMarketingUsers.findIndex((user) => String(user.email || "").trim().toLowerCase() === String(session.email || "").trim().toLowerCase());
+      if (index === -1 || String(nextMarketingUsers[index].password || "") !== currentPassword) {
+        return res.status(401).json({ message: "Current password is incorrect." });
+      }
+      nextMarketingUsers[index].password = newPassword;
+      await stateCollection.updateOne(
+        { _id: STATE_DOC_ID },
+        { $set: { marketingUsers: nextMarketingUsers, updatedAt: now } },
+        { upsert: true }
+      );
+    } else if (session.role === "counselor") {
+      const counselors = Array.isArray(state.counselors) ? state.counselors : [];
+      const nextCounselors = counselors.map((user) => ({ ...user }));
+      const index = nextCounselors.findIndex((user) => String(user.email || "").trim().toLowerCase() === String(session.email || "").trim().toLowerCase());
+      if (index === -1 || String(nextCounselors[index].password || "") !== currentPassword) {
+        return res.status(401).json({ message: "Current password is incorrect." });
+      }
+      nextCounselors[index].password = newPassword;
+      await counselorsCollection.deleteMany({});
+      if (nextCounselors.length) {
+        await counselorsCollection.insertMany(nextCounselors);
+      }
+      await stateCollection.updateOne(
+        { _id: STATE_DOC_ID },
+        { $set: { updatedAt: now } },
+        { upsert: true }
+      );
+    } else {
+      return res.status(400).json({ message: "Unsupported role." });
+    }
+
+    cachedStateDoc = null;
+    cachedStateDocAt = 0;
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to change password", details: error.message });
   }
 });
 
@@ -10580,6 +10843,13 @@ app.put("/api/state", async (req, res) => {
       }
     }
 
+    if (
+      ["counselors", "adminUsers", "marketingUsers", "allocation"].some((field) => Array.isArray(sanitized[field]))
+      && !canManageRoles(session)
+    ) {
+      return res.status(403).json({ message: "Only the super admin can change role and access settings." });
+    }
+
     const currentState = await getStateDoc();
     if (Array.isArray(sanitized.leads)) {
       const duplicateViolation = findLeadDuplicateViolation(sanitized.leads, currentState.leads);
@@ -10628,6 +10898,9 @@ app.put("/api/state", async (req, res) => {
     }
 
     const updatePatch = { updatedAt: now };
+    if (Array.isArray(sanitized.adminUsers)) {
+      updatePatch.adminUsers = sanitized.adminUsers;
+    }
     if (Array.isArray(sanitized.marketingUsers)) {
       updatePatch.marketingUsers = sanitized.marketingUsers;
     }

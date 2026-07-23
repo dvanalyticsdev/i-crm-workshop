@@ -3,6 +3,8 @@ import { apiUrl } from "./api-client.js";
 const EMPTY_STATE = {
   leads: [],
   counselors: [],
+  adminUsers: [],
+  marketingUsers: [],
   allocation: [],
   tasks: []
 };
@@ -54,7 +56,8 @@ function normalizeState(snapshot = {}) {
   return {
     leads: Array.isArray(snapshot?.leads) ? snapshot.leads : [],
     counselors: Array.isArray(snapshot?.counselors) ? snapshot.counselors : [],
-    marketingUsers: Array.isArray(snapshot?.marketingUsers) ? snapshot.marketingUsers : [],
+    adminUsers: Array.isArray(snapshot?.adminUsers) ? snapshot.adminUsers : [],
+    marketingUsers: Array.isArray(snapshot?.marketingUsers) ? snapshot.marketingUsers : [],    
     allocation: Array.isArray(snapshot?.allocation) ? snapshot.allocation : [],
     tasks: Array.isArray(snapshot?.tasks) ? snapshot.tasks : [],
     updatedAt: snapshot?.updatedAt || null,
@@ -113,6 +116,10 @@ export function getLeads() {
 
 export function getCounselors() {
   return getStateField("counselors");
+}
+
+export function getAdminUsers() {
+  return getStateField("adminUsers");
 }
 
 export function getAllocation() {
@@ -382,20 +389,21 @@ export function getSession() {
   return currentSession ? cloneValue(currentSession) : null;
 }
 
-export async function login({ role, identifier, password }) {
+export async function login({ role, identifier, password, passcode = "" }) {
   const { response, payload } = await fetchJson("/api/auth/login", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json"
     },
-    body: JSON.stringify({ role, identifier, password })
+    body: JSON.stringify({ role, identifier, password, passcode })
   });
 
   if (!response.ok) {
     return {
       ok: false,
-      message: payload?.message || "Login failed."
+      message: payload?.message || "Login failed.",
+      requiresPasscode: payload?.requiresPasscode === true
     };
   }
 
@@ -417,6 +425,23 @@ export async function logout() {
 
   currentSession = null;
   preferenceCache.clear();
+}
+
+export async function changeOwnPassword({ currentPassword, newPassword }) {
+  const { response, payload } = await fetchJson("/api/auth/change-password", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    },
+    body: JSON.stringify({ currentPassword, newPassword })
+  });
+
+  if (!response.ok) {
+    return { ok: false, message: payload?.message || "Failed to change password." };
+  }
+
+  return { ok: true };
 }
 
 export async function bootstrapLocalState() {
@@ -549,6 +574,10 @@ export async function saveCounselors(counselors) {
     void refreshState().catch(() => undefined);
     return { ok: false, message: error?.message || "Failed to save counselors." };
   }
+}
+
+export async function saveAdminUsers(adminUsers) {
+  return updateStateFields({ adminUsers });
 }
 
 export function getMarketingUsers() {

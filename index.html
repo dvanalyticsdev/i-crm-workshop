@@ -77,10 +77,15 @@
         <input type="hidden" id="selectedRole" value="admin" />
 
         <label for="email">Admin ID / Counselor Email</label>
-        <input id="email" name="email" type="text" placeholder="Enter admin ID or counselor email" required />
+        <input id="email" name="email" type="text" placeholder="Enter admin ID, admin phone, or counselor email" required />
 
         <label for="password">Password</label>
         <input id="password" name="password" type="password" placeholder="Enter password" required />
+
+        <div id="passcodeRow" class="hidden">
+          <label for="passcode">Super Admin Passcode</label>
+          <input id="passcode" name="passcode" type="password" inputmode="numeric" maxlength="4" placeholder="Enter 4-digit passcode" />
+        </div>
 
         <button type="submit" class="btn-primary">Continue</button>
       </form>

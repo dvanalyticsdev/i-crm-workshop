@@ -1,10 +1,12 @@
 import { registerPageCleanup } from "./page-runtime.js";
 import {
   bootstrapLocalState,
+  getAdminUsers as getStoredAdminUsers,
   getAllocation as getStoredAllocation,
   getCounselors as getStoredCounselors,
   getLeads as getStoredLeads,
   getMarketingUsers as getStoredMarketingUsers,
+  saveAdminUsers as persistAdminUsers,
   saveAllocation as persistAllocation,
   saveCounselors as persistCounselors,
   saveLeads as persistLeads,
@@ -35,6 +37,7 @@ const counselorForm = document.getElementById("counselorForm");
 const counselorFormMessage = document.getElementById("counselorFormMessage");
 const counselorList = document.getElementById("counselorList");
 const counselorSearchInput = document.getElementById("counselorSearchInput");
+const adminSearchInput = document.getElementById("adminSearchInput");
 const marketingSearchInput = document.getElementById("marketingSearchInput");
 const managementSummarySection = document.getElementById("managementSummarySection");
 const userDetailsModal = document.getElementById("userDetailsModal");
@@ -64,6 +67,7 @@ const userEditBranchRow = document.getElementById("userEditBranchRow");
 const userEditPermissionsRow = document.getElementById("userEditPermissionsRow");
 const userEditMessage = document.getElementById("userEditMessage");
 let counselorSearchTerm = "";
+let adminSearchTerm = "";
 let marketingSearchTerm = "";
 let activeDetailsUser = null;
 
@@ -211,7 +215,11 @@ function openPasswordChangeModal({ userType, userId, name }) {
   passwordChangeUserType.value = userType;
   passwordChangeUserId.value = userId;
   passwordChangeUserName.value = name || "";
-  passwordChangeTitle.textContent = userType === "marketing" ? "Change Marketing User Password" : "Change Counselor Password";
+  passwordChangeTitle.textContent = userType === "marketing"
+    ? "Change Marketing User Password"
+    : userType === "admin"
+      ? "Change Admin Password"
+      : "Change Counselor Password";
   passwordChangeNewPassword.value = "";
   setPasswordChangeMessage("");
   passwordChangeModal.classList.remove("hidden");
@@ -250,6 +258,17 @@ function saveCounselors(counselors) {
 
 function getLeads() {
   return getStoredLeads();
+}
+
+function getAdminUsers() {
+  return getStoredAdminUsers().map((item) => ({
+    ...item,
+    phone: String(item.phone || "").trim()
+  }));
+}
+
+function saveAdminUsers(adminUsers) {
+  return persistAdminUsers(adminUsers);
 }
 
 function saveLeads(leads) {
@@ -414,10 +433,13 @@ function openUserDetailsModal({ userType, user }) {
 
   activeDetailsUser = { userType, userId: user.id };
   const isCounselor = userType === "counselor";
+  const isAdmin = userType === "admin";
   userDetailsTitle.textContent = user.name || "User";
   userDetailsSubtitle.textContent = isCounselor
     ? "Counselor account details, assigned access, and quick management actions."
-    : "Marketing account details and quick management actions.";
+    : isAdmin
+      ? "Admin account details and quick management actions."
+      : "Marketing account details and quick management actions.";
 
   const detailsMarkup = isCounselor
     ? [
@@ -438,7 +460,17 @@ function openUserDetailsModal({ userType, user }) {
           ]
         }
       ]
-    : [
+    : isAdmin
+      ? [
+          {
+            title: "Profile",
+            rows: [
+              ["Name", user.name],
+              ["Phone Number", user.phone]
+            ]
+          }
+        ]
+      : [
         {
           title: "Profile",
           rows: [
@@ -459,15 +491,15 @@ function openUserDetailsModal({ userType, user }) {
   `).join("");
 
   userDetailsActions.innerHTML = `
-    <button type="button" class="btn-primary" id="userDetailsEditBtn">Edit</button>
+    ${isAdmin ? "" : '<button type="button" class="btn-primary" id="userDetailsEditBtn">Edit</button>'}
     <button type="button" class="btn-ghost" id="userDetailsPasswordBtn">Change Password</button>
     <button type="button" class="btn-ghost" id="userDetailsRemoveBtn">Remove</button>
   `;
 
-  document.getElementById("userDetailsEditBtn").onclick = () => {
+  document.getElementById("userDetailsEditBtn")?.addEventListener("click", () => {
     closeUserDetailsModal();
     openUserEditModal({ userType, user });
-  };
+  });
   document.getElementById("userDetailsPasswordBtn").onclick = () => {
     closeUserDetailsModal();
     openPasswordChangeModal({
@@ -480,6 +512,8 @@ function openUserDetailsModal({ userType, user }) {
     closeUserDetailsModal();
     if (isCounselor) {
       void removeCounselor(user.id);
+    } else if (isAdmin) {
+      void removeAdminUser(user.id);
     } else {
       void removeMarketingUser(user.id);
     }
@@ -494,11 +528,16 @@ function renderManagementSummary() {
   }
 
   const counselors = getCounselors();
+  const admins = getAdminUsers();
   const marketingUsers = getMarketingUsers();
   const workshopAccess = counselors.filter((item) => item.permissions?.preWorkshop).length;
   const monitoringAccess = counselors.filter((item) => item.permissions?.monitoring).length;
 
   managementSummarySection.innerHTML = `
+    <article class="card management-summary-card">
+      <p>Total Admins</p>
+      <h2>${admins.length}</h2>
+    </article>
     <article class="card management-summary-card">
       <p>Total Counselors</p>
       <h2>${counselors.length}</h2>
@@ -655,6 +694,125 @@ const stopStatePolling = startStatePolling(() => {
 registerPageCleanup(stopStatePolling);
 
 // ── Marketing Users ───────────────────────────────────────────────────────────
+
+renderManagementSummary = ((original) => function wrappedRenderManagementSummary() {
+  original();
+  renderAdminList();
+})(renderManagementSummary);
+
+const adminForm = document.getElementById("adminForm");
+const adminFormMessage = document.getElementById("adminFormMessage");
+const adminList = document.getElementById("adminList");
+
+function setAdminMessage(text, isError = true) {
+  if (!adminFormMessage) {
+    return;
+  }
+  adminFormMessage.textContent = text;
+  adminFormMessage.style.color = isError ? "var(--danger)" : "var(--success)";
+}
+
+async function removeAdminUser(userId) {
+  const users = getAdminUsers();
+  const target = users.find((item) => item.id === userId);
+  if (!target) return;
+
+  const confirmed = window.confirm(`Remove admin ${target.name}?`);
+  if (!confirmed) return;
+
+  const next = users.filter((item) => item.id !== userId);
+  const result = await saveAdminUsers(next);
+  if (!result || result.ok === false) {
+    setAdminMessage(result?.message || "Failed to remove admin.", true);
+    return;
+  }
+
+  const syncResult = await syncStateFromLocalAndVerify();
+  if (!syncResult.ok) {
+    setAdminMessage(syncResult.message || "Backend confirmation failed.", true);
+    return;
+  }
+
+  setAdminMessage(`${target.name} removed successfully.`, false);
+  renderAdminList();
+}
+
+function renderAdminList() {
+  if (!adminList) {
+    return;
+  }
+  const users = getAdminUsers();
+  const filteredUsers = users.filter((user) => {
+    if (!adminSearchTerm) {
+      return true;
+    }
+    return [user.name, user.phone].join(" ").toLowerCase().includes(adminSearchTerm);
+  });
+
+  adminList.innerHTML = filteredUsers.length
+    ? `<div class="management-name-list">
+        ${filteredUsers.map((user) => `
+          <button type="button" class="management-name-card open-admin-details-btn" data-user-id="${user.id}">
+            <span class="management-name-card__title">${escapeHtml(user.name)}</span>
+            <span class="management-name-card__meta">${escapeHtml(user.phone)}</span>
+          </button>
+        `).join("")}
+      </div>`
+    : `<p class="management-empty-state">No admins match the current search.</p>`;
+
+  document.querySelectorAll(".open-admin-details-btn").forEach((button) => {
+    button.addEventListener("click", () => {
+      const user = users.find((item) => item.id === button.getAttribute("data-user-id"));
+      if (user) {
+        openUserDetailsModal({ userType: "admin", user });
+      }
+    });
+  });
+}
+
+if (adminForm) {
+  adminForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const name = document.getElementById("adminName").value.trim();
+    const phone = document.getElementById("adminPhone").value.trim();
+    const password = document.getElementById("adminPassword").value.trim();
+    if (!name || !phone || !password) {
+      setAdminMessage("Name, phone number, and password are required.", true);
+      return;
+    }
+
+    const users = getAdminUsers();
+    if (users.some((user) => user.phone === phone)) {
+      setAdminMessage("An admin with this phone number already exists.", true);
+      return;
+    }
+
+    users.push({
+      id: `a-${Date.now()}`,
+      name,
+      phone,
+      password,
+      permissions: { ...DEFAULT_PERMISSIONS, dashboard: true }
+    });
+
+    const result = await saveAdminUsers(users);
+    if (!result || result.ok === false) {
+      setAdminMessage(result?.message || "Failed to save admin user.", true);
+      return;
+    }
+
+    const syncResult = await syncStateFromLocalAndVerify();
+    if (!syncResult.ok) {
+      setAdminMessage(syncResult.message || "Backend confirmation failed.", true);
+      return;
+    }
+
+    adminForm.reset();
+    setAdminMessage("Admin created successfully.", false);
+    renderAdminList();
+  });
+}
 
 const marketingForm = document.getElementById("marketingForm");
 const marketingFormMessage = document.getElementById("marketingFormMessage");
@@ -820,6 +978,24 @@ if (passwordChangeForm) {
         setPasswordChangeMessage(result?.message || "Failed to change counselor password.", true);
         return;
       }
+    } else if (userType === "admin") {
+      const users = getAdminUsers();
+      const target = users.find((item) => item.id === userId);
+      if (!target) {
+        setPasswordChangeMessage("Admin not found.", true);
+        return;
+      }
+
+      const nextUsers = users.map((item) => (
+        item.id === userId
+          ? { ...item, password: newPassword }
+          : item
+      ));
+      const result = await saveAdminUsers(nextUsers);
+      if (!result || result.ok === false) {
+        setPasswordChangeMessage(result?.message || "Failed to change admin password.", true);
+        return;
+      }
     } else if (userType === "marketing") {
       const users = getMarketingUsers();
       const target = users.find((item) => item.id === userId);
@@ -853,6 +1029,9 @@ if (passwordChangeForm) {
     if (userType === "marketing") {
       setMarketingMessage("Password changed successfully.", false);
       renderMarketingList();
+    } else if (userType === "admin") {
+      setAdminMessage("Password changed successfully.", false);
+      renderAdminList();
     } else {
       setMessage("Password changed successfully.", false);
       renderCounselorList();

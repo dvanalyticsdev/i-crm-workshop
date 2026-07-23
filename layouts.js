@@ -1,6 +1,6 @@
 import { runPageCleanup } from "./page-runtime.js";
 import { bindThemeControls, initThemeSystem } from "./theme.js";
-import { bootstrapLocalState, getSession, getStateField, logout, refreshSession, refreshState, awaitPendingMutations } from "./state-sync.js";
+import { bootstrapLocalState, changeOwnPassword, getSession, getStateField, logout, refreshSession, refreshState, awaitPendingMutations } from "./state-sync.js";
 import { startPingMonitor, mountPingPill } from "./ping-monitor.js";
 const SYSTEM_UI_VERSION = "v2.0";
 if (localStorage.getItem("dv_crm_ui_version") !== SYSTEM_UI_VERSION) {
@@ -29,9 +29,18 @@ const PAGE_PERMISSION_MAP = {
   "admission-sop.html": "admissionSop",
   "pre-workshop.html": "preWorkshop",
   "post-workshop.html": "postWorkshop",
+  "registered-candidates.html": "registeredCandidates",
+  "main-admission-leads.html": "mainAdmissionLeads",
   "task-tracker.html": "taskTracker",
   "lost-leads.html": "lostLeads",
-  "monitoring.html": "monitoring"
+  "monitoring.html": "monitoring",
+  "counselor-management.html": "counselorManagement",
+  "lead-control.html": "leadControl",
+  "meta-integration.html": "metaIntegration",
+  "elementor-integration.html": "elementorIntegration",
+  "mcube-integration.html": "mcubeIntegration",
+  "lead-flow-control.html": "leadFlowControl",
+  "reachout.html": "reachout"
 };
 
 const DEFAULT_PERMISSIONS = {
@@ -42,9 +51,18 @@ const DEFAULT_PERMISSIONS = {
   admissionSop: true,
   preWorkshop: true,
   postWorkshop: true,
+  registeredCandidates: true,
+  mainAdmissionLeads: true,
   taskTracker: true,
   lostLeads: true,
-  monitoring: true
+  monitoring: true,
+  counselorManagement: false,
+  leadControl: true,
+  metaIntegration: true,
+  elementorIntegration: true,
+  mcubeIntegration: true,
+  leadFlowControl: true,
+  reachout: true
 };
 
 const SIDEBAR_GROUP_STORAGE_KEY = "dvSidebarGroupState";
@@ -558,6 +576,7 @@ function getSessionIdentityLabel(session) {
     return name;
   }
 
+  if (session?.role === "super_admin") return "Super Admin";
   if (session?.role === "admin") return "Admin";
   if (session?.role === "marketing") return "Marketing";
   return "Counselor";
@@ -585,23 +604,57 @@ function getCounselors() {
   return getStateField("counselors");
 }
 
-function getCounselorPermissions(session) {
-  const counselors = getCounselors();
-  const counselor = counselors.find(
-    (item) => String(item.email || "").toLowerCase() === String(session.email || "").toLowerCase()
-  );
-
-  return {
+function getSessionPermissions(session) {
+  const base = {
     ...DEFAULT_PERMISSIONS,
-    ...(session.permissions || {}),
-    ...(counselor?.permissions || {}),
-    // Dashboard remains admin-only even if older counselor records still have it enabled.
-    dashboard: false
+    ...(session.permissions || {})
   };
+
+  if (session?.role === "super_admin") {
+    return {
+      ...base,
+      counselorManagement: true
+    };
+  }
+
+  if (session?.role === "counselor") {
+    const counselors = getCounselors();
+    const counselor = counselors.find(
+      (item) => String(item.email || "").toLowerCase() === String(session.email || "").toLowerCase()
+    );
+
+    return {
+      ...base,
+      ...(counselor?.permissions || {}),
+      dashboard: false,
+      registeredCandidates: false,
+      mainAdmissionLeads: false,
+      counselorManagement: false,
+      leadControl: false,
+      metaIntegration: false,
+      elementorIntegration: false,
+      mcubeIntegration: false,
+      leadFlowControl: false,
+      reachout: false
+    };
+  }
+
+  if (session?.role === "marketing") {
+    return {
+      ...base,
+      counselorManagement: false,
+      leadControl: false
+    };
+  }
+
+  return base;
 }
 
 function getFirstAllowedPage(permissions) {
+  if (permissions.dashboard) return "dashboard.html";
+  if (permissions.metaIntegration) return "meta-integration.html";
   if (permissions.preWorkshop) return "pre-workshop.html";
+  if (permissions.registeredCandidates) return "registered-candidates.html";
   if (permissions.postWorkshop) return "post-workshop.html";
   if (permissions.lostLeads) return "lost-leads.html";
   if (permissions.monitoring) return "monitoring.html";
@@ -613,68 +666,27 @@ function applyRoleVisibility(session) {
   rebuildSidebarSections();
   const adminOnlyElements = document.querySelectorAll("[data-admin-only='true']");
   const counselorOnlyElements = document.querySelectorAll("[data-counselor-only='true']");
-  const isAdmin = session.role === "admin";
+  const isAdmin = session.role === "admin" || session.role === "super_admin";
   const isCounselor = session.role === "counselor";
-  const isMarketing = session.role === "marketing";
   adminOnlyElements.forEach((element) => {
     element.classList.toggle("hidden", !isAdmin);
   });
   counselorOnlyElements.forEach((element) => {
     element.classList.toggle("hidden", !isCounselor);
   });
-  // Marketing users only need the integration links and universal browse in the sidebar.
-  if (isMarketing) {
-    document.querySelectorAll(".sidebar-link").forEach((link) => {
-      const href = link.getAttribute("href") || "";
-      const isIntegrationLink = href === "meta-integration.html" || href === "elementor-integration.html" || href === "mcube-integration.html" || href === "lead-flow-control.html" || href === "reachout.html";
-      const isUniversalLink = href === "lead-browse.html";
-      link.classList.toggle("hidden", !isIntegrationLink && !isUniversalLink);
-      if (isIntegrationLink) {
-        link.classList.remove("hidden");
-      }
-      if (isUniversalLink) {
-        link.classList.remove("hidden");
-      }
-    });
-  }
   syncSidebarGroupState();
 }
 
 function enforceAccess(session) {
-  // Marketing users: only allowed on integration pages.
-  if (session.role === "marketing") {
-    if (currentRoute !== "lead-browse.html" && currentRoute !== "meta-integration.html" && currentRoute !== "elementor-integration.html" && currentRoute !== "mcube-integration.html" && currentRoute !== "lead-flow-control.html" && currentRoute !== "reachout.html") {
-      window.location.href = "meta-integration.html";
-      return false;
-    }
-    return true;
-  }
-
-  if (currentRoute === "task-tracker.html" && session.role !== "counselor") {
-    window.location.href = session.role === "admin" ? "dashboard.html" : "index.html";
-    return false;
-  }
-
-  if (
-    (currentRoute === "counselor-management.html" || currentRoute === "meta-integration.html" || currentRoute === "elementor-integration.html" || currentRoute === "mcube-integration.html" || currentRoute === "lead-flow-control.html" || currentRoute === "reachout.html" || currentRoute === "lead-control.html") &&
-    session.role !== "admin"
-  ) {
-    const fallback =
-      session.role === "counselor"
-        ? getFirstAllowedPage(getCounselorPermissions(session))
-        : "index.html";
-    window.location.href = fallback;
-    return false;
-  }
-
-  if (session.role !== "counselor") {
-    return true;
-  }
-
-  const permissions = getCounselorPermissions(session);
+  const permissions = getSessionPermissions(session);
   const permissionKey = PAGE_PERMISSION_MAP[currentRoute];
   if (!permissionKey) {
     return true;
+  }
+
+  if (currentRoute === "counselor-management.html" && session.role !== "super_admin") {
+    window.location.href = getFirstAllowedPage(permissions);
+    return false;
   }
 
   if (!permissions[permissionKey]) {
@@ -743,6 +755,9 @@ function injectHeaderMenu() {
         </button>
       </div>
       <div class="header-menu-section">
+        <button type="button" class="header-menu-action" data-change-password>Change Password</button>
+      </div>
+      <div class="header-menu-section">
         <button type="button" class="header-menu-action" data-logout>Log out</button>
       </div>
     </div>
@@ -766,6 +781,80 @@ function injectHeaderMenu() {
 
   dropdown.addEventListener("click", (event) => {
     event.stopPropagation();
+  });
+}
+
+function ensurePasswordModal() {
+  if (document.getElementById("headerPasswordModal")) {
+    return;
+  }
+
+  const modal = document.createElement("div");
+  modal.id = "headerPasswordModal";
+  modal.className = "modal hidden";
+  modal.innerHTML = `
+    <div class="modal-content card">
+      <h3>Change Password</h3>
+      <form id="headerPasswordForm">
+        <div class="modal-row">
+          <label for="headerCurrentPassword">Current Password</label>
+          <input id="headerCurrentPassword" type="password" required />
+        </div>
+        <div class="modal-row">
+          <label for="headerNewPassword">New Password</label>
+          <input id="headerNewPassword" type="password" required />
+        </div>
+        <p id="headerPasswordMessage" class="message" aria-live="polite"></p>
+        <div class="modal-actions">
+          <button type="submit" class="btn-primary">Update Password</button>
+          <button type="button" id="headerPasswordCancel" class="btn-ghost">Cancel</button>
+        </div>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  const closeModal = () => {
+    modal.classList.add("hidden");
+    modal.querySelector("#headerPasswordForm")?.reset();
+    const message = modal.querySelector("#headerPasswordMessage");
+    if (message) {
+      message.textContent = "";
+    }
+  };
+
+  modal.querySelector("#headerPasswordCancel")?.addEventListener("click", closeModal);
+  modal.querySelector("#headerPasswordForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const currentPassword = modal.querySelector("#headerCurrentPassword")?.value.trim() || "";
+    const newPassword = modal.querySelector("#headerNewPassword")?.value.trim() || "";
+    const message = modal.querySelector("#headerPasswordMessage");
+    const result = await changeOwnPassword({ currentPassword, newPassword });
+    if (!result.ok) {
+      if (message) {
+        message.textContent = result.message || "Failed to change password.";
+      }
+      return;
+    }
+    if (message) {
+      message.textContent = "Password changed successfully.";
+    }
+    window.setTimeout(closeModal, 700);
+  });
+}
+
+function bindHeaderPasswordChange() {
+  ensurePasswordModal();
+  document.querySelectorAll("[data-change-password]").forEach((button) => {
+    if (button.dataset.changePasswordBound === "true") {
+      return;
+    }
+
+    button.dataset.changePasswordBound = "true";
+    button.addEventListener("click", () => {
+      document.getElementById("headerPasswordModal")?.classList.remove("hidden");
+      closeAllDropdowns();
+    });
   });
 }
 
@@ -979,13 +1068,6 @@ function bindClientRouter() {
     }
 
     event.preventDefault();
-    // Marketing users can only use their visible links.
-    if (activeSession?.role === "marketing") {
-      const targetRoute = resolveRoute(href).route;
-      if (targetRoute !== "lead-browse.html" && targetRoute !== "meta-integration.html" && targetRoute !== "elementor-integration.html" && targetRoute !== "mcube-integration.html" && targetRoute !== "lead-flow-control.html" && targetRoute !== "reachout.html") {
-        return;
-      }
-    }
     void navigateToRoute(href);
   });
 
@@ -1023,6 +1105,7 @@ if (session) {
     hydrateRoleTag(session);
     injectHeaderMenu();
     bindLogout();
+    bindHeaderPasswordChange();
     bindThemeControls();
     bindClientRouter();
     startPingMonitor();

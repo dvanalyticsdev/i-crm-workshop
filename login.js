@@ -42,6 +42,17 @@ const roleButtons = document.querySelectorAll(".role-btn");
 const selectedRoleInput = document.getElementById("selectedRole");
 const loginForm = document.getElementById("loginForm");
 const loginMessage = document.getElementById("loginMessage");
+const passcodeRow = document.getElementById("passcodeRow");
+const passcodeInput = document.getElementById("passcode");
+let awaitingSuperAdminPasscode = false;
+
+function togglePasscodePrompt(visible) {
+  awaitingSuperAdminPasscode = visible;
+  passcodeRow?.classList.toggle("hidden", !visible);
+  if (!visible && passcodeInput) {
+    passcodeInput.value = "";
+  }
+}
 
 roleButtons.forEach((button) => {
   button.addEventListener("click", () => {
@@ -49,6 +60,7 @@ roleButtons.forEach((button) => {
     button.classList.add("active");
     selectedRoleInput.value = button.dataset.role;
     loginMessage.textContent = "";
+    togglePasscodePrompt(false);
   });
 });
 
@@ -58,9 +70,13 @@ loginForm.addEventListener("submit", async (event) => {
   const role = selectedRoleInput.value;
   const identifier = document.getElementById("email").value.trim();
   const password = document.getElementById("password").value.trim();
+  const passcode = passcodeInput?.value.trim() || "";
 
-  const result = await login({ role, identifier, password });
+  const result = await login({ role, identifier, password, passcode });
   if (!result.ok) {
+    if (result.requiresPasscode && role === "admin") {
+      togglePasscodePrompt(true);
+    }
     loginMessage.textContent = result.message || "Invalid credentials for selected role.";
     return;
   }
@@ -71,6 +87,7 @@ loginForm.addEventListener("submit", async (event) => {
     return;
   }
 
+  togglePasscodePrompt(false);
   window.location.href = result.landing || "index.html";
 });
 
