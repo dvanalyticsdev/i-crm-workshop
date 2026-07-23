@@ -20,7 +20,8 @@ const syncWhatsappBtn = document.getElementById("syncWhatsappBtn");
 const numberSelect = document.getElementById("numberSelect");
 const searchInput = document.getElementById("searchInput");
 const pipelineFilter = document.getElementById("pipelineFilter");
-const workshopFilter = document.getElementById("workshopFilter");
+const workshopNameFilter = document.getElementById("workshopNameFilter");
+const workshopDateFilter = document.getElementById("workshopDateFilter");
 const campaignFilter = document.getElementById("campaignFilter");
 const locationFilter = document.getElementById("locationFilter");
 const counselorFilter = document.getElementById("counselorFilter");
@@ -174,6 +175,14 @@ function formatWorkshopLabel(value = "") {
     : normalized;
 }
 
+function getWorkshopFilterName(value = "") {
+  return shortenWorkshopLabel(value).replace(/\s+\d{1,2}(?:st|nd|rd|th)\s+[A-Za-z]+$/i, "").trim();
+}
+
+function getWorkshopFilterDate(value = "") {
+  return extractWorkshopDateLabel(value);
+}
+
 function renderSelect(select, values, current = "", labelGetter = null) {
   select.innerHTML = `<option value="">All</option>${values.map((value) => {
     const label = typeof labelGetter === "function" ? labelGetter(value) : value;
@@ -255,7 +264,8 @@ function renderTemplatePreview() {
 function filterLeadList() {
   const query = searchInput.value.trim().toLowerCase();
   const pipeline = pipelineFilter.value;
-  const workshop = workshopFilter.value;
+  const workshopName = workshopNameFilter.value;
+  const workshopDate = workshopDateFilter.value;
   const campaign = campaignFilter.value;
   const location = locationFilter.value;
   const counselor = counselorFilter.value;
@@ -264,7 +274,8 @@ function filterLeadList() {
     const haystack = [lead.name, lead.email, lead.phone, lead.workshop, getCampaign(lead), getLocation(lead), lead.counselor].join(" ").toLowerCase();
     if (query && !haystack.includes(query)) return false;
     if (pipeline && getPipeline(lead) !== pipeline) return false;
-    if (workshop && String(lead.workshop || "") !== workshop) return false;
+    if (workshopName && getWorkshopFilterName(lead.workshop) !== workshopName) return false;
+    if (workshopDate && getWorkshopFilterDate(lead.workshop) !== workshopDate) return false;
     if (campaign && getCampaign(lead) !== campaign) return false;
     if (location && getLocation(lead) !== location) return false;
     if (counselor && String(lead.counselor || "") !== counselor) return false;
@@ -276,7 +287,8 @@ function filterLeadList() {
 function renderFilters() {
   const leads = getLeads();
   renderSelect(pipelineFilter, uniqueOptions(leads, getPipeline), pipelineFilter.value);
-  renderSelect(workshopFilter, uniqueOptions(leads, (lead) => lead.workshop), workshopFilter.value, formatWorkshopLabel);
+  renderSelect(workshopNameFilter, uniqueOptions(leads, (lead) => getWorkshopFilterName(lead.workshop)), workshopNameFilter.value);
+  renderSelect(workshopDateFilter, uniqueOptions(leads, (lead) => getWorkshopFilterDate(lead.workshop)), workshopDateFilter.value);
   renderSelect(campaignFilter, uniqueOptions(leads, getCampaign), campaignFilter.value);
   renderSelect(locationFilter, uniqueOptions(leads, getLocation), locationFilter.value);
   renderSelect(counselorFilter, uniqueOptions(leads, (lead) => lead.counselor), counselorFilter.value);
@@ -285,7 +297,8 @@ function renderFilters() {
 function resetAudienceFilters() {
   searchInput.value = "";
   pipelineFilter.value = "";
-  workshopFilter.value = "";
+  workshopNameFilter.value = "";
+  workshopDateFilter.value = "";
   campaignFilter.value = "";
   locationFilter.value = "";
   counselorFilter.value = "";
@@ -632,7 +645,7 @@ searchInput.addEventListener("keydown", (event) => {
     }
   });
 });
-[pipelineFilter, workshopFilter, campaignFilter, locationFilter, counselorFilter].forEach((input) => {
+[pipelineFilter, workshopNameFilter, workshopDateFilter, campaignFilter, locationFilter, counselorFilter].forEach((input) => {
   input.addEventListener("input", filterLeadList);
 });
 
