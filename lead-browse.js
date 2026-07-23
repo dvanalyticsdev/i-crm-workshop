@@ -6,7 +6,6 @@ import { triggerMcubeClickToCall } from "./mcube-call-service.js";
 
 const PAGE_SIZE = 25;
 const controls = document.getElementById("leadBrowseControls");
-const kpiSection = document.getElementById("leadBrowseKpis");
 const tableSection = document.getElementById("leadBrowseTableSection");
 const pagination = document.getElementById("leadBrowsePagination");
 const modal = document.getElementById("leadBrowseDetailsModal");
@@ -83,6 +82,10 @@ function isWorkshopLead(lead) {
   return !isRegisteredAdmissionLead(lead) && !isMainAdmissionLead(lead);
 }
 
+function isSidebarAdmissionLead(lead) {
+  return isRegisteredAdmissionLead(lead) || isMainAdmissionLead(lead);
+}
+
 function hasAdmissionActivity(lead) {
   return Boolean(
     lead?.postStatusUpdated ||
@@ -95,10 +98,6 @@ function hasAdmissionActivity(lead) {
   );
 }
 
-function isAdmissionLead(lead) {
-  return isRegisteredAdmissionLead(lead) || isMainAdmissionLead(lead) || isWorkshopLead(lead);
-}
-
 function getAdmissionSection(lead) {
   if (isMainAdmissionLead(lead)) return "main-admission";
   if (isRegisteredAdmissionLead(lead)) {
@@ -109,9 +108,10 @@ function getAdmissionSection(lead) {
 
 function getCategoryLabel(lead) {
   if (isMainAdmissionLead(lead)) return "Main Admission";
-  if (isRegisteredAdmissionLead(lead)) return "Registered Candidate";
-  if (filter.category === "admission" || hasAdmissionActivity(lead)) return "Admission Calling";
-  return "Workshop";
+  if (isRegisteredAdmissionLead(lead)) {
+    return normalize(lead?.publicCourseSegment) === "crash-course" ? "Crash Course" : "Registered Candidate";
+  }
+  return hasAdmissionActivity(lead) ? "Post Workshop" : "Pre Workshop";
 }
 
 function getStatusLabel(lead) {
@@ -162,7 +162,7 @@ function getCategoryLeads(leads) {
   }
 
   return leads.filter((lead) => {
-    if (!isAdmissionLead(lead)) return false;
+    if (!isSidebarAdmissionLead(lead)) return false;
     if (filter.admissionSection === "all") return true;
     return getAdmissionSection(lead) === filter.admissionSection;
   });
@@ -199,26 +199,6 @@ function getFilteredLeads() {
   });
 }
 
-function renderKpis() {
-  const leads = getAllLeads();
-  const workshopCount = leads.filter(isWorkshopLead).length;
-  const admissionCount = leads.filter(isAdmissionLead).length;
-  const assignedCount = leads.filter((lead) => normalize(lead.counselor) && normalize(lead.counselor) !== "unassigned").length;
-  const visibleCount = getFilteredLeads().length;
-
-  kpiSection.innerHTML = [
-    ["Workshop Leads", workshopCount],
-    ["Admission Leads", admissionCount],
-    ["Assigned Leads", assignedCount],
-    ["Current View", visibleCount]
-  ].map(([label, value]) => `
-    <article class="card kpi-card">
-      <p>${escapeHtml(label)}</p>
-      <h2>${value}</h2>
-    </article>
-  `).join("");
-}
-
 function renderControls() {
   const categoryLeads = getCategoryLeads(getAllLeads());
   const counselors = getUniqueValues(categoryLeads, (lead) => lead.counselor || "Unassigned");
@@ -235,7 +215,6 @@ function renderControls() {
           Section
           <select id="leadBrowseAdmissionSection">
             <option value="all" ${filter.admissionSection === "all" ? "selected" : ""}>All Admission Sections</option>
-            <option value="admission-calling" ${filter.admissionSection === "admission-calling" ? "selected" : ""}>Admission Calling</option>
             <option value="registered-candidates" ${filter.admissionSection === "registered-candidates" ? "selected" : ""}>Registered Candidates</option>
             <option value="crash-course" ${filter.admissionSection === "crash-course" ? "selected" : ""}>Crash Course</option>
             <option value="main-admission" ${filter.admissionSection === "main-admission" ? "selected" : ""}>Main Admission Leads</option>
@@ -520,7 +499,6 @@ function closeDetails() {
 
 function render() {
   const activeInputState = getActiveInputState();
-  renderKpis();
   renderControls();
   renderTable();
   restoreActiveInputState(activeInputState);
