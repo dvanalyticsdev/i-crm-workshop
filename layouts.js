@@ -142,6 +142,21 @@ function hideRouteLoadingOverlay(mainContent) {
   mainContent.querySelector(".route-loading-overlay")?.remove();
 }
 
+function waitForNextPaint(frameCount = 1) {
+  return new Promise((resolve) => {
+    const step = (remaining) => {
+      window.requestAnimationFrame(() => {
+        if (remaining <= 1) {
+          resolve();
+          return;
+        }
+        step(remaining - 1);
+      });
+    };
+    step(Math.max(1, Number(frameCount) || 1));
+  });
+}
+
 function ensureMainContentStructure(mainContent) {
   if (!mainContent) {
     return { topbar: null, contentWindow: null };
@@ -800,7 +815,12 @@ async function navigateToRoute(href, options = {}) {
     }
 
     if (activeStructure.contentWindow && nextStructure.contentWindow) {
-      activeStructure.contentWindow.replaceChildren(...Array.from(nextStructure.contentWindow.childNodes));
+      const routeOverlay = activeStructure.contentWindow.querySelector(".route-loading-overlay");
+      const nextNodes = Array.from(nextStructure.contentWindow.childNodes);
+      activeStructure.contentWindow.replaceChildren(
+        ...nextNodes,
+        ...(routeOverlay ? [routeOverlay] : [])
+      );
     } else {
       activeMainContent.replaceWith(nextMainContent);
     }
@@ -835,6 +855,7 @@ async function navigateToRoute(href, options = {}) {
 
     window.scrollTo({ top: 0, behavior: "instant" });
     await loadRouteModules(targetDocument, url.href);
+    await waitForNextPaint(2);
   } catch (error) {
     console.error("Soft navigation failed, falling back to a full page load.", error);
     window.location.href = href;
