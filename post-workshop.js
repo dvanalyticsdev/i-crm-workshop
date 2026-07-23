@@ -51,6 +51,7 @@ const EMPTY_FILTER_LABEL = "Use Filter";
 const SELECT_ALL_FILTER_VALUE = "__SELECT_ALL__";
 const BLANK_FILTER_VALUE = "__BLANK_FILTER__";
 const ADMISSION_STATUS_OPTIONS = ["In-Conversation", "Opportunity", "Offered", "Enrolled", "Won"];
+const WHATSAPP_ACTIVITY_FILTER_OPTIONS = ["WhatsApp Opened", "WhatsApp Clicked", "WhatsApp Replied"];
 
 populateCrmCourseSelect("modalCoursePitched", { includeNo: true });
 
@@ -238,6 +239,27 @@ function withSelectFilterOption(options) {
   return [...new Set([BLANK_FILTER_VALUE, ...normalizedOptions])];
 }
 
+function getActivityLabel(activity = {}) {
+  return String(
+    activity?.activityType
+    || activity?.type
+    || activity?.eventType
+    || activity?.actionType
+    || activity?.label
+    || ""
+  ).trim();
+}
+
+function leadMatchesWhatsappActivity(lead, selectedActivities, historyField) {
+  const selected = getSelectedFilterValues(selectedActivities);
+  if (!selected.length) {
+    return true;
+  }
+
+  const history = Array.isArray(lead?.[historyField]) ? lead[historyField] : [];
+  return history.some((entry) => selected.includes(getActivityLabel(entry)));
+}
+
 function renderMultiSelectControl({ id, label, options, value, itemClass = "", itemAttrs = "" }) {
   const uniqueOptions = [...new Set(options.map((option) => String(option || "").trim()).filter(Boolean))];
   const selected = new Set(getSelectedFilterValues(value));
@@ -354,6 +376,7 @@ const DEFAULT_FILTER = {
   workshopDate: EMPTY_FILTER_VALUE,
   counselor: EMPTY_FILTER_VALUE,
   activityStatus: EMPTY_FILTER_VALUE,
+  whatsappActivity: EMPTY_FILTER_VALUE,
   postDialed: EMPTY_FILTER_VALUE,
   coursePitched: EMPTY_FILTER_VALUE,
   admissionStatus: EMPTY_FILTER_VALUE,
@@ -836,6 +859,12 @@ function renderFilters(leads) {
           value: filter.activityStatus
         })}
         ${renderMultiSelectControl({
+          id: "postWhatsappActivitySelect",
+          label: "WhatsApp Activity",
+          options: WHATSAPP_ACTIVITY_FILTER_OPTIONS,
+          value: filter.whatsappActivity
+        })}
+        ${renderMultiSelectControl({
           id: "postWorkshopNameSelect",
           label: "Workshop Name",
           options: workshopNames,
@@ -908,6 +937,7 @@ function renderFilters(leads) {
   document.getElementById("postSearchLeadInput").value = filter.search;
   bindMultiFilter("postCounselorSelect", "counselor");
   bindMultiFilter("postActivityStatusSelect", "activityStatus");
+  bindMultiFilter("postWhatsappActivitySelect", "whatsappActivity");
   bindMultiFilter("postWorkshopNameSelect", "workshopName");
   bindMultiFilter("postWorkshopDateSelect", "workshopDate");
   bindMultiFilter("postDialedSelect", "postDialed");
@@ -1068,6 +1098,10 @@ function filterLeads(leads) {
 
   if (activityStatuses.length === 1 && activityStatuses.includes("Updated")) {
     filtered = filtered.filter((lead) => !isUntouchedLead(lead));
+  }
+
+  if (isSelectedFilterValue(filter.whatsappActivity)) {
+    filtered = filtered.filter((lead) => leadMatchesWhatsappActivity(lead, filter.whatsappActivity, "admissionActivityHistory"));
   }
 
   if (isSelectedFilterValue(filter.workshopCallingDialed)) {

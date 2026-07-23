@@ -393,6 +393,7 @@ test("screen filters are browser-local and not shared through server preferences
 test("workshop and admission filters support multiple selected values", () => {
   const preWorkshop = read("pre-workshop.js");
   const postWorkshop = read("post-workshop.js");
+  const mainAdmission = read("main-admission-leads.js");
   const styles = read("styles.css");
 
   assert.match(preWorkshop, /function getSelectedFilterValues/);
@@ -414,6 +415,10 @@ test("workshop and admission filters support multiple selected values", () => {
   assert.match(postWorkshop, /BLANK_FILTER_VALUE/);
   assert.match(preWorkshop, /item === BLANK_FILTER_VALUE \? normalizedValue === ""/);
   assert.match(postWorkshop, /item === BLANK_FILTER_VALUE \? normalizedValue === ""/);
+  assert.match(postWorkshop, /postWhatsappActivitySelect/);
+  assert.match(postWorkshop, /leadMatchesWhatsappActivity\(lead, filter\.whatsappActivity, "admissionActivityHistory"\)/);
+  assert.match(mainAdmission, /mainAdmissionWhatsappActivitySelect/);
+  assert.match(mainAdmission, /leadMatchesWhatsappActivity\(lead, filter\.whatsappActivity\)/);
 });
 
 test("admission workshop override stays scoped to admission calling", () => {

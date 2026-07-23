@@ -82,8 +82,10 @@ const DEFAULT_FILTER = {
   mainAdmissionCourseStatus: "",
   mainAdmissionAdmissionStatus: "",
   mainAdmissionCallStatus: "",
-  activityStatus: ""
+  activityStatus: "",
+  whatsappActivity: ""
 };
+const WHATSAPP_ACTIVITY_FILTER_OPTIONS = ["WhatsApp Opened", "WhatsApp Clicked", "WhatsApp Replied"];
 
 const persistedFilter = await loadLocalPreference(FILTER_STORAGE_KEY, {});
 if (persistedFilter.timeline === "daily") {
@@ -133,6 +135,26 @@ function formatFieldLabel(value) {
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function getActivityLabel(activity = {}) {
+  return String(
+    activity?.activityType
+    || activity?.type
+    || activity?.eventType
+    || activity?.actionType
+    || activity?.label
+    || ""
+  ).trim();
+}
+
+function leadMatchesWhatsappActivity(lead, selectedActivity) {
+  if (!selectedActivity) {
+    return true;
+  }
+
+  const history = Array.isArray(lead?.mainAdmissionActivityHistory) ? lead.mainAdmissionActivityHistory : [];
+  return history.some((entry) => getActivityLabel(entry) === selectedActivity);
 }
 
 function toLocalDateKey(date = new Date()) {
@@ -734,6 +756,13 @@ function renderFilters(leads) {
             <option value="Updated" ${filter.activityStatus === "Updated" ? "selected" : ""}>Updated</option>
           </select>
         </div>
+        <div class="filter-item">
+          <label for="mainAdmissionWhatsappActivitySelect">WhatsApp Activity</label>
+          <select id="mainAdmissionWhatsappActivitySelect">
+            <option value="">All</option>
+            ${WHATSAPP_ACTIVITY_FILTER_OPTIONS.map((item) => `<option value="${escapeHtml(item)}" ${filter.whatsappActivity === item ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
+          </select>
+        </div>
         <div class="filter-item filter-item-cta">
           <label>&nbsp;</label>
           <div class="filter-actions">
@@ -836,6 +865,12 @@ function renderFilters(leads) {
     currentPage = 1;
     renderAll();
   };
+  document.getElementById("mainAdmissionWhatsappActivitySelect").onchange = (event) => {
+    filter.whatsappActivity = event.target.value;
+    persistFilters();
+    currentPage = 1;
+    renderAll();
+  };
   document.getElementById("mainAdmissionResetFiltersBtn").onclick = () => {
     filter = { ...DEFAULT_FILTER };
     persistFilters();
@@ -912,6 +947,7 @@ function filterLeads(leads) {
     if (filter.mainAdmissionCallStatus && filter.mainAdmissionCallStatus !== lead.mainAdmissionCallStatus) return false;
     if (filter.activityStatus === "Untouched" && lead.mainAdmissionActivityUpdates > 0) return false;
     if (filter.activityStatus === "Updated" && lead.mainAdmissionActivityUpdates === 0) return false;
+    if (filter.whatsappActivity && !leadMatchesWhatsappActivity(lead, filter.whatsappActivity)) return false;
     return true;
   });
 }
