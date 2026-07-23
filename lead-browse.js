@@ -278,6 +278,10 @@ async function fetchDuplicateGroups() {
   }
 }
 
+function shouldAutoRefreshDuplicateCategory() {
+  return false;
+}
+
 async function mergeDuplicateGroup(group) {
   const keeperLeadId = selectedDuplicateKeeperByGroup.get(group.groupId) || String(group?.leads?.[0]?.id || "");
   const duplicateLeadIds = (group.leads || []).map((lead) => String(lead.id || "")).filter((id) => id && id !== keeperLeadId);
@@ -863,6 +867,9 @@ startStatePolling(() => {
     closeDetails();
   }
   if (isAdminSession() && filter.category === "duplicates") {
+    if (!shouldAutoRefreshDuplicateCategory()) {
+      return;
+    }
     void fetchDuplicateGroups();
   }
   render();
