@@ -5942,20 +5942,46 @@ function hasMeaningfulLeadUpdateValue(value) {
 }
 
 function buildProtectedIntegrationLeadUpdate(existingLead, incomingLead) {
-  const protectedFields = new Set([
-    "id",
-    "_id",
-    "name",
-    "email",
-    "phone",
-    "normalizedEmail",
-    "normalizedPhone",
-    "createdAt"
-  ]);
   const nextLead = { ...existingLead };
+  const mergeableFields = [
+    "courseName",
+    "courseRawName",
+    "courseKey",
+    "workshop",
+    "workshopKey",
+    "workshopName",
+    "workshopNameKey",
+    "workshopDateLabel",
+    "workshopDateKey",
+    "admissionWorkshop",
+    "admissionWorkshopKey",
+    "admissionWorkshopName",
+    "admissionWorkshopNameKey",
+    "admissionWorkshopDateLabel",
+    "admissionWorkshopDateKey",
+    "highestQualification",
+    "metaLeadId",
+    "metaFormId",
+    "metaAdId",
+    "metaAdName",
+    "metaAdsetName",
+    "metaCampaignName",
+    "metaExtraFields",
+    "elementorFormId",
+    "elementorFormName",
+    "elementorPageUrl",
+    "elementorSubmittedDate",
+    "elementorSubmittedTime",
+    "elementorRemoteIp",
+    "elementorUserAgent",
+    "elementorExtraFields",
+    "importSourceFiles",
+    "importSourceSheets"
+  ];
 
-  Object.entries(incomingLead || {}).forEach(([key, value]) => {
-    if (protectedFields.has(key) || !hasMeaningfulLeadUpdateValue(value)) {
+  mergeableFields.forEach((key) => {
+    const value = incomingLead?.[key];
+    if (!hasMeaningfulLeadUpdateValue(value)) {
       return;
     }
     nextLead[key] = value;
@@ -5966,6 +5992,10 @@ function buildProtectedIntegrationLeadUpdate(existingLead, incomingLead) {
   nextLead.email = String(existingLead?.email || incomingLead?.email || "").trim().toLowerCase();
   nextLead.phone = String(existingLead?.phone || incomingLead?.phone || "").trim();
   nextLead.createdAt = String(existingLead?.createdAt || incomingLead?.createdAt || "").trim();
+  nextLead.counselor = String(existingLead?.counselor || "").trim();
+  nextLead.leadPipeline = String(existingLead?.leadPipeline || "").trim();
+  nextLead.source = String(existingLead?.source || "").trim();
+  nextLead.status = String(existingLead?.status || "").trim();
 
   return decorateLeadForStorage(nextLead);
 }
@@ -5976,14 +6006,15 @@ async function updateExistingIntegrationLead(existingLead, incomingLead, options
 
   const previousCourse = String(existingLead?.courseName || existingLead?.workshop || existingLead?.admissionWorkshop || "").trim();
   const nextCourse = String(nextLead?.courseName || nextLead?.workshop || nextLead?.admissionWorkshop || "").trim();
+  const sourceLabel = String(options.source || "Integration").trim() || "Integration";
   await recordActivity({
     leadId: nextLead.id,
     leadName: nextLead.name,
     counselorName: nextLead.counselor || "",
     activityType: "Lead Updated",
-    actionDescription: `${String(options.source || "Integration").trim() || "Integration"} duplicate matched existing lead and refreshed lead details`,
+    actionDescription: `${sourceLabel} enquiry received again for existing lead${nextCourse && nextCourse !== previousCourse ? ` and course updated to ${nextCourse}` : ""}`,
     previousValue: previousCourse || "Existing lead retained",
-    newValue: nextCourse || "Existing lead retained"
+    newValue: nextCourse || previousCourse || "Existing lead retained"
   });
 
   const now = new Date().toISOString();
@@ -9599,50 +9630,26 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
   );
   const duplicateLead = findDuplicateLeadByEmailOrPhone(snapshot.leads, newLead);
   if (duplicateLead) {
-    let shouldBlockDuplicate = true;
-    if (isAdmissionLead && !isMainAdmissionLead(duplicateLead)) {
-      // Admission and workshop records intentionally coexist so each team keeps its own workflow.
-      shouldBlockDuplicate = false;
-    } else if (!isAdmissionLead && isMainAdmissionLead(duplicateLead)) {
-      // Workshop leads still flow into the established workshop calling setup even if admission has a matching contact.
-      shouldBlockDuplicate = false;
-    } else if (!isPublicCourseRegistrationLead(duplicateLead) && !isSameWorkshopLead(duplicateLead, newLead)) {
-      await replaceWorkshopLeadWithFreshLead(duplicateLead, newLead, {
-        source: "Meta",
-        metaLeadId: leadgenId,
-        formId
-      });
-      if (retryJobId) {
-        await withMongoRetry(
-          () => metaRetryCollection.deleteOne({ _id: retryJobId }),
-          { retries: 1, label: "Delete migrated Meta retry job" }
-        );
-      }
-      return;
+    if (retryJobId) {
+      await withMongoRetry(
+        () => metaRetryCollection.deleteOne({ _id: retryJobId }),
+        { retries: 1, label: "Delete duplicate Meta retry job" }
+      );
     }
-
-    if (shouldBlockDuplicate) {
-      if (retryJobId) {
-        await withMongoRetry(
-          () => metaRetryCollection.deleteOne({ _id: retryJobId }),
-          { retries: 1, label: "Delete duplicate Meta retry job" }
-        );
-      }
-      const updatedLead = await updateExistingIntegrationLead(duplicateLead, newLead, {
-        source: "Meta"
-      });
-      const duplicateField = normalizeLeadEmail(duplicateLead.email) === normalizeLeadEmail(newLead.email)
-        ? "email"
-        : "phone";
-      await saveMetaLog({
-        type: "updated",
-        message: `Duplicate lead updated by ${duplicateField} match`,
-        leadgenId,
-        formId,
-        leadId: updatedLead.id
-      });
-      return;
-    }
+    const updatedLead = await updateExistingIntegrationLead(duplicateLead, newLead, {
+      source: "Meta"
+    });
+    const duplicateField = normalizeLeadEmail(duplicateLead.email) === normalizeLeadEmail(newLead.email)
+      ? "email"
+      : "phone";
+    await saveMetaLog({
+      type: "updated",
+      message: `Duplicate lead updated by ${duplicateField} match`,
+      leadgenId,
+      formId,
+      leadId: updatedLead.id
+    });
+    return;
   }
 
   const result = await insertMetaLeadIfNew(leadgenId, newLead);
@@ -9825,46 +9832,21 @@ async function processElementorLeadRecord(payload, config) {
   const duplicateLead = findDuplicateLeadByEmailOrPhone(snapshot.leads, newLead);
 
   if (duplicateLead) {
-    let shouldBlockDuplicate = true;
-    if (isAdmissionLead && !isMainAdmissionLead(duplicateLead)) {
-      shouldBlockDuplicate = false;
-    } else if (!isAdmissionLead && isMainAdmissionLead(duplicateLead)) {
-      shouldBlockDuplicate = false;
-    } else if (!isPublicCourseRegistrationLead(duplicateLead) && !isSameWorkshopLead(duplicateLead, newLead)) {
-      await replaceWorkshopLeadWithFreshLead(duplicateLead, newLead, {
-        source: "Elementor"
-      });
-      await saveElementorLog({
-        type: "success",
-        message: `Lead migrated into fresh workshop record: ${newLead.name}`,
-        formId,
-        formName,
-        pageUrl,
-        leadId: newLead.id,
-        leadName: newLead.name,
-        counselor: counselorName,
-        leadPipeline: newLead.leadPipeline || "workshop"
-      });
-      return;
-    }
-
-    if (shouldBlockDuplicate) {
-      const updatedLead = await updateExistingIntegrationLead(duplicateLead, newLead, {
-        source: "Elementor"
-      });
-      const duplicateField = normalizeLeadEmail(duplicateLead.email) === normalizeLeadEmail(newLead.email)
-        ? "email"
-        : "phone";
-      await saveElementorLog({
-        type: "updated",
-        message: `Duplicate lead updated by ${duplicateField} match`,
-        formId,
-        formName,
-        pageUrl,
-        leadId: updatedLead.id
-      });
-      return;
-    }
+    const updatedLead = await updateExistingIntegrationLead(duplicateLead, newLead, {
+      source: "Elementor"
+    });
+    const duplicateField = normalizeLeadEmail(duplicateLead.email) === normalizeLeadEmail(newLead.email)
+      ? "email"
+      : "phone";
+    await saveElementorLog({
+      type: "updated",
+      message: `Duplicate lead updated by ${duplicateField} match`,
+      formId,
+      formName,
+      pageUrl,
+      leadId: updatedLead.id
+    });
+    return;
   }
 
   const result = await insertElementorLeadIfNew(newLead);
