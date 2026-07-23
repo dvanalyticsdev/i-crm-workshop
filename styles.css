@@ -753,8 +753,8 @@ textarea:focus {
 }
 
 .main-content.route-loading .main-content-window > * {
-  opacity: 0.2;
-  transition: opacity var(--ease);
+  opacity: 1;
+  transition: none;
 }
 
 .main-content.route-loading .main-content-window::after {
@@ -762,13 +762,7 @@ textarea:focus {
   position: absolute;
   inset: 0;
   border-radius: var(--radius-md);
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--bg) 74%, transparent),
-      color-mix(in srgb, var(--bg) 88%, transparent)
-    );
-  backdrop-filter: blur(1px);
+  background: var(--bg);
 }
 
 .main-content.route-loading .main-content-window::before {

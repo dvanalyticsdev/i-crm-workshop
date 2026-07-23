@@ -533,6 +533,10 @@ function renderAdmissionSectionNav(activeRoute = "main-admission-leads.html") {
     button.onclick = () => {
       const route = button.getAttribute("data-admission-section");
       if (route && route !== `${window.location.pathname.split("/").pop()}${window.location.hash}`) {
+        if (typeof window.__dvNavigateToRoute === "function") {
+          void window.__dvNavigateToRoute(route);
+          return;
+        }
         window.location.href = route;
       }
     };

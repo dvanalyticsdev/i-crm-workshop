@@ -885,6 +885,10 @@ function renderWorkshopSectionNav(activeRoute = "pre-workshop.html") {
     button.onclick = () => {
       const route = button.getAttribute("data-workshop-section");
       if (route && route !== window.location.pathname.split("/").pop()) {
+        if (typeof window.__dvNavigateToRoute === "function") {
+          void window.__dvNavigateToRoute(route);
+          return;
+        }
         window.location.href = route;
       }
     };

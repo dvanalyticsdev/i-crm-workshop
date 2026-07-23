@@ -153,6 +153,10 @@ function renderIntegrationSectionNav(activeRoute = "elementor-integration.html")
     button.onclick = () => {
       const route = button.getAttribute("data-integration-section");
       if (route && route !== window.location.pathname.split("/").pop()) {
+        if (typeof window.__dvNavigateToRoute === "function") {
+          void window.__dvNavigateToRoute(route);
+          return;
+        }
         window.location.href = route;
       }
     };

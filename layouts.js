@@ -100,8 +100,6 @@ function showRouteLoadingOverlay(mainContent) {
   }
 
   clearRouteLoadingTimer(mainContent);
-  mainContent.classList.add("route-loading");
-
   let overlay = contentWindow.querySelector(".route-loading-overlay");
   if (!overlay) {
     overlay = document.createElement("div");
@@ -116,6 +114,8 @@ function showRouteLoadingOverlay(mainContent) {
     `;
     contentWindow.appendChild(overlay);
   }
+
+  mainContent.classList.add("route-loading");
 
   const timerElement = overlay.querySelector(".app-shell-loading__timer");
   const startedAt = Date.now();
@@ -839,6 +839,8 @@ async function navigateToRoute(href, options = {}) {
     revealAppShell();
   }
 }
+
+window.__dvNavigateToRoute = (href, options = {}) => navigateToRoute(href, options);
 
 function bindClientRouter() {
   document.addEventListener("click", (event) => {

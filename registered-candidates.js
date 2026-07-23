@@ -536,6 +536,10 @@ function renderAdmissionSectionNav(activeRoute = "registered-candidates.html") {
         return;
       }
       if (route && route !== window.location.pathname.split("/").pop()) {
+        if (typeof window.__dvNavigateToRoute === "function") {
+          void window.__dvNavigateToRoute(route);
+          return;
+        }
         window.location.href = route;
       }
     };
