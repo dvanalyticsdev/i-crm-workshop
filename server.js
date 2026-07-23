@@ -1822,6 +1822,7 @@ function getReachoutStatusWebhookCallbackUrl(req) {
 function normalizeReachoutWebhookStatus(value) {
   const normalized = String(value || "").trim().toLowerCase().replace(/[_-]+/g, " ");
   if (!normalized) return "updated";
+  if (/(click|clicked|url clicked)/i.test(normalized)) return "clicked";
   if (/(reply|replied|inbound|customer message|user message)/i.test(normalized)) return "replied";
   if (/\b(read|seen)\b/i.test(normalized)) return "read";
   if (/\b(open|opened)\b/i.test(normalized)) return "opened";
@@ -1836,6 +1837,32 @@ function normalizeReachoutWebhookEvent(body = {}) {
   const lead = payload?.lead && typeof payload.lead === "object" ? payload.lead : {};
   const template = payload?.template && typeof payload.template === "object" ? payload.template : {};
   const message = payload?.message && typeof payload.message === "object" ? payload.message : {};
+  let parsedMessages = [];
+
+  if (Array.isArray(payload.messages)) {
+    parsedMessages = payload.messages;
+  } else if (typeof payload.messages === "string" && payload.messages.trim()) {
+    try {
+      const parsed = JSON.parse(payload.messages);
+      parsedMessages = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      parsedMessages = [];
+    }
+  }
+
+  const firstInboundMessage = parsedMessages[0] && typeof parsedMessages[0] === "object" ? parsedMessages[0] : {};
+  const inferredClick = Boolean(
+    String(payload.link || payload.shortUrl || payload.short_url || "").trim()
+    || /clicked/i.test(String(payload.id || "").trim())
+  );
+  const inferredInboundReply = Boolean(
+    String(payload.customerNumber || payload.customer_number || "").trim()
+    && (
+      String(payload.text || payload.body || "").trim()
+      || String(firstInboundMessage?.text?.body || "").trim()
+      || parsedMessages.length
+    )
+  );
 
   const rawStatus = [
     payload.status,
@@ -1844,27 +1871,80 @@ function normalizeReachoutWebhookEvent(body = {}) {
     payload.messageStatus,
     payload.message_status,
     payload.event,
+    payload.eventName,
     payload.type,
     payload.action,
+    payload.webhookType,
+    payload.id,
     body.status,
     body.eventType,
     body.event_type
   ].find((value) => String(value || "").trim()) || "";
+  let normalizedStatus = normalizeReachoutWebhookStatus(rawStatus);
+  if (!String(rawStatus || "").trim()) {
+    if (inferredClick) normalizedStatus = "clicked";
+    else if (inferredInboundReply) normalizedStatus = "replied";
+  } else if (normalizedStatus === "updated") {
+    if (inferredClick) normalizedStatus = "clicked";
+    else if (inferredInboundReply) normalizedStatus = "replied";
+  }
 
   return {
     raw: body,
-    status: normalizeReachoutWebhookStatus(rawStatus),
+    status: normalizedStatus,
     rawStatus: String(rawStatus || "").trim(),
     leadId: String(payload.leadId || payload.lead_id || lead.id || "").trim(),
     leadEmail: String(payload.leadEmail || payload.lead_email || lead.email || "").trim().toLowerCase(),
-    phone: String(payload.phone || payload.mobile || payload.to || lead.phone || "").trim(),
-    leadName: String(payload.leadName || payload.lead_name || lead.name || "").trim(),
+    phone: String(
+      payload.phone ||
+      payload.mobile ||
+      payload.to ||
+      payload.customerNumber ||
+      payload.customer_number ||
+      firstInboundMessage?.from ||
+      lead.phone ||
+      ""
+    ).trim(),
+    leadName: String(payload.leadName || payload.lead_name || payload.customerName || lead.name || "").trim(),
     counselorName: String(payload.counselorName || payload.counselor_name || lead.counselor || "").trim(),
     templateName: String(payload.templateName || payload.template_name || template.name || template.templateName || "").trim(),
     integratedNumber: String(payload.integratedNumber || payload.integrated_number || message.integratedNumber || "").replace(/\D/g, ""),
-    providerMessageId: String(payload.messageId || payload.message_id || message.providerMessageId || message.messageId || "").trim(),
-    replyText: String(payload.replyText || payload.reply_text || payload.reply || payload.text || payload.body || payload.message || "").trim(),
-    occurredAt: String(payload.timestamp || payload.occurredAt || payload.occurred_at || body.timestamp || "").trim()
+    providerMessageId: String(
+      payload.id ||
+      payload.messageId ||
+      payload.message_id ||
+      payload.uuid ||
+      payload.requestId ||
+      message.providerMessageId ||
+      message.messageId ||
+      firstInboundMessage?.id ||
+      ""
+    ).trim(),
+    replyText: String(
+      payload.replyText ||
+      payload.reply_text ||
+      payload.reply ||
+      payload.text ||
+      payload.body ||
+      payload.reason ||
+      payload.message ||
+      firstInboundMessage?.text?.body ||
+      ""
+    ).trim(),
+    occurredAt: String(
+      payload.clickedAt ||
+      payload.statusUpdatedAt ||
+      payload.timestamp ||
+      payload.ts ||
+      payload.requestedAt ||
+      payload.occurredAt ||
+      payload.occurred_at ||
+      body.timestamp ||
+      ""
+    ).trim(),
+    clickedLink: String(payload.link || payload.shortUrl || payload.short_url || "").trim(),
+    failureReason: String(payload.reason || payload.cleverTapErrorReason || payload.cleverTapErrorCode || payload.moEngageErrorCode || "").trim(),
+    statusCode: String(payload.statusCode || "").trim()
   };
 }
 
@@ -1904,11 +1984,17 @@ function buildReachoutWebhookActivity(normalizedEvent = {}) {
         newValue: normalizedEvent.replyText || normalizedEvent.providerMessageId || "Reply received",
         remarks: normalizedEvent.templateName ? `Template: ${normalizedEvent.templateName}` : null
       };
+    case "clicked":
+      return {
+        activityType: "WhatsApp Clicked",
+        actionDescription: `Lead clicked the WhatsApp link${templateLabel}.`,
+        newValue: normalizedEvent.clickedLink || normalizedEvent.providerMessageId || "Clicked"
+      };
     case "failed":
       return {
         activityType: "WhatsApp Failed",
         actionDescription: `WhatsApp delivery failed${templateLabel}.`,
-        newValue: normalizedEvent.rawStatus || "Failed"
+        newValue: normalizedEvent.failureReason || normalizedEvent.statusCode || normalizedEvent.rawStatus || "Failed"
       };
     default:
       return {

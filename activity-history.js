@@ -20,6 +20,7 @@ const ACTIVITY_ICONS = {
   "WhatsApp Read": "[WR]",
   "WhatsApp Opened": "[WO]",
   "WhatsApp Replied": "[RP]",
+  "WhatsApp Clicked": "[CLK]",
   "WhatsApp Failed": "[WF]",
   "Notes Added": "[N]",
   "Notes Deleted": "[X]",
@@ -192,6 +193,7 @@ function ensureModalInDom() {
               <option value="WhatsApp Read">WhatsApp Read</option>
               <option value="WhatsApp Opened">WhatsApp Opened</option>
               <option value="WhatsApp Replied">WhatsApp Replied</option>
+              <option value="WhatsApp Clicked">WhatsApp Clicked</option>
               <option value="WhatsApp Failed">WhatsApp Failed</option>
               <option value="Notes Added">Notes Added</option>
               <option value="Notes Deleted">Notes Deleted</option>
@@ -382,6 +384,7 @@ async function fetchActivityLogs() {
           "WhatsApp Read",
           "WhatsApp Opened",
           "WhatsApp Replied",
+          "WhatsApp Clicked",
           "WhatsApp Failed"
         ].includes(log.activityType)) typeClass = "timeline-type-comm";
         else if (log.activityType === "Follow-Up Added" || log.activityType === "Follow-Up Completed") typeClass = "timeline-type-task";
