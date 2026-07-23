@@ -94,7 +94,7 @@
       <div id="mainAdmissionPaginationSection" class="pagination-bar"></div>
 
       <div id="mainAdmissionActivityModal" class="modal hidden">
-        <div class="modal-content card">
+        <div class="modal-content card task-modal-content">
           <h3 id="mainAdmissionActivityModalTitle">Update Main Admission Lead Activity</h3>
           <form id="mainAdmissionActivityForm">
             <div class="modal-row">
@@ -194,8 +194,8 @@
               <textarea id="mainAdmissionTaskNotes" rows="4" placeholder="Optional notes"></textarea>
             </div>
             <div class="modal-row">
-              <label for="mainAdmissionTaskDueDate">Due Date</label>
-              <input id="mainAdmissionTaskDueDate" type="date" required />
+              <label for="mainAdmissionTaskDueDate">Due Date &amp; Time</label>
+              <input id="mainAdmissionTaskDueDate" type="datetime-local" required />
             </div>
             <p id="mainAdmissionTaskMessage" class="message modal-row-span-2" aria-live="polite"></p>
             <div class="modal-actions modal-row-span-2">

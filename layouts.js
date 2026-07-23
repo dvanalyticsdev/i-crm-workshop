@@ -1074,6 +1074,11 @@ function escapeHtml(value) {
 }
 
 function showNotificationPopup(n) {
+  if (n?.type === "task_due") {
+    showTaskDuePanel(n);
+    return;
+  }
+
   let container = document.getElementById('notification-popup-container');
   if (!container) {
     container = document.createElement('div');
@@ -1115,6 +1120,82 @@ function showNotificationPopup(n) {
   toast.addEventListener('mouseleave', () => {
     autoDismissTimer = setTimeout(() => dismissToast(toast), 3000);
   });
+}
+
+function formatNotificationDueDate(value) {
+  if (!value) {
+    return "-";
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return parsed.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function showTaskDuePanel(n) {
+  if (n.sound) {
+    playNotificationSound();
+  }
+
+  const existing = document.getElementById(`task-due-panel-${n.taskId || n.id}`);
+  if (existing) {
+    existing.classList.remove("hidden");
+    return;
+  }
+
+  const overlay = document.createElement("div");
+  overlay.className = "task-due-overlay";
+  overlay.id = `task-due-panel-${n.taskId || n.id}`;
+  overlay.innerHTML = `
+    <div class="task-due-card" role="dialog" aria-modal="true" aria-labelledby="task-due-title-${n.id}">
+      <div class="task-due-card__header">
+        <div>
+          <p class="task-due-card__eyebrow">Counselor Reminder</p>
+          <h3 id="task-due-title-${n.id}">${escapeHtml(n.taskTitle || n.title || "Task Due")}</h3>
+        </div>
+        <button type="button" class="task-due-card__close" aria-label="Close">&times;</button>
+      </div>
+      <div class="task-due-card__body">
+        <div class="task-due-card__grid">
+          <div><span>Lead</span><strong>${escapeHtml(n.leadName || "-")}</strong></div>
+          <div><span>Category</span><strong>${escapeHtml(n.taskCategory || "Task")}</strong></div>
+          <div><span>Due</span><strong>${escapeHtml(formatNotificationDueDate(n.taskDueDate))}</strong></div>
+          <div><span>Counselor</span><strong>${escapeHtml(n.assignedCounselor || "-")}</strong></div>
+        </div>
+        <div class="task-due-card__notes">
+          <span>Notes</span>
+          <p>${escapeHtml(n.taskNotes || "No notes added for this task.")}</p>
+        </div>
+      </div>
+      <div class="task-due-card__actions">
+        <button type="button" class="btn-primary task-due-open-btn">Open Task Tracker</button>
+        <button type="button" class="btn-ghost task-due-dismiss-btn">Dismiss</button>
+      </div>
+    </div>
+  `;
+
+  const closePanel = () => overlay.remove();
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) {
+      closePanel();
+    }
+  });
+  overlay.querySelector(".task-due-card__close")?.addEventListener("click", closePanel);
+  overlay.querySelector(".task-due-dismiss-btn")?.addEventListener("click", closePanel);
+  overlay.querySelector(".task-due-open-btn")?.addEventListener("click", () => {
+    window.location.href = "task-tracker.html";
+  });
+
+  document.body.appendChild(overlay);
 }
 
 function dismissToast(toast) {

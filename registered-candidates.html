@@ -93,7 +93,7 @@
       <div id="registeredPaginationSection" class="pagination-bar"></div>
 
       <div id="registeredActivityModal" class="modal hidden">
-        <div class="modal-content card">
+        <div class="modal-content card task-modal-content">
           <h3 id="registeredActivityModalTitle">Update Registered Candidate Activity</h3>
           <form id="registeredActivityForm">
             <div class="modal-row">
@@ -193,8 +193,8 @@
               <textarea id="registeredTaskNotes" rows="4" placeholder="Optional notes"></textarea>
             </div>
             <div class="modal-row">
-              <label for="registeredTaskDueDate">Due Date</label>
-              <input id="registeredTaskDueDate" type="date" required />
+              <label for="registeredTaskDueDate">Due Date &amp; Time</label>
+              <input id="registeredTaskDueDate" type="datetime-local" required />
             </div>
             <p id="registeredTaskMessage" class="message modal-row-span-2" aria-live="polite"></p>
             <div class="modal-actions modal-row-span-2">

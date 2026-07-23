@@ -1,16 +1,106 @@
 import { registerPageCleanup } from "./page-runtime.js";
 import { bootstrapLocalState, getCounselors, getLeads as getStoredLeads, getSession, startStatePolling } from "./state-sync.js";
-import { deleteTask, getTaskCategoryLabel, getTasksByCategory, TASK_CATEGORY, updateTask } from "./task-service.js";
+import { deleteTask, formatTaskDueDate, getTaskCategoryLabel, getTasksByCategory, TASK_CATEGORY, toTaskDateTimeValue, toTaskDueDateIso, updateTask } from "./task-service.js";
 import { openActivityHistory } from "./activity-history.js";
 
 await bootstrapLocalState();
 
-const workshopTaskSection = document.getElementById("workshopTaskSection");
-const admissionTaskSection = document.getElementById("admissionTaskSection");
-const registeredTaskSection = document.getElementById("registeredTaskSection");
-const mainAdmissionTaskSection = document.getElementById("mainAdmissionTaskSection");
+const taskTrackerSectionNav = document.getElementById("taskTrackerSectionNav");
+const taskTrackerSubsectionNav = document.getElementById("taskTrackerSubsectionNav");
+const taskTrackerActiveTitle = document.getElementById("taskTrackerActiveTitle");
+const taskTrackerActiveDescription = document.getElementById("taskTrackerActiveDescription");
+const taskTrackerActiveSection = document.getElementById("taskTrackerActiveSection");
 
 const session = getSession();
+const TASK_TRACKER_VIEW_STORAGE_KEY = "dv-task-tracker-view";
+const TASK_VIEW_CONFIG = {
+  workshop: {
+    label: "Workshop",
+    description: "Track workshop-stage and post-workshop follow-up tasks without stacking both lists on one page.",
+    subsections: {
+      workshop: {
+        label: "Workshop Calling",
+        title: "Workshop Calling Tasks",
+        description: "Tasks created from workshop-stage leads.",
+        category: TASK_CATEGORY.workshop,
+        emptyMessage: "No workshop tasks yet."
+      },
+      admission: {
+        label: "Admission Calling",
+        title: "Admission Calling Tasks",
+        description: "Tasks created from admission-stage leads.",
+        category: TASK_CATEGORY.admission,
+        emptyMessage: "No admission tasks yet."
+      }
+    }
+  },
+  admission: {
+    label: "Admission",
+    description: "Track direct admission and registered-candidate follow-ups in focused task views.",
+    subsections: {
+      "main-admission": {
+        label: "Main Admission",
+        title: "Main Admission Lead Tasks",
+        description: "Tasks created from main admission leads.",
+        category: TASK_CATEGORY.mainAdmission,
+        emptyMessage: "No main admission lead tasks yet."
+      },
+      registered: {
+        label: "Registered Candidates",
+        title: "Registered Candidate Tasks",
+        description: "Tasks created from registered candidate leads.",
+        category: TASK_CATEGORY.registered,
+        emptyMessage: "No registered candidate tasks yet."
+      }
+    }
+  }
+};
+let activeView = loadActiveView();
+
+function getDefaultView() {
+  return {
+    group: "workshop",
+    subsection: "workshop"
+  };
+}
+
+function loadActiveView() {
+  const fallback = getDefaultView();
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(TASK_TRACKER_VIEW_STORAGE_KEY) || "null");
+    if (!parsed || typeof parsed !== "object") {
+      return fallback;
+    }
+
+    const group = String(parsed.group || "").trim();
+    const subsection = String(parsed.subsection || "").trim();
+    if (!TASK_VIEW_CONFIG[group]?.subsections?.[subsection]) {
+      return fallback;
+    }
+
+    return { group, subsection };
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function persistActiveView() {
+  try {
+    window.localStorage.setItem(TASK_TRACKER_VIEW_STORAGE_KEY, JSON.stringify(activeView));
+  } catch (error) {
+    console.warn("Failed to persist task tracker view.", error);
+  }
+}
+
+function getActiveGroupConfig() {
+  return TASK_VIEW_CONFIG[activeView.group] || TASK_VIEW_CONFIG.workshop;
+}
+
+function getActiveSubsectionConfig() {
+  return getActiveGroupConfig().subsections[activeView.subsection]
+    || TASK_VIEW_CONFIG.workshop.subsections.workshop;
+}
 
 function isCounselorSession() {
   return session?.role === "counselor";
@@ -48,23 +138,6 @@ function getScopedTasks(tasks) {
   });
 }
 
-function formatDate(value) {
-  if (!value) {
-    return "-";
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return date.toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric"
-  });
-}
-
 function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -72,6 +145,95 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function renderSectionNav() {
+  if (!taskTrackerSectionNav) {
+    return;
+  }
+
+  const activeGroup = getActiveGroupConfig();
+  const groups = Object.entries(TASK_VIEW_CONFIG);
+
+  taskTrackerSectionNav.innerHTML = `
+    <div class="card-head">
+      <h3>Task Sections</h3>
+      <p>Switch between the main task groups instead of keeping every tracker block open at once.</p>
+    </div>
+    <div class="filter-actions task-tracker-tab-row">
+      ${groups.map(([groupKey, group]) => `
+        <button
+          type="button"
+          class="${activeView.group === groupKey ? "btn-primary" : "btn-ghost"}"
+          data-task-group="${groupKey}"
+        >
+          ${escapeHtml(group.label)}
+        </button>
+      `).join("")}
+    </div>
+    <p class="block-help">${escapeHtml(activeGroup.description)}</p>
+  `;
+
+  taskTrackerSectionNav.querySelectorAll("[data-task-group]").forEach((button) => {
+    button.onclick = () => {
+      const nextGroup = button.getAttribute("data-task-group");
+      if (!nextGroup || nextGroup === activeView.group) {
+        return;
+      }
+
+      activeView = {
+        group: nextGroup,
+        subsection: Object.keys(TASK_VIEW_CONFIG[nextGroup].subsections)[0]
+      };
+      persistActiveView();
+      renderAll();
+    };
+  });
+}
+
+function renderSubsectionNav() {
+  if (!taskTrackerSubsectionNav) {
+    return;
+  }
+
+  const activeGroup = getActiveGroupConfig();
+  const activeSubsection = getActiveSubsectionConfig();
+  const subsections = Object.entries(activeGroup.subsections);
+
+  taskTrackerSubsectionNav.innerHTML = `
+    <div class="card-head">
+      <h3>${escapeHtml(activeGroup.label)} Task Views</h3>
+      <p>Open one focused task list at a time so the tracker feels cleaner and faster to scan.</p>
+    </div>
+    <div class="filter-actions task-tracker-tab-row">
+      ${subsections.map(([subsectionKey, subsection]) => `
+        <button
+          type="button"
+          class="${activeView.subsection === subsectionKey ? "btn-primary" : "btn-ghost"}"
+          data-task-subsection="${subsectionKey}"
+        >
+          ${escapeHtml(subsection.label)}
+        </button>
+      `).join("")}
+    </div>
+    <p class="block-help">${escapeHtml(activeSubsection.description)}</p>
+  `;
+
+  taskTrackerSubsectionNav.querySelectorAll("[data-task-subsection]").forEach((button) => {
+    button.onclick = () => {
+      const nextSubsection = button.getAttribute("data-task-subsection");
+      if (!nextSubsection || nextSubsection === activeView.subsection) {
+        return;
+      }
+
+      activeView = {
+        ...activeView,
+        subsection: nextSubsection
+      };
+      persistActiveView();
+      renderAll();
+    };
+  });
 }
 
 function sortTasks(tasks) {
@@ -116,7 +278,7 @@ function renderTaskTable(tasks, emptyMessage) {
             <th>Counselor</th>
             <th>Task</th>
             <th>Notes</th>
-            <th>Due Date</th>
+            <th>Due Date &amp; Time</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -132,7 +294,7 @@ function renderTaskTable(tasks, emptyMessage) {
                   <td>${escapeHtml(task.leadCounselor || task.counselor || "Unassigned")}</td>
                   <td>${escapeHtml(task.title || "Follow up")}</td>
                   <td>${escapeHtml(task.notes || "-")}</td>
-                  <td>${escapeHtml(formatDate(task.dueDate))}</td>
+                  <td>${escapeHtml(formatTaskDueDate(task.dueDate))}</td>
                   <td>
                     <div class="task-actions">
                       <button type="button" class="btn-primary task-complete-btn" data-task-id="${task.id}">Complete</button>
@@ -187,13 +349,14 @@ async function rescheduleTask(taskId) {
     return;
   }
 
-  const nextDueDate = window.prompt("Enter a new due date (YYYY-MM-DD)", task.dueDate || "");
-  if (!nextDueDate) {
+  const nextDueDateInput = window.prompt("Enter a new due date/time (YYYY-MM-DDTHH:MM)", toTaskDateTimeValue(task.dueDate));
+  const nextDueDate = toTaskDueDateIso(nextDueDateInput);
+  if (!nextDueDateInput || !nextDueDate) {
     return;
   }
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDueDate)) {
-    window.alert("Please enter the date in YYYY-MM-DD format.");
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(nextDueDateInput)) {
+    window.alert("Please enter the date and time in YYYY-MM-DDTHH:MM format.");
     return;
   }
 
@@ -249,16 +412,19 @@ function bindTaskActions() {
 }
 
 function renderAll() {
-  const workshopTasks = sortTasks(getScopedTasks(getTasksByCategory(TASK_CATEGORY.workshop)));
-  const admissionTasks = sortTasks(getScopedTasks(getTasksByCategory(TASK_CATEGORY.admission)));
-  const registeredTasks = sortTasks(getScopedTasks(getTasksByCategory(TASK_CATEGORY.registered)));
-  const mainAdmissionTasks = sortTasks(getScopedTasks(getTasksByCategory(TASK_CATEGORY.mainAdmission)));
+  const activeSubsection = getActiveSubsectionConfig();
+  const activeTasks = sortTasks(getScopedTasks(getTasksByCategory(activeSubsection.category)));
 
-  workshopTaskSection.innerHTML = renderTaskTable(workshopTasks, "No workshop tasks yet.");
-  admissionTaskSection.innerHTML = renderTaskTable(admissionTasks, "No admission tasks yet.");
-  registeredTaskSection.innerHTML = renderTaskTable(registeredTasks, "No registered candidate tasks yet.");
-  if (mainAdmissionTaskSection) {
-    mainAdmissionTaskSection.innerHTML = renderTaskTable(mainAdmissionTasks, "No main admission lead tasks yet.");
+  renderSectionNav();
+  renderSubsectionNav();
+  if (taskTrackerActiveTitle) {
+    taskTrackerActiveTitle.textContent = activeSubsection.title;
+  }
+  if (taskTrackerActiveDescription) {
+    taskTrackerActiveDescription.textContent = activeSubsection.description;
+  }
+  if (taskTrackerActiveSection) {
+    taskTrackerActiveSection.innerHTML = renderTaskTable(activeTasks, activeSubsection.emptyMessage);
   }
   bindTaskActions();
 }

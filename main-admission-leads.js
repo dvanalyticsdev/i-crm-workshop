@@ -16,7 +16,7 @@ import {
   saveLocalPreference,
   startStatePolling
 } from "./state-sync.js";
-import { createTask, TASK_CATEGORY } from "./task-service.js";
+import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
 import { addLeadNote, deleteLeadNote, deleteLeads as deleteLeadsOnServer, getLeadIdsByActivityTypes, trackLeadView, updateLeadActivity as updateLeadActivityOnServer, updateMainAdmissionLeadDetails } from "./lead-service.js";
 
@@ -1896,10 +1896,10 @@ async function handleTaskSubmit(event) {
 
   const leadId = mainAdmissionTaskLeadIdInput.value;
   const title = mainAdmissionTaskTitleInput.value.trim();
-  const dueDate = mainAdmissionTaskDueDateInput.value;
+  const dueDate = toTaskDueDateIso(mainAdmissionTaskDueDateInput.value);
 
   if (!leadId || !title || !dueDate) {
-    setTaskMessage("Title and due date are required.", true);
+    setTaskMessage("Title and due date/time are required.", true);
     return;
   }
 

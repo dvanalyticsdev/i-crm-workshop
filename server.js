@@ -8084,6 +8084,26 @@ function createTaskId() {
   return `task-${crypto.randomUUID()}`;
 }
 
+function parseTaskDueDateValue(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const parsedDateOnly = new Date(`${raw}T09:00:00+05:30`);
+    return Number.isNaN(parsedDateOnly.getTime()) ? null : parsedDateOnly;
+  }
+
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function normalizeTaskDueDateValue(value) {
+  const parsed = parseTaskDueDateValue(value);
+  return parsed ? parsed.toISOString() : String(value || "").trim();
+}
+
 function normalizeTaskDoc(task = {}) {
   const createdAt = task.createdAt || new Date().toISOString();
   const category = task.category === "admission"
@@ -8104,10 +8124,80 @@ function normalizeTaskDoc(task = {}) {
     category,
     title: String(task.title || "Follow up").trim(),
     notes: String(task.notes || "").trim(),
-    dueDate: String(task.dueDate || "").trim(),
+    dueDate: normalizeTaskDueDateValue(task.dueDate),
     createdAt,
-    updatedAt: task.updatedAt || createdAt
+    updatedAt: task.updatedAt || createdAt,
+    reminderSentAt: task.reminderSentAt || null
   };
+}
+
+function getTaskCategoryLabel(category) {
+  if (category === "admission") return "Admission Calling";
+  if (category === "registered") return "Registered Candidates";
+  if (category === "main-admission") return "Main Admission Leads";
+  return "Workshop Calling";
+}
+
+async function createDueTaskNotificationsForSession(session, state) {
+  if (!session || session.role !== "counselor") {
+    return;
+  }
+
+  const counselorName = String(getSessionCounselorName(state, session) || session.name || "").trim().toLowerCase();
+  const counselorEmail = String(session.email || "").trim().toLowerCase();
+  if (!counselorName || !counselorEmail) {
+    return;
+  }
+
+  const now = Date.now();
+  const dueTasks = (Array.isArray(state?.tasks) ? state.tasks : []).filter((task) => {
+    const taskCounselor = String(task?.leadCounselor || task?.counselor || "").trim().toLowerCase();
+    if (taskCounselor !== counselorName) {
+      return false;
+    }
+    if (task?.reminderSentAt) {
+      return false;
+    }
+
+    const dueAt = parseTaskDueDateValue(task?.dueDate);
+    return !!dueAt && dueAt.getTime() <= now;
+  });
+
+  for (const task of dueTasks) {
+    const reminderSentAt = new Date().toISOString();
+    const updateResult = await tasksCollection.updateOne(
+      {
+        id: task.id,
+        $or: [
+          { reminderSentAt: null },
+          { reminderSentAt: "" },
+          { reminderSentAt: { $exists: false } }
+        ]
+      },
+      { $set: { reminderSentAt, updatedAt: reminderSentAt } }
+    );
+
+    if (!updateResult.modifiedCount) {
+      continue;
+    }
+
+    await createNotification({
+      userId: counselorEmail,
+      role: "counselor",
+      type: "task_due",
+      title: "Task Due Now",
+      message: `${task.title || "Follow up"} is due for ${task.leadName || "this lead"}.`,
+      sound: true,
+      leadId: task.leadId,
+      leadName: task.leadName,
+      assignedCounselor: task.leadCounselor || task.counselor || "",
+      taskId: task.id,
+      taskTitle: task.title || "Follow up",
+      taskNotes: task.notes || "",
+      taskDueDate: task.dueDate || "",
+      taskCategory: getTaskCategoryLabel(task.category)
+    });
+  }
 }
 
 function findTaskById(state, taskId) {
@@ -8528,7 +8618,7 @@ app.post("/api/admin/duplicate-leads/merge-all", async (req, res) => {
   }
 });
 
-async function createNotification({ userId, role, type, title, message, sound = false, leadId = null, leadName = null, assignedCounselor = null, fromCounselor = null, toCounselor = null }) {
+async function createNotification({ userId, role, type, title, message, sound = false, leadId = null, leadName = null, assignedCounselor = null, fromCounselor = null, toCounselor = null, taskId = null, taskTitle = null, taskNotes = null, taskDueDate = null, taskCategory = null }) {
   try {
     await initMongo();
     logNotificationDebug("createNotification called", { userId, role, type, title });
@@ -8548,7 +8638,12 @@ async function createNotification({ userId, role, type, title, message, sound = 
       leadName: leadName ? String(leadName) : null,
       assignedCounselor: assignedCounselor ? String(assignedCounselor) : null,
       fromCounselor: fromCounselor ? String(fromCounselor) : null,
-      toCounselor: toCounselor ? String(toCounselor) : null
+      toCounselor: toCounselor ? String(toCounselor) : null,
+      taskId: taskId ? String(taskId) : null,
+      taskTitle: taskTitle ? String(taskTitle) : null,
+      taskNotes: taskNotes ? String(taskNotes) : null,
+      taskDueDate: taskDueDate ? String(taskDueDate) : null,
+      taskCategory: taskCategory ? String(taskCategory) : null
     };
 
     if (!notificationsCollection) {
@@ -8878,6 +8973,11 @@ app.get("/api/notifications", async (req, res) => {
     const session = activeSession.session;
     const userId = session.role === "admin" ? "admin" : session.email.toLowerCase().trim();
     const isPopupOnly = req.query.popup === "true";
+    const state = await getStateDoc();
+
+    if (isPopupOnly) {
+      await createDueTaskNotificationsForSession(session, state);
+    }
 
     if (isPopupOnly) {
       const notifications = await notificationsCollection
@@ -10235,6 +10335,10 @@ app.patch("/api/tasks/:taskId", async (req, res) => {
     const updates = sanitizeLeadPatch(req.body || {}, allowedFields);
     if (!Object.keys(updates).length) {
       return res.status(400).json({ message: "No valid task fields provided." });
+    }
+    if (Object.prototype.hasOwnProperty.call(updates, "dueDate")) {
+      updates.dueDate = normalizeTaskDueDateValue(updates.dueDate);
+      updates.reminderSentAt = null;
     }
     updates.updatedAt = new Date().toISOString();
 

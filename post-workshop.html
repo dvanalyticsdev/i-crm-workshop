@@ -77,7 +77,7 @@
       <div id="postPaginationSection" class="pagination-bar"></div>
 
       <div id="postActivityModal" class="modal hidden">
-        <div class="modal-content card">
+        <div class="modal-content card task-modal-content">
           <h3 id="postActivityModalTitle">Update Admission Calling Activity</h3>
           <form id="postActivityForm">
             <div class="modal-row">
@@ -176,8 +176,8 @@
               <textarea id="taskNotes" rows="4" placeholder="Optional notes"></textarea>
             </div>
             <div class="modal-row">
-              <label for="taskDueDate">Due Date</label>
-              <input id="taskDueDate" type="date" required />
+              <label for="taskDueDate">Due Date &amp; Time</label>
+              <input id="taskDueDate" type="datetime-local" required />
             </div>
             <p id="taskMessage" class="message modal-row-span-2" aria-live="polite"></p>
             <div class="modal-actions modal-row-span-2">

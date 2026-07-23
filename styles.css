@@ -1995,14 +1995,12 @@ tbody tr:hover {
   color: var(--heading);
 }
 
-#taskModal .modal-content,
-#registeredTaskModal .modal-content {
+.modal-content.task-modal-content {
   width: min(760px, 100%);
   padding: var(--space-5);
 }
 
-#taskForm.task-form,
-#registeredTaskForm.task-form {
+.task-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-3) var(--space-4);
@@ -2015,8 +2013,7 @@ tbody tr:hover {
   margin-bottom: var(--space-2);
 }
 
-#taskForm.task-form .modal-row,
-#registeredTaskForm.task-form .modal-row {
+.task-form .modal-row {
   margin-bottom: 0;
 }
 
@@ -2030,14 +2027,19 @@ tbody tr:hover {
   grid-column: 1 / -1;
 }
 
-#taskForm.task-form textarea,
-#registeredTaskForm.task-form textarea {
+.task-form textarea {
   min-height: 124px;
   resize: vertical;
 }
 
 .task-form .message {
   margin: 0;
+}
+
+.task-tracker-tab-row {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
 .modal-actions {
@@ -2752,14 +2754,12 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
     gap: var(--space-3);
   }
 
-  #taskModal .modal-content,
-  #registeredTaskModal .modal-content {
+  .modal-content.task-modal-content {
     width: 100%;
     padding: var(--space-4);
   }
 
-  #taskForm.task-form,
-  #registeredTaskForm.task-form {
+  .task-form {
     grid-template-columns: 1fr;
     gap: var(--space-2);
   }
@@ -3534,6 +3534,81 @@ html[data-theme="dark"] .bell-badge {
   white-space: nowrap;
   padding: 0.45rem 0.9rem;
   font-size: 0.82rem;
+}
+
+.task-due-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  background: rgba(10, 13, 19, 0.72);
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+}
+
+.task-due-card {
+  width: min(680px, 100%);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-strong);
+  background: linear-gradient(180deg, rgba(31, 36, 48, 0.98), rgba(20, 24, 34, 0.98));
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.42);
+  padding: var(--space-5);
+  display: grid;
+  gap: var(--space-4);
+}
+
+.task-due-card__header,
+.task-due-card__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.task-due-card__eyebrow,
+.task-due-card__grid span,
+.task-due-card__notes span {
+  margin: 0 0 var(--space-1);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.task-due-card__header h3,
+.task-due-card__grid strong,
+.task-due-card__notes p {
+  margin: 0;
+}
+
+.task-due-card__close {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 1.5rem;
+  cursor: pointer;
+}
+
+.task-due-card__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.task-due-card__grid > div,
+.task-due-card__notes {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.03);
+  padding: var(--space-3);
+}
+
+.task-due-card__notes {
+  display: grid;
+  gap: var(--space-1);
 }
 
 .reachout-media-field {

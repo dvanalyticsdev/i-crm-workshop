@@ -15,6 +15,51 @@ const CATEGORY_LABELS = {
   [TASK_CATEGORY.mainAdmission]: "Main Admission Leads"
 };
 
+function parseTaskDueDate(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const parsedDateOnly = new Date(`${raw}T09:00`);
+    return Number.isNaN(parsedDateOnly.getTime()) ? null : parsedDateOnly;
+  }
+
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function toTaskDateTimeValue(value) {
+  const parsed = parseTaskDueDate(value);
+  if (!parsed) {
+    return "";
+  }
+
+  const pad = (part) => String(part).padStart(2, "0");
+  return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
+}
+
+export function toTaskDueDateIso(value) {
+  const parsed = parseTaskDueDate(value);
+  return parsed ? parsed.toISOString() : "";
+}
+
+export function formatTaskDueDate(value) {
+  const parsed = parseTaskDueDate(value);
+  if (!parsed) {
+    return value || "-";
+  }
+
+  return parsed.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
 function createTaskId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return `task-${crypto.randomUUID()}`;
@@ -43,9 +88,10 @@ export function normalizeTask(task = {}) {
     category,
     title: String(task.title || "Follow up").trim(),
     notes: String(task.notes || "").trim(),
-    dueDate: String(task.dueDate || "").trim(),
+    dueDate: toTaskDueDateIso(task.dueDate) || String(task.dueDate || "").trim(),
     createdAt,
-    updatedAt: task.updatedAt || createdAt
+    updatedAt: task.updatedAt || createdAt,
+    reminderSentAt: task.reminderSentAt || null
   };
 }
 
