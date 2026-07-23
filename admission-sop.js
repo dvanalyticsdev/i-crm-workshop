@@ -657,12 +657,13 @@ function buildLeadRef(lead) {
 
 function renderLeadTable() {
   const rows = getFilteredRows();
-  syncSelectedBlockedLeadKeys(rows);
-  const selectedBlockedCount = getSelectedBlockedLeadCount(rows);
-  const allBlockedKeys = getSelectableBlockedRowKeys(rows);
   const totalPages = ensureValidPage(rows.length);
   const pageRows = rows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-  const allBlockedSelected = allBlockedKeys.length > 0 && allBlockedKeys.every((key) => selectedBlockedLeadKeys.has(key));
+  const pageBlockedRows = pageRows.filter((row) => row.sop?.blocked);
+  const pageBlockedKeys = pageBlockedRows.map((row) => row.key);
+  selectedBlockedLeadKeys = new Set([...selectedBlockedLeadKeys].filter((key) => pageBlockedKeys.includes(key)));
+  const selectedBlockedRows = pageBlockedRows.filter((row) => selectedBlockedLeadKeys.has(row.key));
+  const allPageBlockedSelected = pageBlockedKeys.length > 0 && pageBlockedKeys.every((key) => selectedBlockedLeadKeys.has(key));
 
   leadTable.innerHTML = `
     <div class="section-head">
@@ -674,10 +675,10 @@ function renderLeadTable() {
     ${isAdminSession() ? `
       <div class="bulk-select-actions sop-bulk-toolbar">
         <label class="bulk-select-control sop-bulk-toolbar__select-all">
-          <input type="checkbox" id="sopSelectAllPageBlocked" ${allBlockedSelected ? "checked" : ""} ${allBlockedKeys.length ? "" : "disabled"} />
+          <input type="checkbox" id="sopSelectAllPageBlocked" ${allPageBlockedSelected ? "checked" : ""} ${pageBlockedKeys.length ? "" : "disabled"} />
           <span>Select All</span>
         </label>
-        <span class="selected-count">Selected: ${selectedBlockedCount}</span>
+        <span class="selected-count">Selected: ${selectedBlockedRows.length}</span>
         <div class="bulk-admin-tools">
           <input type="text" class="bulk-count-input" placeholder="Count" disabled />
           <button type="button" class="btn-ghost bulk-action-btn" disabled>Select Count</button>
@@ -685,7 +686,7 @@ function renderLeadTable() {
             <option value="">Assign to</option>
             ${getActiveCounselors().map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("")}
           </select>
-          <button type="button" class="btn-ghost bulk-action-btn" id="sopAssignSelectedBtn" ${selectedBlockedCount && !bulkAssignInFlight ? "" : "disabled"}>${bulkAssignInFlight ? "Assigning..." : "Assign Selected"}</button>
+          <button type="button" class="btn-ghost bulk-action-btn" id="sopAssignSelectedBtn" ${selectedBlockedRows.length && !bulkAssignInFlight ? "" : "disabled"}>${bulkAssignInFlight ? "Assigning..." : "Assign Selected"}</button>
         </div>
       </div>
     ` : ""}
@@ -772,7 +773,13 @@ function renderLeadTable() {
   });
 
   document.getElementById("sopSelectAllPageBlocked")?.addEventListener("change", (event) => {
-    toggleAllBlockedLeadSelection(rows, event.target.checked);
+    const next = new Set(selectedBlockedLeadKeys);
+    if (event.target.checked) {
+      pageBlockedKeys.forEach((key) => next.add(key));
+    } else {
+      pageBlockedKeys.forEach((key) => next.delete(key));
+    }
+    selectedBlockedLeadKeys = next;
     renderLeadTable();
   });
 
