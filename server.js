@@ -99,6 +99,36 @@ function toKolkataDateKey(date = new Date()) {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
+function isIsoDateTimeString(value) {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(String(value || "").trim());
+}
+
+function isDateOnlyString(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || "").trim());
+}
+
+function parseLeadCreatedTimeCandidate(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  if (isIsoDateTimeString(raw)) {
+    const parsed = Date.parse(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function formatLeadCreatedDisplay(value) {
+  const timestamp = parseLeadCreatedTimeCandidate(value);
+  if (timestamp) {
+    return new Date(timestamp).toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      dateStyle: "medium",
+      timeStyle: "short"
+    });
+  }
+  return String(value || "Not available");
+}
+
 function buildAdminAuthVersion() {
   return crypto
     .createHash("sha256")
@@ -3317,6 +3347,7 @@ function buildMetaLead(fieldData, meta, counselorName, nextId, options = {}) {
     metaAdsetName: String(meta.adsetName || ""),
     metaCampaignName: String(meta.campaignName || ""),
     metaExtraFields,
+    createdAtExact: new Date().toISOString(),
     createdAt: toKolkataDateKey(),
     dialed: "",
     callStatus: "",
@@ -3394,6 +3425,7 @@ function buildElementorLead(fields, meta, counselorName, nextId, options = {}) {
       ...Object.fromEntries(extraEntries),
       poweredBy: String(fields.powered_by || meta.poweredBy || "").trim()
     },
+    createdAtExact: new Date().toISOString(),
     createdAt: toKolkataDateKey(),
     dialed: "",
     callStatus: "",
@@ -5653,6 +5685,7 @@ function buildPublicCourseLead({ name, email, phone, course, counselorName, next
     source: "Public Course Registration",
     leadPipeline: "course-registration",
     publicCourseSegment: normalizePublicCourseSegment(segment),
+    createdAtExact: new Date().toISOString(),
     createdAt: toKolkataDateKey(),
     counselor: counselorName,
     registeredDialed: "",
@@ -5919,6 +5952,7 @@ function buildWorkshopMigrationSnapshot(lead = {}) {
 function buildFreshWorkshopLead(existingLead, incomingLead, options = {}) {
   const now = new Date();
   const createdAt = toKolkataDateKey(now);
+  const createdAtExact = now.toISOString();
   const workshopMigrationHistory = Array.isArray(existingLead?.workshopMigrationHistory)
     ? structuredClone(existingLead.workshopMigrationHistory)
     : [];
@@ -5938,6 +5972,7 @@ function buildFreshWorkshopLead(existingLead, incomingLead, options = {}) {
     admissionWorkshop: String(incomingLead?.workshop || "").trim() || String(existingLead?.admissionWorkshop || existingLead?.workshop || "").trim(),
     source: String(incomingLead?.source || existingLead?.source || "").trim(),
     status: "New",
+    createdAtExact,
     createdAt,
     dialed: "",
     callStatus: "",
@@ -6153,6 +6188,70 @@ function buildDuplicateLeadGroups(leads = []) {
     const rightTime = new Date(right?.leads?.[0]?.createdAt || 0).getTime() || 0;
     return rightTime - leftTime;
   });
+}
+
+async function getLeadCreatedMetadataMap(leadIds = []) {
+  const ids = [...new Set((Array.isArray(leadIds) ? leadIds : []).map((value) => String(value || "").trim()).filter(Boolean))];
+  const metadataMap = new Map();
+  if (!ids.length || !activityLogsCollection) {
+    return metadataMap;
+  }
+
+  const logs = await withMongoRetry(
+    () => activityLogsCollection.find({
+      leadId: { $in: ids },
+      activityType: "Lead Created"
+    }).sort({ timestamp: 1 }).toArray(),
+    { retries: 1, label: "Load lead creation activity logs" }
+  ).catch(() => []);
+
+  (Array.isArray(logs) ? logs : []).forEach((log) => {
+    const leadId = String(log?.leadId || "").trim();
+    if (!leadId || metadataMap.has(leadId)) {
+      return;
+    }
+    const timestamp = String(log?.timestamp || "").trim();
+    metadataMap.set(leadId, {
+      timestamp,
+      display: formatLeadCreatedDisplay(timestamp) || "",
+      sortTime: parseLeadCreatedTimeCandidate(timestamp) || 0
+    });
+  });
+
+  return metadataMap;
+}
+
+function resolveLeadCreatedMetadata(lead = {}, createdMetadataMap = new Map()) {
+  const leadId = String(lead?.id || "").trim();
+  const activityCreated = createdMetadataMap.get(leadId) || null;
+  if (activityCreated?.timestamp) {
+    return activityCreated;
+  }
+
+  const exact = String(lead?.createdAtExact || "").trim();
+  const exactSortTime = parseLeadCreatedTimeCandidate(exact);
+  if (exactSortTime) {
+    return {
+      timestamp: exact,
+      display: formatLeadCreatedDisplay(exact),
+      sortTime: exactSortTime
+    };
+  }
+
+  const createdAt = String(lead?.createdAt || "").trim();
+  if (isIsoDateTimeString(createdAt)) {
+    return {
+      timestamp: createdAt,
+      display: formatLeadCreatedDisplay(createdAt),
+      sortTime: parseLeadCreatedTimeCandidate(createdAt) || 0
+    };
+  }
+
+  return {
+    timestamp: createdAt,
+    display: createdAt || "Not available",
+    sortTime: 0
+  };
 }
 
 function mergeUniqueStringArrays(...values) {
@@ -7389,25 +7488,41 @@ app.get("/api/admin/duplicate-leads", async (req, res) => {
     if (!session) return;
 
     const state = await getStateDoc();
+    const createdMetadataMap = await getLeadCreatedMetadataMap((state.leads || []).map((lead) => lead?.id));
     const groups = buildDuplicateLeadGroups(state.leads || []).map((group) => ({
       groupId: group.groupId,
       sharedEmails: group.sharedEmails,
       sharedPhones: group.sharedPhones,
       leadIds: group.leadIds,
-      leads: group.leads.map((lead) => ({
-        id: lead.id,
-        name: lead.name,
-        email: lead.email,
-        phone: lead.phone,
-        counselor: lead.counselor || "Unassigned",
-        leadPipeline: lead.leadPipeline || "",
-        source: lead.source || "",
-        status: lead.status || "",
-        createdAt: lead.createdAt || "",
-        courseName: lead.courseName || "",
-        workshop: lead.workshop || "",
-        publicCourseSegment: lead.publicCourseSegment || ""
-      }))
+      leads: group.leads
+        .map((lead) => {
+          const created = resolveLeadCreatedMetadata(lead, createdMetadataMap);
+          return {
+            id: lead.id,
+            name: lead.name,
+            email: lead.email,
+            phone: lead.phone,
+            counselor: lead.counselor || "Unassigned",
+            leadPipeline: lead.leadPipeline || "",
+            source: lead.source || "",
+            status: lead.status || "",
+            createdAt: lead.createdAt || "",
+            createdAtExact: lead.createdAtExact || "",
+            createdAtDisplay: created.display,
+            createdAtSort: created.sortTime,
+            courseName: lead.courseName || "",
+            workshop: lead.workshop || "",
+            publicCourseSegment: lead.publicCourseSegment || ""
+          };
+        })
+        .sort((left, right) => {
+          const leftSort = Number(left.createdAtSort) || 0;
+          const rightSort = Number(right.createdAtSort) || 0;
+          if (leftSort && rightSort && leftSort !== rightSort) {
+            return leftSort - rightSort;
+          }
+          return String(left.id || "").localeCompare(String(right.id || ""));
+        })
     }));
 
     return res.json({ ok: true, groups });
@@ -7499,6 +7614,100 @@ app.post("/api/admin/duplicate-leads/merge", async (req, res) => {
     return res.json({ ok: true, lead: mergedLead, state: buildStateResponse(nextState) });
   } catch (error) {
     return res.status(500).json({ message: "Failed to merge duplicate leads", details: error.message });
+  }
+});
+
+app.post("/api/admin/duplicate-leads/merge-all", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, "admin");
+    if (!session) return;
+
+    const state = await getStateDoc();
+    const createdMetadataMap = await getLeadCreatedMetadataMap((state.leads || []).map((lead) => lead?.id));
+    const groups = buildDuplicateLeadGroups(state.leads || []);
+    let mergedGroups = 0;
+
+    for (const group of groups) {
+      const rankedLeads = (group.leads || [])
+        .map((lead) => ({
+          lead,
+          created: resolveLeadCreatedMetadata(lead, createdMetadataMap)
+        }))
+        .sort((left, right) => {
+          const leftSort = Number(left.created?.sortTime) || 0;
+          const rightSort = Number(right.created?.sortTime) || 0;
+          if (leftSort && rightSort && leftSort !== rightSort) {
+            return leftSort - rightSort;
+          }
+          return String(left.lead?.id || "").localeCompare(String(right.lead?.id || ""));
+        });
+
+      if (rankedLeads.length < 2) {
+        continue;
+      }
+
+      const keeperLead = rankedLeads[0].lead;
+      const duplicateLeads = rankedLeads.slice(1).map((entry) => entry.lead).filter(Boolean);
+      if (!keeperLead || !duplicateLeads.length) {
+        continue;
+      }
+
+      const mergedLead = buildMergedLeadFromDuplicates(keeperLead, duplicateLeads);
+      const duplicateIdCandidates = duplicateLeads.flatMap((lead) => getLeadIdCandidates(lead?.id)).map((value) => String(value));
+
+      await replaceLeadDocument(mergedLead);
+      await withMongoRetry(
+        () => leadsCollection.deleteMany({ id: { $in: duplicateIdCandidates } }),
+        { retries: 1, label: "Delete merged duplicate leads (bulk)" }
+      );
+      await withMongoRetry(
+        () => tasksCollection.updateMany(
+          { leadId: { $in: duplicateIdCandidates } },
+          {
+            $set: {
+              leadId: String(mergedLead.id || ""),
+              leadName: String(mergedLead.name || ""),
+              leadPhone: String(mergedLead.phone || ""),
+              leadCounselor: String(mergedLead.counselor || ""),
+              counselor: String(mergedLead.counselor || "")
+            }
+          }
+        ),
+        { retries: 1, label: "Reassign merged lead tasks (bulk)" }
+      );
+      await withMongoRetry(
+        () => activityLogsCollection.updateMany(
+          { leadId: { $in: duplicateIdCandidates } },
+          {
+            $set: {
+              leadId: String(mergedLead.id || ""),
+              leadName: String(mergedLead.name || ""),
+              counselorName: String(mergedLead.counselor || "")
+            }
+          }
+        ),
+        { retries: 1, label: "Reassign merged lead activity logs (bulk)" }
+      );
+
+      await recordActivity({
+        leadId: mergedLead.id,
+        leadName: mergedLead.name,
+        counselorName: mergedLead.counselor || "",
+        activityType: "Lead Merged",
+        actionDescription: "Admin merged duplicate leads into the oldest-created record",
+        previousValue: duplicateLeads.map((lead) => `${lead.name || "Unknown"} (${lead.id})`).join(", "),
+        newValue: `${mergedLead.name || "Unknown"} (${mergedLead.id})`,
+        session
+      });
+
+      mergedGroups += 1;
+    }
+
+    await touchStateUpdatedAt();
+    const nextState = await refreshStateAfterAtomicUpdate();
+    return res.json({ ok: true, mergedGroups, state: buildStateResponse(nextState) });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to merge all duplicate leads", details: error.message });
   }
 });
 

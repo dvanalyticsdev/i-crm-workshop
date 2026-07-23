@@ -299,6 +299,23 @@ async function mergeDuplicateGroup(group) {
   showLeadBrowseToast("Duplicate leads merged successfully.");
 }
 
+async function mergeAllDuplicateGroupsByOldest() {
+  const response = await fetch(apiUrl("/api/admin/duplicate-leads/merge-all"), {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json"
+    }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.message || "Failed to merge duplicate leads.");
+  }
+  await refreshState().catch(() => undefined);
+  await fetchDuplicateGroups();
+  showLeadBrowseToast(`Merged ${Number(payload?.mergedGroups) || 0} duplicate group(s) into the oldest-created lead.`);
+}
+
 function renderControls() {
   const categoryLeads = getCategoryLeads(getAllLeads());
   const counselors = getUniqueValues(categoryLeads, (lead) => lead.counselor || "Unassigned");
@@ -340,6 +357,11 @@ function renderControls() {
           ${statuses.map((status) => `<option value="${escapeHtml(status)}" ${filter.status === status ? "selected" : ""}>${escapeHtml(status)}</option>`).join("")}
         </select>
       </label>
+      ` : ""}
+      ${isAdminSession() && filter.category === "duplicates" ? `
+        <div class="lead-browse-duplicate-actions">
+          <button type="button" class="btn-primary" id="leadBrowseMergeAllDuplicatesBtn">Merge All By Oldest Lead</button>
+        </div>
       ` : ""}
     </div>
   `;
@@ -384,6 +406,20 @@ function renderControls() {
     filter.status = event.target.value;
     currentPage = 1;
     render();
+  });
+  document.getElementById("leadBrowseMergeAllDuplicatesBtn")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const originalLabel = button.textContent;
+    button.disabled = true;
+    button.textContent = "Merging...";
+    try {
+      await mergeAllDuplicateGroupsByOldest();
+    } catch (error) {
+      showLeadBrowseToast(error.message || "Could not merge duplicate leads.", true);
+    } finally {
+      button.disabled = false;
+      button.textContent = originalLabel;
+    }
   });
 }
 
@@ -584,7 +620,7 @@ function renderDuplicateGroups() {
                   <td><span class="lead-browse-pill">${escapeHtml(getCategoryLabel(lead))}</span></td>
                   <td>${escapeHtml(getCourseLabel(lead))}</td>
                   <td>${escapeHtml(lead.source || "Unknown")}</td>
-                  <td>${escapeHtml(getCreatedAt(lead))}</td>
+                  <td>${escapeHtml(lead.createdAtDisplay || getCreatedAt(lead))}</td>
                 </tr>
               `).join("")}
             </tbody>
