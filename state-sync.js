@@ -56,7 +56,9 @@ function normalizeState(snapshot = {}) {
     counselors: Array.isArray(snapshot?.counselors) ? snapshot.counselors : [],
     marketingUsers: Array.isArray(snapshot?.marketingUsers) ? snapshot.marketingUsers : [],
     allocation: Array.isArray(snapshot?.allocation) ? snapshot.allocation : [],
-    tasks: Array.isArray(snapshot?.tasks) ? snapshot.tasks : []
+    tasks: Array.isArray(snapshot?.tasks) ? snapshot.tasks : [],
+    updatedAt: snapshot?.updatedAt || null,
+    clearedAt: snapshot?.clearedAt || null
   };
 }
 
@@ -161,6 +163,44 @@ export async function refreshState() {
   if (etag) lastStateETag = etag;
 
   return setCurrentState(payload);
+}
+
+async function refreshStateVersion() {
+  const headers = { Accept: "application/json" };
+  if (lastStateETag) {
+    headers["If-None-Match"] = lastStateETag;
+  }
+
+  const { response, payload } = await fetchJson("/api/state/version", {
+    method: "GET",
+    headers
+  });
+
+  if (response.status === 304) {
+    lastStateRefreshAt = Date.now();
+    return {
+      changed: false,
+      updatedAt: currentState?.updatedAt || null
+    };
+  }
+
+  if (!response.ok) {
+    throw new Error(payload?.message || "Failed to fetch state version.");
+  }
+
+  const etag = response.headers.get("etag");
+  const nextUpdatedAt = payload?.updatedAt || null;
+  const changed = Boolean(etag && etag !== lastStateETag)
+    || Boolean(nextUpdatedAt && nextUpdatedAt !== currentState?.updatedAt);
+
+  if (etag) {
+    lastStateETag = etag;
+  }
+
+  return {
+    changed,
+    updatedAt: nextUpdatedAt
+  };
 }
 
 export async function updateStateFields(fields) {
@@ -567,7 +607,10 @@ export function startStatePolling(onRefresh, intervalMs = 15000) {
         return;
       }
 
-      await refreshState();
+      const version = await refreshStateVersion();
+      if (version.changed || !currentState?.updatedAt) {
+        await refreshState();
+      }
     } catch (_e) {
       // Ignore transient network errors — the next poll or navigation will recover.
     } finally {

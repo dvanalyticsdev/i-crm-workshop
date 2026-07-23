@@ -1,5 +1,5 @@
 import { registerPageCleanup } from "./page-runtime.js";
-import { bootstrapLocalState, getSession, getCounselors, startStatePolling } from "./state-sync.js";
+import { bootstrapLocalState, getSession, getCounselors } from "./state-sync.js";
 import { apiUrl } from "./api-client.js";
 
 await bootstrapLocalState();
@@ -530,12 +530,4 @@ renderIntegrationSectionNav();
 const config = await loadConfig();
 applyConfig(config);
 renderLogSummary(config?.logSummary);
-await loadLogs();
-
-const stopPolling = startStatePolling(() => {
-  renderRotationSnapshot(Number(rrIndexDisplay.textContent) || 0);
-}, 15000);
-
-registerPageCleanup(() => {
-  stopPolling?.();
-});
+registerPageCleanup(() => undefined);

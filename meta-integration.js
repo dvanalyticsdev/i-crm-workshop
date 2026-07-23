@@ -1,5 +1,5 @@
 import { registerPageCleanup } from "./page-runtime.js";
-import { acceptServerState, bootstrapLocalState, getSession, getCounselors, refreshState, startStatePolling } from "./state-sync.js";
+import { acceptServerState, bootstrapLocalState, getSession, getCounselors, refreshState } from "./state-sync.js";
 import { apiUrl } from "./api-client.js";
 import { PUBLIC_COURSES } from "./course-catalog.js";
 
@@ -719,16 +719,4 @@ const config = await loadConfig();
 applyConfig(config);
 renderRoundRobinCounselors();
 renderAdmissionRotationCounselors();
-await loadLogs();
-
-const stopPolling = startStatePolling(() => {
-  // Refresh RR display if counselor list changes.
-  const rrIdx = Number(rrIndexDisplay.textContent) || 0;
-  updateRRDisplay(rrIdx);
-  renderRoundRobinCounselors();
-  renderAdmissionRotationCounselors();
-}, 15000);
-
-registerPageCleanup(() => {
-  stopPolling?.();
-});
+registerPageCleanup(() => undefined);

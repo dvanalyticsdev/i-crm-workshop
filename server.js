@@ -457,6 +457,130 @@ function buildStateEtag(state) {
   return `"${state?.updatedAt || "init"}"`.replace(/\s/g, "_");
 }
 
+function buildStateVersionResponse(state) {
+  const normalized = normalizeStateDoc(state);
+  return {
+    updatedAt: normalized.updatedAt || null,
+    clearedAt: normalized.clearedAt || null,
+    etag: buildStateEtag(normalized),
+    counts: {
+      leads: Array.isArray(normalized.leads) ? normalized.leads.length : 0,
+      counselors: Array.isArray(normalized.counselors) ? normalized.counselors.length : 0,
+      tasks: Array.isArray(normalized.tasks) ? normalized.tasks.length : 0,
+      allocation: Array.isArray(normalized.allocation) ? normalized.allocation.length : 0
+    }
+  };
+}
+
+function isDashboardExcludedPipeline(lead) {
+  const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
+  return pipeline === "course-registration" || pipeline === MAIN_ADMISSION_PIPELINE;
+}
+
+function parseDateKeyToTime(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const [year, month, day] = raw.split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1, day).getTime();
+}
+
+function buildDashboardSummary(state) {
+  const leads = (Array.isArray(state?.leads) ? state.leads : []).filter((lead) => !isDashboardExcludedPipeline(lead));
+  const workshopLeadCount = new Map();
+  let latestLeadTimestamp = null;
+
+  leads.forEach((lead) => {
+    const dateValue = parseDateKeyToTime(lead?.createdAt);
+    if (dateValue !== null && (latestLeadTimestamp === null || dateValue > latestLeadTimestamp)) {
+      latestLeadTimestamp = dateValue;
+    }
+
+    const workshopName = String(
+      lead?.workshopName ||
+      lead?.admissionWorkshop ||
+      lead?.courseName ||
+      ""
+    ).trim();
+
+    if (!workshopName) {
+      return;
+    }
+
+    workshopLeadCount.set(workshopName, (workshopLeadCount.get(workshopName) || 0) + 1);
+  });
+
+  const workshopEntries = Array.from(workshopLeadCount.entries())
+    .map(([name, leadCount]) => ({ name, leadCount }))
+    .sort((left, right) => right.leadCount - left.leadCount || left.name.localeCompare(right.name));
+
+  return {
+    updatedAt: state?.updatedAt || null,
+    latestLeadDate: latestLeadTimestamp === null ? null : new Date(latestLeadTimestamp).toISOString(),
+    totals: {
+      activeWorkshops: workshopEntries.length,
+      upcomingWorkshops: 0,
+      recentWorkshops: workshopEntries.slice(0, 10).length,
+      scopedLeads: leads.length
+    },
+    leadTimelineRows: leads.map((lead) => ({
+      createdAt: String(lead?.createdAt || "").trim(),
+      workshop: String(lead?.workshop || lead?.workshopName || lead?.admissionWorkshop || lead?.courseName || "").trim()
+    })).filter((lead) => lead.createdAt),
+    workshopBreakdown: workshopEntries.slice(0, 25),
+    trend: leads.reduce((accumulator, lead) => {
+      const dateKey = String(lead?.createdAt || "").trim();
+      if (dateKey) {
+        accumulator[dateKey] = (accumulator[dateKey] || 0) + 1;
+      }
+      return accumulator;
+    }, {})
+  };
+}
+
+function buildMonitoringSummary(state) {
+  const leads = Array.isArray(state?.leads) ? state.leads : [];
+  const counselors = Array.isArray(state?.counselors) ? state.counselors : [];
+  const counts = {
+    workshopCalling: 0,
+    admissionCalling: 0,
+    mainAdmission: 0,
+    registeredCandidates: 0,
+    crashCourse: 0,
+    lostLeads: 0
+  };
+
+  leads.forEach((lead) => {
+    const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
+    const admissionStatus = String(lead?.admissionStatus || lead?.mainAdmissionAdmissionStatus || lead?.registeredAdmissionStatus || "").trim().toLowerCase();
+    if (admissionStatus === "not interested" || admissionStatus === "not joined" || admissionStatus === "closed") {
+      counts.lostLeads += 1;
+    }
+    if (pipeline === MAIN_ADMISSION_PIPELINE) {
+      counts.mainAdmission += 1;
+      return;
+    }
+    if (pipeline === "course-registration") {
+      if (String(lead?.courseName || "").toLowerCase().includes("7 days")) {
+        counts.crashCourse += 1;
+      } else {
+        counts.registeredCandidates += 1;
+      }
+      return;
+    }
+    counts.workshopCalling += 1;
+    if (lead?.postStatusUpdated || lead?.admissionStatus || lead?.postDialed || lead?.courseStatus) {
+      counts.admissionCalling += 1;
+    }
+  });
+
+  return {
+    updatedAt: state?.updatedAt || null,
+    counts,
+    activeCounselors: counselors.filter((counselor) => !counselor?.disabled).length
+  };
+}
+
 function serializeBackupValue(value) {
   if (Array.isArray(value)) {
     return value.map((item) => serializeBackupValue(item));
@@ -741,7 +865,13 @@ async function initMongo() {
         ).catch(() => undefined);
         await leadsCollection.createIndex({ email: 1 }, { background: true }).catch(() => undefined);
         await leadsCollection.createIndex({ phone: 1 }, { background: true }).catch(() => undefined);
+        await leadsCollection.createIndex({ counselor: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
+        await leadsCollection.createIndex({ leadPipeline: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
+        await leadsCollection.createIndex({ createdAt: -1 }, { background: true }).catch(() => undefined);
+        await leadsCollection.createIndex({ counselor: 1, leadPipeline: 1 }, { background: true }).catch(() => undefined);
         await tasksCollection.createIndex({ id: 1 }, { unique: true, background: true }).catch(() => undefined);
+        await tasksCollection.createIndex({ leadId: 1, dueDate: 1 }, { background: true }).catch(() => undefined);
+        await tasksCollection.createIndex({ counselor: 1, dueDate: 1 }, { background: true }).catch(() => undefined);
         await counselorsCollection.createIndex({ email: 1 }, { unique: true, background: true }).catch(() => undefined);
         await notificationsCollection.createIndex({ userId: 1, read: 1 }, { background: true }).catch(() => undefined);
 
@@ -6282,9 +6412,69 @@ async function recordActivity({
   }
 }
 
+function buildActivityLogEntry({
+  leadId,
+  leadName,
+  counselorName,
+  activityType,
+  actionDescription,
+  previousValue = null,
+  newValue = null,
+  session = null,
+  remarks = null,
+  callMetadata = null
+}) {
+  const now = new Date();
+  const userRole = session ? session.role : "system";
+  const performedBy = session ? (session.name || session.email || session.role) : "System";
+  const dateStr = now.toLocaleDateString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).split('/').reverse().join('-');
+  const timeStr = now.toLocaleTimeString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour12: true,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+
+  return {
+    activityType,
+    leadId: String(leadId),
+    leadName: String(leadName || ""),
+    counselorName: String(counselorName || ""),
+    performedBy,
+    userRole,
+    actionDescription,
+    previousValue: previousValue !== null ? String(previousValue) : null,
+    newValue: newValue !== null ? String(newValue) : null,
+    timestamp: now,
+    date: dateStr,
+    time: timeStr,
+    remarks: remarks ? String(remarks) : null,
+    callMetadata: callMetadata && typeof callMetadata === "object" ? callMetadata : null,
+    recordingUrl: callMetadata?.recordingUrl ? String(callMetadata.recordingUrl) : ""
+  };
+}
+
+async function recordActivities(entries = []) {
+  try {
+    if (!activityLogsCollection || !Array.isArray(entries) || !entries.length) {
+      return;
+    }
+    await activityLogsCollection.insertMany(entries.map((entry) => buildActivityLogEntry(entry)), { ordered: false });
+  } catch (error) {
+    console.error("Failed to record bulk activity logs:", error);
+  }
+}
+
 async function logBulkLeadChanges(oldLeads, newLeads, session) {
   try {
     const oldLeadsMap = new Map();
+    const activityEntries = [];
     oldLeads.forEach(lead => {
       if (lead && lead.id) oldLeadsMap.set(String(lead.id), lead);
     });
@@ -6296,7 +6486,7 @@ async function logBulkLeadChanges(oldLeads, newLeads, session) {
       
       if (!oldLead) {
         // Lead Created
-        await recordActivity({
+        activityEntries.push({
           leadId: lead.id,
           leadName: lead.name,
           counselorName: lead.counselor || "",
@@ -6306,7 +6496,7 @@ async function logBulkLeadChanges(oldLeads, newLeads, session) {
           session
         });
         if (lead.counselor) {
-          await recordActivity({
+          activityEntries.push({
             leadId: lead.id,
             leadName: lead.name,
             counselorName: lead.counselor,
@@ -6322,7 +6512,7 @@ async function logBulkLeadChanges(oldLeads, newLeads, session) {
         const newCounselor = String(lead.counselor || "").trim();
         if (oldCounselor !== newCounselor) {
           if (!oldCounselor && newCounselor) {
-            await recordActivity({
+            activityEntries.push({
               leadId: lead.id,
               leadName: lead.name,
               counselorName: newCounselor,
@@ -6332,7 +6522,7 @@ async function logBulkLeadChanges(oldLeads, newLeads, session) {
               session
             });
           } else {
-            await recordActivity({
+            activityEntries.push({
               leadId: lead.id,
               leadName: lead.name,
               counselorName: newCounselor,
@@ -6357,7 +6547,7 @@ async function logBulkLeadChanges(oldLeads, newLeads, session) {
           const oldVal = String(oldLead[field.key] || "").trim();
           const newVal = String(lead[field.key] || "").trim();
           if (oldVal !== newVal) {
-            await recordActivity({
+            activityEntries.push({
               leadId: lead.id,
               leadName: lead.name,
               counselorName: newCounselor || lead.counselor || "",
@@ -6371,6 +6561,8 @@ async function logBulkLeadChanges(oldLeads, newLeads, session) {
         }
       }
     }
+
+    await recordActivities(activityEntries);
   } catch (error) {
     console.error("Error in logBulkLeadChanges:", error);
   }
@@ -8506,6 +8698,48 @@ app.get("/api/state", async (req, res) => {
     res.json(buildStateResponse(state));
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch state", details: error.message });
+  }
+});
+
+app.get("/api/state/version", async (req, res) => {
+  try {
+    const session = await requireSession(req, res);
+    if (!session) return;
+
+    const state = await getStateDoc();
+    const version = buildStateVersionResponse(state);
+    res.setHeader("ETag", version.etag);
+    res.setHeader("Cache-Control", "no-cache");
+    if (req.headers["if-none-match"] === version.etag) {
+      return res.status(304).end();
+    }
+    return res.json(version);
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch state version", details: error.message });
+  }
+});
+
+app.get("/api/dashboard-summary", async (req, res) => {
+  try {
+    const session = await requireSession(req, res);
+    if (!session) return;
+
+    const state = await getStateDoc();
+    return res.json(buildDashboardSummary(state));
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch dashboard summary", details: error.message });
+  }
+});
+
+app.get("/api/monitoring-summary", async (req, res) => {
+  try {
+    const session = await requireSession(req, res);
+    if (!session) return;
+
+    const state = await getStateDoc();
+    return res.json(buildMonitoringSummary(state));
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch monitoring summary", details: error.message });
   }
 });
 

@@ -1,6 +1,7 @@
 import { registerPageCleanup } from "./page-runtime.js";
 import { onThemeChange, readThemePalette } from "./theme.js";
-import { bootstrapLocalState, getLeads as getStoredLeads, getSession, loadLocalPreference, saveLocalPreference, startStatePolling } from "./state-sync.js";
+import { apiUrl } from "./api-client.js";
+import { bootstrapLocalState, getSession, loadLocalPreference, saveLocalPreference, startStatePolling } from "./state-sync.js";
 
 await bootstrapLocalState();
 
@@ -31,6 +32,10 @@ const DEFAULT_TIMELINE_STATE = {
 };
 const REFERENCE_TODAY = new Date();
 const RECENT_WINDOW_DAYS = 30;
+let dashboardSummary = {
+  leadTimelineRows: [],
+  updatedAt: null
+};
 const MONTH_LOOKUP = {
   jan: 0,
   january: 0,
@@ -76,8 +81,25 @@ function persistTimelineState() {
   });
 }
 
+async function loadDashboardSummary() {
+  // Server summary already excludes ["course-registration", "main-admission"].
+  const response = await fetch(apiUrl("/api/dashboard-summary"), {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.message || "Failed to load dashboard summary.");
+  }
+  dashboardSummary = {
+    leadTimelineRows: Array.isArray(payload?.leadTimelineRows) ? payload.leadTimelineRows : [],
+    updatedAt: payload?.updatedAt || null
+  };
+  return dashboardSummary;
+}
+
 function getLeads() {
-  return getStoredLeads().filter((lead) => !["course-registration", "main-admission"].includes(String(lead?.leadPipeline || "").trim().toLowerCase()));
+  return Array.isArray(dashboardSummary?.leadTimelineRows) ? dashboardSummary.leadTimelineRows : [];
 }
 
 function toDateKey(date) {
@@ -480,12 +502,13 @@ function hydrate(leads) {
   renderCharts(filteredLeads, range);
 }
 
-const leads = getLeads();
-hydrate(leads);
+await loadDashboardSummary();
+hydrate(getLeads());
 const stopThemeListener = onThemeChange(() => {
   hydrate(getLeads());
 });
-const stopStatePolling = startStatePolling(() => {
+const stopStatePolling = startStatePolling(async () => {
+  await loadDashboardSummary().catch(() => undefined);
   hydrate(getLeads());
 });
 registerPageCleanup(() => {

@@ -470,4 +470,3 @@ selectPageToggle.addEventListener("change", () => {
 await loadConfig();
 renderFilters();
 filterLeadList();
-await loadLogs();

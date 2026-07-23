@@ -875,6 +875,10 @@ function getMainAdmissionExportRows() {
   return filterLeads(allLeads);
 }
 
+function getCurrentFilteredLeads() {
+  return getMainAdmissionExportRows();
+}
+
 function exportFilteredLeads() {
   const segmentConfig = getSegmentConfig();
   const filteredLeads = getMainAdmissionExportRows();
@@ -1299,111 +1303,6 @@ function renderLeadTable(leads) {
     </div>
   `;
 
-  document.querySelectorAll("[data-main-admission-action='details']").forEach((button) => {
-    button.onclick = () => openDetailsModal(button.getAttribute("data-lead-key"));
-  });
-  document.querySelectorAll("[data-main-admission-action='update']").forEach((button) => {
-    button.onclick = () => openActivityModal(button.getAttribute("data-lead-key"));
-  });
-  document.querySelectorAll("[data-main-admission-action='call']").forEach((button) => {
-    button.onclick = () => {
-      const leadKey = button.getAttribute("data-lead-key");
-      const lead = getAllLeads().find((item) => buildLeadKey(item) === leadKey);
-      if (!lead) {
-        showToast("Could not find this lead. Please refresh and try again.", true);
-        return;
-      }
-      void triggerMcubeClickToCall(lead, button, showToast);
-    };
-  });
-  document.querySelectorAll("[data-main-admission-action='notes']").forEach((button) => {
-    button.onclick = () => openNotesModal(button.getAttribute("data-lead-key"));
-  });
-  document.querySelectorAll("[data-main-admission-action='task']").forEach((button) => {
-    button.onclick = () => openTaskModal(button.getAttribute("data-lead-key"));
-  });
-  document.querySelectorAll("[data-main-admission-action='activity-history']").forEach((button) => {
-    button.onclick = () => {
-      const leadKey = button.getAttribute("data-lead-key");
-      const lead = getAllLeads().find((item) => buildLeadKey(item) === leadKey);
-      if (lead) {
-        openActivityHistory(lead.id, lead.name, lead.email);
-      }
-    };
-  });
-  document.querySelectorAll("[data-main-admission-action='delete']").forEach((button) => {
-    button.onclick = () => {
-      void deleteRegisteredLead(button.getAttribute("data-lead-key"));
-    };
-  });
-  document.querySelectorAll(".main-admission-lead-checkbox").forEach((checkbox) => {
-    checkbox.onchange = () => {
-      const key = checkbox.getAttribute("data-lead-key");
-      if (!key) return;
-      toggleLeadSelection(key, checkbox.checked);
-      renderAll();
-    };
-  });
-
-  const bulkSelect = document.getElementById("mainAdmissionBulkSelect");
-  if (bulkSelect) {
-    bulkSelect.onchange = () => {
-      toggleAllLeadsSelection(leads, bulkSelect.checked);
-      renderAll();
-    };
-  }
-
-  const bulkDelete = document.getElementById("mainAdmissionBulkDelete");
-  if (bulkDelete) {
-    bulkDelete.onclick = () => {
-      void deleteSelectedLeads(leads).then((deleted) => {
-        if (deleted) {
-          renderAll();
-        }
-      });
-    };
-  }
-
-  const bulkCountApply = document.getElementById("mainAdmissionBulkCountApply");
-  const bulkCountInput = document.getElementById("mainAdmissionBulkCountInput");
-  if (bulkCountApply && bulkCountInput) {
-    bulkCountApply.onclick = () => {
-      const selectedBatchCount = selectLeadBatch(leads, bulkCountInput.value);
-      if (!selectedBatchCount) {
-        showToast("Enter a valid lead count to select.", true);
-        return;
-      }
-
-      renderAll();
-      showToast(`Selected ${selectedBatchCount} lead${selectedBatchCount === 1 ? "" : "s"}.`);
-    };
-  }
-
-  const bulkAssignBtn = document.getElementById("mainAdmissionBulkAssignBtn");
-  const bulkAssignCounselor = document.getElementById("mainAdmissionBulkAssignCounselor");
-  if (bulkAssignBtn && bulkAssignCounselor) {
-    bulkAssignBtn.onclick = async () => {
-      const targetCounselor = bulkAssignCounselor.value;
-      if (!targetCounselor) {
-        showToast("Select a counselor first.", true);
-        return;
-      }
-
-      const refs = leads.filter((lead) => selectedLeadKeys.has(buildLeadKey(lead))).map(buildLeadRef);
-      const result = await assignLeadsOnServer(refs, targetCounselor);
-      if (!result || result.ok === false) {
-        showToast(result?.message || "Failed to assign selected leads.", true);
-        return;
-      }
-
-      selectedLeadKeys = new Set();
-      const assignmentSummary = formatLeadAssignmentResult(result, refs.length, targetCounselor);
-      setMessage(assignmentSummary.message, assignmentSummary.assignedCount === 0);
-      showToast(assignmentSummary.message, assignmentSummary.assignedCount === 0);
-      renderAll();
-    };
-  }
-
   renderPagination(totalPages, leads.length);
 }
 
@@ -1419,15 +1318,123 @@ function renderPagination(totalPages, totalLeads) {
     <button type="button" class="btn-ghost" id="mainAdmissionNextPageBtn" ${currentPage === totalPages ? "disabled" : ""}>Next</button>
   `;
 
-  document.getElementById("mainAdmissionPrevPageBtn").onclick = () => {
+}
+
+mainAdmissionLeadTableSection.addEventListener("click", async (event) => {
+  const actionButton = event.target.closest("[data-main-admission-action]");
+  if (actionButton) {
+    const action = actionButton.getAttribute("data-main-admission-action");
+    const leadKey = actionButton.getAttribute("data-lead-key");
+
+    if (action === "details") {
+      openDetailsModal(leadKey);
+      return;
+    }
+    if (action === "update") {
+      openActivityModal(leadKey);
+      return;
+    }
+    if (action === "call") {
+      const lead = getAllLeads().find((item) => buildLeadKey(item) === leadKey);
+      if (!lead) {
+        showToast("Could not find this lead. Please refresh and try again.", true);
+        return;
+      }
+      await triggerMcubeClickToCall(lead, actionButton, showToast);
+      return;
+    }
+    if (action === "notes") {
+      openNotesModal(leadKey);
+      return;
+    }
+    if (action === "task") {
+      openTaskModal(leadKey);
+      return;
+    }
+    if (action === "activity-history") {
+      const lead = getAllLeads().find((item) => buildLeadKey(item) === leadKey);
+      if (lead) {
+        openActivityHistory(lead.id, lead.name, lead.email);
+      }
+      return;
+    }
+    if (action === "delete") {
+      await deleteRegisteredLead(leadKey);
+      return;
+    }
+  }
+
+  if (event.target.id === "mainAdmissionBulkDelete") {
+    const viewLeads = getCurrentFilteredLeads();
+    const deleted = await deleteSelectedLeads(viewLeads);
+    if (deleted) {
+      renderAll();
+    }
+    return;
+  }
+
+  if (event.target.id === "mainAdmissionBulkCountApply") {
+    const bulkCountInput = document.getElementById("mainAdmissionBulkCountInput");
+    const selectedBatchCount = selectLeadBatch(getCurrentFilteredLeads(), bulkCountInput?.value);
+    if (!selectedBatchCount) {
+      showToast("Enter a valid lead count to select.", true);
+      return;
+    }
+
+    renderAll();
+    showToast(`Selected ${selectedBatchCount} lead${selectedBatchCount === 1 ? "" : "s"}.`);
+    return;
+  }
+
+  if (event.target.id === "mainAdmissionBulkAssignBtn") {
+    const targetCounselor = document.getElementById("mainAdmissionBulkAssignCounselor")?.value;
+    if (!targetCounselor) {
+      showToast("Select a counselor first.", true);
+      return;
+    }
+
+    const leads = getCurrentFilteredLeads();
+    const refs = leads.filter((lead) => selectedLeadKeys.has(buildLeadKey(lead))).map(buildLeadRef);
+    const result = await assignLeadsOnServer(refs, targetCounselor);
+    if (!result || result.ok === false) {
+      showToast(result?.message || "Failed to assign selected leads.", true);
+      return;
+    }
+
+    selectedLeadKeys = new Set();
+    const assignmentSummary = formatLeadAssignmentResult(result, refs.length, targetCounselor);
+    setMessage(assignmentSummary.message, assignmentSummary.assignedCount === 0);
+    showToast(assignmentSummary.message, assignmentSummary.assignedCount === 0);
+    renderAll();
+  }
+});
+
+mainAdmissionLeadTableSection.addEventListener("change", (event) => {
+  const target = event.target;
+  if (target.classList.contains("main-admission-lead-checkbox")) {
+    const key = target.getAttribute("data-lead-key");
+    if (!key) return;
+    toggleLeadSelection(key, target.checked);
+    renderAll();
+    return;
+  }
+
+  if (target.id === "mainAdmissionBulkSelect") {
+    toggleAllLeadsSelection(getCurrentFilteredLeads(), target.checked);
+    renderAll();
+  }
+});
+
+mainAdmissionPaginationSection.addEventListener("click", (event) => {
+  if (event.target.id === "mainAdmissionPrevPageBtn" && currentPage > 1) {
     currentPage -= 1;
     renderAll();
-  };
-  document.getElementById("mainAdmissionNextPageBtn").onclick = () => {
+  }
+  if (event.target.id === "mainAdmissionNextPageBtn") {
     currentPage += 1;
     renderAll();
-  };
-}
+  }
+});
 
 function openActivityModal(leadKey) {
   const lead = getAllLeads().find((item) => buildLeadKey(item) === leadKey);
