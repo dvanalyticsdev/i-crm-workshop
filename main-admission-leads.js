@@ -797,7 +797,11 @@ function renderFilters(leads) {
       renderAll();
     };
   }
-  document.getElementById("mainAdmissionSearchInput").oninput = (event) => {
+  document.getElementById("mainAdmissionSearchInput").onkeydown = (event) => {
+    if (event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
     filter.search = event.target.value.trim();
     persistFilters();
     currentPage = 1;

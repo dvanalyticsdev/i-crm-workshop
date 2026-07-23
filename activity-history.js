@@ -244,14 +244,20 @@ function ensureModalInDom() {
   document.getElementById("historyFilterStartDate").onchange = triggerRefresh;
   document.getElementById("historyFilterEndDate").onchange = triggerRefresh;
   
-  document.getElementById("historyFilterUser").oninput = () => {
-    clearTimeout(debounceTimeout);
-    debounceTimeout = setTimeout(triggerRefresh, 300);
+  document.getElementById("historyFilterUser").onkeydown = (event) => {
+    if (event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
+    triggerRefresh();
   };
   
-  document.getElementById("historySearchInput").oninput = () => {
-    clearTimeout(debounceTimeout);
-    debounceTimeout = setTimeout(triggerRefresh, 300);
+  document.getElementById("historySearchInput").onkeydown = (event) => {
+    if (event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
+    triggerRefresh();
   };
 
   // Bind pagination

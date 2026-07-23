@@ -282,7 +282,11 @@ function renderControls() {
     });
   }
 
-  document.getElementById("leadBrowseSearch").addEventListener("input", (event) => {
+  document.getElementById("leadBrowseSearch").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
     filter.query = event.target.value;
     currentPage = 1;
     render();

@@ -463,7 +463,14 @@ selectPageToggle.addEventListener("change", () => {
   });
   renderLeadTable();
 });
-[searchInput, pipelineFilter, workshopFilter, campaignFilter, locationFilter, counselorFilter].forEach((input) => {
+searchInput.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") {
+    return;
+  }
+  event.preventDefault();
+  filterLeadList();
+});
+[pipelineFilter, workshopFilter, campaignFilter, locationFilter, counselorFilter].forEach((input) => {
   input.addEventListener("input", filterLeadList);
 });
 

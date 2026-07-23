@@ -1581,14 +1581,15 @@ function renderFilters(leads) {
     renderAll();
   };
 
-  document.getElementById("searchLeadInput").oninput = (event) => {
+  document.getElementById("searchLeadInput").onkeydown = (event) => {
+    if (event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
     filter.search = event.target.value.trim();
     persistFilterState();
-    clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(() => {
       currentPage = 1;
       renderAll();
-    }, 250);
   };
 
 

@@ -331,7 +331,11 @@ function renderAll() {
 }
 
 if (lostSearchInput) {
-  lostSearchInput.oninput = () => {
+  lostSearchInput.onkeydown = (event) => {
+    if (event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
     searchQuery = String(lostSearchInput.value || "").trim();
     persistSearchQuery();
     renderAll();

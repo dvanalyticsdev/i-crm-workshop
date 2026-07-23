@@ -912,7 +912,11 @@ function renderFilters(leads) {
       renderAll();
     };
   }
-  document.getElementById("registeredSearchInput").oninput = (event) => {
+  document.getElementById("registeredSearchInput").onkeydown = (event) => {
+    if (event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
     filter.search = event.target.value.trim();
     persistFilters();
     currentPage = 1;

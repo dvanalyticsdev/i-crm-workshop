@@ -967,14 +967,22 @@ renderMarketingList();
 renderManagementSummary();
 
 if (counselorSearchInput) {
-  counselorSearchInput.addEventListener("input", (event) => {
+  counselorSearchInput.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
     counselorSearchTerm = String(event.target.value || "").trim().toLowerCase();
     renderCounselorList();
   });
 }
 
 if (marketingSearchInput) {
-  marketingSearchInput.addEventListener("input", (event) => {
+  marketingSearchInput.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
     marketingSearchTerm = String(event.target.value || "").trim().toLowerCase();
     renderMarketingList();
   });
