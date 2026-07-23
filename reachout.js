@@ -12,7 +12,6 @@ if (!session || !["admin", "marketing"].includes(session.role)) {
 const authKeyInput = document.getElementById("authKeyInput");
 const authKeyStatus = document.getElementById("authKeyStatus");
 const countryCodeInput = document.getElementById("countryCodeInput");
-const statusWebhookUrlInput = document.getElementById("statusWebhookUrlInput");
 const statusCallbackUrlInput = document.getElementById("statusCallbackUrlInput");
 const enabledToggle = document.getElementById("enabledToggle");
 const saveConfigBtn = document.getElementById("saveConfigBtn");
@@ -94,7 +93,6 @@ function applyConfig(nextConfig, preferred = {}) {
   config = nextConfig;
   enabledToggle.checked = config.enabled !== false;
   countryCodeInput.value = config.defaultCountryCode || "91";
-  statusWebhookUrlInput.value = config.statusWebhookUrl || "";
   statusCallbackUrlInput.value = config.statusCallbackUrl || statusCallbackUrlInput.value || "";
   authKeyStatus.textContent = config.authKeySet ? "Saved" : "Not set";
   authKeyStatus.className = `cred-status ${config.authKeySet ? "cred-status--ok" : "cred-status--err"}`;
@@ -225,7 +223,6 @@ async function saveConfig() {
   try {
     const payload = {
       enabled: enabledToggle.checked,
-      statusWebhookUrl: statusWebhookUrlInput.value.trim(),
       defaultCountryCode: countryCodeInput.value.trim(),
       whatsappNumbers: config.whatsappNumbers || [],
       templates: config.templates || []
@@ -270,7 +267,6 @@ async function saveTemplateMediaUrl() {
     ));
     const payload = {
       enabled: enabledToggle.checked,
-      statusWebhookUrl: statusWebhookUrlInput.value.trim(),
       defaultCountryCode: countryCodeInput.value.trim(),
       whatsappNumbers: config.whatsappNumbers || [],
       templates: updatedTemplates

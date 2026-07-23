@@ -1007,7 +1007,6 @@ test("ReachOut is simplified to synced WhatsApp number and template sending", ()
   assert.match(server, /app\.post\("\/api\/reachout\/whatsapp\/webhook"/);
   assert.match(server, /whatsappNumbers/);
   assert.match(server, /ReachOut now supports WhatsApp templates only/);
-  assert.match(server, /statusWebhookUrl/);
   assert.match(server, /statusCallbackUrl/);
   assert.match(server, /integratedNumber = String\(req\.body\?\.integratedNumber/);
   assert.match(server, /to_and_components/);
@@ -1021,7 +1020,6 @@ test("ReachOut is simplified to synced WhatsApp number and template sending", ()
   assert.match(reachoutHtml, /saveMediaUrlBtn/);
   assert.match(reachoutHtml, /mediaFileInput/);
   assert.match(reachoutHtml, /uploadMediaBtn/);
-  assert.match(reachoutHtml, /statusWebhookUrlInput/);
   assert.match(reachoutHtml, /statusCallbackUrlInput/);
   assert.match(reachoutHtml, /reachout-media-control/);
   assert.doesNotMatch(reachoutHtml, /Add Template|SMS, WhatsApp, and email|MSG91 Template ID|From Email|Email Domain/);
@@ -1030,7 +1028,6 @@ test("ReachOut is simplified to synced WhatsApp number and template sending", ()
   assert.match(reachout, /needsMediaHeader/);
   assert.match(reachout, /saveTemplateMediaUrl/);
   assert.match(reachout, /uploadTemplateMedia/);
-  assert.match(reachout, /statusWebhookUrlInput/);
   assert.match(reachout, /statusCallbackUrlInput/);
   assert.match(reachout, /apiUrl\("\/api\/reachout\/media"\)/);
   assert.match(reachout, /defaultHeaderMediaUrl: mediaUrl/);

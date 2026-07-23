@@ -33,9 +33,6 @@ const META_CONFIG_DOC_ID = "meta_integration";
 const ELEMENTOR_CONFIG_DOC_ID = "elementor_integration";
 const MCUBE_CONFIG_DOC_ID = "mcube_integration";
 const REACHOUT_CONFIG_DOC_ID = "reachout_center";
-const DEFAULT_REACHOUT_STATUS_WEBHOOK_URL =
-  process.env.REACHOUT_STATUS_WEBHOOK_URL ||
-  "https://script.google.com/macros/s/AKfycbyRzSrE-VTj9FvE_O0at3ZgfU1JVaOZE2vWo7_xlBEnKikX36rg9k4qarrMSYhwctAeSA/exec";
 const BACKUP_FORMAT = "dv-crm-manual-backup";
 const BACKUP_VERSION = 1;
 const MAX_META_LOGS = 200;
@@ -1327,7 +1324,6 @@ async function getReachoutConfig() {
     _id: REACHOUT_CONFIG_DOC_ID,
     enabled: doc?.enabled !== false,
     authKey,
-    statusWebhookUrl: String(doc?.statusWebhookUrl || DEFAULT_REACHOUT_STATUS_WEBHOOK_URL || "").trim(),
     templates,
     whatsappNumbers,
     defaultCountryCode: String(doc?.defaultCountryCode || "91").trim() || "91",
@@ -1343,7 +1339,6 @@ function publicReachoutConfig(config) {
   return {
     enabled: config.enabled !== false,
     authKeySet: !!String(config.authKey || "").trim(),
-    statusWebhookUrl: String(config.statusWebhookUrl || "").trim(),
     defaultCountryCode: String(config.defaultCountryCode || "91").trim() || "91",
     whatsappNumbers: Array.isArray(config.whatsappNumbers) ? config.whatsappNumbers : [],
     templates: (Array.isArray(config.templates) ? config.templates : []).map((template) => ({
@@ -1824,82 +1819,6 @@ function getReachoutStatusWebhookCallbackUrl(req) {
   return baseUrl ? `${baseUrl}/api/reachout/whatsapp/webhook` : "/api/reachout/whatsapp/webhook";
 }
 
-function buildReachoutStatusWebhookPayload({
-  req = null,
-  lead = {},
-  template = {},
-  session = null,
-  integratedNumber = "",
-  responseStatus = 0,
-  providerResponse = null,
-  requestPayload = null,
-  eventType = "message_submitted"
-}) {
-  return {
-    source: "i-crm-workshop",
-    provider: "MSG91",
-    eventType,
-    status: "submitted",
-    sentAt: new Date().toISOString(),
-    callbackUrl: req ? getReachoutStatusWebhookCallbackUrl(req) : "/api/reachout/whatsapp/webhook",
-    lead: {
-      id: String(lead.id || "").trim(),
-      name: String(lead.name || "").trim(),
-      email: String(lead.email || "").trim().toLowerCase(),
-      phone: String(lead.phone || "").trim(),
-      workshop: String(lead.workshop || lead.workshopName || "").trim(),
-      counselor: String(lead.counselor || "").trim()
-    },
-    template: {
-      id: String(template.id || "").trim(),
-      name: String(template.name || template.templateName || "").trim(),
-      templateName: String(template.templateName || template.name || "").trim(),
-      languageCode: String(template.languageCode || "en").trim() || "en"
-    },
-    message: {
-      integratedNumber: String(integratedNumber || template.integratedNumber || "").replace(/\D/g, ""),
-      responseStatus: Number(responseStatus) || 0,
-      providerMessageId: String(
-        providerResponse?.request_id ||
-        providerResponse?.requestId ||
-        providerResponse?.message_id ||
-        providerResponse?.messageId ||
-        ""
-      ).trim()
-    },
-    sentBy: {
-      name: String(session?.name || "").trim(),
-      email: String(session?.email || "").trim().toLowerCase(),
-      role: String(session?.role || "").trim()
-    },
-    requestPayload: requestPayload && typeof requestPayload === "object" ? requestPayload : null,
-    providerResponse: providerResponse && typeof providerResponse === "object" ? providerResponse : providerResponse || null
-  };
-}
-
-async function notifyReachoutStatusWebhook(webhookUrl, payload) {
-  const target = String(webhookUrl || "").trim();
-  if (!/^https:\/\//i.test(target)) {
-    return { ok: false, skipped: true };
-  }
-
-  const response = await fetch(target, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
-
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(text || `Webhook HTTP ${response.status}`);
-  }
-
-  return { ok: true, status: response.status, body: text };
-}
-
 function normalizeReachoutWebhookStatus(value) {
   const normalized = String(value || "").trim().toLowerCase().replace(/[_-]+/g, " ");
   if (!normalized) return "updated";
@@ -2170,7 +2089,6 @@ async function saveReachoutLog(entry) {
         $setOnInsert: {
           enabled: true,
           authKey: process.env.MSG91_AUTH_KEY || "",
-          statusWebhookUrl: DEFAULT_REACHOUT_STATUS_WEBHOOK_URL,
           defaultCountryCode: "91",
           templates: [],
           createdAt: new Date().toISOString()
@@ -5034,7 +4952,6 @@ app.put("/api/reachout/config", async (req, res) => {
     const existing = await getReachoutConfig();
     const patch = {
       enabled: typeof body.enabled === "boolean" ? body.enabled : existing.enabled !== false,
-      statusWebhookUrl: String(body.statusWebhookUrl || existing.statusWebhookUrl || DEFAULT_REACHOUT_STATUS_WEBHOOK_URL || "").trim(),
       defaultCountryCode: String(body.defaultCountryCode || existing.defaultCountryCode || "91").replace(/\D/g, "") || "91",
       whatsappNumbers: Array.isArray(body.whatsappNumbers)
         ? body.whatsappNumbers.map(normalizeReachoutWhatsAppNumber).filter((number) => number.number)
@@ -5243,7 +5160,6 @@ app.post("/api/reachout/send", async (req, res) => {
 
     const channel = String(template.channel || "").trim().toLowerCase();
     const endpoint = buildReachoutEndpoint(channel);
-    const statusWebhookUrl = String(config.statusWebhookUrl || "").trim();
     if (!endpoint) {
       return res.status(400).json({ message: "Unsupported ReachOut channel." });
     }
@@ -5297,33 +5213,6 @@ app.post("/api/reachout/send", async (req, res) => {
           newValue: lead.phone,
           session
         });
-        if (statusWebhookUrl) {
-          const webhookPayload = buildReachoutStatusWebhookPayload({
-            req,
-            lead,
-            template,
-            session,
-            integratedNumber,
-            responseStatus: response.status,
-            providerResponse: parsed,
-            requestPayload,
-            eventType: "message_submitted"
-          });
-          await notifyReachoutStatusWebhook(statusWebhookUrl, webhookPayload).catch(async (webhookError) => {
-            await saveReachoutLog({
-              type: "error",
-              channel,
-              templateId: template.id,
-              templateName: template.name,
-              leadId: lead.id,
-              leadName: lead.name,
-              phone: lead.phone || "",
-              email: lead.email || "",
-              sentBy: session.name || session.email || session.role,
-              message: `Status webhook forward failed: ${webhookError.message}`
-            }).catch(() => undefined);
-          });
-        }
         results.push({ leadId: lead.id, ok: true });
       } catch (error) {
         await saveReachoutLog({
