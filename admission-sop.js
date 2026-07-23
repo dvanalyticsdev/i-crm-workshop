@@ -329,19 +329,29 @@ function getAdmissionLeadsForView() {
   return all.filter((lead) => normalize(lead?.counselor) === counselorName);
 }
 
-function getLeadRowModel(lead, index = 0) {
+function buildStableAdmissionRowKey(lead, sectionKey) {
+  return [
+    lead?.id,
+    lead?.createdAtExact,
+    lead?.admissionSopAssignedAt,
+    lead?.counselorAssignedAt,
+    lead?.email,
+    lead?.phone,
+    lead?.name,
+    lead?.courseName,
+    lead?.courseCode,
+    lead?.mainAdmissionCoursePitched,
+    lead?.registeredCoursePitched,
+    sectionKey,
+    lead?.createdAt
+  ].map((value) => String(value || "").trim()).join("::");
+}
+
+function getLeadRowModel(lead) {
   const sectionKey = getAdmissionSectionKey(lead);
   return {
     lead,
-    key: [
-      lead?.id,
-      lead?.email,
-      lead?.phone,
-      lead?.createdAt,
-      lead?.createdAtExact,
-      sectionKey,
-      index
-    ].map((value) => String(value || "")).join("::"),
+    key: buildStableAdmissionRowKey(lead, sectionKey),
     name: String(lead?.name || "Unknown").trim(),
     counselor: String(lead?.counselor || "Unassigned").trim() || "Unassigned",
     sectionKey,
@@ -354,7 +364,7 @@ function getLeadRowModel(lead, index = 0) {
 
 function getAllRowModels() {
   return getAdmissionLeadsForView()
-    .map((lead, index) => getLeadRowModel(lead, index))
+    .map((lead) => getLeadRowModel(lead))
     .sort((left, right) => {
       const leftBlocked = left.sop?.blocked ? 1 : 0;
       const rightBlocked = right.sop?.blocked ? 1 : 0;
