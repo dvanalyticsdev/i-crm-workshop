@@ -682,6 +682,154 @@ export const PUBLIC_COURSES = [
   }
 ];
 
+function normalizeCourseCatalogText(value) {
+  return String(value || "")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/[()]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function toCourseTitleCase(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function toCourseSlug(value) {
+  return normalizeCourseCatalogText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+export function getPublicCourseOptionLabel(course) {
+  return course?.code || course?.shortName || course?.name || "";
+}
+
+export const CRM_FIXED_COURSE_OPTIONS = PUBLIC_COURSES.map((course) => ({
+  id: course.id,
+  label: getPublicCourseOptionLabel(course),
+  name: course.name
+}));
+
+const PUBLIC_COURSE_IDENTITY_RULES = [
+  {
+    id: "apids",
+    pattern: /\bapids\b|\bindustrial data science\b|\bdata science\b/i
+  },
+  {
+    id: "apida",
+    pattern: /\bapida\b|\bindustrial data analytics\b/i
+  },
+  {
+    id: "advanced-aiml-genai-agentic",
+    pattern: /\badvanced\b.*\b(ai\s*\/?\s*ml|aiml)\b|\baiml\s*\+?\s*gen\s*ai\b|\baiml\b/i
+  },
+  {
+    id: "master-genai-agentic",
+    pattern: /\bgen\s*ai\s*master\b|\bmaster\b.*\bgen\s*ai\b|\bgenai\s*master\b|\bagentic\b/i
+  },
+  {
+    id: "data-analytics-specialist",
+    pattern: /\bdata analytics specialist\b|\bdas\b/i
+  },
+  {
+    id: "apcs",
+    pattern: /\bcyber\s*security\b|\bcybersecurity\b|\bcyber\s*ai\b|\bcyberai\b|\bapcs\b|\bforensics\b/i
+  },
+  {
+    id: "days7_genai",
+    pattern: /\b7\s*days?\b.*\bgen\s*ai\b|\bgen\s*ai\b.*\b7\s*days?\b|\b7days\b|\bdays7[_\s-]*genai\b/i
+  },
+  {
+    id: "master-genai-agentic",
+    pattern: /\bgen\s*ai\b|\bgenai\b/i
+  }
+];
+
+function findCourseByRuleId(ruleId) {
+  return PUBLIC_COURSES.find((course) => course.id === ruleId) || null;
+}
+
+export function getCanonicalPublicCourseIdentity(values) {
+  const sourceValues = Array.isArray(values) ? values : [values];
+  const descriptor = normalizeCourseCatalogText(sourceValues.filter(Boolean).join(" "));
+
+  if (!descriptor) {
+    return { id: "", label: "", key: "" };
+  }
+
+  for (const rule of PUBLIC_COURSE_IDENTITY_RULES) {
+    if (!rule.pattern.test(descriptor)) {
+      continue;
+    }
+
+    const course = findCourseByRuleId(rule.id);
+    if (!course) {
+      continue;
+    }
+
+    return {
+      id: course.id,
+      label: getPublicCourseOptionLabel(course),
+      key: course.id
+    };
+  }
+
+  return {
+    id: "",
+    label: toCourseTitleCase(descriptor),
+    key: toCourseSlug(descriptor)
+  };
+}
+
+export function normalizeCrmCourseValue(value, { allowNo = false, preserveUnknown = false } = {}) {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return "";
+  }
+
+  if (allowNo && /^no$/i.test(normalized)) {
+    return "No";
+  }
+
+  const canonical = getCanonicalPublicCourseIdentity(normalized);
+  if (canonical.label) {
+    return canonical.label;
+  }
+
+  return preserveUnknown ? normalized : "";
+}
+
+export function populateCrmCourseSelect(
+  selectOrId,
+  { includeBlank = true, blankLabel = "Select", includeNo = false } = {}
+) {
+  const select = typeof selectOrId === "string" ? document.getElementById(selectOrId) : selectOrId;
+  if (!select) {
+    return;
+  }
+
+  const currentValue = String(select.value || "").trim();
+  const optionValues = [
+    ...(includeBlank ? [{ value: "", label: blankLabel }] : []),
+    ...(includeNo ? [{ value: "No", label: "No" }] : []),
+    ...CRM_FIXED_COURSE_OPTIONS.map((course) => ({ value: course.label, label: course.label }))
+  ];
+
+  select.innerHTML = optionValues
+    .map((option) => `<option value="${option.value}">${option.label}</option>`)
+    .join("");
+
+  const normalizedValue = normalizeCrmCourseValue(currentValue, {
+    allowNo: includeNo,
+    preserveUnknown: false
+  });
+  select.value = optionValues.some((option) => option.value === normalizedValue) ? normalizedValue : "";
+}
+
 export function findCourseById(courseId) {
   return PUBLIC_COURSES.find((course) => course.id === courseId) || null;
 }

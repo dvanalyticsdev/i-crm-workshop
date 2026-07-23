@@ -1,6 +1,7 @@
 import { registerPageCleanup } from "./page-runtime.js";
 import { openActivityHistory } from "./activity-history.js";
 import { exportLeadRowsToExcel } from "./lead-export.js";
+import { normalizeCrmCourseValue, populateCrmCourseSelect } from "./course-catalog.js";
 import {
   bootstrapLocalState,
   getCounselors as getStoredCounselors,
@@ -50,6 +51,8 @@ const EMPTY_FILTER_LABEL = "Use Filter";
 const SELECT_ALL_FILTER_VALUE = "__SELECT_ALL__";
 const BLANK_FILTER_VALUE = "__BLANK_FILTER__";
 const ADMISSION_STATUS_OPTIONS = ["In-Conversation", "Opportunity", "Offered", "Enrolled", "Won"];
+
+populateCrmCourseSelect("modalCoursePitched", { includeNo: true });
 
 function getSelectedFilterValues(value) {
   const rawValues = Array.isArray(value) ? value : [value];
@@ -569,7 +572,7 @@ function normalizeLeadFields(leads) {
     lead.whatsappInvite = lead.whatsappInvite || "";
 
     lead.postDialed = lead.postDialed || "";
-    lead.coursePitched = lead.coursePitched || "";
+    lead.coursePitched = normalizeCrmCourseValue(lead.coursePitched, { allowNo: true, preserveUnknown: true });
     lead.courseStatus = lead.courseStatus || "";
     lead.admissionStatus = lead.admissionStatus || "";
     lead.postCallStatus = lead.postCallStatus || "";
