@@ -52,7 +52,7 @@ const EMPTY_FILTER_LABEL = "Use Filter";
 const SELECT_ALL_FILTER_VALUE = "__SELECT_ALL__";
 const BLANK_FILTER_VALUE = "__BLANK_FILTER__";
 const ADMISSION_STATUS_OPTIONS = ["In-Conversation", "Opportunity", "Offered", "Enrolled", "Won"];
-const WHATSAPP_ACTIVITY_FILTER_OPTIONS = ["WhatsApp Read", "WhatsApp Opened", "WhatsApp Clicked", "WhatsApp Replied"];
+const WHATSAPP_ACTIVITY_FILTER_OPTIONS = ["WhatsApp Read", "WhatsApp Clicked", "WhatsApp Replied"];
 
 populateCrmCourseSelect("modalCoursePitched", { includeNo: true });
 

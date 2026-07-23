@@ -102,6 +102,13 @@
                   <input id="mediaFileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
                   <button id="uploadMediaBtn" type="button" class="btn-secondary">Upload Image</button>
                 </div>
+                <div id="mediaPreviewWrap" class="reachout-media-preview" hidden>
+                  <div class="reachout-media-preview__head">
+                    <span>Current Image Preview</span>
+                    <a id="mediaPreviewLink" href="#" target="_blank" rel="noopener noreferrer">Open full image</a>
+                  </div>
+                  <img id="mediaPreviewImage" alt="Current template header media preview" />
+                </div>
               </div>
             </div>
           </div>
@@ -171,6 +178,10 @@
           <div class="meta-section-title">
             <h3>Recent Sends</h3>
             <p>Latest CRM submissions to MSG91. Delivery, read, and reply events can now flow back into lead activity history through the webhook callback.</p>
+          </div>
+          <div class="save-bar">
+            <button id="clearRecentSendsBtn" type="button" class="btn-secondary">Clear Recent Sends</button>
+            <span id="logsMessage" style="font-size:.85rem;"></span>
           </div>
           <div class="log-table-wrap">
             <table class="log-table">

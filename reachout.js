@@ -31,6 +31,9 @@ const mediaUrlInput = document.getElementById("mediaUrlInput");
 const saveMediaUrlBtn = document.getElementById("saveMediaUrlBtn");
 const mediaFileInput = document.getElementById("mediaFileInput");
 const uploadMediaBtn = document.getElementById("uploadMediaBtn");
+const mediaPreviewWrap = document.getElementById("mediaPreviewWrap");
+const mediaPreviewImage = document.getElementById("mediaPreviewImage");
+const mediaPreviewLink = document.getElementById("mediaPreviewLink");
 const selectFilteredBtn = document.getElementById("selectFilteredBtn");
 const clearSelectionBtn = document.getElementById("clearSelectionBtn");
 const sendBtn = document.getElementById("sendBtn");
@@ -41,6 +44,8 @@ const sendSummary = document.getElementById("sendSummary");
 const selectPageToggle = document.getElementById("selectPageToggle");
 const leadTableBody = document.getElementById("leadTableBody");
 const logsTableBody = document.getElementById("logsTableBody");
+const clearRecentSendsBtn = document.getElementById("clearRecentSendsBtn");
+const logsMessage = document.getElementById("logsMessage");
 
 let config = null;
 let selectedLeadIds = new Set();
@@ -58,6 +63,20 @@ function escapeHtml(value) {
 function showMessage(el, text, isError = false) {
   el.textContent = text;
   el.style.color = isError ? "var(--danger, #ef4444)" : "var(--success, #22c55e)";
+}
+
+function renderMediaPreview(url = "") {
+  const normalizedUrl = String(url || "").trim();
+  const isPreviewable = /^https?:\/\//i.test(normalizedUrl);
+  mediaPreviewWrap.hidden = !isPreviewable;
+  if (!isPreviewable) {
+    mediaPreviewImage.removeAttribute("src");
+    mediaPreviewLink.setAttribute("href", "#");
+    return;
+  }
+
+  mediaPreviewImage.src = normalizedUrl;
+  mediaPreviewLink.href = normalizedUrl;
 }
 
 function uniqueOptions(leads, getter) {
@@ -148,6 +167,7 @@ function renderTemplatePreview() {
   mediaUrlInput.value = needsMediaHeader ? (template.defaultHeaderMediaUrl || "") : "";
   saveMediaUrlBtn.disabled = !needsMediaHeader;
   uploadMediaBtn.disabled = !needsMediaHeader;
+  renderMediaPreview(needsMediaHeader ? (template.defaultHeaderMediaUrl || "") : "");
   if (!needsMediaHeader) mediaFileInput.value = "";
 }
 
@@ -280,6 +300,7 @@ async function saveTemplateMediaUrl() {
     const json = await res.json();
     if (!res.ok) throw new Error(json.message || `HTTP ${res.status}`);
     applyConfig(json);
+    renderMediaPreview(mediaUrl);
     showMessage(sendMessage, "Header media URL saved for this template.");
   } catch (error) {
     showMessage(sendMessage, `Save failed: ${error.message}`, true);
@@ -336,6 +357,7 @@ async function uploadTemplateMedia() {
     if (!res.ok) throw new Error(json.details || json.message || `HTTP ${res.status}`);
     applyConfig(json, { numberValue: numberSelect.value, templateId });
     mediaUrlInput.value = json.mediaUrl || mediaUrlInput.value;
+    renderMediaPreview(mediaUrlInput.value);
     mediaFileInput.value = "";
     showMessage(sendMessage, "Image uploaded and saved for this template.");
   } catch (error) {
@@ -422,6 +444,8 @@ async function loadLogs() {
   const res = await fetch(apiUrl("/api/reachout/logs?limit=60"), { credentials: "same-origin" });
   const json = await res.json();
   const logs = Array.isArray(json.logs) ? json.logs : [];
+  const summary = json.summary || {};
+  sendSummary.textContent = `${Number(summary.submitted || summary.success || 0)} / ${Number(summary.error || 0)}`;
   logsTableBody.innerHTML = logs.length ? logs.map((log) => `
     <tr>
       <td>${escapeHtml(formatTime(log.sentAt))}</td>
@@ -432,6 +456,25 @@ async function loadLogs() {
       <td>${escapeHtml(log.message || "-")}</td>
     </tr>
   `).join("") : `<tr><td colspan="6" class="log-empty">No sends recorded yet.</td></tr>`;
+}
+
+async function clearRecentSends() {
+  clearRecentSendsBtn.disabled = true;
+  showMessage(logsMessage, "Clearing recent sends...");
+  try {
+    const res = await fetch(apiUrl("/api/reachout/logs"), {
+      method: "DELETE",
+      credentials: "same-origin"
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message || `HTTP ${res.status}`);
+    await loadLogs();
+    showMessage(logsMessage, `Cleared ${Number(json.deletedCount || 0)} recent send entr${Number(json.deletedCount || 0) === 1 ? "y" : "ies"}.`);
+  } catch (error) {
+    showMessage(logsMessage, `Clear failed: ${error.message}`, true);
+  } finally {
+    clearRecentSendsBtn.disabled = false;
+  }
 }
 
 document.querySelectorAll(".toggle-secret-btn").forEach((btn) => {
@@ -448,7 +491,11 @@ numberSelect.addEventListener("change", renderTemplateSelect);
 templateSelect.addEventListener("change", renderTemplatePreview);
 saveMediaUrlBtn.addEventListener("click", saveTemplateMediaUrl);
 uploadMediaBtn.addEventListener("click", uploadTemplateMedia);
+mediaUrlInput.addEventListener("input", () => {
+  renderMediaPreview(mediaUrlInput.value);
+});
 sendBtn.addEventListener("click", sendSelected);
+clearRecentSendsBtn.addEventListener("click", clearRecentSends);
 selectFilteredBtn.addEventListener("click", () => {
   filteredLeads.forEach((lead) => selectedLeadIds.add(String(lead.id)));
   renderLeadTable();

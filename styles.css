@@ -3572,6 +3572,38 @@ html[data-theme="dark"] .bell-badge {
   padding: 9px 12px;
 }
 
+.reachout-media-preview {
+  margin-top: 0.85rem;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 14px;
+  padding: 0.9rem;
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.reachout-media-preview__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.reachout-media-preview__head a {
+  color: var(--accent, #7dd3fc);
+  text-decoration: none;
+}
+
+.reachout-media-preview img {
+  width: 100%;
+  max-width: 360px;
+  max-height: 220px;
+  object-fit: contain;
+  border-radius: 12px;
+  display: block;
+  background: rgba(15, 23, 42, 0.85);
+}
+
 @media (max-width: 720px) {
   .reachout-media-control__row {
     grid-template-columns: 1fr;

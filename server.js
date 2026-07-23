@@ -5255,6 +5255,38 @@ app.get("/api/reachout/logs", async (req, res) => {
   }
 });
 
+app.delete("/api/reachout/logs", async (req, res) => {
+  try {
+    await initMongo();
+    const session = await requireRole(req, res, ["admin", "marketing"]);
+    if (!session) return;
+
+    const result = await withMongoRetry(
+      () => reachoutLogsCollection.deleteMany({}),
+      { retries: 1, label: "Clear ReachOut logs" }
+    );
+    await withMongoRetry(
+      () => reachoutConfigCollection.updateOne(
+        { _id: REACHOUT_CONFIG_DOC_ID },
+        {
+          $set: {
+            "logSummary.submitted": 0,
+            "logSummary.success": 0,
+            "logSummary.error": 0,
+            updatedAt: new Date().toISOString()
+          }
+        },
+        { upsert: true }
+      ),
+      { retries: 1, label: "Reset ReachOut log summary" }
+    );
+
+    return res.json({ ok: true, deletedCount: Number(result?.deletedCount || 0) });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to clear ReachOut logs.", details: err.message });
+  }
+});
+
 app.post("/api/reachout/send", async (req, res) => {
   try {
     await initMongo();

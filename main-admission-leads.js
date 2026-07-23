@@ -85,7 +85,7 @@ const DEFAULT_FILTER = {
   activityStatus: "",
   whatsappActivity: ""
 };
-const WHATSAPP_ACTIVITY_FILTER_OPTIONS = ["WhatsApp Read", "WhatsApp Opened", "WhatsApp Clicked", "WhatsApp Replied"];
+const WHATSAPP_ACTIVITY_FILTER_OPTIONS = ["WhatsApp Read", "WhatsApp Clicked", "WhatsApp Replied"];
 
 const persistedFilter = await loadLocalPreference(FILTER_STORAGE_KEY, {});
 if (persistedFilter.timeline === "daily") {
