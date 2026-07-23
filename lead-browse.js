@@ -39,6 +39,11 @@ let duplicateGroups = [];
 let duplicateGroupsLoading = false;
 let duplicateGroupsLoaded = false;
 const selectedDuplicateKeeperByGroup = new Map();
+const duplicateMergeOptions = {
+  preferWorkshopKeeper: true,
+  preferNonRegisteredKeeper: true,
+  disallowedKeeperSections: []
+};
 
 function showLeadBrowseToast(message, isError = false) {
   let container = document.querySelector(".toast-container");
@@ -304,8 +309,10 @@ async function mergeAllDuplicateGroupsByOldest() {
     method: "POST",
     credentials: "same-origin",
     headers: {
+      "Content-Type": "application/json",
       Accept: "application/json"
-    }
+    },
+    body: JSON.stringify(duplicateMergeOptions)
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -313,7 +320,16 @@ async function mergeAllDuplicateGroupsByOldest() {
   }
   await refreshState().catch(() => undefined);
   await fetchDuplicateGroups();
-  showLeadBrowseToast(`Merged ${Number(payload?.mergedGroups) || 0} duplicate group(s) into the oldest-created lead.`);
+  const mergedCount = Number(payload?.mergedGroups) || 0;
+  const failedCount = Array.isArray(payload?.failedGroups) ? payload.failedGroups.length : 0;
+  showLeadBrowseToast(
+    failedCount
+      ? `Merged ${mergedCount} group(s). ${failedCount} group(s) still need manual review.`
+      : `Merged ${mergedCount} duplicate group(s) into the selected keeper strategy.`
+  );
+  if (failedCount) {
+    console.warn("Duplicate merge-all failures:", payload.failedGroups);
+  }
 }
 
 function renderControls() {
@@ -360,6 +376,23 @@ function renderControls() {
       ` : ""}
       ${isAdminSession() && filter.category === "duplicates" ? `
         <div class="lead-browse-duplicate-actions">
+          <label>
+            Keeper Preference
+            <select id="leadBrowseDuplicateKeeperPreference">
+              <option value="prefer-workshop" ${duplicateMergeOptions.preferWorkshopKeeper ? "selected" : ""}>Prefer workshop lead</option>
+              <option value="prefer-non-registered" ${!duplicateMergeOptions.preferWorkshopKeeper && duplicateMergeOptions.preferNonRegisteredKeeper ? "selected" : ""}>Prefer non-registered lead</option>
+              <option value="oldest-only" ${!duplicateMergeOptions.preferWorkshopKeeper && !duplicateMergeOptions.preferNonRegisteredKeeper ? "selected" : ""}>Only oldest-created lead</option>
+            </select>
+          </label>
+          <label>
+            Do Not Keep
+            <select id="leadBrowseDuplicateDisallowedSection">
+              <option value="">Allow all sections</option>
+              <option value="registered-candidates" ${duplicateMergeOptions.disallowedKeeperSections.includes("registered-candidates") ? "selected" : ""}>Do not keep Registered Candidate</option>
+              <option value="crash-course" ${duplicateMergeOptions.disallowedKeeperSections.includes("crash-course") ? "selected" : ""}>Do not keep Crash Course</option>
+              <option value="main-admission" ${duplicateMergeOptions.disallowedKeeperSections.includes("main-admission") ? "selected" : ""}>Do not keep Main Admission</option>
+            </select>
+          </label>
           <button type="button" class="btn-primary" id="leadBrowseMergeAllDuplicatesBtn">Merge All By Oldest Lead</button>
         </div>
       ` : ""}
@@ -420,6 +453,15 @@ function renderControls() {
       button.disabled = false;
       button.textContent = originalLabel;
     }
+  });
+  document.getElementById("leadBrowseDuplicateKeeperPreference")?.addEventListener("change", (event) => {
+    const value = event.target.value;
+    duplicateMergeOptions.preferWorkshopKeeper = value === "prefer-workshop";
+    duplicateMergeOptions.preferNonRegisteredKeeper = value === "prefer-workshop" || value === "prefer-non-registered";
+  });
+  document.getElementById("leadBrowseDuplicateDisallowedSection")?.addEventListener("change", (event) => {
+    const value = String(event.target.value || "").trim();
+    duplicateMergeOptions.disallowedKeeperSections = value ? [value] : [];
   });
 }
 

@@ -6344,6 +6344,113 @@ function buildMergedLeadFromDuplicates(keeperLead, duplicateLeads = []) {
   return decorateLeadForStorage(nextLead);
 }
 
+function getDuplicateLeadSectionKey(lead = {}) {
+  const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
+  if (pipeline === "course-registration") {
+    return String(lead?.publicCourseSegment || "").trim().toLowerCase() === PUBLIC_COURSE_CRASH_SEGMENT
+      ? "crash-course"
+      : "registered-candidates";
+  }
+  if (pipeline === MAIN_ADMISSION_PIPELINE) {
+    return "main-admission";
+  }
+  return "workshop";
+}
+
+function chooseDuplicateKeeperLead(groupLeads = [], createdMetadataMap = new Map(), options = {}) {
+  const disallowedSections = new Set(
+    (Array.isArray(options?.disallowedKeeperSections) ? options.disallowedKeeperSections : [])
+      .map((value) => String(value || "").trim().toLowerCase())
+      .filter(Boolean)
+  );
+  const preferNonRegistered = options?.preferNonRegisteredKeeper === true;
+  const preferWorkshop = options?.preferWorkshopKeeper === true;
+
+  const rankedLeads = (Array.isArray(groupLeads) ? groupLeads : [])
+    .map((lead) => ({
+      lead,
+      section: getDuplicateLeadSectionKey(lead),
+      created: resolveLeadCreatedMetadata(lead, createdMetadataMap)
+    }))
+    .sort((left, right) => {
+      if (preferWorkshop) {
+        const leftWorkshop = left.section === "workshop" ? 0 : 1;
+        const rightWorkshop = right.section === "workshop" ? 0 : 1;
+        if (leftWorkshop !== rightWorkshop) {
+          return leftWorkshop - rightWorkshop;
+        }
+      }
+      if (preferNonRegistered) {
+        const leftRegistered = ["registered-candidates", "crash-course"].includes(left.section) ? 1 : 0;
+        const rightRegistered = ["registered-candidates", "crash-course"].includes(right.section) ? 1 : 0;
+        if (leftRegistered !== rightRegistered) {
+          return leftRegistered - rightRegistered;
+        }
+      }
+      const leftSort = Number(left.created?.sortTime) || 0;
+      const rightSort = Number(right.created?.sortTime) || 0;
+      if (leftSort && rightSort && leftSort !== rightSort) {
+        return leftSort - rightSort;
+      }
+      return String(left.lead?.id || "").localeCompare(String(right.lead?.id || ""));
+    });
+
+  const allowedRankedLeads = rankedLeads.filter((entry) => !disallowedSections.has(entry.section));
+  return (allowedRankedLeads[0] || rankedLeads[0] || {}).lead || null;
+}
+
+async function performDuplicateLeadMerge(keeperLead, duplicateLeads = [], session = null, actionDescription = "Admin merged duplicate leads into this record") {
+  const mergedLead = buildMergedLeadFromDuplicates(keeperLead, duplicateLeads);
+  const duplicateIdCandidates = duplicateLeads.flatMap((lead) => getLeadIdCandidates(lead?.id)).map((value) => String(value));
+
+  await replaceLeadDocument(mergedLead);
+  await withMongoRetry(
+    () => leadsCollection.deleteMany({ id: { $in: duplicateIdCandidates } }),
+    { retries: 1, label: "Delete merged duplicate leads" }
+  );
+  await withMongoRetry(
+    () => tasksCollection.updateMany(
+      { leadId: { $in: duplicateIdCandidates } },
+      {
+        $set: {
+          leadId: String(mergedLead.id || ""),
+          leadName: String(mergedLead.name || ""),
+          leadPhone: String(mergedLead.phone || ""),
+          leadCounselor: String(mergedLead.counselor || ""),
+          counselor: String(mergedLead.counselor || "")
+        }
+      }
+    ),
+    { retries: 1, label: "Reassign merged lead tasks" }
+  );
+  await withMongoRetry(
+    () => activityLogsCollection.updateMany(
+      { leadId: { $in: duplicateIdCandidates } },
+      {
+        $set: {
+          leadId: String(mergedLead.id || ""),
+          leadName: String(mergedLead.name || ""),
+          counselorName: String(mergedLead.counselor || "")
+        }
+      }
+    ),
+    { retries: 1, label: "Reassign merged lead activity logs" }
+  );
+
+  await recordActivity({
+    leadId: mergedLead.id,
+    leadName: mergedLead.name,
+    counselorName: mergedLead.counselor || "",
+    activityType: "Lead Merged",
+    actionDescription,
+    previousValue: duplicateLeads.map((lead) => `${lead.name || "Unknown"} (${lead.id})`).join(", "),
+    newValue: `${mergedLead.name || "Unknown"} (${mergedLead.id})`,
+    session
+  });
+
+  return mergedLead;
+}
+
 async function updateExistingIntegrationLead(existingLead, incomingLead, options = {}) {
   const nextLead = buildProtectedIntegrationLeadUpdate(existingLead, incomingLead);
   await replaceLeadDocument(nextLead);
@@ -7561,54 +7668,12 @@ app.post("/api/admin/duplicate-leads/merge", async (req, res) => {
       return res.status(404).json({ message: "Duplicate leads not found." });
     }
 
-    const mergedLead = buildMergedLeadFromDuplicates(keeperLead, duplicateLeads);
-    const duplicateIdCandidates = duplicateLeads.flatMap((lead) => getLeadIdCandidates(lead?.id)).map((value) => String(value));
-
-    await replaceLeadDocument(mergedLead);
-    await withMongoRetry(
-      () => leadsCollection.deleteMany({ id: { $in: duplicateIdCandidates } }),
-      { retries: 1, label: "Delete merged duplicate leads" }
+    const mergedLead = await performDuplicateLeadMerge(
+      keeperLead,
+      duplicateLeads,
+      session,
+      "Admin merged duplicate leads into this record"
     );
-    await withMongoRetry(
-      () => tasksCollection.updateMany(
-        { leadId: { $in: duplicateIdCandidates } },
-        {
-          $set: {
-            leadId: String(mergedLead.id || ""),
-            leadName: String(mergedLead.name || ""),
-            leadPhone: String(mergedLead.phone || ""),
-            leadCounselor: String(mergedLead.counselor || ""),
-            counselor: String(mergedLead.counselor || "")
-          }
-        }
-      ),
-      { retries: 1, label: "Reassign merged lead tasks" }
-    );
-    await withMongoRetry(
-      () => activityLogsCollection.updateMany(
-        { leadId: { $in: duplicateIdCandidates } },
-        {
-          $set: {
-            leadId: String(mergedLead.id || ""),
-            leadName: String(mergedLead.name || ""),
-            counselorName: String(mergedLead.counselor || "")
-          }
-        }
-      ),
-      { retries: 1, label: "Reassign merged lead activity logs" }
-    );
-
-    await recordActivity({
-      leadId: mergedLead.id,
-      leadName: mergedLead.name,
-      counselorName: mergedLead.counselor || "",
-      activityType: "Lead Merged",
-      actionDescription: `Admin merged duplicate leads into this record`,
-      previousValue: duplicateLeads.map((lead) => `${lead.name || "Unknown"} (${lead.id})`).join(", "),
-      newValue: `${mergedLead.name || "Unknown"} (${mergedLead.id})`,
-      session
-    });
-
     await touchStateUpdatedAt();
     const nextState = await refreshStateAfterAtomicUpdate();
     return res.json({ ok: true, lead: mergedLead, state: buildStateResponse(nextState) });
@@ -7626,86 +7691,59 @@ app.post("/api/admin/duplicate-leads/merge-all", async (req, res) => {
     const createdMetadataMap = await getLeadCreatedMetadataMap((state.leads || []).map((lead) => lead?.id));
     const groups = buildDuplicateLeadGroups(state.leads || []);
     let mergedGroups = 0;
+    const failedGroups = [];
+    const disallowedKeeperSections = [...new Set(
+      (Array.isArray(req.body?.disallowedKeeperSections) ? req.body.disallowedKeeperSections : [])
+        .map((value) => String(value || "").trim().toLowerCase())
+        .filter(Boolean)
+    )];
+    const preferNonRegisteredKeeper = req.body?.preferNonRegisteredKeeper === true;
+    const preferWorkshopKeeper = req.body?.preferWorkshopKeeper === true;
 
     for (const group of groups) {
-      const rankedLeads = (group.leads || [])
-        .map((lead) => ({
-          lead,
-          created: resolveLeadCreatedMetadata(lead, createdMetadataMap)
-        }))
-        .sort((left, right) => {
-          const leftSort = Number(left.created?.sortTime) || 0;
-          const rightSort = Number(right.created?.sortTime) || 0;
-          if (leftSort && rightSort && leftSort !== rightSort) {
-            return leftSort - rightSort;
-          }
-          return String(left.lead?.id || "").localeCompare(String(right.lead?.id || ""));
-        });
-
-      if (rankedLeads.length < 2) {
+      if ((group.leads || []).length < 2) {
         continue;
       }
 
-      const keeperLead = rankedLeads[0].lead;
-      const duplicateLeads = rankedLeads.slice(1).map((entry) => entry.lead).filter(Boolean);
-      if (!keeperLead || !duplicateLeads.length) {
-        continue;
-      }
-
-      const mergedLead = buildMergedLeadFromDuplicates(keeperLead, duplicateLeads);
-      const duplicateIdCandidates = duplicateLeads.flatMap((lead) => getLeadIdCandidates(lead?.id)).map((value) => String(value));
-
-      await replaceLeadDocument(mergedLead);
-      await withMongoRetry(
-        () => leadsCollection.deleteMany({ id: { $in: duplicateIdCandidates } }),
-        { retries: 1, label: "Delete merged duplicate leads (bulk)" }
-      );
-      await withMongoRetry(
-        () => tasksCollection.updateMany(
-          { leadId: { $in: duplicateIdCandidates } },
-          {
-            $set: {
-              leadId: String(mergedLead.id || ""),
-              leadName: String(mergedLead.name || ""),
-              leadPhone: String(mergedLead.phone || ""),
-              leadCounselor: String(mergedLead.counselor || ""),
-              counselor: String(mergedLead.counselor || "")
-            }
-          }
-        ),
-        { retries: 1, label: "Reassign merged lead tasks (bulk)" }
-      );
-      await withMongoRetry(
-        () => activityLogsCollection.updateMany(
-          { leadId: { $in: duplicateIdCandidates } },
-          {
-            $set: {
-              leadId: String(mergedLead.id || ""),
-              leadName: String(mergedLead.name || ""),
-              counselorName: String(mergedLead.counselor || "")
-            }
-          }
-        ),
-        { retries: 1, label: "Reassign merged lead activity logs (bulk)" }
-      );
-
-      await recordActivity({
-        leadId: mergedLead.id,
-        leadName: mergedLead.name,
-        counselorName: mergedLead.counselor || "",
-        activityType: "Lead Merged",
-        actionDescription: "Admin merged duplicate leads into the oldest-created record",
-        previousValue: duplicateLeads.map((lead) => `${lead.name || "Unknown"} (${lead.id})`).join(", "),
-        newValue: `${mergedLead.name || "Unknown"} (${mergedLead.id})`,
-        session
+      const keeperLead = chooseDuplicateKeeperLead(group.leads, createdMetadataMap, {
+        disallowedKeeperSections,
+        preferNonRegisteredKeeper,
+        preferWorkshopKeeper
       });
+      const duplicateLeads = (group.leads || []).filter((lead) => String(lead?.id || "") !== String(keeperLead?.id || ""));
+      if (!keeperLead || !duplicateLeads.length) {
+        failedGroups.push({
+          groupId: group.groupId,
+          reason: "No valid keeper lead could be selected for this group."
+        });
+        continue;
+      }
 
-      mergedGroups += 1;
+      try {
+        await performDuplicateLeadMerge(
+          keeperLead,
+          duplicateLeads,
+          session,
+          "Admin merged duplicate leads into the bulk-selected keeper"
+        );
+        mergedGroups += 1;
+      } catch (error) {
+        failedGroups.push({
+          groupId: group.groupId,
+          keeperLeadId: String(keeperLead?.id || ""),
+          reason: error?.message || "Unknown merge failure"
+        });
+      }
     }
 
     await touchStateUpdatedAt();
     const nextState = await refreshStateAfterAtomicUpdate();
-    return res.json({ ok: true, mergedGroups, state: buildStateResponse(nextState) });
+    return res.json({
+      ok: true,
+      mergedGroups,
+      failedGroups,
+      state: buildStateResponse(nextState)
+    });
   } catch (error) {
     return res.status(500).json({ message: "Failed to merge all duplicate leads", details: error.message });
   }
