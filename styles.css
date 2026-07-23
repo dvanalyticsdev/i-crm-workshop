@@ -758,27 +758,21 @@ textarea:focus {
 }
 
 .main-content.route-loading .main-content-window::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: var(--radius-md);
-  background: var(--bg);
+  content: none;
 }
 
 .main-content.route-loading .main-content-window::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 1;
+  content: none;
 }
 
 .route-loading-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
+  position: fixed;
+  z-index: 950;
   display: grid;
   place-items: center;
   pointer-events: none;
+  border-radius: var(--radius-md);
+  background: var(--bg);
 }
 
 .topbar {

@@ -90,6 +90,38 @@ function clearRouteLoadingTimer(mainContent) {
   }
 }
 
+function clearRouteLoadingViewportBinding(mainContent) {
+  if (typeof mainContent?.__dvRouteLoadingSync === "function") {
+    mainContent.__dvRouteLoadingSync();
+    delete mainContent.__dvRouteLoadingSync;
+  }
+}
+
+function bindRouteLoadingViewport(mainContent, overlay, contentWindow) {
+  if (!mainContent || !overlay || !contentWindow) {
+    return;
+  }
+
+  clearRouteLoadingViewportBinding(mainContent);
+
+  const syncOverlayBounds = () => {
+    const rect = contentWindow.getBoundingClientRect();
+    overlay.style.left = `${Math.max(0, rect.left)}px`;
+    overlay.style.top = `${Math.max(0, rect.top)}px`;
+    overlay.style.width = `${Math.max(0, rect.width)}px`;
+    overlay.style.height = `${Math.max(0, rect.height)}px`;
+  };
+
+  syncOverlayBounds();
+  window.addEventListener("scroll", syncOverlayBounds, { passive: true });
+  window.addEventListener("resize", syncOverlayBounds);
+
+  mainContent.__dvRouteLoadingSync = () => {
+    window.removeEventListener("scroll", syncOverlayBounds);
+    window.removeEventListener("resize", syncOverlayBounds);
+  };
+}
+
 function showRouteLoadingOverlay(mainContent) {
   if (!mainContent) {
     return;
@@ -101,7 +133,7 @@ function showRouteLoadingOverlay(mainContent) {
   }
 
   clearRouteLoadingTimer(mainContent);
-  let overlay = contentWindow.querySelector(".route-loading-overlay");
+  let overlay = mainContent.querySelector(":scope > .route-loading-overlay");
   if (!overlay) {
     overlay = document.createElement("div");
     overlay.className = "route-loading-overlay";
@@ -113,10 +145,11 @@ function showRouteLoadingOverlay(mainContent) {
         <div class="app-shell-loading__timer">0.0s</div>
       </div>
     `;
-    contentWindow.appendChild(overlay);
+    mainContent.appendChild(overlay);
   }
 
   mainContent.classList.add("route-loading");
+  bindRouteLoadingViewport(mainContent, overlay, contentWindow);
 
   const timerElement = overlay.querySelector(".app-shell-loading__timer");
   const startedAt = Number(mainContent.__dvRouteLoadingStartedAt) || Date.now();
@@ -138,9 +171,10 @@ function hideRouteLoadingOverlay(mainContent) {
   }
 
   clearRouteLoadingTimer(mainContent);
+  clearRouteLoadingViewportBinding(mainContent);
   delete mainContent.__dvRouteLoadingStartedAt;
   mainContent.classList.remove("route-loading");
-  mainContent.querySelector(".route-loading-overlay")?.remove();
+  mainContent.querySelector(":scope > .route-loading-overlay")?.remove();
 }
 
 function waitForNextPaint(frameCount = 1) {
