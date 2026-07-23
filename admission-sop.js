@@ -588,10 +588,10 @@ function renderLeadTable() {
   const rows = getFilteredRows();
   const totalPages = ensureValidPage(rows.length);
   const pageRows = rows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-  selectedBlockedLeadKeys = new Set([...selectedBlockedLeadKeys].filter((key) => rows.some((row) => row.key === key && row.sop?.blocked)));
-  const selectedBlockedRows = rows.filter((row) => selectedBlockedLeadKeys.has(row.key) && row.sop?.blocked);
   const pageBlockedRows = pageRows.filter((row) => row.sop?.blocked);
   const pageBlockedKeys = pageBlockedRows.map((row) => row.key);
+  selectedBlockedLeadKeys = new Set([...selectedBlockedLeadKeys].filter((key) => pageBlockedKeys.includes(key)));
+  const selectedBlockedRows = pageBlockedRows.filter((row) => selectedBlockedLeadKeys.has(row.key));
   const allPageBlockedSelected = pageBlockedKeys.length > 0 && pageBlockedKeys.every((key) => selectedBlockedLeadKeys.has(key));
 
   leadTable.innerHTML = `
@@ -602,17 +602,21 @@ function renderLeadTable() {
       </div>
     </div>
     ${isAdminSession() ? `
-      <div class="sop-bulk-toolbar">
-        <label class="sop-bulk-toolbar__select-all">
+      <div class="bulk-select-actions sop-bulk-toolbar">
+        <label class="bulk-select-control sop-bulk-toolbar__select-all">
           <input type="checkbox" id="sopSelectAllPageBlocked" ${allPageBlockedSelected ? "checked" : ""} ${pageBlockedKeys.length ? "" : "disabled"} />
           <span>Select All</span>
         </label>
         <span class="selected-count">Selected: ${selectedBlockedRows.length}</span>
-        <select id="sopAssignCounselor">
-          <option value="">Assign to</option>
-          ${getActiveCounselors().map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("")}
-        </select>
-        <button type="button" class="btn-ghost bulk-action-btn" id="sopAssignSelectedBtn" ${selectedBlockedRows.length && !bulkAssignInFlight ? "" : "disabled"}>${bulkAssignInFlight ? "Assigning..." : "Assign Selected"}</button>
+        <div class="bulk-admin-tools">
+          <input type="text" class="bulk-count-input" placeholder="Count" disabled />
+          <button type="button" class="btn-ghost bulk-action-btn" disabled>Select Count</button>
+          <select id="sopAssignCounselor" class="bulk-assign-select">
+            <option value="">Assign to</option>
+            ${getActiveCounselors().map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("")}
+          </select>
+          <button type="button" class="btn-ghost bulk-action-btn" id="sopAssignSelectedBtn" ${selectedBlockedRows.length && !bulkAssignInFlight ? "" : "disabled"}>${bulkAssignInFlight ? "Assigning..." : "Assign Selected"}</button>
+        </div>
       </div>
     ` : ""}
     <div class="table-shell">

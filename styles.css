@@ -6929,6 +6929,7 @@ html[data-theme="dark"] .diff-val {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
+  justify-content: space-between;
   padding: 0 0 var(--space-3);
 }
 
@@ -6940,15 +6941,12 @@ html[data-theme="dark"] .diff-val {
   font-weight: 700;
 }
 
-.sop-bulk-toolbar select {
-  min-width: 220px;
-  min-height: 42px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--text);
-  font: inherit;
-  padding: 10px 12px;
+.sop-bulk-toolbar .selected-count {
+  margin-top: 0;
+}
+
+.sop-bulk-toolbar .bulk-admin-tools {
+  flex: 1 1 520px;
 }
 
 .section-head {
