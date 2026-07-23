@@ -4,7 +4,7 @@ import { apiUrl } from "./api-client.js";
 await bootstrapLocalState();
 
 const session = getSession();
-if (!session || !["admin", "marketing"].includes(session.role)) {
+if (!session || !["super_admin", "admin", "marketing"].includes(session.role)) {
   window.location.href = "index.html";
   throw new Error("Access required.");
 }
