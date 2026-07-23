@@ -478,3 +478,4 @@ await loadConfig();
 renderFilters();
 filterLeadList();
 await loadLogs();
+window.__dvMarkRouteViewReady?.();

@@ -965,6 +965,7 @@ if (closeUserDetailsModalBtn) {
 
 renderMarketingList();
 renderManagementSummary();
+window.__dvMarkRouteViewReady?.();
 
 if (counselorSearchInput) {
   counselorSearchInput.addEventListener("keydown", (event) => {

@@ -552,6 +552,7 @@ claimForm?.addEventListener("submit", async (event) => {
 
 await refreshState().catch(() => undefined);
 render();
+window.__dvMarkRouteViewReady?.();
 
 startStatePolling(() => {
   if (latestLeadKey && !findLeadByKey(latestLeadKey)) {
