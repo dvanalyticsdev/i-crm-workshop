@@ -106,10 +106,15 @@ function bindRouteLoadingViewport(mainContent, overlay, contentWindow) {
 
   const syncOverlayBounds = () => {
     const rect = contentWindow.getBoundingClientRect();
+    const visibleTop = Math.max(0, rect.top);
+    const visibleBottom = Math.min(window.innerHeight, rect.bottom);
+    const visibleHeight = Math.max(0, visibleBottom - visibleTop);
+
     overlay.style.left = `${Math.max(0, rect.left)}px`;
-    overlay.style.top = `${Math.max(0, rect.top)}px`;
+    overlay.style.top = `${visibleTop}px`;
     overlay.style.width = `${Math.max(0, rect.width)}px`;
-    overlay.style.height = `${Math.max(0, rect.height)}px`;
+    overlay.style.height = `${visibleHeight}px`;
+    overlay.style.display = visibleHeight > 0 ? "grid" : "none";
   };
 
   syncOverlayBounds();
