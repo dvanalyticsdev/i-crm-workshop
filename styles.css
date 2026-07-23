@@ -558,6 +558,44 @@ textarea:focus {
   opacity: 0;
 }
 
+.app-shell-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+}
+
+.app-shell-pending .app-shell-loading {
+  display: flex;
+}
+
+.app-shell-loading__content {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  color: var(--heading);
+}
+
+.app-shell-loading__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--primary);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 45%, transparent);
+  animation: app-shell-pulse 1.2s ease-in-out infinite;
+}
+
+.app-shell-loading__text {
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
 .sidebar {
   display: flex;
   flex-direction: column;
@@ -6708,5 +6746,17 @@ html[data-theme="dark"] .diff-val {
   }
 }
 
+
+@keyframes app-shell-pulse {
+  0%,
+  100% {
+    transform: scale(0.9);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 38%, transparent);
+  }
+  50% {
+    transform: scale(1.15);
+    box-shadow: 0 0 0 10px color-mix(in srgb, var(--primary) 0%, transparent);
+  }
+}
 
 

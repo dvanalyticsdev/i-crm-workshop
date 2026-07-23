@@ -75,6 +75,7 @@ const SIDEBAR_GROUPS = [
 
 function revealAppShell() {
   document.documentElement.classList.remove("app-shell-pending");
+  document.querySelector(".app-shell-loading")?.remove();
 }
 
 function loadSidebarGroupState() {

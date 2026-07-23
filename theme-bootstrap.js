@@ -24,4 +24,17 @@
   root.classList.add("app-shell-pending");
   root.setAttribute("data-theme", theme);
   root.style.colorScheme = theme;
+
+  const loadingOverlay = document.createElement("div");
+  loadingOverlay.className = "app-shell-loading";
+  loadingOverlay.setAttribute("aria-live", "polite");
+  loadingOverlay.innerHTML = `
+    <div class="app-shell-loading__content">
+      <div class="app-shell-loading__dot" aria-hidden="true"></div>
+      <div class="app-shell-loading__text">Loading...</div>
+    </div>
+  `;
+  document.addEventListener("DOMContentLoaded", () => {
+    document.body.appendChild(loadingOverlay);
+  }, { once: true });
 })();
