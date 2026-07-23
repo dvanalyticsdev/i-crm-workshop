@@ -2005,6 +2005,46 @@ function buildReachoutWebhookActivity(normalizedEvent = {}) {
   }
 }
 
+async function isDuplicateReachoutWebhookActivity(leadId, activity = {}, normalizedEvent = {}) {
+  if (!activityLogsCollection) {
+    return false;
+  }
+
+  const activityType = String(activity.activityType || "").trim();
+  const normalizedLeadId = String(leadId || "").trim();
+  if (!activityType || !normalizedLeadId) {
+    return false;
+  }
+
+  const dedupeWindowMs = activityType === "WhatsApp Replied" ? 2 * 60 * 1000 : 10 * 60 * 1000;
+  const dedupeValues = [
+    activity.newValue,
+    normalizedEvent.providerMessageId,
+    normalizedEvent.replyText,
+    normalizedEvent.clickedLink
+  ].map((value) => String(value || "").trim()).filter(Boolean);
+
+  const query = {
+    leadId: normalizedLeadId,
+    activityType,
+    performedBy: "ReachOut Webhook",
+    timestamp: { $gte: new Date(Date.now() - dedupeWindowMs) }
+  };
+
+  if (dedupeValues.length) {
+    query.newValue = { $in: [...new Set(dedupeValues)] };
+  } else {
+    query.actionDescription = String(activity.actionDescription || "").trim();
+  }
+
+  const existing = await withMongoRetry(
+    () => activityLogsCollection.findOne(query, { sort: { timestamp: -1 } }),
+    { retries: 1, label: "Check duplicate ReachOut webhook activity" }
+  ).catch(() => null);
+
+  return !!existing;
+}
+
 function interpolateReachoutText(text, variables) {
   return String(text || "").replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (_match, key) => {
     const value = variables[key];
@@ -5358,6 +5398,17 @@ app.post("/api/reachout/whatsapp/webhook", async (req, res) => {
     }
 
     const activity = buildReachoutWebhookActivity(normalized);
+    const isDuplicate = await isDuplicateReachoutWebhookActivity(lead.id, activity, normalized);
+    if (isDuplicate) {
+      return res.json({
+        ok: true,
+        matched: true,
+        duplicate: true,
+        leadId: String(lead.id || ""),
+        status: normalized.status
+      });
+    }
+
     await recordActivity({
       leadId: lead.id,
       leadName: lead.name || normalized.leadName,
