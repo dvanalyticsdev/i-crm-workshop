@@ -44,7 +44,7 @@ const PAGE_PERMISSION_MAP = {
 };
 
 const DEFAULT_PERMISSIONS = {
-  dashboard: false,
+  dashboard: true,
   leadBrowse: true,
   claimRaised: true,
   leadCreation: true,
@@ -626,16 +626,13 @@ function getSessionPermissions(session) {
     return {
       ...base,
       ...(counselor?.permissions || {}),
-      dashboard: false,
-      registeredCandidates: false,
-      mainAdmissionLeads: false,
       counselorManagement: false,
-      leadControl: false,
-      metaIntegration: false,
-      elementorIntegration: false,
-      mcubeIntegration: false,
-      leadFlowControl: false,
-      reachout: false
+      leadControl: Boolean(counselor?.permissions?.leadControl),
+      metaIntegration: Boolean(counselor?.permissions?.metaIntegration),
+      elementorIntegration: Boolean(counselor?.permissions?.elementorIntegration),
+      mcubeIntegration: Boolean(counselor?.permissions?.mcubeIntegration),
+      leadFlowControl: Boolean(counselor?.permissions?.leadFlowControl),
+      reachout: Boolean(counselor?.permissions?.reachout)
     };
   }
 

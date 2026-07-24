@@ -119,24 +119,24 @@ const PAGE_ACCESS_KEYS = [
 ];
 const FULL_PAGE_ACCESS = Object.freeze(Object.fromEntries(PAGE_ACCESS_KEYS.map((key) => [key, true])));
 const COUNSELOR_DEFAULT_PAGE_ACCESS = Object.freeze({
-  dashboard: false,
+  dashboard: true,
   leadBrowse: true,
   claimRaised: true,
   leadCreation: true,
   admissionSop: true,
   preWorkshop: true,
-  registeredCandidates: false,
-  mainAdmissionLeads: false,
+  registeredCandidates: true,
+  mainAdmissionLeads: true,
   taskTracker: true,
   lostLeads: true,
   monitoring: true,
   counselorManagement: false,
-  leadControl: false,
-  metaIntegration: false,
-  elementorIntegration: false,
-  mcubeIntegration: false,
-  leadFlowControl: false,
-  reachout: false,
+  leadControl: true,
+  metaIntegration: true,
+  elementorIntegration: true,
+  mcubeIntegration: true,
+  leadFlowControl: true,
+  reachout: true,
   postWorkshop: true
 });
 const MARKETING_DEFAULT_PAGE_ACCESS = Object.freeze({
@@ -8585,8 +8585,7 @@ app.post("/api/auth/login", async (req, res) => {
 
     const permissions = {
       ...COUNSELOR_DEFAULT_PAGE_ACCESS,
-      ...(counselor.permissions || {}),
-      dashboard: false
+      ...(counselor.permissions || {})
     };
 
     const session = await persistSession(res, {

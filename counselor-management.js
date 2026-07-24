@@ -20,11 +20,25 @@ import { PUBLIC_COURSES } from "./course-catalog.js";
 await bootstrapLocalState();
 
 const DEFAULT_PERMISSIONS = {
-  dashboard: false,
+  dashboard: true,
+  leadBrowse: true,
+  claimRaised: true,
+  leadCreation: true,
+  admissionSop: true,
   preWorkshop: true,
   postWorkshop: true,
+  registeredCandidates: true,
+  mainAdmissionLeads: true,
+  taskTracker: true,
   lostLeads: true,
-  monitoring: true
+  monitoring: true,
+  counselorManagement: false,
+  leadControl: true,
+  metaIntegration: true,
+  elementorIntegration: true,
+  mcubeIntegration: true,
+  leadFlowControl: true,
+  reachout: true
 };
 const ADMIN_DEFAULT_PERMISSIONS = {
   dashboard: true,
@@ -48,10 +62,24 @@ const ADMIN_DEFAULT_PERMISSIONS = {
   reachout: true
 };
 const COUNSELOR_PERMISSION_OPTIONS = [
+  { key: "dashboard", label: "Dashboard" },
   { key: "preWorkshop", label: "Workshop Calling" },
   { key: "postWorkshop", label: "Admission Calling" },
+  { key: "registeredCandidates", label: "Registered Candidates" },
+  { key: "mainAdmissionLeads", label: "Main Admission Leads" },
   { key: "lostLeads", label: "Lost Leads" },
-  { key: "monitoring", label: "Monitoring" }
+  { key: "monitoring", label: "Monitoring" },
+  { key: "leadControl", label: "Lead & Data Control" },
+  { key: "metaIntegration", label: "Meta Integration" },
+  { key: "elementorIntegration", label: "Elementor Integration" },
+  { key: "mcubeIntegration", label: "MCUBE Integration" },
+  { key: "leadFlowControl", label: "Lead Flow Control" },
+  { key: "reachout", label: "ReachOut" },
+  { key: "leadBrowse", label: "Lead Browse" },
+  { key: "claimRaised", label: "Claim Raised" },
+  { key: "leadCreation", label: "Lead Creation" },
+  { key: "admissionSop", label: "SOP Tracker" },
+  { key: "taskTracker", label: "Task Tracker" }
 ];
 const ADMIN_PERMISSION_OPTIONS = [
   { key: "dashboard", label: "Dashboard" },
@@ -86,6 +114,7 @@ const counselorForm = document.getElementById("counselorForm");
 const counselorFormMessage = document.getElementById("counselorFormMessage");
 const counselorList = document.getElementById("counselorList");
 const counselorSearchInput = document.getElementById("counselorSearchInput");
+const counselorPermissionsGrid = document.getElementById("counselorPermissionsGrid");
 const adminSearchInput = document.getElementById("adminSearchInput");
 const marketingSearchInput = document.getElementById("marketingSearchInput");
 const managementSummarySection = document.getElementById("managementSummarySection");
@@ -811,6 +840,12 @@ counselorForm.addEventListener("submit", async (event) => {
 
 renderCounselorList();
 renderManagementSummary();
+renderPermissionOptions(
+  counselorPermissionsGrid,
+  COUNSELOR_PERMISSION_OPTIONS,
+  "permission",
+  DEFAULT_PERMISSIONS
+);
 renderPermissionOptions(
   adminPermissionsGrid,
   ADMIN_PERMISSION_OPTIONS,
