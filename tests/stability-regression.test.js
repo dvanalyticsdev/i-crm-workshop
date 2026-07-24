@@ -530,14 +530,12 @@ test("lead claim workflow requires admin and current owner approval before trans
   assert.match(layouts, /claim-raised\.html/);
 });
 
-test("sidebar keeps admission calling and main admission visible as separate counselor routes", () => {
+test("sidebar keeps admission workflows grouped under one counselor admission route", () => {
   const layouts = read("layouts.js");
 
-  assert.match(layouts, /routes: \["pre-workshop\.html", "post-workshop\.html", "registered-candidates\.html", "main-admission-leads\.html", "lost-leads\.html", "task-tracker\.html"\]/);
-  assert.match(layouts, /"post-workshop\.html": "Admission Calling"/);
-  assert.match(layouts, /"main-admission-leads\.html": "Main Admission Leads"/);
-  assert.match(layouts, /"registered-candidates\.html": \{\s*activeRoutes: \["crash-course\.html"\]/);
-  assert.doesNotMatch(layouts, /"pre-workshop\.html": \{\s*activeRoutes: \["post-workshop\.html"\]/);
+  assert.match(layouts, /routes: \["pre-workshop\.html", "registered-candidates\.html", "lost-leads\.html", "task-tracker\.html"\]/);
+  assert.match(layouts, /"registered-candidates\.html": "Admission"/);
+  assert.match(layouts, /"registered-candidates\.html": \{\s*activeRoutes: \["post-workshop\.html", "main-admission-leads\.html", "crash-course\.html"\]/);
 });
 
 test("lead creation requests require counselor submission and admin approval before insert", () => {
