@@ -89,6 +89,7 @@ const counselorSearchInput = document.getElementById("counselorSearchInput");
 const adminSearchInput = document.getElementById("adminSearchInput");
 const marketingSearchInput = document.getElementById("marketingSearchInput");
 const managementSummarySection = document.getElementById("managementSummarySection");
+const adminManagementSection = document.getElementById("adminManagementSection");
 const adminPermissionsGrid = document.getElementById("adminPermissionsGrid");
 const adminCreateCard = document.getElementById("adminCreateCard");
 const userDetailsModal = document.getElementById("userDetailsModal");
@@ -125,6 +126,10 @@ let marketingSearchTerm = "";
 let activeDetailsUser = null;
 const activeSession = getSession();
 const isSuperAdminSession = activeSession?.role === "super_admin";
+
+if (adminManagementSection) {
+  adminManagementSection.classList.toggle("hidden", !isSuperAdminSession);
+}
 
 if (adminCreateCard) {
   adminCreateCard.classList.toggle("hidden", !isSuperAdminSession);
@@ -262,6 +267,11 @@ function openUserEditModal({ userType, user }) {
     return;
   }
 
+  if (userType === "admin" && !isSuperAdminSession) {
+    setAdminMessage("You do not have permission to edit admin accounts.", true);
+    return;
+  }
+
   userEditType.value = userType;
   userEditId.value = user.id || "";
   userEditName.value = user.name || "";
@@ -310,6 +320,11 @@ function openUserEditModal({ userType, user }) {
 
 function openPasswordChangeModal({ userType, userId, name }) {
   if (!passwordChangeModal) {
+    return;
+  }
+
+  if (userType === "admin" && !isSuperAdminSession) {
+    setAdminMessage("You do not have permission to change admin passwords.", true);
     return;
   }
 
@@ -538,6 +553,11 @@ function openUserDetailsModal({ userType, user }) {
     return;
   }
 
+  if (userType === "admin" && !isSuperAdminSession) {
+    setAdminMessage("You do not have permission to view admin account details.", true);
+    return;
+  }
+
   activeDetailsUser = { userType, userId: user.id };
   const isCounselor = userType === "counselor";
   const isAdmin = userType === "admin";
@@ -648,10 +668,11 @@ function renderManagementSummary() {
   const monitoringAccess = counselors.filter((item) => item.permissions?.monitoring).length;
 
   managementSummarySection.innerHTML = `
+    ${isSuperAdminSession ? `
     <article class="card management-summary-card">
       <p>Total Admins</p>
       <h2>${admins.length}</h2>
-    </article>
+    </article>` : ""}
     <article class="card management-summary-card">
       <p>Total Counselors</p>
       <h2>${counselors.length}</h2>
@@ -823,6 +844,11 @@ function setAdminMessage(text, isError = true) {
 }
 
 async function removeAdminUser(userId) {
+  if (!isSuperAdminSession) {
+    setAdminMessage("You do not have permission to remove admin accounts.", true);
+    return;
+  }
+
   const users = getAdminUsers();
   const target = users.find((item) => item.id === userId);
   if (!target) return;
@@ -849,6 +875,10 @@ async function removeAdminUser(userId) {
 
 function renderAdminList() {
   if (!adminList) {
+    return;
+  }
+  if (!isSuperAdminSession) {
+    adminList.innerHTML = "";
     return;
   }
   const users = getAdminUsers();
@@ -885,7 +915,7 @@ if (adminForm) {
     event.preventDefault();
 
     if (!isSuperAdminSession) {
-      setAdminMessage("Only the superadmin can create new admins.", true);
+      setAdminMessage("You do not have permission to create admin accounts.", true);
       return;
     }
 
@@ -1101,6 +1131,11 @@ if (passwordChangeForm) {
         return;
       }
     } else if (userType === "admin") {
+      if (!isSuperAdminSession) {
+        setPasswordChangeMessage("You do not have permission to change admin passwords.", true);
+        return;
+      }
+
       const users = getAdminUsers();
       const target = users.find((item) => item.id === userId);
       if (!target) {
@@ -1218,6 +1253,11 @@ if (userEditForm) {
         return;
       }
     } else if (userType === "admin") {
+      if (!isSuperAdminSession) {
+        setUserEditMessage("You do not have permission to edit admin accounts.", true);
+        return;
+      }
+
       if (!phone) {
         setUserEditMessage("Phone number is required for admins.", true);
         return;

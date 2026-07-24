@@ -90,7 +90,7 @@ const COURSE_IDENTITY_RULES = [
 const ADMIN_USER = {
   id: ADMIN_LOGIN_ID,
   password: ADMIN_LOGIN_PASSWORD,
-  name: "Super Admin"
+  name: "Admin"
 };
 
 const AUTH_CONFIG_OWNER = "system:auth";
@@ -146,7 +146,7 @@ const MARKETING_DEFAULT_PAGE_ACCESS = Object.freeze({
 });
 const ADMIN_DEFAULT_PAGE_ACCESS = Object.freeze({
   ...FULL_PAGE_ACCESS,
-  counselorManagement: false
+  counselorManagement: true
 });
 
 function toKolkataDateKey(date = new Date()) {
@@ -10831,7 +10831,7 @@ app.put("/api/state", async (req, res) => {
       ["counselors", "adminUsers", "marketingUsers", "allocation"].some((field) => Array.isArray(sanitized[field]))
       && !canManageRoles(session)
     ) {
-      return res.status(403).json({ message: "Only the super admin can change role and access settings." });
+      return res.status(403).json({ message: "You do not have permission to change role and access settings." });
     }
 
     const currentState = await getStateDoc();

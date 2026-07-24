@@ -53,7 +53,7 @@ let awaitingSuperAdminPasscode = false;
 const ROLE_COPY = {
   admin: {
     label: "Admin ID / Admin Phone",
-    placeholder: "Enter super admin ID or admin phone number"
+    placeholder: "Enter admin ID or admin phone number"
   },
   counselor: {
     label: "Counselor Email",
