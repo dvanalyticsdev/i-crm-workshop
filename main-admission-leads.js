@@ -1455,11 +1455,10 @@ function renderActivityPanel(lead) {
         </button>
       </div>
       <div class="activity-panel__secondary">
-        <button type="button" class="btn-ghost activity-panel__chip" data-main-admission-action="details" data-lead-key="${leadKey}">Details</button>
-        ${canCreateTasks ? `<button type="button" class="btn-ghost btn-task activity-panel__chip" data-main-admission-action="task" data-lead-key="${leadKey}">Task</button>` : ""}
-        <button type="button" class="btn-ghost btn-notes activity-panel__chip" data-main-admission-action="notes" data-lead-key="${leadKey}">Notes${noteCount ? ` (${noteCount})` : ""}</button>
-        <button type="button" class="btn-ghost btn-activity-history activity-panel__chip" data-main-admission-action="activity-history" data-lead-key="${leadKey}">Activity</button>
-        ${isAdmin ? `<button type="button" class="btn-delete activity-panel__chip" data-main-admission-action="delete" data-lead-key="${leadKey}">Delete</button>` : ""}
+        ${canCreateTasks ? `<button type="button" class="btn-ghost btn-task activity-panel__link" data-main-admission-action="task" data-lead-key="${leadKey}">Task</button>` : ""}
+        <button type="button" class="btn-ghost btn-notes activity-panel__link" data-main-admission-action="notes" data-lead-key="${leadKey}">Notes${noteCount ? ` (${noteCount})` : ""}</button>
+        <button type="button" class="btn-ghost btn-activity-history activity-panel__link" data-main-admission-action="activity-history" data-lead-key="${leadKey}">Activity</button>
+        ${isAdmin ? `<button type="button" class="btn-delete activity-panel__link" data-main-admission-action="delete" data-lead-key="${leadKey}">Delete</button>` : ""}
       </div>
     </div>
   `;

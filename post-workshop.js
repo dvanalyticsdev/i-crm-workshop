@@ -1334,12 +1334,16 @@ function renderActivityPanel(lead) {
   const leadAttrs = `data-lead-id="${leadId}" data-lead-email="${leadEmail}"`;
   return `
     <div class="activity-panel">
-      <button class="btn-update-status${hasActivity ? " btn-update-status--active" : ""}" type="button" ${leadAttrs}>Update</button>
-      <button class="btn-ghost btn-mcube-call" type="button" ${leadAttrs} ${lead.phone ? "" : "disabled"}>Call</button>
-      <button class="btn-ghost btn-notes" type="button" ${leadAttrs}>Notes${noteCount ? ` (${noteCount})` : ""}</button>
-      ${canCreateTasks ? `<button class="btn-ghost btn-task" type="button" ${leadAttrs}>Task</button>` : ""}
-      <button class="btn-ghost btn-activity-history" type="button" ${leadAttrs}>Activity History</button>
-      ${isAdmin ? `<button class="btn-delete" type="button" ${leadAttrs}>Delete</button>` : ""}
+      <div class="activity-panel__primary">
+        <button class="btn-ghost btn-mcube-call activity-panel__icon-btn" type="button" aria-label="Call" title="Call" ${leadAttrs} ${lead.phone ? "" : "disabled"}><span aria-hidden="true">&#9742;</span></button>
+        <button class="btn-update-status${hasActivity ? " btn-update-status--active" : ""} activity-panel__icon-btn" type="button" aria-label="Update" title="Update" ${leadAttrs}><span aria-hidden="true">&#9998;</span></button>
+      </div>
+      <div class="activity-panel__secondary">
+        ${canCreateTasks ? `<button class="btn-ghost btn-task activity-panel__link" type="button" ${leadAttrs}>Task</button>` : ""}
+        <button class="btn-ghost btn-notes activity-panel__link" type="button" ${leadAttrs}>Notes${noteCount ? ` (${noteCount})` : ""}</button>
+        <button class="btn-ghost btn-activity-history activity-panel__link" type="button" ${leadAttrs}>Activity</button>
+        ${isAdmin ? `<button class="btn-delete activity-panel__link" type="button" ${leadAttrs}>Delete</button>` : ""}
+      </div>
     </div>
   `;
 }

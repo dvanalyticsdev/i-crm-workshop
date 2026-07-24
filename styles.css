@@ -1950,7 +1950,8 @@ tbody tr:hover {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
+  min-width: 0;
 }
 
 .activity-panel__primary,
@@ -1959,45 +1960,58 @@ tbody tr:hover {
   align-items: center;
   justify-content: center;
   flex-wrap: wrap;
+  width: 100%;
 }
 
 .activity-panel__primary {
-  gap: 8px;
+  gap: 10px;
 }
 
 .activity-panel__secondary {
-  gap: 6px;
+  gap: 10px;
 }
 
 .activity-panel__icon-btn {
-  width: 38px;
-  height: 38px;
-  min-width: 38px;
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
   padding: 0;
-  border-radius: 12px;
-  font-size: 1.05rem;
+  border-radius: 14px;
+  font-size: 1.1rem;
 }
 
-.activity-panel__chip {
+.activity-panel__link {
   min-width: auto;
-  padding: 7px 12px;
-  font-size: 0.82rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  font-weight: 600;
+  line-height: 1.2;
   white-space: nowrap;
 }
 
-.activity-panel .btn-task.activity-panel__chip {
-  background: color-mix(in srgb, var(--warning) 14%, var(--surface));
-  border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
+.activity-panel__link:hover {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text);
+}
+
+.activity-panel .btn-task.activity-panel__link {
   color: var(--warning);
 }
 
-.activity-panel .btn-task.activity-panel__chip:hover {
-  background: color-mix(in srgb, var(--warning) 20%, var(--surface-muted));
-  border-color: color-mix(in srgb, var(--warning) 60%, var(--border));
+.activity-panel .btn-task.activity-panel__link:hover {
+  color: color-mix(in srgb, var(--warning) 78%, white);
 }
 
-.activity-panel .btn-delete.activity-panel__chip {
-  padding-inline: 10px;
+.activity-panel .btn-delete.activity-panel__link {
+  color: var(--danger);
+}
+
+.activity-panel .btn-delete.activity-panel__link:hover {
+  color: color-mix(in srgb, var(--danger) 78%, white);
 }
 
 .modal-content.main-admission-details-modal {
