@@ -1431,13 +1431,36 @@ function renderActivityPanel(lead) {
   const noteCount = lead.leadNotes.length;
   return `
     <div class="activity-panel">
-      <button type="button" class="btn-ghost" data-main-admission-action="details" data-lead-key="${leadKey}">View Details</button>
-      <button type="button" class="btn-update-status${hasActivity ? " btn-update-status--active" : ""}" data-main-admission-action="update" data-lead-key="${leadKey}">Update</button>
-      <button type="button" class="btn-ghost btn-mcube-call" data-main-admission-action="call" data-lead-key="${leadKey}" ${lead.phone ? "" : "disabled"}>Call</button>
-      <button type="button" class="btn-ghost btn-notes" data-main-admission-action="notes" data-lead-key="${leadKey}">Notes${noteCount ? ` (${noteCount})` : ""}</button>
-      ${canCreateTasks ? `<button type="button" class="btn-ghost btn-task" data-main-admission-action="task" data-lead-key="${leadKey}">Task</button>` : ""}
-      <button type="button" class="btn-ghost btn-activity-history" data-main-admission-action="activity-history" data-lead-key="${leadKey}">Activity History</button>
-      ${isAdmin ? `<button type="button" class="btn-delete" data-main-admission-action="delete" data-lead-key="${leadKey}">Delete</button>` : ""}
+      <div class="activity-panel__primary">
+        <button
+          type="button"
+          class="btn-ghost btn-mcube-call activity-panel__icon-btn"
+          data-main-admission-action="call"
+          data-lead-key="${leadKey}"
+          aria-label="Call"
+          title="Call"
+          ${lead.phone ? "" : "disabled"}
+        >
+          <span aria-hidden="true">&#9742;</span>
+        </button>
+        <button
+          type="button"
+          class="btn-update-status${hasActivity ? " btn-update-status--active" : ""} activity-panel__icon-btn"
+          data-main-admission-action="update"
+          data-lead-key="${leadKey}"
+          aria-label="Update"
+          title="Update"
+        >
+          <span aria-hidden="true">&#9998;</span>
+        </button>
+      </div>
+      <div class="activity-panel__secondary">
+        <button type="button" class="btn-ghost activity-panel__chip" data-main-admission-action="details" data-lead-key="${leadKey}">Details</button>
+        ${canCreateTasks ? `<button type="button" class="btn-ghost btn-task activity-panel__chip" data-main-admission-action="task" data-lead-key="${leadKey}">Task</button>` : ""}
+        <button type="button" class="btn-ghost btn-notes activity-panel__chip" data-main-admission-action="notes" data-lead-key="${leadKey}">Notes${noteCount ? ` (${noteCount})` : ""}</button>
+        <button type="button" class="btn-ghost btn-activity-history activity-panel__chip" data-main-admission-action="activity-history" data-lead-key="${leadKey}">Activity</button>
+        ${isAdmin ? `<button type="button" class="btn-delete activity-panel__chip" data-main-admission-action="delete" data-lead-key="${leadKey}">Delete</button>` : ""}
+      </div>
     </div>
   `;
 }
