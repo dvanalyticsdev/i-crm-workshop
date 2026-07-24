@@ -154,7 +154,7 @@ function getSessionCounselorName() {
 }
 
 function isAdminSession() {
-  return getSession()?.role === "admin";
+  return ["admin", "super_admin"].includes(getSession()?.role);
 }
 
 function canRaiseClaimForLead(lead) {

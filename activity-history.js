@@ -79,6 +79,10 @@ function isAnsweredCallStatus(value) {
   return /(answer|answered|connected|success|completed)/i.test(String(value || ""));
 }
 
+function isNonConnectedCallStatus(value) {
+  return /(cancel|missed|no\s*answer|unanswered|busy|failed|reject|declin|timeout|not\s*reachable|switched\s*off|\bdnp\b|\bcnc\b)/i.test(String(value || ""));
+}
+
 function parseDurationSeconds(value) {
   if (value === null || value === undefined || value === "") return 0;
   const numeric = Number(value);
@@ -133,8 +137,8 @@ function renderCallMetadata(log) {
   const metadata = log.callMetadata && typeof log.callMetadata === "object" ? log.callMetadata : {};
   const recordingUrl = getUsableRecordingUrl(log.recordingUrl || metadata.recordingUrl || "");
   const callStatus = String(metadata.callStatus || metadata.normalizedCallStatus || "").trim();
-  const duration = parseDurationSeconds(metadata.duration || metadata.talkTimeDuration || "");
-  const shouldShowTalkTime = duration || isAnsweredCallStatus(callStatus);
+  const duration = isNonConnectedCallStatus(callStatus) ? 0 : parseDurationSeconds(metadata.duration || metadata.talkTimeDuration || "");
+  const shouldShowTalkTime = !isNonConnectedCallStatus(callStatus) && (duration || isAnsweredCallStatus(callStatus));
   const recordingId = `recording-${String(log.id || log._id || metadata.callId || Math.random()).replace(/[^a-z0-9_-]/gi, "-")}`;
   const details = [
     metadata.callStatus ? `Status: ${metadata.callStatus}` : "",

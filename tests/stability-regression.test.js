@@ -514,6 +514,8 @@ test("lead claim workflow requires admin and current owner approval before trans
   assert.match(leadBrowse, /canRaiseClaimForLead/);
   assert.match(leadBrowse, /data-claim-lead/);
   assert.match(leadBrowse, /raiseLeadClaim/);
+  assert.match(leadBrowse, /\["admin", "super_admin"\]\.includes\(getSession\(\)\?\.role\)/);
+  assert.match(leadBrowse, /data-category="duplicates"/);
   assert.doesNotMatch(leadBrowse, /data-call-lead/);
   assert.doesNotMatch(leadBrowse, /btn-mcube-call/);
   assert.match(leadBrowseHtml, /Formal reason/);
@@ -526,6 +528,16 @@ test("lead claim workflow requires admin and current owner approval before trans
   assert.match(leadClaimService, /clearLeadClaims/);
   assert.match(leadClaimService, /decideLeadClaim/);
   assert.match(layouts, /claim-raised\.html/);
+});
+
+test("sidebar keeps admission calling and main admission visible as separate counselor routes", () => {
+  const layouts = read("layouts.js");
+
+  assert.match(layouts, /routes: \["pre-workshop\.html", "post-workshop\.html", "registered-candidates\.html", "main-admission-leads\.html", "lost-leads\.html", "task-tracker\.html"\]/);
+  assert.match(layouts, /"post-workshop\.html": "Admission Calling"/);
+  assert.match(layouts, /"main-admission-leads\.html": "Main Admission Leads"/);
+  assert.match(layouts, /"registered-candidates\.html": \{\s*activeRoutes: \["crash-course\.html"\]/);
+  assert.doesNotMatch(layouts, /"pre-workshop\.html": \{\s*activeRoutes: \["post-workshop\.html"\]/);
 });
 
 test("lead creation requests require counselor submission and admin approval before insert", () => {
@@ -824,6 +836,7 @@ test("MCUBE inbound document sample maps to CRM call event fields", () => {
     getNamedFunctionSource(server, "normalizeMcubeDirection"),
     getNamedFunctionSource(server, "parseMcubeDurationSeconds"),
     getNamedFunctionSource(server, "parseMcubeTimestampMs"),
+    getNamedFunctionSource(server, "isMcubeConnectedDisposition"),
     getNamedFunctionSource(server, "deriveMcubeTalkTimeDuration"),
     getNamedFunctionSource(server, "normalizeMcubeEvent")
   ].join("\n\n");
@@ -860,6 +873,31 @@ test("MCUBE inbound document sample maps to CRM call event fields", () => {
   assert.equal(event.groupName, "Integration");
   assert.equal(event.counselorName, "Test");
   assert.equal(event.mcubeFields.callto, "7816999444");
+});
+
+test("MCUBE cancelled calls do not derive fake talk time", () => {
+  const server = read("server.js");
+  const source = [
+    getNamedFunctionSource(server, "normalizeMcubeDirection"),
+    getNamedFunctionSource(server, "parseMcubeDurationSeconds"),
+    getNamedFunctionSource(server, "parseMcubeTimestampMs"),
+    getNamedFunctionSource(server, "isMcubeConnectedDisposition"),
+    getNamedFunctionSource(server, "deriveMcubeTalkTimeDuration"),
+    getNamedFunctionSource(server, "normalizeMcubeEvent")
+  ].join("\n\n");
+  const factory = new Function(`${source}; return { normalizeMcubeEvent };`);
+  const { normalizeMcubeEvent } = factory();
+
+  const event = normalizeMcubeEvent({
+    starttime: "2026-07-24 11:32:00",
+    endtime: "2051-07-24 11:32:50",
+    dialstatus: "CANCEL",
+    answeredtime: "",
+    direction: "inbound"
+  });
+
+  assert.equal(event.disposition, "CANCEL");
+  assert.equal(event.duration, 0);
 });
 
 test("MCUBE outbound click-to-call uses documented payload fields", () => {
@@ -927,6 +965,7 @@ test("MCUBE auto-created leads assign only when a picked call matches a CRM coun
   const source = [
     getNamedFunctionSource(server, "normalizeMcubePhone"),
     getNamedFunctionSource(server, "findMcubeAnsweringCounselor"),
+    getNamedFunctionSource(server, "isMcubeConnectedDisposition"),
     getNamedFunctionSource(server, "didMcubeCallGetPicked"),
     getNamedFunctionSource(server, "getMcubeLeadAssignment")
   ].join("\n\n");

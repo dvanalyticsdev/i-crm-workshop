@@ -80,7 +80,7 @@ const SIDEBAR_GROUPS = [
   {
     id: "workflows",
     label: "Workflows",
-    routes: ["pre-workshop.html", "registered-candidates.html", "lost-leads.html", "task-tracker.html"]
+    routes: ["pre-workshop.html", "post-workshop.html", "registered-candidates.html", "main-admission-leads.html", "lost-leads.html", "task-tracker.html"]
   },
   {
     id: "sop-tracker",
@@ -403,7 +403,9 @@ function rebuildSidebarSections() {
     "lead-creation.html": "Lead Creation",
     "admission-sop.html": "Admission SOP",
     "pre-workshop.html": "Workshop",
-    "registered-candidates.html": "Admission",
+    "post-workshop.html": "Admission Calling",
+    "registered-candidates.html": "Registered Candidates",
+    "main-admission-leads.html": "Main Admission Leads",
     "task-tracker.html": "Task Tracker",
     "lost-leads.html": "Lost Leads",
     "monitoring.html": "Monitoring",
@@ -444,11 +446,8 @@ function rebuildSidebarSections() {
   bottomLinkContainer.innerHTML = "";
 
   const routeOptions = {
-    "pre-workshop.html": {
-      activeRoutes: ["post-workshop.html"]
-    },
     "registered-candidates.html": {
-      activeRoutes: ["main-admission-leads.html", "crash-course.html"]
+      activeRoutes: ["crash-course.html"]
     },
     "task-tracker.html": {
       counselorOnly: true

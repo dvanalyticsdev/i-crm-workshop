@@ -2446,7 +2446,30 @@ function parseMcubeTimestampMs(value) {
   return Number.isNaN(parsedDate.getTime()) ? 0 : parsedDate.getTime();
 }
 
+function isMcubeConnectedDisposition(value = "") {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text) return false;
+  if (/(cancel|missed|no\s*answer|unanswered|busy|failed|reject|declin|timeout|not\s*reachable|switched\s*off|\bdnp\b|\bcnc\b)/i.test(text)) {
+    return false;
+  }
+  return /(answer|answered|connected|success|completed)/i.test(text);
+}
+
 function deriveMcubeTalkTimeDuration(payload = {}, startedAt = "", endedAt = "", answeredTime = "") {
+  const disposition = String(
+    payload.dialstatus ||
+    payload.disposition ||
+    payload.call_status ||
+    payload.callStatus ||
+    payload.status ||
+    payload.event_type ||
+    payload.eventType ||
+    ""
+  ).trim();
+  if (!isMcubeConnectedDisposition(disposition)) {
+    return 0;
+  }
+
   const explicitDuration = parseMcubeDurationSeconds(
     payload.duration ||
     payload.call_duration ||
@@ -2780,12 +2803,10 @@ function findMcubeAnsweringCounselor(counselorSource, event = {}) {
 
 function didMcubeCallGetPicked(event = {}) {
   const disposition = String(event?.disposition || event?.eventType || "").trim();
-  const normalizedDisposition = disposition.toLowerCase();
-  if (/(cancel|missed|no\s*answer|unanswered|busy|failed|reject|declin|timeout|not\s*reachable|switched\s*off|\bdnp\b|\bcnc\b)/i.test(normalizedDisposition)) {
-    return false;
+  if (disposition) {
+    return isMcubeConnectedDisposition(disposition);
   }
-  return /(answer|answered|connected|success|completed)/i.test(normalizedDisposition)
-    || !!String(event?.answeredTime || "").trim();
+  return !!String(event?.answeredTime || "").trim();
 }
 
 function getMcubeLeadAssignment(event = {}, counselorSource) {
