@@ -2,7 +2,6 @@ import { getLeads, getSession, refreshState, startStatePolling } from "./state-s
 import { trackLeadView } from "./lead-service.js";
 import { raiseLeadClaim } from "./lead-claim-service.js";
 import { openActivityHistory } from "./activity-history.js";
-import { triggerMcubeClickToCall } from "./mcube-call-service.js";
 import { apiUrl } from "./api-client.js";
 
 const PAGE_SIZE = 25;
@@ -544,7 +543,6 @@ function renderTable() {
               <td>
                 <div class="lead-browse-row-actions">
                   <button type="button" class="btn-ghost" data-view-lead="${leadKey}">View</button>
-                  <button type="button" class="btn-ghost btn-mcube-call" data-call-lead="${leadKey}" ${lead.phone ? "" : "disabled"}>Call</button>
                   <button type="button" class="btn-ghost" data-history-lead="${leadKey}">Activity</button>
                   ${canRaiseClaimForLead(lead) ? `<button type="button" class="btn-primary" data-claim-lead="${leadKey}">Claim</button>` : ""}
                 </div>
@@ -560,17 +558,6 @@ function renderTable() {
 
   tableSection.querySelectorAll("[data-view-lead]").forEach((button) => {
     button.addEventListener("click", () => openDetails(button.getAttribute("data-view-lead")));
-  });
-  tableSection.querySelectorAll("[data-call-lead]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const leadKey = button.getAttribute("data-call-lead");
-      const lead = getAllLeads().find((item) => getLeadKey(item) === leadKey);
-      if (!lead) {
-        showLeadBrowseToast("Could not find this lead. Please refresh and try again.", true);
-        return;
-      }
-      void triggerMcubeClickToCall(lead, button, showLeadBrowseToast);
-    });
   });
   tableSection.querySelectorAll("[data-history-lead]").forEach((button) => {
     button.addEventListener("click", () => openLeadActivityHistory(button.getAttribute("data-history-lead")));

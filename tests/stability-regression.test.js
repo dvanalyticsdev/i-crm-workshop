@@ -514,6 +514,8 @@ test("lead claim workflow requires admin and current owner approval before trans
   assert.match(leadBrowse, /canRaiseClaimForLead/);
   assert.match(leadBrowse, /data-claim-lead/);
   assert.match(leadBrowse, /raiseLeadClaim/);
+  assert.doesNotMatch(leadBrowse, /data-call-lead/);
+  assert.doesNotMatch(leadBrowse, /btn-mcube-call/);
   assert.match(leadBrowseHtml, /Formal reason/);
   assert.match(claimRaisedHtml, /Claim Raised/);
   assert.match(claimRaisedHtml, /clearClaimsBtn/);
@@ -588,6 +590,7 @@ test("activity history endpoint and UI checks", () => {
   assert.match(server, /app\.get\("\/api\/activity-logs"/);
   assert.match(server, /async function recordActivity\(/);
   assert.match(server, /async function logBulkLeadChanges\(/);
+  assert.match(server, /session\.role === "super_admin" \|\| session\.role === "admin" \|\| session\.role === "marketing"/);
 
   // Frontend imports assertions
   assert.match(preWorkshop, /import \{ openActivityHistory \} from "\.\/activity-history\.js"/);
@@ -1002,8 +1005,7 @@ test("counselor lead list rows expose MCUBE click-to-call buttons", () => {
     "pre-workshop.js",
     "post-workshop.js",
     "registered-candidates.js",
-    "main-admission-leads.js",
-    "lead-browse.js"
+    "main-admission-leads.js"
   ];
 
   assert.match(service, /apiUrl\("\/api\/mcube\/click-to-call"\)/);
@@ -1014,6 +1016,8 @@ test("counselor lead list rows expose MCUBE click-to-call buttons", () => {
     assert.match(source, /triggerMcubeClickToCall/);
     assert.match(source, /btn-mcube-call/);
   });
+  assert.doesNotMatch(read("lead-browse.js"), /btn-mcube-call/);
+  assert.doesNotMatch(read("lead-browse.js"), /triggerMcubeClickToCall/);
 });
 
 test("ReachOut templates do not respawn default seeded templates after removal", () => {

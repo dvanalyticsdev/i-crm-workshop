@@ -11003,7 +11003,7 @@ app.get("/api/activity-logs", async (req, res) => {
           { performedBy: { $regex: new RegExp("^" + escapeRegExp(session.name || session.email || "") + "$", "i") } }
         ];
       }
-    } else if (session.role === "admin" || session.role === "marketing") {
+    } else if (session.role === "super_admin" || session.role === "admin" || session.role === "marketing") {
       if (targetLeadId) {
         query.leadId = { $in: leadIdsToQuery };
       }
