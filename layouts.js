@@ -684,11 +684,6 @@ function enforceAccess(session) {
     return true;
   }
 
-  if (currentRoute === "counselor-management.html" && session.role !== "super_admin") {
-    window.location.href = getFirstAllowedPage(permissions);
-    return false;
-  }
-
   if (!permissions[permissionKey]) {
     window.location.href = getFirstAllowedPage(permissions);
     return false;

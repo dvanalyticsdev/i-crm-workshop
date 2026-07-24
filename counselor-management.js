@@ -4,6 +4,7 @@ import {
   getAdminUsers as getStoredAdminUsers,
   getAllocation as getStoredAllocation,
   getCounselors as getStoredCounselors,
+  getSession,
   getLeads as getStoredLeads,
   getMarketingUsers as getStoredMarketingUsers,
   saveAdminUsers as persistAdminUsers,
@@ -38,6 +39,7 @@ const ADMIN_DEFAULT_PERMISSIONS = {
   taskTracker: true,
   lostLeads: true,
   monitoring: true,
+  counselorManagement: true,
   leadControl: true,
   metaIntegration: true,
   elementorIntegration: true,
@@ -69,7 +71,8 @@ const ADMIN_PERMISSION_OPTIONS = [
   { key: "claimRaised", label: "Claim Raised" },
   { key: "leadCreation", label: "Lead Creation" },
   { key: "admissionSop", label: "SOP Tracker" },
-  { key: "taskTracker", label: "Task Tracker" }
+  { key: "taskTracker", label: "Task Tracker" },
+  { key: "counselorManagement", label: "Counselor Management" }
 ];
 const BRANCH_OPTIONS = ["Bangalore", "Bhubaneswar"];
 const DEFAULT_BRANCH = "Bangalore";
@@ -87,6 +90,7 @@ const adminSearchInput = document.getElementById("adminSearchInput");
 const marketingSearchInput = document.getElementById("marketingSearchInput");
 const managementSummarySection = document.getElementById("managementSummarySection");
 const adminPermissionsGrid = document.getElementById("adminPermissionsGrid");
+const adminCreateCard = document.getElementById("adminCreateCard");
 const userDetailsModal = document.getElementById("userDetailsModal");
 const userDetailsTitle = document.getElementById("userDetailsTitle");
 const userDetailsSubtitle = document.getElementById("userDetailsSubtitle");
@@ -119,6 +123,12 @@ let counselorSearchTerm = "";
 let adminSearchTerm = "";
 let marketingSearchTerm = "";
 let activeDetailsUser = null;
+const activeSession = getSession();
+const isSuperAdminSession = activeSession?.role === "super_admin";
+
+if (adminCreateCard) {
+  adminCreateCard.classList.toggle("hidden", !isSuperAdminSession);
+}
 
 function setPasswordChangeMessage(text, isError = true) {
   if (!passwordChangeMessage) {
@@ -873,6 +883,11 @@ function renderAdminList() {
 if (adminForm) {
   adminForm.addEventListener("submit", async (event) => {
     event.preventDefault();
+
+    if (!isSuperAdminSession) {
+      setAdminMessage("Only the superadmin can create new admins.", true);
+      return;
+    }
 
     const name = document.getElementById("adminName").value.trim();
     const phone = document.getElementById("adminPhone").value.trim();
