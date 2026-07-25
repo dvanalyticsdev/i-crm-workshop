@@ -20,8 +20,10 @@ const MONGODB_META_LOGS_COLLECTION = process.env.MONGODB_META_LOGS_COLLECTION ||
 const MONGODB_META_RETRY_COLLECTION = process.env.MONGODB_META_RETRY_COLLECTION || "meta_retry_jobs";
 const MONGODB_ELEMENTOR_CONFIG_COLLECTION = process.env.MONGODB_ELEMENTOR_CONFIG_COLLECTION || "elementor_config";
 const MONGODB_ELEMENTOR_LOGS_COLLECTION = process.env.MONGODB_ELEMENTOR_LOGS_COLLECTION || "elementor_logs";
+const MONGODB_ELEMENTOR_RETRY_COLLECTION = process.env.MONGODB_ELEMENTOR_RETRY_COLLECTION || "elementor_retry_jobs";
 const MONGODB_MCUBE_CONFIG_COLLECTION = process.env.MONGODB_MCUBE_CONFIG_COLLECTION || "mcube_config";
 const MONGODB_MCUBE_LOGS_COLLECTION = process.env.MONGODB_MCUBE_LOGS_COLLECTION || "mcube_logs";
+const MONGODB_MCUBE_RETRY_COLLECTION = process.env.MONGODB_MCUBE_RETRY_COLLECTION || "mcube_retry_jobs";
 const MONGODB_REACHOUT_CONFIG_COLLECTION = process.env.MONGODB_REACHOUT_CONFIG_COLLECTION || "reachout_config";
 const MONGODB_REACHOUT_LOGS_COLLECTION = process.env.MONGODB_REACHOUT_LOGS_COLLECTION || "reachout_logs";
 const MONGODB_REACHOUT_MEDIA_COLLECTION = process.env.MONGODB_REACHOUT_MEDIA_COLLECTION || "reachout_media";
@@ -47,6 +49,8 @@ const FORWARDED_WEBHOOK_SIGNATURE_HEADER = "x-dv-webhook-signature";
 const META_LEAD_FETCH_TIMEOUT_MS = 20000;
 const META_LEAD_FETCH_MAX_ATTEMPTS = 3;
 const META_RETRY_JOB_MAX_ATTEMPTS = 10;
+const ELEMENTOR_RETRY_JOB_MAX_ATTEMPTS = 10;
+const MCUBE_RETRY_JOB_MAX_ATTEMPTS = 10;
 const PUBLIC_COURSE_DEFAULT_SEGMENT = "standard";
 const PUBLIC_COURSE_CRASH_SEGMENT = "crash-course";
 const PUBLIC_COURSE_SEGMENT_CONFIG = {
@@ -227,7 +231,11 @@ app.get("/api/warm", async (_req, res) => {
       { _id: META_CONFIG_DOC_ID },
       { projection: { _id: 1 } }
     ).catch(() => undefined);
-    await processPendingMetaRetryJobs({ limit: 3 }).catch(() => undefined);
+    await Promise.all([
+      processPendingMetaRetryJobs({ limit: 3 }).catch(() => undefined),
+      processPendingElementorRetryJobs({ limit: 3 }).catch(() => undefined),
+      processPendingMcubeRetryJobs({ limit: 3 }).catch(() => undefined)
+    ]);
     res.setHeader("Content-Type", "application/json");
     res.setHeader("Cache-Control", "no-store");
     res.end('{"ok":true}');
@@ -279,8 +287,10 @@ let metaLogsCollection;
 let metaRetryCollection;
 let elementorConfigCollection;
 let elementorLogsCollection;
+let elementorRetryCollection;
 let mcubeConfigCollection;
 let mcubeLogsCollection;
+let mcubeRetryCollection;
 let reachoutConfigCollection;
 let reachoutLogsCollection;
 let reachoutMediaCollection;
@@ -344,8 +354,10 @@ async function resetMongoConnection() {
   metaRetryCollection = null;
   elementorConfigCollection = null;
   elementorLogsCollection = null;
+  elementorRetryCollection = null;
   mcubeConfigCollection = null;
   mcubeLogsCollection = null;
+  mcubeRetryCollection = null;
   reachoutConfigCollection = null;
   reachoutLogsCollection = null;
   reachoutMediaCollection = null;
@@ -757,14 +769,30 @@ function normalizeBackupDocArray(docs = []) {
 }
 
 async function buildBackupPayload() {
-  const [state, preferences, metaConfig, metaLogs, metaRetryJobs, mcubeConfig, mcubeLogs] = await Promise.all([
+  const [
+    state,
+    preferences,
+    metaConfig,
+    metaLogs,
+    metaRetryJobs,
+    elementorConfig,
+    elementorLogs,
+    elementorRetryJobs,
+    mcubeConfig,
+    mcubeLogs,
+    mcubeRetryJobs
+  ] = await Promise.all([
     getStateDoc(),
     preferenceCollection.find({}).toArray(),
     metaConfigCollection.findOne({ _id: META_CONFIG_DOC_ID }),
     metaLogsCollection.find({}).sort({ receivedAt: 1 }).toArray(),
     metaRetryCollection.find({}).sort({ createdAt: 1 }).toArray(),
+    elementorConfigCollection.findOne({ _id: ELEMENTOR_CONFIG_DOC_ID }),
+    elementorLogsCollection.find({}).sort({ receivedAt: 1 }).toArray(),
+    elementorRetryCollection.find({}).sort({ createdAt: 1 }).toArray(),
     mcubeConfigCollection.findOne({ _id: MCUBE_CONFIG_DOC_ID }),
-    mcubeLogsCollection.find({}).sort({ receivedAt: 1 }).toArray()
+    mcubeLogsCollection.find({}).sort({ receivedAt: 1 }).toArray(),
+    mcubeRetryCollection.find({}).sort({ createdAt: 1 }).toArray()
   ]);
 
   const stateDoc = normalizeStateDoc(state);
@@ -779,8 +807,12 @@ async function buildBackupPayload() {
       metaConfigCollection: MONGODB_META_CONFIG_COLLECTION,
       metaLogsCollection: MONGODB_META_LOGS_COLLECTION,
       metaRetryCollection: MONGODB_META_RETRY_COLLECTION,
+      elementorConfigCollection: MONGODB_ELEMENTOR_CONFIG_COLLECTION,
+      elementorLogsCollection: MONGODB_ELEMENTOR_LOGS_COLLECTION,
+      elementorRetryCollection: MONGODB_ELEMENTOR_RETRY_COLLECTION,
       mcubeConfigCollection: MONGODB_MCUBE_CONFIG_COLLECTION,
-      mcubeLogsCollection: MONGODB_MCUBE_LOGS_COLLECTION
+      mcubeLogsCollection: MONGODB_MCUBE_LOGS_COLLECTION,
+      mcubeRetryCollection: MONGODB_MCUBE_RETRY_COLLECTION
     },
     summary: {
       leads: stateDoc.leads.length,
@@ -791,7 +823,10 @@ async function buildBackupPayload() {
       preferences: preferences.length,
       metaLogs: metaLogs.length,
       metaRetryJobs: metaRetryJobs.length,
-      mcubeLogs: mcubeLogs.length
+      elementorLogs: elementorLogs.length,
+      elementorRetryJobs: elementorRetryJobs.length,
+      mcubeLogs: mcubeLogs.length,
+      mcubeRetryJobs: mcubeRetryJobs.length
     },
     snapshot: {
       state: stateDoc,
@@ -799,8 +834,12 @@ async function buildBackupPayload() {
       metaConfig: metaConfig ? normalizeBackupDoc(metaConfig, META_CONFIG_DOC_ID) : null,
       metaLogs: normalizeBackupDocArray(metaLogs),
       metaRetryJobs: normalizeBackupDocArray(metaRetryJobs),
+      elementorConfig: elementorConfig ? normalizeBackupDoc(elementorConfig, ELEMENTOR_CONFIG_DOC_ID) : null,
+      elementorLogs: normalizeBackupDocArray(elementorLogs),
+      elementorRetryJobs: normalizeBackupDocArray(elementorRetryJobs),
       mcubeConfig: mcubeConfig ? normalizeBackupDoc(mcubeConfig, MCUBE_CONFIG_DOC_ID) : null,
-      mcubeLogs: normalizeBackupDocArray(mcubeLogs)
+      mcubeLogs: normalizeBackupDocArray(mcubeLogs),
+      mcubeRetryJobs: normalizeBackupDocArray(mcubeRetryJobs)
     }
   };
 
@@ -834,9 +873,15 @@ function validateBackupPayload(payload = {}) {
   const preferences = normalizeBackupDocArray(snapshot.preferences);
   const metaLogs = normalizeBackupDocArray(snapshot.metaLogs);
   const metaRetryJobs = normalizeBackupDocArray(snapshot.metaRetryJobs);
+  const elementorLogs = normalizeBackupDocArray(snapshot.elementorLogs);
+  const elementorRetryJobs = normalizeBackupDocArray(snapshot.elementorRetryJobs);
   const mcubeLogs = normalizeBackupDocArray(snapshot.mcubeLogs);
+  const mcubeRetryJobs = normalizeBackupDocArray(snapshot.mcubeRetryJobs);
   const metaConfig = snapshot.metaConfig
     ? normalizeBackupDoc(snapshot.metaConfig, META_CONFIG_DOC_ID)
+    : null;
+  const elementorConfig = snapshot.elementorConfig
+    ? normalizeBackupDoc(snapshot.elementorConfig, ELEMENTOR_CONFIG_DOC_ID)
     : null;
   const mcubeConfig = snapshot.mcubeConfig
     ? normalizeBackupDoc(snapshot.mcubeConfig, MCUBE_CONFIG_DOC_ID)
@@ -850,8 +895,12 @@ function validateBackupPayload(payload = {}) {
       metaConfig,
       metaLogs,
       metaRetryJobs,
+      elementorConfig,
+      elementorLogs,
+      elementorRetryJobs,
       mcubeConfig,
-      mcubeLogs
+      mcubeLogs,
+      mcubeRetryJobs
     }
   };
 }
@@ -892,8 +941,10 @@ async function initMongo() {
         metaRetryCollection  = db.collection(MONGODB_META_RETRY_COLLECTION);
         elementorConfigCollection = db.collection(MONGODB_ELEMENTOR_CONFIG_COLLECTION);
         elementorLogsCollection = db.collection(MONGODB_ELEMENTOR_LOGS_COLLECTION);
+        elementorRetryCollection = db.collection(MONGODB_ELEMENTOR_RETRY_COLLECTION);
         mcubeConfigCollection = db.collection(MONGODB_MCUBE_CONFIG_COLLECTION);
         mcubeLogsCollection = db.collection(MONGODB_MCUBE_LOGS_COLLECTION);
+        mcubeRetryCollection = db.collection(MONGODB_MCUBE_RETRY_COLLECTION);
         reachoutConfigCollection = db.collection(MONGODB_REACHOUT_CONFIG_COLLECTION);
         reachoutLogsCollection = db.collection(MONGODB_REACHOUT_LOGS_COLLECTION);
         reachoutMediaCollection = db.collection(MONGODB_REACHOUT_MEDIA_COLLECTION);
@@ -959,6 +1010,22 @@ async function initMongo() {
           { unique: true, background: true }
         ).catch(() => undefined);
         await metaRetryCollection.createIndex(
+          { nextAttemptAt: 1 },
+          { background: true }
+        ).catch(() => undefined);
+        await elementorRetryCollection.createIndex(
+          { dedupeKey: 1 },
+          { unique: true, background: true }
+        ).catch(() => undefined);
+        await elementorRetryCollection.createIndex(
+          { nextAttemptAt: 1 },
+          { background: true }
+        ).catch(() => undefined);
+        await mcubeRetryCollection.createIndex(
+          { dedupeKey: 1 },
+          { unique: true, background: true }
+        ).catch(() => undefined);
+        await mcubeRetryCollection.createIndex(
           { nextAttemptAt: 1 },
           { background: true }
         ).catch(() => undefined);
@@ -1082,8 +1149,10 @@ async function initMongo() {
         metaRetryCollection  = new MockCollection("metaRetry");
         elementorConfigCollection = new MockCollection("elementorConfig");
         elementorLogsCollection = new MockCollection("elementorLogs");
+        elementorRetryCollection = new MockCollection("elementorRetry");
         mcubeConfigCollection = new MockCollection("mcubeConfig");
         mcubeLogsCollection = new MockCollection("mcubeLogs");
+        mcubeRetryCollection = new MockCollection("mcubeRetry");
         reachoutConfigCollection = new MockCollection("reachoutConfig");
         reachoutLogsCollection = new MockCollection("reachoutLogs");
         reachoutMediaCollection = new MockCollection("reachoutMedia");
@@ -3968,20 +4037,33 @@ async function createMcubeFollowUpTask(lead, event, session = null) {
   return task;
 }
 
-async function processMcubeWebhookPayload(req, body) {
+async function processMcubeWebhookPayload(req, body, options = {}) {
+  const retryJobId = options.retryJobId || null;
   const config = await getMcubeConfig();
   if (!config.enabled || !config.enableEventSync) {
+    if (retryJobId) {
+      await withMongoRetry(
+        () => mcubeRetryCollection.deleteOne({ _id: retryJobId }),
+        { retries: 1, label: "Delete skipped MCUBE retry job" }
+      ).catch(() => undefined);
+    }
     await saveMcubeLog({ type: "ignored", message: "Integration disabled or event sync turned off." });
     return;
   }
 
-  if (!verifyMcubeWebhookSignature(req.rawBody, req, config.webhookSecret)) {
+  if (!options.skipSignatureVerification && !verifyMcubeWebhookSignature(req.rawBody, req, config.webhookSecret)) {
     await saveMcubeLog({ type: "error", message: "Webhook signature verification failed." });
     return;
   }
 
   const event = normalizeMcubeEvent(body);
   if (!event.callId && !event.phone && !event.leadId && !event.eventType) {
+    if (retryJobId) {
+      await withMongoRetry(
+        () => mcubeRetryCollection.deleteOne({ _id: retryJobId }),
+        { retries: 1, label: "Delete empty MCUBE retry job" }
+      ).catch(() => undefined);
+    }
     await saveMcubeLog({ type: "ignored", message: "Webhook received without usable MCUBE event fields." });
     return;
   }
@@ -4038,6 +4120,12 @@ async function processMcubeWebhookPayload(req, body) {
   }
 
   if (!lead) {
+    if (retryJobId) {
+      await withMongoRetry(
+        () => mcubeRetryCollection.deleteOne({ _id: retryJobId }),
+        { retries: 1, label: "Delete unmatched MCUBE retry job" }
+      ).catch(() => undefined);
+    }
     await saveMcubeLog({
       type: "ignored",
       message: "No matching lead found for MCUBE event.",
@@ -4165,9 +4253,16 @@ async function processMcubeWebhookPayload(req, body) {
   cachedStateDoc = null;
   cachedStateDocAt = 0;
 
+  if (retryJobId) {
+    await withMongoRetry(
+      () => mcubeRetryCollection.deleteOne({ _id: retryJobId }),
+      { retries: 1, label: "Delete processed MCUBE retry job" }
+    ).catch(() => undefined);
+  }
+
   await saveMcubeLog({
     type: "success",
-    message: `MCUBE event processed for ${nextLead.name}${normalizedStatus ? ` (${normalizedStatus})` : ""}.`,
+    message: `MCUBE ${retryJobId ? "retried " : ""}event processed for ${nextLead.name}${normalizedStatus ? ` (${normalizedStatus})` : ""}.`,
     leadId: nextLead.id,
     leadName: nextLead.name,
     counselor: nextLead.counselor,
@@ -4534,7 +4629,10 @@ app.delete("/api/meta/logs", async (req, res) => {
     if (!activeSession || !["super_admin", "admin"].includes(activeSession.session.role)) {
       return res.status(403).json({ message: "Admin access required." });
     }
-    await metaLogsCollection.deleteMany({});
+    await Promise.all([
+      metaLogsCollection.deleteMany({}),
+      metaRetryCollection.deleteMany({})
+    ]);
     await metaConfigCollection.updateOne(
       { _id: META_CONFIG_DOC_ID },
       {
@@ -4694,6 +4792,38 @@ app.get("/api/elementor/logs", async (req, res) => {
   }
 });
 
+app.get("/api/elementor/retry-jobs", async (req, res) => {
+  try {
+    await initMongo();
+    const activeSession = await getSessionFromRequest(req);
+    if (!activeSession || !["super_admin", "admin", "marketing"].includes(activeSession.session.role)) {
+      return res.status(403).json({ message: "Access required." });
+    }
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const jobs = await elementorRetryCollection
+      .find({}, {
+        projection: {
+          _id: 0,
+          formId: 1,
+          formName: 1,
+          pageUrl: 1,
+          reason: 1,
+          lastError: 1,
+          attempts: 1,
+          nextAttemptAt: 1,
+          createdAt: 1,
+          updatedAt: 1
+        }
+      })
+      .sort({ nextAttemptAt: 1, createdAt: 1 })
+      .limit(limit)
+      .toArray();
+    return res.json({ jobs });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to fetch Elementor retry jobs.", details: err.message });
+  }
+});
+
 app.delete("/api/elementor/logs", async (req, res) => {
   try {
     await initMongo();
@@ -4701,7 +4831,10 @@ app.delete("/api/elementor/logs", async (req, res) => {
     if (!activeSession || !["super_admin", "admin"].includes(activeSession.session.role)) {
       return res.status(403).json({ message: "Admin access required." });
     }
-    await elementorLogsCollection.deleteMany({});
+    await Promise.all([
+      elementorLogsCollection.deleteMany({}),
+      elementorRetryCollection.deleteMany({})
+    ]);
     await elementorConfigCollection.updateOne(
       { _id: ELEMENTOR_CONFIG_DOC_ID },
       {
@@ -4928,6 +5061,41 @@ app.get("/api/mcube/logs", async (req, res) => {
   }
 });
 
+app.get("/api/mcube/retry-jobs", async (req, res) => {
+  try {
+    await initMongo();
+    const activeSession = await getSessionFromRequest(req);
+    if (!activeSession || !["super_admin", "admin", "marketing"].includes(activeSession.session.role)) {
+      return res.status(403).json({ message: "Access required." });
+    }
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const jobs = await mcubeRetryCollection
+      .find({}, {
+        projection: {
+          _id: 0,
+          jobType: 1,
+          leadId: 1,
+          leadName: 1,
+          phone: 1,
+          callId: 1,
+          eventType: 1,
+          reason: 1,
+          lastError: 1,
+          attempts: 1,
+          nextAttemptAt: 1,
+          createdAt: 1,
+          updatedAt: 1
+        }
+      })
+      .sort({ nextAttemptAt: 1, createdAt: 1 })
+      .limit(limit)
+      .toArray();
+    return res.json({ jobs });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to fetch MCUBE retry jobs.", details: err.message });
+  }
+});
+
 app.delete("/api/mcube/logs", async (req, res) => {
   try {
     await initMongo();
@@ -4935,7 +5103,10 @@ app.delete("/api/mcube/logs", async (req, res) => {
     if (!activeSession || !["super_admin", "admin"].includes(activeSession.session.role)) {
       return res.status(403).json({ message: "Admin access required." });
     }
-    await mcubeLogsCollection.deleteMany({});
+    await Promise.all([
+      mcubeLogsCollection.deleteMany({}),
+      mcubeRetryCollection.deleteMany({})
+    ]);
     await mcubeConfigCollection.updateOne(
       { _id: MCUBE_CONFIG_DOC_ID },
       {
@@ -5663,6 +5834,24 @@ app.post("/api/mcube/webhook", async (req, res) => {
     const body = parseMcubeWebhookRequestBody(req) || {};
     await processMcubeWebhookPayload(req, body);
   } catch (err) {
+    const rawPayload = parseMcubeWebhookRequestBody(req) || {};
+    const normalized = normalizeMcubeEvent(rawPayload);
+    await enqueueMcubeRetryJob({
+      jobType: "webhook-event",
+      dedupeKey: [
+        "webhook-event",
+        String(normalized.callId || "").trim() || "-",
+        String(normalized.phone || "").trim() || "-",
+        String(normalized.eventType || "").trim() || "-"
+      ].join("|"),
+      payload: rawPayload,
+      leadId: normalized.leadId || "",
+      phone: normalized.phone || "",
+      callId: normalized.callId || "",
+      eventType: normalized.eventType || "",
+      reason: "process-webhook-event",
+      lastError: err?.message || "unknown error"
+    }).catch(() => undefined);
     try {
       await saveMcubeLog({ type: "error", message: `MCUBE webhook processing error: ${err.message || "unknown error"}` });
     } catch {}
@@ -5676,6 +5865,16 @@ app.post("/api/webhook/elementor-lead", async (req, res) => {
     const payload = req.body && typeof req.body === "object" ? req.body : {};
     await processElementorWebhookPayload(payload);
   } catch (err) {
+    const payload = req.body && typeof req.body === "object" ? req.body : {};
+    const fields = getElementorFieldMap(payload);
+    await enqueueElementorRetryJob({
+      payload,
+      formId: String(fields.form_id || "").trim(),
+      formName: String(fields.form_name || "").trim(),
+      pageUrl: String(fields.page_url || "").trim(),
+      reason: "process-webhook-event",
+      lastError: err?.message || "unknown error"
+    }).catch(() => undefined);
     try {
       await saveElementorLog({
         type: "error",
@@ -5784,6 +5983,21 @@ app.post("/api/admin/restore", async (req, res) => {
       await metaRetryCollection.insertMany(snapshot.metaRetryJobs, { ordered: true });
     }
 
+    await elementorConfigCollection.deleteMany({});
+    if (snapshot.elementorConfig) {
+      await elementorConfigCollection.insertOne(snapshot.elementorConfig);
+    }
+
+    await elementorLogsCollection.deleteMany({});
+    if (snapshot.elementorLogs.length) {
+      await elementorLogsCollection.insertMany(snapshot.elementorLogs, { ordered: true });
+    }
+
+    await elementorRetryCollection.deleteMany({});
+    if (snapshot.elementorRetryJobs.length) {
+      await elementorRetryCollection.insertMany(snapshot.elementorRetryJobs, { ordered: true });
+    }
+
     await mcubeConfigCollection.deleteMany({});
     if (snapshot.mcubeConfig) {
       await mcubeConfigCollection.insertOne(snapshot.mcubeConfig);
@@ -5792,6 +6006,11 @@ app.post("/api/admin/restore", async (req, res) => {
     await mcubeLogsCollection.deleteMany({});
     if (snapshot.mcubeLogs.length) {
       await mcubeLogsCollection.insertMany(snapshot.mcubeLogs, { ordered: true });
+    }
+
+    await mcubeRetryCollection.deleteMany({});
+    if (snapshot.mcubeRetryJobs.length) {
+      await mcubeRetryCollection.insertMany(snapshot.mcubeRetryJobs, { ordered: true });
     }
 
     metaLogWriteCount = 0;
@@ -5818,7 +6037,10 @@ app.post("/api/admin/restore", async (req, res) => {
         preferences: snapshot.preferences.length,
         metaLogs: snapshot.metaLogs.length,
         metaRetryJobs: snapshot.metaRetryJobs.length,
-        mcubeLogs: snapshot.mcubeLogs.length
+        elementorLogs: snapshot.elementorLogs.length,
+        elementorRetryJobs: snapshot.elementorRetryJobs.length,
+        mcubeLogs: snapshot.mcubeLogs.length,
+        mcubeRetryJobs: snapshot.mcubeRetryJobs.length
       },
       state: buildStateResponse(nextState)
     });
@@ -11474,6 +11696,13 @@ function getMetaRetryBackoffMs(attempts) {
   return 30 * 60 * 1000;
 }
 
+function getIntegrationRetryBackoffMs(attempts) {
+  if (attempts <= 1) return 60 * 1000;
+  if (attempts <= 3) return 3 * 60 * 1000;
+  if (attempts <= 6) return 10 * 60 * 1000;
+  return 30 * 60 * 1000;
+}
+
 async function enqueueMetaRetryJob({
   leadgenId,
   formId,
@@ -11743,7 +11972,51 @@ async function insertElementorLeadIfNew(newLead) {
   }, { retries: 1, label: "Create Elementor lead" });
 }
 
-async function processElementorLeadRecord(payload, config) {
+async function enqueueElementorRetryJob({
+  payload,
+  formId,
+  formName,
+  pageUrl,
+  reason,
+  lastError
+}) {
+  const now = new Date();
+  const dedupeKey = [
+    String(formId || "").trim() || "-",
+    String(formName || "").trim() || "-",
+    String(pageUrl || "").trim() || "-",
+    String(payload?.email || payload?.email_address || "").trim().toLowerCase() || "-",
+    String(payload?.phone_number || payload?.phone || payload?.mobile_phone || payload?.mobile || "").trim() || "-"
+  ].join("|");
+
+  await withMongoRetry(
+    () => elementorRetryCollection.updateOne(
+      { dedupeKey },
+      {
+        $set: {
+          formId: String(formId || ""),
+          formName: String(formName || ""),
+          pageUrl: String(pageUrl || ""),
+          reason: String(reason || "unknown"),
+          lastError: String(lastError || ""),
+          payload: payload && typeof payload === "object" ? payload : {},
+          updatedAt: now.toISOString(),
+          nextAttemptAt: new Date(now.getTime() + 60 * 1000).toISOString()
+        },
+        $setOnInsert: {
+          dedupeKey,
+          attempts: 0,
+          createdAt: now.toISOString()
+        }
+      },
+      { upsert: true }
+    ),
+    { retries: 1, label: "Queue Elementor retry job" }
+  );
+}
+
+async function processElementorLeadRecord(payload, config, options = {}) {
+  const retryJobId = options.retryJobId || null;
   const fields = getElementorFieldMap(payload);
   const formId = String(fields.form_id || "").trim();
   const formName = String(fields.form_name || "").trim();
@@ -11813,6 +12086,12 @@ async function processElementorLeadRecord(payload, config) {
   const duplicateLead = findDuplicateLeadByEmailOrPhone(snapshot.leads, newLead);
 
   if (duplicateLead) {
+    if (retryJobId) {
+      await withMongoRetry(
+        () => elementorRetryCollection.deleteOne({ _id: retryJobId }),
+        { retries: 1, label: "Delete duplicate Elementor retry job" }
+      );
+    }
     const updatedLead = await updateExistingIntegrationLead(duplicateLead, newLead, {
       source: "Elementor"
     });
@@ -11836,6 +12115,12 @@ async function processElementorLeadRecord(payload, config) {
   cachedStateDocAt = 0;
 
   if (!result?.modifiedCount && !result?.upsertedCount) {
+    if (retryJobId) {
+      await withMongoRetry(
+        () => elementorRetryCollection.deleteOne({ _id: retryJobId }),
+        { retries: 1, label: "Delete duplicate Elementor retry job" }
+      );
+    }
     await saveElementorLog({
       type: "ignored",
       message: "Duplicate lead (already imported)",
@@ -11844,6 +12129,13 @@ async function processElementorLeadRecord(payload, config) {
       pageUrl
     });
     return;
+  }
+
+  if (retryJobId) {
+    await withMongoRetry(
+      () => elementorRetryCollection.deleteOne({ _id: retryJobId }),
+      { retries: 1, label: "Delete processed Elementor retry job" }
+    );
   }
 
   await saveElementorLog({
@@ -11920,7 +12212,19 @@ async function processElementorWebhookPayload(payload) {
     return;
   }
 
-  await processElementorLeadRecord(payload, config);
+  try {
+    await processElementorLeadRecord(payload, config);
+  } catch (error) {
+    await enqueueElementorRetryJob({
+      payload,
+      formId,
+      formName,
+      pageUrl,
+      reason: "process-lead-record",
+      lastError: error?.message || "unknown error"
+    }).catch(() => undefined);
+    throw error;
+  }
 }
 
 async function processPendingMetaRetryJobs({ limit = 3 } = {}) {
@@ -11973,6 +12277,146 @@ async function processPendingMetaRetryJobs({ limit = 3 } = {}) {
           }
         ),
         { retries: 1, label: "Update Meta retry job" }
+      ).catch(() => undefined);
+    }
+  }
+}
+
+async function enqueueMcubeRetryJob({
+  jobType,
+  dedupeKey,
+  payload = {},
+  leadId = "",
+  leadName = "",
+  phone = "",
+  callId = "",
+  eventType = "",
+  reason,
+  lastError
+}) {
+  const now = new Date();
+  const safeKey = String(dedupeKey || "").trim();
+  if (!safeKey) return;
+
+  await withMongoRetry(
+    () => mcubeRetryCollection.updateOne(
+      { dedupeKey: safeKey },
+      {
+        $set: {
+          jobType: String(jobType || "mcube"),
+          payload: payload && typeof payload === "object" ? payload : {},
+          leadId: String(leadId || ""),
+          leadName: String(leadName || ""),
+          phone: String(phone || ""),
+          callId: String(callId || ""),
+          eventType: String(eventType || ""),
+          reason: String(reason || "unknown"),
+          lastError: String(lastError || ""),
+          updatedAt: now.toISOString(),
+          nextAttemptAt: new Date(now.getTime() + 60 * 1000).toISOString()
+        },
+        $setOnInsert: {
+          dedupeKey: safeKey,
+          attempts: 0,
+          createdAt: now.toISOString()
+        }
+      },
+      { upsert: true }
+    ),
+    { retries: 1, label: "Queue MCUBE retry job" }
+  );
+}
+
+async function processPendingElementorRetryJobs({ limit = 3 } = {}) {
+  const nowIso = new Date().toISOString();
+  const jobs = await withMongoRetry(
+    () => elementorRetryCollection
+      .find({
+        nextAttemptAt: { $lte: nowIso },
+        attempts: { $lt: ELEMENTOR_RETRY_JOB_MAX_ATTEMPTS }
+      })
+      .sort({ nextAttemptAt: 1, createdAt: 1 })
+      .limit(limit)
+      .toArray(),
+    { retries: 1, label: "Load Elementor retry jobs" }
+  );
+
+  if (!jobs.length) return;
+
+  const config = await getElementorConfig();
+  if (!config.enabled) return;
+
+  for (const job of jobs) {
+    try {
+      await processElementorLeadRecord(job.payload || {}, config, { retryJobId: job._id });
+    } catch (error) {
+      const attempts = Number(job.attempts || 0) + 1;
+      await withMongoRetry(
+        () => elementorRetryCollection.updateOne(
+          { _id: job._id },
+          {
+            $set: {
+              attempts,
+              lastError: String(error?.message || "unknown error"),
+              updatedAt: new Date().toISOString(),
+              nextAttemptAt: new Date(Date.now() + getIntegrationRetryBackoffMs(attempts)).toISOString()
+            }
+          }
+        ),
+        { retries: 1, label: "Update Elementor retry job" }
+      ).catch(() => undefined);
+    }
+  }
+}
+
+async function processPendingMcubeRetryJobs({ limit = 3 } = {}) {
+  const nowIso = new Date().toISOString();
+  const jobs = await withMongoRetry(
+    () => mcubeRetryCollection
+      .find({
+        nextAttemptAt: { $lte: nowIso },
+        attempts: { $lt: MCUBE_RETRY_JOB_MAX_ATTEMPTS }
+      })
+      .sort({ nextAttemptAt: 1, createdAt: 1 })
+      .limit(limit)
+      .toArray(),
+    { retries: 1, label: "Load MCUBE retry jobs" }
+  );
+
+  if (!jobs.length) return;
+
+  const config = await getMcubeConfig();
+  if (!config.enabled) return;
+
+  for (const job of jobs) {
+    try {
+      if (job.jobType === "webhook-event") {
+        await processMcubeWebhookPayload({ rawBody: null, headers: {} }, job.payload || {}, {
+          skipSignatureVerification: true,
+          retryJobId: job._id
+        });
+        continue;
+      }
+
+      await withMongoRetry(
+        () => mcubeRetryCollection.deleteOne({ _id: job._id }),
+        { retries: 1, label: "Delete unsupported MCUBE retry job" }
+      );
+    } catch (error) {
+      const attempts = Number(job.attempts || 0) + 1;
+      await withMongoRetry(
+        () => mcubeRetryCollection.updateOne(
+          { _id: job._id },
+          {
+            $set: {
+              attempts,
+              lastError: String(error?.message || "unknown error"),
+              updatedAt: new Date().toISOString(),
+              nextAttemptAt: new Date(Date.now() + getIntegrationRetryBackoffMs(attempts)).toISOString()
+            }
+          }
+        ),
+        { retries: 1, label: "Update MCUBE retry job" }
       ).catch(() => undefined);
     }
   }

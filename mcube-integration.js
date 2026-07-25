@@ -51,8 +51,11 @@ const logTypeFilter = document.getElementById("logTypeFilter");
 const logSummarySuccess = document.getElementById("logSummarySuccess");
 const logSummaryIgnored = document.getElementById("logSummaryIgnored");
 const logSummaryError = document.getElementById("logSummaryError");
+const retryQueueCount = document.getElementById("retryQueueCount");
+const retryQueueWrap = document.getElementById("retryQueueWrap");
 
 let allLogs = [];
+let retryJobs = [];
 
 function showMessage(el, text, isError = false) {
   if (!el) return;
@@ -262,6 +265,43 @@ function renderLogSummary(summary = {}) {
   logSummarySuccess.textContent = String(counts.success);
   logSummaryIgnored.textContent = String(counts.ignored);
   logSummaryError.textContent = String(counts.error);
+}
+
+function renderRetryQueue(jobs, errorMessage = "") {
+  if (retryQueueCount) retryQueueCount.textContent = `${jobs.length} active`;
+  if (!retryQueueWrap) return;
+  if (errorMessage) {
+    retryQueueWrap.innerHTML = `<div class="retry-panel__empty" style="color:var(--danger)">Failed to load pending errors: ${escapeHtml(errorMessage)}</div>`;
+    return;
+  }
+  if (!jobs.length) {
+    retryQueueWrap.innerHTML = '<div class="retry-panel__empty">No pending errors. When a failed MCUBE event is retried successfully, it disappears from this list and shows up in Success logs.</div>';
+    return;
+  }
+  retryQueueWrap.innerHTML = `
+    <table class="retry-table">
+      <thead>
+        <tr>
+          <th>Job</th>
+          <th>Status</th>
+          <th>Attempts</th>
+          <th>Next Retry</th>
+          <th>Last Error</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${jobs.map((job) => `
+          <tr>
+            <td>${escapeHtml([job.jobType || "-", job.leadName || job.leadId || job.phone || job.callId || "-"].join(" / "))}</td>
+            <td><span class="retry-badge">Pending Retry</span></td>
+            <td>${escapeHtml(String(job.attempts || 0))}</td>
+            <td>${escapeHtml(formatTime(job.nextAttemptAt))}</td>
+            <td>${escapeHtml(job.lastError || job.reason || "-")}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
 }
 
 async function loadConfig() {
@@ -485,6 +525,52 @@ async function resetRoundRobin() {
     resetRrBtn.disabled = false;
   }
 }
+
+loadLogs = async function loadLogsWithRetryQueue() {
+  logsTableBody.innerHTML = '<tr><td colspan="7" class="log-empty">Loading...</td></tr>';
+  try {
+    const [logsRes, retryRes] = await Promise.all([
+      fetch(apiUrl("/api/mcube/logs?limit=50"), { credentials: "same-origin" }),
+      fetch(apiUrl("/api/mcube/retry-jobs?limit=50"), { credentials: "same-origin" })
+    ]);
+    if (!logsRes.ok) throw new Error(`HTTP ${logsRes.status}`);
+    if (!retryRes.ok) throw new Error(`HTTP ${retryRes.status}`);
+    const payload = await logsRes.json();
+    const retryPayload = await retryRes.json();
+    allLogs = Array.isArray(payload?.logs) ? payload.logs : [];
+    retryJobs = Array.isArray(retryPayload?.jobs) ? retryPayload.jobs : [];
+    renderLogSummary(payload?.summary);
+    renderRetryQueue(retryJobs);
+    renderLogs(allLogs);
+  } catch (err) {
+    allLogs = [];
+    retryJobs = [];
+    renderLogSummary();
+    renderRetryQueue(retryJobs, err.message);
+    logsTableBody.innerHTML = `<tr><td colspan="7" class="log-empty" style="color:var(--danger)">Failed to load logs: ${escapeHtml(err.message)}</td></tr>`;
+  }
+};
+
+clearLogs = async function clearLogsWithRetryQueue() {
+  if (!window.confirm("Clear all MCUBE logs? This cannot be undone.")) return;
+  clearLogsBtn.disabled = true;
+  try {
+    const res = await fetch(apiUrl("/api/mcube/logs"), {
+      method: "DELETE",
+      credentials: "same-origin"
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    allLogs = [];
+    retryJobs = [];
+    renderLogSummary();
+    renderRetryQueue(retryJobs);
+    renderLogs([]);
+  } catch (err) {
+    showMessage(rrMessage, `Failed to clear logs: ${err.message}`, true);
+  } finally {
+    clearLogsBtn.disabled = false;
+  }
+};
 
 document.querySelectorAll(".toggle-secret-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
