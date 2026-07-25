@@ -215,7 +215,15 @@ function toDateKey(date) {
 }
 
 function parseDateKey(dateKey) {
-  const [year, month, day] = String(dateKey || "").split("-").map(Number);
+  const raw = String(dateKey || "").trim();
+  if (!raw) {
+    return new Date(REFERENCE_TODAY);
+  }
+  const directParsed = new Date(raw);
+  if (!Number.isNaN(directParsed.getTime())) {
+    return directParsed;
+  }
+  const [year, month, day] = raw.split("-").map(Number);
   return new Date(year, (month || 1) - 1, day || 1);
 }
 

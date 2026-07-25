@@ -597,9 +597,26 @@ function isDashboardExcludedPipeline(lead) {
 function parseDateKeyToTime(value) {
   const raw = String(value || "").trim();
   if (!raw) return null;
+  const parsed = new Date(raw).getTime();
+  if (Number.isFinite(parsed)) {
+    return parsed;
+  }
   const [year, month, day] = raw.split("-").map(Number);
   if (!year || !month || !day) return null;
   return new Date(year, month - 1, day).getTime();
+}
+
+function normalizeDashboardDateKey(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return raw;
+  }
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+  return toKolkataDateKey(parsed);
 }
 
 function buildDashboardSummary(state) {
@@ -641,7 +658,7 @@ function buildDashboardSummary(state) {
       scopedLeads: leads.length
     },
     leadTimelineRows: leads.map((lead) => ({
-      createdAt: String(lead?.createdAt || "").trim(),
+      createdAt: normalizeDashboardDateKey(lead?.createdAt || lead?.createdAtExact),
       workshop: String(lead?.workshop || lead?.workshopName || "").trim(),
       admissionWorkshop: String(lead?.admissionWorkshop || lead?.courseName || lead?.workshop || "").trim(),
       stage: inferLeadStageForCallUpdate(lead).stage,
@@ -653,7 +670,7 @@ function buildDashboardSummary(state) {
     })).filter((lead) => lead.createdAt),
     workshopBreakdown: workshopEntries.slice(0, 25),
     trend: leads.reduce((accumulator, lead) => {
-      const dateKey = String(lead?.createdAt || "").trim();
+      const dateKey = normalizeDashboardDateKey(lead?.createdAt || lead?.createdAtExact);
       if (dateKey) {
         accumulator[dateKey] = (accumulator[dateKey] || 0) + 1;
       }
