@@ -595,6 +595,10 @@ test("monitoring includes a single-view MCube tab with call summary metrics", ()
   assert.match(monitoring, /if \(subsections\.length <= 1\) \{/);
   assert.match(monitoring, /function getMcubeCallEntriesInRange\(/);
   assert.match(monitoring, /function normalizeMcubeTalkTimeSeconds\(/);
+  assert.match(monitoring, /function getMcubeEntryTalkTimeSeconds\(/);
+  assert.match(monitoring, /function primeMcubeRecordingDuration\(/);
+  assert.match(monitoring, /new Audio\(\)/);
+  assert.match(monitoring, /loadedmetadata/);
   assert.match(monitoring, /function didLeadPickMcubeCall\(/);
   assert.match(monitoring, /function formatTalkTime\(/);
   assert.match(monitoring, /function scopeMcubeCallsForSession\(/);
@@ -613,6 +617,7 @@ test("monitoring includes a single-view MCube tab with call summary metrics", ()
   assert.match(monitoring, /label: "Counselor Name"/);
   assert.match(monitoring, /label: "Talk Time"/);
   assert.match(monitoring, /seconds > 8 \* 60 \* 60/);
+  assert.match(monitoring, /getMcubeEntryTalkTimeSeconds\(entry\)/);
   assert.match(monitoring, /renderMcubeView\(rawAllLeads, range\)/);
 });
 

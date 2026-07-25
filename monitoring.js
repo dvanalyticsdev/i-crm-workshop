@@ -106,6 +106,8 @@ let counselorDirectoryCache = {
   aliasToName: new Map(),
   names: []
 };
+const mcubeRecordingDurationCache = new Map();
+const mcubeRecordingDurationInflight = new Map();
 
 timelineFilter = {
   ...timelineFilter,
@@ -701,6 +703,7 @@ function getMcubeCallEntriesInRange(leads, range) {
         eventType: String(entry?.eventType || "").trim(),
         agentName: String(entry?.agentName || "").trim(),
         agentPhone: String(entry?.agentPhone || "").trim(),
+        recordingUrl: String(entry?.recordingUrl || "").trim(),
         duration
       };
 
@@ -723,6 +726,7 @@ function getMcubeCallEntriesInRange(leads, range) {
         eventType: nextEntry.eventType || previous.eventType,
         agentName: nextEntry.agentName || previous.agentName,
         agentPhone: nextEntry.agentPhone || previous.agentPhone,
+        recordingUrl: nextEntry.recordingUrl || previous.recordingUrl,
         duration
       };
       byKey.set(
@@ -733,6 +737,13 @@ function getMcubeCallEntriesInRange(leads, range) {
   });
 
   return Array.from(byKey.values());
+}
+
+function getUsableRecordingUrl(value) {
+  const url = String(value || "").trim();
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url) || url.startsWith("/")) return url;
+  return "";
 }
 
 function normalizeMcubeTalkTimeSeconds(value) {
@@ -770,6 +781,76 @@ function normalizeMcubeTalkTimeSeconds(value) {
   }
 
   return Math.round(seconds);
+}
+
+function getMcubeRecordingDurationKey(entry = {}) {
+  const callId = String(entry?.callId || "").trim();
+  if (callId) {
+    return `call:${callId}`;
+  }
+  const recordingUrl = getUsableRecordingUrl(entry?.recordingUrl);
+  if (recordingUrl) {
+    return `recording:${recordingUrl}`;
+  }
+  return "";
+}
+
+function getMcubeEntryTalkTimeSeconds(entry = {}) {
+  const storedDuration = normalizeMcubeTalkTimeSeconds(entry?.duration);
+  if (storedDuration > 0) {
+    return storedDuration;
+  }
+
+  const cacheKey = getMcubeRecordingDurationKey(entry);
+  if (!cacheKey) {
+    return 0;
+  }
+
+  return normalizeMcubeTalkTimeSeconds(mcubeRecordingDurationCache.get(cacheKey));
+}
+
+function primeMcubeRecordingDuration(entry = {}) {
+  if (normalizeMcubeTalkTimeSeconds(entry?.duration) > 0) {
+    return;
+  }
+
+  const recordingUrl = getUsableRecordingUrl(entry?.recordingUrl);
+  const cacheKey = getMcubeRecordingDurationKey(entry);
+  if (!recordingUrl || !cacheKey || mcubeRecordingDurationCache.has(cacheKey) || mcubeRecordingDurationInflight.has(cacheKey)) {
+    return;
+  }
+
+  const promise = new Promise((resolve) => {
+    const audio = new Audio();
+    const finalize = (durationSeconds) => {
+      audio.removeAttribute("src");
+      audio.load?.();
+      mcubeRecordingDurationCache.set(cacheKey, normalizeMcubeTalkTimeSeconds(durationSeconds));
+      mcubeRecordingDurationInflight.delete(cacheKey);
+      resolve();
+      if (activeView?.subsection === "mcube-main") {
+        renderAll();
+      }
+    };
+
+    audio.preload = "metadata";
+    audio.addEventListener("loadedmetadata", () => {
+      const duration = Math.round(audio.duration || 0);
+      finalize(duration);
+    }, { once: true });
+    audio.addEventListener("error", () => finalize(0), { once: true });
+    audio.src = recordingUrl;
+  });
+
+  mcubeRecordingDurationInflight.set(cacheKey, promise);
+}
+
+function primeMcubeRecordingDurations(entries = []) {
+  entries.forEach((entry) => {
+    if (didLeadPickMcubeCall(entry)) {
+      primeMcubeRecordingDuration(entry);
+    }
+  });
 }
 
 function didLeadPickMcubeCall(entry = {}) {
@@ -1324,7 +1405,10 @@ function scopeMcubeCallsForSession(entries) {
 function buildMcubeRows(rawLeads, range) {
   const grouped = new Map();
 
-  scopeMcubeCallsForSession(getMcubeCallEntriesInRange(rawLeads, range)).forEach((entry) => {
+  const calls = scopeMcubeCallsForSession(getMcubeCallEntriesInRange(rawLeads, range));
+  primeMcubeRecordingDurations(calls);
+
+  calls.forEach((entry) => {
     const counselor = getMcubeCounselorLabel(entry);
     if (!counselor || normalizeText(counselor) === "unassigned") {
       return;
@@ -1352,7 +1436,7 @@ function buildMcubeRows(rawLeads, range) {
     } else {
       current.callNotPicked += 1;
     }
-    current.talkTimeSeconds += normalizeMcubeTalkTimeSeconds(entry.duration);
+    current.talkTimeSeconds += getMcubeEntryTalkTimeSeconds(entry);
     current.talkTimeLabel = formatTalkTime(current.talkTimeSeconds);
 
     grouped.set(counselor, current);
@@ -1370,12 +1454,13 @@ function buildMcubeRows(rawLeads, range) {
 
 function renderMcubeView(rawLeads, range) {
   const calls = scopeMcubeCallsForSession(getMcubeCallEntriesInRange(rawLeads, range));
+  primeMcubeRecordingDurations(calls);
   const totalCalls = calls.length;
   const outboundCalls = calls.filter((entry) => normalizeText(entry.direction) === "outbound").length;
   const inboundCalls = calls.filter((entry) => normalizeText(entry.direction) === "inbound").length;
   const callPicked = calls.filter((entry) => didLeadPickMcubeCall(entry)).length;
   const callNotPicked = totalCalls - callPicked;
-  const totalTalkTime = calls.reduce((sum, entry) => sum + normalizeMcubeTalkTimeSeconds(entry.duration), 0);
+  const totalTalkTime = calls.reduce((sum, entry) => sum + getMcubeEntryTalkTimeSeconds(entry), 0);
   const rows = buildMcubeRows(rawLeads, range);
 
   buildMetricCards([
