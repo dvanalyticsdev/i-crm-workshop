@@ -175,7 +175,8 @@ function getScopedLeadsByView(leads) {
     if (activeDashboardView === "admission") {
       return pipeline === "main-admission" || pipeline === "course-registration";
     }
-    return pipeline !== "main-admission" && pipeline !== "course-registration";
+    const stage = String(lead?.stage || "").trim().toLowerCase();
+    return stage === "workshop";
   });
 }
 

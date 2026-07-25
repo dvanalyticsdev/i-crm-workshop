@@ -590,8 +590,7 @@ function buildStateVersionResponse(state) {
 }
 
 function isDashboardExcludedPipeline(lead) {
-  const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
-  return pipeline === "";
+  return false;
 }
 
 function parseDateKeyToTime(value) {
@@ -625,12 +624,13 @@ function buildDashboardSummary(state) {
   let latestLeadTimestamp = null;
 
   leads.forEach((lead) => {
-    const dateValue = parseDateKeyToTime(lead?.createdAt);
+    const dateValue = parseDateKeyToTime(lead?.createdAt || lead?.createdAtExact);
     if (dateValue !== null && (latestLeadTimestamp === null || dateValue > latestLeadTimestamp)) {
       latestLeadTimestamp = dateValue;
     }
 
     const workshopName = String(
+      lead?.workshop ||
       lead?.workshopName ||
       lead?.admissionWorkshop ||
       lead?.courseName ||
