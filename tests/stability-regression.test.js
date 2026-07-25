@@ -587,6 +587,24 @@ test("monitoring counselor scope includes touched leads and admins hide zero row
   assert.equal(countMatches(monitoring, /return filterVisibleMonitoringRows\(sortRowsByPriority\(counselors\.map\(/g), 4);
 });
 
+test("monitoring includes a single-view MCube tab with call summary metrics", () => {
+  const monitoring = read("monitoring.js");
+
+  assert.match(monitoring, /mcube:\s*\{/);
+  assert.match(monitoring, /"mcube-main"/);
+  assert.match(monitoring, /if \(subsections\.length <= 1\) \{/);
+  assert.match(monitoring, /function getMcubeCallEntriesInRange\(/);
+  assert.match(monitoring, /function didLeadPickMcubeCall\(/);
+  assert.match(monitoring, /function formatTalkTime\(/);
+  assert.match(monitoring, /label: "Total Calls"/);
+  assert.match(monitoring, /label: "Outbound Calls"/);
+  assert.match(monitoring, /label: "Inbound Calls"/);
+  assert.match(monitoring, /label: "Call Picked"/);
+  assert.match(monitoring, /label: "Call Not Picked \/ Not Connected"/);
+  assert.match(monitoring, /label: "Total Talk Time"/);
+  assert.match(monitoring, /renderMcubeView\(rawAllLeads, range\)/);
+});
+
 test("activity update panels can save notes into activity history", () => {
   const preWorkshopHtml = read("pre-workshop.html");
   const postWorkshopHtml = read("post-workshop.html");

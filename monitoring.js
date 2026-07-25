@@ -76,6 +76,17 @@ const VIEW_CONFIG = {
         description: "Track the isolated 7-Day Crash Course registration pipeline separately from standard registered candidates."
       }
     }
+  },
+  mcube: {
+    label: "MCube",
+    description: "Monitor MCube calling volume, connection outcomes, and total talk time across the CRM.",
+    subsections: {
+      "mcube-main": {
+        label: "MCube",
+        title: "MCube Monitoring",
+        description: "Track total calls, inbound and outbound volume, lead-picked calls, not connected calls, and talk time."
+      }
+    }
   }
 };
 
@@ -652,6 +663,91 @@ function getHistoryEntriesInRange(history, range) {
   return filterHistoryInRange(entries, range.start, range.end);
 }
 
+function getMcubeCallEntriesInRange(leads, range) {
+  const byKey = new Map();
+
+  leads.forEach((lead) => {
+    getHistoryEntriesInRange(lead?.mcubeCallHistory, range).forEach((entry, index) => {
+      const leadId = String(lead?.id || "").trim();
+      const callId = String(entry?.callId || "").trim();
+      const timestamp = String(entry?.at || "").trim();
+      const direction = String(entry?.direction || "").trim();
+      const status = String(
+        entry?.normalizedStatus
+        || entry?.disposition
+        || entry?.rawStatus
+        || entry?.eventType
+        || ""
+      ).trim();
+      const fallbackKey = [
+        leadId,
+        callId || `history-${index}`,
+        timestamp,
+        direction,
+        status
+      ].join("|");
+      const entryKey = callId ? `${leadId}|${callId}` : fallbackKey;
+      const previous = byKey.get(entryKey);
+      const duration = Math.max(Number(entry?.duration) || 0, Number(previous?.duration) || 0);
+      const nextEntry = {
+        leadId,
+        at: timestamp,
+        callId,
+        direction,
+        normalizedStatus: String(entry?.normalizedStatus || "").trim(),
+        disposition: String(entry?.disposition || "").trim(),
+        rawStatus: String(entry?.rawStatus || "").trim(),
+        eventType: String(entry?.eventType || "").trim(),
+        duration
+      };
+
+      if (!previous) {
+        byKey.set(entryKey, nextEntry);
+        return;
+      }
+
+      const previousAt = parseLocalDate(previous.at)?.getTime() || 0;
+      const nextAt = parseLocalDate(nextEntry.at)?.getTime() || 0;
+      byKey.set(
+        entryKey,
+        nextAt >= previousAt ? { ...previous, ...nextEntry } : { ...nextEntry, ...previous, duration }
+      );
+    });
+  });
+
+  return Array.from(byKey.values());
+}
+
+function didLeadPickMcubeCall(entry = {}) {
+  const status = normalizeText(
+    entry?.normalizedStatus
+    || entry?.disposition
+    || entry?.rawStatus
+    || entry?.eventType
+  );
+
+  if (!status) {
+    return false;
+  }
+
+  return /(connected|answered|completed|success)/i.test(status);
+}
+
+function formatTalkTime(totalSeconds) {
+  const seconds = Math.max(0, Number(totalSeconds) || 0);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainingSeconds = seconds % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${String(minutes).padStart(2, "0")}m ${String(remainingSeconds).padStart(2, "0")}s`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${String(remainingSeconds).padStart(2, "0")}s`;
+  }
+  return `${remainingSeconds}s`;
+}
+
 function getCounselorActivityLeadRecords(leads, historyField, counselorName, range) {
   return leads.reduce((records, lead) => {
     const matchingEntries = getHistoryEntriesInRange(lead?.[historyField], range)
@@ -962,6 +1058,14 @@ function renderSubsectionNav() {
   const activeSubsection = getActiveSubsectionConfig();
   const subsections = Object.entries(activeGroup.subsections);
 
+  if (subsections.length <= 1) {
+    monitoringSubsectionNav.innerHTML = "";
+    monitoringSubsectionNav.style.display = "none";
+    return;
+  }
+
+  monitoringSubsectionNav.style.display = "";
+
   monitoringSubsectionNav.innerHTML = `
     <div class="card-head">
       <h3>${escapeHtml(activeGroup.label)} Monitoring Views</h3>
@@ -1135,6 +1239,31 @@ function renderRegisteredView(counselors, leads, rawLeads, range) {
   ], rows, 9);
 }
 
+function renderMcubeView(rawLeads, range) {
+  const calls = getMcubeCallEntriesInRange(rawLeads, range);
+  const totalCalls = calls.length;
+  const outboundCalls = calls.filter((entry) => normalizeText(entry.direction) === "outbound").length;
+  const inboundCalls = calls.filter((entry) => normalizeText(entry.direction) === "inbound").length;
+  const callPicked = calls.filter((entry) => didLeadPickMcubeCall(entry)).length;
+  const callNotPicked = totalCalls - callPicked;
+  const totalTalkTime = calls.reduce((sum, entry) => sum + (Number(entry.duration) || 0), 0);
+
+  buildMetricCards([
+    { label: "Total Calls", value: totalCalls },
+    { label: "Outbound Calls", value: outboundCalls },
+    { label: "Inbound Calls", value: inboundCalls },
+    { label: "Call Picked", value: callPicked },
+    { label: "Call Not Picked / Not Connected", value: callNotPicked },
+    { label: "Total Talk Time", value: formatTalkTime(totalTalkTime) }
+  ]);
+
+  monitoringActiveTable.innerHTML = `
+    <div class="empty-state" style="padding:1.25rem 0 0;">
+      <p class="block-help">MCube monitoring shows overall call totals for the selected timeline without counselor sub-tabs.</p>
+    </div>
+  `;
+}
+
 function renderActiveMonitoringView() {
   const range = getTimelineRange();
   const rawAllLeads = getScopedLeads(getAllLeads());
@@ -1175,6 +1304,11 @@ function renderActiveMonitoringView() {
     const rawLeads = rawAllLeads.filter(isStandardRegisteredLead);
     const counselors = getMonitoringCounselorNames(rawLeads);
     renderRegisteredView(counselors, leads, rawLeads, range);
+    return;
+  }
+
+  if (activeView.subsection === "mcube-main") {
+    renderMcubeView(rawAllLeads, range);
     return;
   }
 
