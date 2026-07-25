@@ -44,6 +44,7 @@ const taskMessage = document.getElementById("taskMessage");
 
 const session = getSession();
 const isAdmin = session?.role === "admin" || session?.role === "super_admin";
+const canUseLeadRowActions = !isAdmin;
 const canCreateTasks = session?.role === "counselor";
 
 postFilterBar.classList.add("filter-bar--crm");
@@ -1361,16 +1362,24 @@ function renderActivityPanel(lead) {
   const leadId = escapeHtml(lead.id);
   const leadEmail = escapeHtml(lead.email || "");
   const leadAttrs = `data-lead-id="${leadId}" data-lead-email="${leadEmail}"`;
+  const primaryActions = canUseLeadRowActions
+    ? `
+        <button class="btn-ghost btn-mcube-call activity-panel__icon-btn" type="button" aria-label="Call" title="Call" ${leadAttrs} ${lead.phone ? "" : "disabled"}><span aria-hidden="true">&#9742;</span></button>
+        <button class="btn-update-status${hasActivity ? " btn-update-status--active" : ""} activity-panel__icon-btn" type="button" aria-label="Update" title="Update" ${leadAttrs}><span aria-hidden="true">&#9998;</span></button>
+      `
+    : "";
+  const notesAction = canUseLeadRowActions
+    ? `<button class="btn-ghost btn-notes activity-panel__link" type="button" ${leadAttrs}>Notes${noteCount ? ` (${noteCount})` : ""}</button>`
+    : "";
   return `
     <div class="activity-panel">
       <div class="activity-panel__primary">
-        <button class="btn-ghost btn-mcube-call activity-panel__icon-btn" type="button" aria-label="Call" title="Call" ${leadAttrs} ${lead.phone ? "" : "disabled"}><span aria-hidden="true">&#9742;</span></button>
-        <button class="btn-update-status${hasActivity ? " btn-update-status--active" : ""} activity-panel__icon-btn" type="button" aria-label="Update" title="Update" ${leadAttrs}><span aria-hidden="true">&#9998;</span></button>
+        ${primaryActions}
       </div>
       <div class="activity-panel__secondary">
         <button class="btn-ghost btn-view-details activity-panel__link" type="button" ${leadAttrs}>View Details</button>
         ${canCreateTasks ? `<button class="btn-ghost btn-task activity-panel__link" type="button" ${leadAttrs}>Task</button>` : ""}
-        <button class="btn-ghost btn-notes activity-panel__link" type="button" ${leadAttrs}>Notes${noteCount ? ` (${noteCount})` : ""}</button>
+        ${notesAction}
         <button class="btn-ghost btn-activity-history activity-panel__link" type="button" ${leadAttrs}>Activity</button>
         ${isAdmin ? `<button class="btn-delete activity-panel__link" type="button" ${leadAttrs}>Delete</button>` : ""}
       </div>

@@ -24,6 +24,7 @@ await bootstrapLocalState();
 
 const session = getSession();
 const isAdmin = session?.role === "admin" || session?.role === "super_admin";
+const canUseLeadRowActions = !isAdmin;
 const canCreateTasks = session?.role === "counselor";
 
 const mainAdmissionRoutingPanel = document.getElementById("mainAdmissionRoutingPanel");
@@ -1483,9 +1484,8 @@ function renderActivityPanel(lead) {
   const hasActivity = getLeadActivityUpdateCount(lead) > 0;
   const leadKey = escapeHtml(buildLeadKey(lead));
   const noteCount = lead.leadNotes.length;
-  return `
-    <div class="activity-panel">
-      <div class="activity-panel__primary">
+  const primaryActions = canUseLeadRowActions
+    ? `
         <button
           type="button"
           class="btn-ghost btn-mcube-call activity-panel__icon-btn"
@@ -1507,11 +1507,20 @@ function renderActivityPanel(lead) {
         >
           <span aria-hidden="true">&#9998;</span>
         </button>
+      `
+    : "";
+  const notesAction = canUseLeadRowActions
+    ? `<button type="button" class="btn-ghost btn-notes activity-panel__link" data-main-admission-action="notes" data-lead-key="${leadKey}">Notes${noteCount ? ` (${noteCount})` : ""}</button>`
+    : "";
+  return `
+    <div class="activity-panel">
+      <div class="activity-panel__primary">
+        ${primaryActions}
       </div>
       <div class="activity-panel__secondary">
         <button type="button" class="btn-ghost activity-panel__link" data-main-admission-action="details" data-lead-key="${leadKey}">View Details</button>
         ${canCreateTasks ? `<button type="button" class="btn-ghost btn-task activity-panel__link" data-main-admission-action="task" data-lead-key="${leadKey}">Task</button>` : ""}
-        <button type="button" class="btn-ghost btn-notes activity-panel__link" data-main-admission-action="notes" data-lead-key="${leadKey}">Notes${noteCount ? ` (${noteCount})` : ""}</button>
+        ${notesAction}
         <button type="button" class="btn-ghost btn-activity-history activity-panel__link" data-main-admission-action="activity-history" data-lead-key="${leadKey}">Activity</button>
         ${isAdmin ? `<button type="button" class="btn-delete activity-panel__link" data-main-admission-action="delete" data-lead-key="${leadKey}">Delete</button>` : ""}
       </div>
