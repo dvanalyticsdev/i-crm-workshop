@@ -54,7 +54,8 @@ function normalize(value) {
 }
 
 function isAdminSession() {
-  return getSession()?.role === "admin";
+  const role = String(getSession()?.role || "").trim().toLowerCase();
+  return role === "admin" || role === "super_admin";
 }
 
 function getSessionCounselorName() {
