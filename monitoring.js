@@ -711,9 +711,23 @@ function getMcubeCallEntriesInRange(leads, range) {
 
       const previousAt = parseLocalDate(previous.at)?.getTime() || 0;
       const nextAt = parseLocalDate(nextEntry.at)?.getTime() || 0;
+      const mergedEntry = {
+        leadId: nextEntry.leadId || previous.leadId,
+        counselor: nextEntry.counselor || previous.counselor,
+        at: nextAt >= previousAt ? (nextEntry.at || previous.at) : (previous.at || nextEntry.at),
+        callId: nextEntry.callId || previous.callId,
+        direction: nextEntry.direction || previous.direction,
+        normalizedStatus: nextEntry.normalizedStatus || previous.normalizedStatus,
+        disposition: nextEntry.disposition || previous.disposition,
+        rawStatus: nextEntry.rawStatus || previous.rawStatus,
+        eventType: nextEntry.eventType || previous.eventType,
+        agentName: nextEntry.agentName || previous.agentName,
+        agentPhone: nextEntry.agentPhone || previous.agentPhone,
+        duration
+      };
       byKey.set(
         entryKey,
-        nextAt >= previousAt ? { ...previous, ...nextEntry } : { ...nextEntry, ...previous, duration }
+        mergedEntry
       );
     });
   });
@@ -722,8 +736,31 @@ function getMcubeCallEntriesInRange(leads, range) {
 }
 
 function normalizeMcubeTalkTimeSeconds(value) {
-  const seconds = Math.max(0, Number(value) || 0);
+  if (value === null || value === undefined || value === "") {
+    return 0;
+  }
+
+  const numeric = Number(value);
+  const seconds = Math.max(0, Number.isFinite(numeric) ? numeric : 0);
   if (!seconds) {
+    const text = String(value).trim().toLowerCase();
+    const hhmmssMatch = text.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if (hhmmssMatch) {
+      const first = Number(hhmmssMatch[1]);
+      const second = Number(hhmmssMatch[2]);
+      const third = Number(hhmmssMatch[3] || 0);
+      const parsed = hhmmssMatch[3] ? (first * 3600) + (second * 60) + third : (first * 60) + second;
+      return parsed > 8 * 60 * 60 ? 0 : parsed;
+    }
+
+    const compactMatch = text.match(/^(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?$/);
+    if (compactMatch) {
+      const hours = Number(compactMatch[1] || 0);
+      const minutes = Number(compactMatch[2] || 0);
+      const remainingSeconds = Number(compactMatch[3] || 0);
+      const parsed = (hours * 3600) + (minutes * 60) + remainingSeconds;
+      return parsed > 8 * 60 * 60 ? 0 : parsed;
+    }
     return 0;
   }
 
@@ -747,7 +784,7 @@ function didLeadPickMcubeCall(entry = {}) {
     return false;
   }
 
-  return /(connected|answered|completed|success)/i.test(status);
+  return /(answer|answered|connected|completed|success)/i.test(status);
 }
 
 function formatTalkTime(totalSeconds) {
