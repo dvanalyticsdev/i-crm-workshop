@@ -7,6 +7,9 @@ await bootstrapLocalState();
 
 const trendRangeText = document.getElementById("trendRangeText");
 const pieRangeText = document.getElementById("pieRangeText");
+const dashboardTitle = document.getElementById("dashboardTitle");
+const dashboardSubtitle = document.getElementById("dashboardSubtitle");
+const dashboardViewTabs = Array.from(document.querySelectorAll("[data-dashboard-view]"));
 
 const timelinePreset = document.getElementById("timelinePreset");
 const customRangeFields = document.getElementById("customRangeFields");
@@ -18,6 +21,12 @@ const activeWorkshopsEl = document.getElementById("activeWorkshops");
 const upcomingWorkshopsEl = document.getElementById("upcomingWorkshops");
 const recentWorkshopsEl = document.getElementById("recentWorkshops");
 const scopedLeadsEl = document.getElementById("scopedLeads");
+const kpiLabelPrimary = document.getElementById("kpiLabelPrimary");
+const kpiLabelSecondary = document.getElementById("kpiLabelSecondary");
+const kpiLabelTertiary = document.getElementById("kpiLabelTertiary");
+const kpiLabelScope = document.getElementById("kpiLabelScope");
+const trendChartTitle = document.getElementById("trendChartTitle");
+const breakdownChartTitle = document.getElementById("breakdownChartTitle");
 
 const session = getSession();
 if (!session || !session.role) {
@@ -25,6 +34,7 @@ if (!session || !session.role) {
 }
 
 const TIMELINE_STORAGE_KEY = "dvWorkshopDashboardTimeline";
+const DASHBOARD_VIEW_STORAGE_KEY = "dvWorkshopDashboardView";
 const DEFAULT_TIMELINE_STATE = {
   preset: "weekly",
   startDate: "",
@@ -67,11 +77,61 @@ const persistedTimelineState = {
   ...DEFAULT_TIMELINE_STATE,
   ...await loadLocalPreference(TIMELINE_STORAGE_KEY, {})
 };
+const DASHBOARD_VIEWS = {
+  workshop: {
+    title: "Workshop Lead Dashboard",
+    subtitle: "Track and manage workshop lead performance.",
+    primaryLabel: "Active Workshops",
+    secondaryLabel: "Upcoming Workshops",
+    tertiaryLabel: "Recent Workshops",
+    scopeLabel: "Leads In Scope",
+    trendTitle: "New Leads Trend",
+    breakdownTitle: "Workshop-wise Lead Breakdown",
+    breakdownMetaSuffix: "Top workshops"
+  },
+  admission: {
+    title: "Admission Lead Dashboard",
+    subtitle: "Track and manage admission lead performance.",
+    primaryLabel: "Active Programs",
+    secondaryLabel: "Upcoming Programs",
+    tertiaryLabel: "Recent Programs",
+    scopeLabel: "Admission Leads In Scope",
+    trendTitle: "New Admission Leads Trend",
+    breakdownTitle: "Program-wise Admission Lead Breakdown",
+    breakdownMetaSuffix: "Top programs"
+  }
+};
+const persistedDashboardView = await loadLocalPreference(DASHBOARD_VIEW_STORAGE_KEY, "workshop");
+let activeDashboardView = DASHBOARD_VIEWS[persistedDashboardView] ? persistedDashboardView : "workshop";
 
 timelinePreset.value = persistedTimelineState.preset || DEFAULT_TIMELINE_STATE.preset;
 startDateInput.value = persistedTimelineState.startDate || "";
 endDateInput.value = persistedTimelineState.endDate || "";
 customRangeFields.classList.toggle("hidden", timelinePreset.value !== "custom");
+
+function persistDashboardView() {
+  void saveLocalPreference(DASHBOARD_VIEW_STORAGE_KEY, activeDashboardView);
+}
+
+function syncDashboardTabs() {
+  dashboardViewTabs.forEach((tab) => {
+    const isActive = tab.dataset.dashboardView === activeDashboardView;
+    tab.classList.toggle("is-active", isActive);
+    tab.setAttribute("aria-selected", String(isActive));
+  });
+}
+
+function applyDashboardViewCopy() {
+  const copy = DASHBOARD_VIEWS[activeDashboardView];
+  dashboardTitle.textContent = copy.title;
+  dashboardSubtitle.textContent = copy.subtitle;
+  kpiLabelPrimary.textContent = copy.primaryLabel;
+  kpiLabelSecondary.textContent = copy.secondaryLabel;
+  kpiLabelTertiary.textContent = copy.tertiaryLabel;
+  kpiLabelScope.textContent = copy.scopeLabel;
+  trendChartTitle.textContent = copy.trendTitle;
+  breakdownChartTitle.textContent = copy.breakdownTitle;
+}
 
 function persistTimelineState() {
   void saveLocalPreference(TIMELINE_STORAGE_KEY, {
@@ -100,6 +160,16 @@ async function loadDashboardSummary() {
 
 function getLeads() {
   return Array.isArray(dashboardSummary?.leadTimelineRows) ? dashboardSummary.leadTimelineRows : [];
+}
+
+function getScopedLeadsByView(leads) {
+  return leads.filter((lead) => {
+    const stage = String(lead?.stage || "").trim().toLowerCase();
+    if (activeDashboardView === "admission") {
+      return stage === "admission";
+    }
+    return stage === "workshop";
+  });
 }
 
 function toDateKey(date) {
@@ -279,10 +349,13 @@ function getCoreWorkshopName(workshopName) {
 }
 
 function getWorkshopSummaryIdentity(lead) {
-  const fallbackName = getCoreWorkshopName(lead?.workshop);
+  const sourceName = activeDashboardView === "admission"
+    ? String(lead?.admissionWorkshop || lead?.workshop || "").trim()
+    : String(lead?.workshop || lead?.admissionWorkshop || "").trim();
+  const fallbackName = getCoreWorkshopName(sourceName);
   return {
-    key: String(lead?.workshopKey || fallbackName).trim().toLowerCase(),
-    label: String(lead?.workshop || fallbackName).trim()
+    key: String(fallbackName).trim().toLowerCase(),
+    label: String(sourceName || fallbackName).trim()
   };
 }
 
@@ -490,12 +563,23 @@ function renderCharts(leads, range) {
   });
 
   trendRangeText.textContent = range.label;
-  pieRangeText.textContent = `${range.label} | Top workshops`;
+  trendCanvas.setAttribute(
+    "aria-label",
+    activeDashboardView === "admission" ? "New admission leads trend line chart" : "New workshop leads trend line chart"
+  );
+  breakdownCanvas.setAttribute(
+    "aria-label",
+    activeDashboardView === "admission" ? "Program wise admission lead breakdown bar chart" : "Workshop wise lead breakdown bar chart"
+  );
+  pieRangeText.textContent = `${range.label} | ${DASHBOARD_VIEWS[activeDashboardView].breakdownMetaSuffix}`;
 }
 
 function hydrate(leads) {
-  const range = getTimelineRange(leads);
-  const filteredLeads = filterLeadsByTimeline(leads, range);
+  applyDashboardViewCopy();
+  syncDashboardTabs();
+  const scopedLeads = getScopedLeadsByView(leads);
+  const range = getTimelineRange(scopedLeads);
+  const filteredLeads = filterLeadsByTimeline(scopedLeads, range);
 
   activeRangeLabel.textContent = `${range.label} | Leads in range: ${filteredLeads.length}`;
   buildKpis(filteredLeads);
@@ -540,4 +624,16 @@ startDateInput.addEventListener("change", () => {
 endDateInput.addEventListener("change", () => {
   persistTimelineState();
   hydrate(getLeads());
+});
+
+dashboardViewTabs.forEach((tab) => {
+  tab.addEventListener("click", () => {
+    const nextView = tab.dataset.dashboardView;
+    if (!DASHBOARD_VIEWS[nextView] || nextView === activeDashboardView) {
+      return;
+    }
+    activeDashboardView = nextView;
+    persistDashboardView();
+    hydrate(getLeads());
+  });
 });

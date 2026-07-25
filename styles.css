@@ -803,6 +803,37 @@ textarea:focus {
   font-size: 0.92rem;
 }
 
+.dashboard-subsection-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: var(--space-2);
+}
+
+.dashboard-subsection-tab {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--ease), color var(--ease), border-color var(--ease), transform var(--ease);
+}
+
+.dashboard-subsection-tab:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.dashboard-subsection-tab.is-active {
+  background: var(--primary-soft);
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+  color: var(--primary);
+}
+
 .topbar-profile {
   display: flex;
   align-items: center;
@@ -1041,6 +1072,17 @@ textarea:focus {
   width: 100% !important;
   height: 270px !important;
   max-height: 270px;
+}
+
+@media (max-width: 900px) {
+  .dashboard-subsection-tabs {
+    gap: 8px;
+  }
+
+  .dashboard-subsection-tab {
+    flex: 1 1 140px;
+    justify-content: center;
+  }
 }
 
 .interested-workshop-list {

@@ -642,7 +642,9 @@ function buildDashboardSummary(state) {
     },
     leadTimelineRows: leads.map((lead) => ({
       createdAt: String(lead?.createdAt || "").trim(),
-      workshop: String(lead?.workshop || lead?.workshopName || lead?.admissionWorkshop || lead?.courseName || "").trim()
+      workshop: String(lead?.workshop || lead?.workshopName || "").trim(),
+      admissionWorkshop: String(lead?.admissionWorkshop || lead?.courseName || lead?.workshop || "").trim(),
+      stage: inferLeadStageForCallUpdate(lead).stage
     })).filter((lead) => lead.createdAt),
     workshopBreakdown: workshopEntries.slice(0, 25),
     trend: leads.reduce((accumulator, lead) => {
