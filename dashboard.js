@@ -171,12 +171,11 @@ function getLeads() {
 
 function getScopedLeadsByView(leads) {
   return leads.filter((lead) => {
+    const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
     if (activeDashboardView === "admission") {
-      const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
       return pipeline === "main-admission" || pipeline === "course-registration";
     }
-    const stage = String(lead?.stage || "").trim().toLowerCase();
-    return stage === "workshop";
+    return pipeline !== "main-admission" && pipeline !== "course-registration";
   });
 }
 
