@@ -541,6 +541,19 @@ test("activity history endpoint and UI checks", () => {
   assert.match(styles, /\.timeline-badge/);
 });
 
+test("monitoring keeps activity totals separate from fresh and old lead touch counts", () => {
+  const monitoring = read("monitoring.js");
+
+  assert.match(monitoring, /function splitFreshAndOldActivities\(/);
+  assert.match(monitoring, /freshLeadTouches: activityLeads\.length/);
+  assert.match(monitoring, /freshLeadTouches: freshActivityLeads\.length/);
+  assert.match(monitoring, /oldLeadTouches: oldActivityLeads\.length/);
+  assert.match(monitoring, /Fresh Leads Touched/);
+  assert.match(monitoring, /Old Leads Touched/);
+  assert.doesNotMatch(monitoring, /Fresh Lead Activities/);
+  assert.doesNotMatch(monitoring, /Old Lead Activities/);
+});
+
 test("activity update panels can save notes into activity history", () => {
   const preWorkshopHtml = read("pre-workshop.html");
   const postWorkshopHtml = read("post-workshop.html");

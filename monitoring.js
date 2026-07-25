@@ -541,8 +541,8 @@ function splitFreshAndOldActivities(activityLeads, countField, range) {
   if (!range) {
     return {
       activities: totalActivities,
-      freshActivities: totalActivities,
-      oldLeadActivities: 0
+      freshLeadTouches: activityLeads.length,
+      oldLeadTouches: 0
     };
   }
 
@@ -558,8 +558,8 @@ function splitFreshAndOldActivities(activityLeads, countField, range) {
 
   return {
     activities: totalActivities,
-    freshActivities: freshActivityLeads.reduce((sum, lead) => sum + (Number(lead[countField]) || 0), 0),
-    oldLeadActivities: oldActivityLeads.reduce((sum, lead) => sum + (Number(lead[countField]) || 0), 0)
+    freshLeadTouches: freshActivityLeads.length,
+    oldLeadTouches: oldActivityLeads.length
   };
 }
 
@@ -914,8 +914,8 @@ function renderWorkshopCallingView(counselors, leads, rawLeads, range) {
   const interested = rows.reduce((sum, row) => sum + row.interested, 0);
   const notInterested = rows.reduce((sum, row) => sum + row.notInterested, 0);
   const whatsappJoined = rows.reduce((sum, row) => sum + row.whatsappJoined, 0);
-  const freshActivities = rows.reduce((sum, row) => sum + row.freshActivities, 0);
-  const oldLeadActivities = rows.reduce((sum, row) => sum + row.oldLeadActivities, 0);
+  const freshLeadTouches = rows.reduce((sum, row) => sum + row.freshLeadTouches, 0);
+  const oldLeadTouches = rows.reduce((sum, row) => sum + row.oldLeadTouches, 0);
 
   buildMetricCards([
     { label: "Overall Activity", value: totalActivity },
@@ -923,8 +923,8 @@ function renderWorkshopCallingView(counselors, leads, rawLeads, range) {
     { label: "Interested Leads", value: interested },
     { label: "Not Interested Leads", value: notInterested },
     { label: "WhatsApp Group Joined", value: whatsappJoined },
-    { label: "Fresh Lead Activities", value: freshActivities },
-    { label: "Old Lead Activities", value: oldLeadActivities }
+    { label: "Fresh Leads Touched", value: freshLeadTouches },
+    { label: "Old Leads Touched", value: oldLeadTouches }
   ]);
 
   renderTable([
@@ -935,8 +935,8 @@ function renderWorkshopCallingView(counselors, leads, rawLeads, range) {
     { label: "Not Interested Leads", render: (row) => String(row.notInterested) },
     { label: "WhatsApp Group Joined", render: (row) => String(row.whatsappJoined) },
     { label: "New Leads Received", render: (row) => String(row.newLeads) },
-    { label: "Fresh Lead Activities", render: (row) => String(row.freshActivities) },
-    { label: "Old Lead Activities", render: (row) => String(row.oldLeadActivities) }
+    { label: "Fresh Leads Touched", render: (row) => String(row.freshLeadTouches) },
+    { label: "Old Leads Touched", render: (row) => String(row.oldLeadTouches) }
   ], rows, 9);
 }
 
@@ -948,8 +948,8 @@ function renderAdmissionCallingView(counselors, leads, rawLeads, range) {
   const notInterested = rows.reduce((sum, row) => sum + row.notInterested, 0);
   const enrolled = rows.reduce((sum, row) => sum + row.enrolled, 0);
   const won = rows.reduce((sum, row) => sum + row.won, 0);
-  const freshActivities = rows.reduce((sum, row) => sum + row.freshActivities, 0);
-  const oldLeadActivities = rows.reduce((sum, row) => sum + row.oldLeadActivities, 0);
+  const freshLeadTouches = rows.reduce((sum, row) => sum + row.freshLeadTouches, 0);
+  const oldLeadTouches = rows.reduce((sum, row) => sum + row.oldLeadTouches, 0);
 
   buildMetricCards([
     { label: "Overall Activity", value: totalActivity },
@@ -958,8 +958,8 @@ function renderAdmissionCallingView(counselors, leads, rawLeads, range) {
     { label: "Not Interested Leads", value: notInterested },
     { label: "Enrolled", value: enrolled },
     { label: "Won", value: won },
-    { label: "Fresh Lead Activities", value: freshActivities },
-    { label: "Old Lead Activities", value: oldLeadActivities }
+    { label: "Fresh Leads Touched", value: freshLeadTouches },
+    { label: "Old Leads Touched", value: oldLeadTouches }
   ]);
 
   renderTable([
@@ -971,8 +971,8 @@ function renderAdmissionCallingView(counselors, leads, rawLeads, range) {
     { label: "Enrolled", render: (row) => String(row.enrolled) },
     { label: "Won", render: (row) => String(row.won) },
     { label: "New Leads Received", render: (row) => String(row.newLeads) },
-    { label: "Fresh Lead Activities", render: (row) => String(row.freshActivities) },
-    { label: "Old Lead Activities", render: (row) => String(row.oldLeadActivities) }
+    { label: "Fresh Leads Touched", render: (row) => String(row.freshLeadTouches) },
+    { label: "Old Leads Touched", render: (row) => String(row.oldLeadTouches) }
   ], rows, 10);
 }
 
@@ -984,8 +984,8 @@ function renderMainAdmissionView(counselors, leads, rawLeads, range) {
   const notInterested = rows.reduce((sum, row) => sum + row.notInterested, 0);
   const enrolled = rows.reduce((sum, row) => sum + row.enrolled, 0);
   const won = rows.reduce((sum, row) => sum + row.won, 0);
-  const freshActivities = rows.reduce((sum, row) => sum + row.freshActivities, 0);
-  const oldLeadActivities = rows.reduce((sum, row) => sum + row.oldLeadActivities, 0);
+  const freshLeadTouches = rows.reduce((sum, row) => sum + row.freshLeadTouches, 0);
+  const oldLeadTouches = rows.reduce((sum, row) => sum + row.oldLeadTouches, 0);
 
   buildMetricCards([
     { label: "Overall Activity", value: totalActivity },
@@ -994,8 +994,8 @@ function renderMainAdmissionView(counselors, leads, rawLeads, range) {
     { label: "Not Interested Leads", value: notInterested },
     { label: "Enrolled", value: enrolled },
     { label: "Won", value: won },
-    { label: "Fresh Lead Activities", value: freshActivities },
-    { label: "Old Lead Activities", value: oldLeadActivities }
+    { label: "Fresh Leads Touched", value: freshLeadTouches },
+    { label: "Old Leads Touched", value: oldLeadTouches }
   ]);
 
   renderTable([
@@ -1007,8 +1007,8 @@ function renderMainAdmissionView(counselors, leads, rawLeads, range) {
     { label: "Enrolled", render: (row) => String(row.enrolled) },
     { label: "Won", render: (row) => String(row.won) },
     { label: "New Leads Received", render: (row) => String(row.newLeads) },
-    { label: "Fresh Lead Activities", render: (row) => String(row.freshActivities) },
-    { label: "Old Lead Activities", render: (row) => String(row.oldLeadActivities) }
+    { label: "Fresh Leads Touched", render: (row) => String(row.freshLeadTouches) },
+    { label: "Old Leads Touched", render: (row) => String(row.oldLeadTouches) }
   ], rows, 10);
 }
 
@@ -1019,8 +1019,8 @@ function renderRegisteredView(counselors, leads, rawLeads, range) {
   const dialed = rows.reduce((sum, row) => sum + row.dialed, 0);
   const interested = rows.reduce((sum, row) => sum + row.interested, 0);
   const notInterested = rows.reduce((sum, row) => sum + row.notInterested, 0);
-  const freshActivities = rows.reduce((sum, row) => sum + row.freshActivities, 0);
-  const oldLeadActivities = rows.reduce((sum, row) => sum + row.oldLeadActivities, 0);
+  const freshLeadTouches = rows.reduce((sum, row) => sum + row.freshLeadTouches, 0);
+  const oldLeadTouches = rows.reduce((sum, row) => sum + row.oldLeadTouches, 0);
 
   buildMetricCards([
     { label: "Overall Activity", value: totalActivity },
@@ -1028,8 +1028,8 @@ function renderRegisteredView(counselors, leads, rawLeads, range) {
     { label: "Dialed Leads", value: dialed },
     { label: "Interested Leads", value: interested },
     { label: "Not Interested Leads", value: notInterested },
-    { label: "Fresh Lead Activities", value: freshActivities },
-    { label: "Old Lead Activities", value: oldLeadActivities }
+    { label: "Fresh Leads Touched", value: freshLeadTouches },
+    { label: "Old Leads Touched", value: oldLeadTouches }
   ]);
 
   renderTable([
@@ -1037,8 +1037,8 @@ function renderRegisteredView(counselors, leads, rawLeads, range) {
     { label: "Overall Activity", render: (row) => String(row.activities) },
     { label: "Course-wise Activity Breakdown", render: (row) => renderBreakdownCell(row.courseEntries, "No course activity") },
     { label: "Fresh Leads Received", render: (row) => String(row.newLeads) },
-    { label: "Fresh Lead Activities", render: (row) => String(row.freshActivities) },
-    { label: "Old Lead Activities", render: (row) => String(row.oldLeadActivities) },
+    { label: "Fresh Leads Touched", render: (row) => String(row.freshLeadTouches) },
+    { label: "Old Leads Touched", render: (row) => String(row.oldLeadTouches) },
     { label: "Dialed Leads", render: (row) => String(row.dialed) },
     { label: "Interested Leads", render: (row) => String(row.interested) },
     { label: "Not Interested Leads", render: (row) => String(row.notInterested) }
