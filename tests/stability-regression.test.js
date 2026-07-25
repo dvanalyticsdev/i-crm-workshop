@@ -597,7 +597,10 @@ test("monitoring includes a single-view MCube tab with call summary metrics", ()
   assert.match(monitoring, /function normalizeMcubeTalkTimeSeconds\(/);
   assert.match(monitoring, /function didLeadPickMcubeCall\(/);
   assert.match(monitoring, /function formatTalkTime\(/);
+  assert.match(monitoring, /function scopeMcubeCallsForSession\(/);
+  assert.match(monitoring, /normalizeText\(getMcubeCounselorLabel\(entry\)\) === counselorIdentity/);
   assert.match(monitoring, /function buildMcubeRows\(/);
+  assert.match(monitoring, /normalizeText\(counselor\) === "unassigned"/);
   assert.match(monitoring, /label: "Total Calls"/);
   assert.match(monitoring, /label: "Outbound Calls"/);
   assert.match(monitoring, /label: "Inbound Calls"/);

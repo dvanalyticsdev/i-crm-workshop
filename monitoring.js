@@ -1271,11 +1271,27 @@ function getMcubeCounselorLabel(entry = {}) {
   return "Unassigned";
 }
 
+function scopeMcubeCallsForSession(entries) {
+  if (!isCounselorSession()) {
+    return entries;
+  }
+
+  const counselorIdentity = getCounselorIdentity();
+  if (!counselorIdentity) {
+    return [];
+  }
+
+  return entries.filter((entry) => normalizeText(getMcubeCounselorLabel(entry)) === counselorIdentity);
+}
+
 function buildMcubeRows(rawLeads, range) {
   const grouped = new Map();
 
-  getMcubeCallEntriesInRange(rawLeads, range).forEach((entry) => {
+  scopeMcubeCallsForSession(getMcubeCallEntriesInRange(rawLeads, range)).forEach((entry) => {
     const counselor = getMcubeCounselorLabel(entry);
+    if (!counselor || normalizeText(counselor) === "unassigned") {
+      return;
+    }
     const current = grouped.get(counselor) || {
       counselor,
       totalCalls: 0,
@@ -1316,7 +1332,7 @@ function buildMcubeRows(rawLeads, range) {
 }
 
 function renderMcubeView(rawLeads, range) {
-  const calls = getMcubeCallEntriesInRange(rawLeads, range);
+  const calls = scopeMcubeCallsForSession(getMcubeCallEntriesInRange(rawLeads, range));
   const totalCalls = calls.length;
   const outboundCalls = calls.filter((entry) => normalizeText(entry.direction) === "outbound").length;
   const inboundCalls = calls.filter((entry) => normalizeText(entry.direction) === "inbound").length;
