@@ -1024,12 +1024,18 @@ textarea:focus {
 .kpi-grid,
 .chart-grid {
   display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: var(--space-3);
 }
 
+.kpi-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.chart-grid {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+
 .kpi-card {
-  grid-column: span 3;
   padding: var(--space-4);
 }
 

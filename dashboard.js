@@ -25,6 +25,9 @@ const kpiLabelPrimary = document.getElementById("kpiLabelPrimary");
 const kpiLabelSecondary = document.getElementById("kpiLabelSecondary");
 const kpiLabelTertiary = document.getElementById("kpiLabelTertiary");
 const kpiLabelScope = document.getElementById("kpiLabelScope");
+const kpiLabelQuinary = document.getElementById("kpiLabelQuinary");
+const kpiCardQuinary = document.getElementById("kpiCardQuinary");
+const wonLeadsEl = document.getElementById("wonLeads");
 const trendChartTitle = document.getElementById("trendChartTitle");
 const breakdownChartTitle = document.getElementById("breakdownChartTitle");
 
@@ -87,18 +90,21 @@ const DASHBOARD_VIEWS = {
     scopeLabel: "Leads In Scope",
     trendTitle: "New Leads Trend",
     breakdownTitle: "Workshop-wise Lead Breakdown",
-    breakdownMetaSuffix: "Top workshops"
+    breakdownMetaSuffix: "Top workshops",
+    showQuinaryKpi: false
   },
   admission: {
     title: "Admission Lead Dashboard",
     subtitle: "Track and manage admission lead performance.",
-    primaryLabel: "Active Programs",
-    secondaryLabel: "Upcoming Programs",
-    tertiaryLabel: "Recent Programs",
-    scopeLabel: "Admission Leads In Scope",
+    primaryLabel: "Total Leads",
+    secondaryLabel: "New Leads Received",
+    tertiaryLabel: "Opportunity",
+    scopeLabel: "Enrolled",
+    quinaryLabel: "Won",
     trendTitle: "New Admission Leads Trend",
     breakdownTitle: "Program-wise Admission Lead Breakdown",
-    breakdownMetaSuffix: "Top programs"
+    breakdownMetaSuffix: "Top programs",
+    showQuinaryKpi: true
   }
 };
 const persistedDashboardView = await loadLocalPreference(DASHBOARD_VIEW_STORAGE_KEY, "workshop");
@@ -129,6 +135,8 @@ function applyDashboardViewCopy() {
   kpiLabelSecondary.textContent = copy.secondaryLabel;
   kpiLabelTertiary.textContent = copy.tertiaryLabel;
   kpiLabelScope.textContent = copy.scopeLabel;
+  kpiLabelQuinary.textContent = copy.quinaryLabel || "Won";
+  kpiCardQuinary.hidden = copy.showQuinaryKpi !== true;
   trendChartTitle.textContent = copy.trendTitle;
   breakdownChartTitle.textContent = copy.breakdownTitle;
 }
@@ -142,7 +150,6 @@ function persistTimelineState() {
 }
 
 async function loadDashboardSummary() {
-  // Server summary already excludes ["course-registration", "main-admission"].
   const response = await fetch(apiUrl("/api/dashboard-summary"), {
     credentials: "same-origin",
     headers: { Accept: "application/json" }
@@ -164,12 +171,41 @@ function getLeads() {
 
 function getScopedLeadsByView(leads) {
   return leads.filter((lead) => {
-    const stage = String(lead?.stage || "").trim().toLowerCase();
     if (activeDashboardView === "admission") {
-      return stage === "admission";
+      const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
+      return pipeline === "main-admission" || pipeline === "course-registration";
     }
+    const stage = String(lead?.stage || "").trim().toLowerCase();
     return stage === "workshop";
   });
+}
+
+function getAdmissionProgramName(lead) {
+  const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
+  const segment = String(lead?.publicCourseSegment || "").trim().toLowerCase();
+  const primaryProgram = String(lead?.admissionWorkshop || lead?.workshop || "").trim();
+
+  if (pipeline === "course-registration" && segment === "crash-course") {
+    return primaryProgram || "7 Days Gen AI Crash Course";
+  }
+  if (pipeline === "course-registration") {
+    return primaryProgram || "Registered Candidates";
+  }
+  if (pipeline === "main-admission") {
+    return primaryProgram || "Main Admission";
+  }
+  return primaryProgram;
+}
+
+function getAdmissionLeadStatus(lead) {
+  const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
+  if (pipeline === "main-admission") {
+    return String(lead?.mainAdmissionAdmissionStatus || "").trim();
+  }
+  if (pipeline === "course-registration") {
+    return String(lead?.registeredAdmissionStatus || "").trim();
+  }
+  return String(lead?.admissionStatus || "").trim();
 }
 
 function toDateKey(date) {
@@ -350,7 +386,7 @@ function getCoreWorkshopName(workshopName) {
 
 function getWorkshopSummaryIdentity(lead) {
   const sourceName = activeDashboardView === "admission"
-    ? String(lead?.admissionWorkshop || lead?.workshop || "").trim()
+    ? getAdmissionProgramName(lead)
     : String(lead?.workshop || lead?.admissionWorkshop || "").trim();
   const fallbackName = getCoreWorkshopName(sourceName);
   return {
@@ -434,6 +470,28 @@ function buildWorkshopSummary(leads) {
 }
 
 function buildKpis(leads) {
+  if (activeDashboardView === "admission") {
+    const opportunity = leads.filter((lead) => {
+      const status = getAdmissionLeadStatus(lead).trim().toLowerCase();
+      return status === "opportunity";
+    }).length;
+    const enrolled = leads.filter((lead) => {
+      const status = getAdmissionLeadStatus(lead).trim().toLowerCase();
+      return status === "enrolled";
+    }).length;
+    const won = leads.filter((lead) => {
+      const status = getAdmissionLeadStatus(lead).trim().toLowerCase();
+      return status === "won";
+    }).length;
+
+    activeWorkshopsEl.textContent = getScopedLeadsByView(getLeads()).length;
+    upcomingWorkshopsEl.textContent = leads.length;
+    recentWorkshopsEl.textContent = opportunity;
+    scopedLeadsEl.textContent = enrolled;
+    wonLeadsEl.textContent = won;
+    return;
+  }
+
   const summary = buildWorkshopSummary(leads);
   const activeWorkshops = summary.sections.upcoming.length + summary.sections.recent.length;
 
@@ -441,6 +499,7 @@ function buildKpis(leads) {
   upcomingWorkshopsEl.textContent = summary.sections.upcoming.length;
   recentWorkshopsEl.textContent = summary.sections.recent.length;
   scopedLeadsEl.textContent = leads.length;
+  wonLeadsEl.textContent = "0";
 }
 
 function getChartBreakdown(workshops) {

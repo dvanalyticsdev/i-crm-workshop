@@ -591,7 +591,7 @@ function buildStateVersionResponse(state) {
 
 function isDashboardExcludedPipeline(lead) {
   const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
-  return pipeline === "course-registration" || pipeline === MAIN_ADMISSION_PIPELINE;
+  return pipeline === "";
 }
 
 function parseDateKeyToTime(value) {
@@ -644,7 +644,12 @@ function buildDashboardSummary(state) {
       createdAt: String(lead?.createdAt || "").trim(),
       workshop: String(lead?.workshop || lead?.workshopName || "").trim(),
       admissionWorkshop: String(lead?.admissionWorkshop || lead?.courseName || lead?.workshop || "").trim(),
-      stage: inferLeadStageForCallUpdate(lead).stage
+      stage: inferLeadStageForCallUpdate(lead).stage,
+      leadPipeline: String(lead?.leadPipeline || "").trim().toLowerCase(),
+      publicCourseSegment: normalizePublicCourseSegment(lead?.publicCourseSegment || getPublicCourseSegment(lead)),
+      admissionStatus: String(lead?.admissionStatus || "").trim(),
+      registeredAdmissionStatus: String(lead?.registeredAdmissionStatus || "").trim(),
+      mainAdmissionAdmissionStatus: String(lead?.mainAdmissionAdmissionStatus || "").trim()
     })).filter((lead) => lead.createdAt),
     workshopBreakdown: workshopEntries.slice(0, 25),
     trend: leads.reduce((accumulator, lead) => {
