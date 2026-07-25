@@ -38,6 +38,11 @@ const mediaPreviewOpenBtn = document.getElementById("mediaPreviewOpenBtn");
 const mediaLightboxModal = document.getElementById("mediaLightboxModal");
 const mediaLightboxImage = document.getElementById("mediaLightboxImage");
 const mediaLightboxCloseBtn = document.getElementById("mediaLightboxCloseBtn");
+const batchReportModal = document.getElementById("batchReportModal");
+const batchReportCloseBtn = document.getElementById("batchReportCloseBtn");
+const batchReportSubtitle = document.getElementById("batchReportSubtitle");
+const batchReportSummary = document.getElementById("batchReportSummary");
+const batchReportTableBody = document.getElementById("batchReportTableBody");
 const resetFiltersBtn = document.getElementById("resetFiltersBtn");
 const selectFilteredBtn = document.getElementById("selectFilteredBtn");
 const clearSelectionBtn = document.getElementById("clearSelectionBtn");
@@ -55,6 +60,7 @@ const logsMessage = document.getElementById("logsMessage");
 let config = null;
 let selectedLeadIds = new Set();
 let filteredLeads = [];
+let recentLogs = [];
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -94,6 +100,51 @@ function openMediaLightbox() {
 
 function closeMediaLightbox() {
   mediaLightboxModal.classList.add("hidden");
+}
+
+function openBatchReport(logId) {
+  const log = recentLogs.find((entry) => entry.id === logId);
+  if (!log) {
+    return;
+  }
+  const report = log.report || {};
+  batchReportSubtitle.textContent = `${log.templateName || "Template"} • ${log.audienceCount || 0} lead${Number(log.audienceCount || 0) === 1 ? "" : "s"} • ${formatTime(log.sentAt)}`;
+  batchReportSummary.innerHTML = [
+    ["Audience", report.audience ?? log.audienceCount ?? 0],
+    ["Submitted", report.submitted ?? log.submitted ?? 0],
+    ["Failed", report.failed ?? log.failed ?? 0],
+    ["Delivered", report.delivered ?? 0],
+    ["Read", report.read ?? 0],
+    ["Clicked", report.clicked ?? 0],
+    ["Replied", report.replied ?? 0]
+  ].map(([label, value]) => `
+    <div class="rr-kpi">
+      <span class="rr-kpi__label">${escapeHtml(label)}</span>
+      <span class="rr-kpi__value">${escapeHtml(value)}</span>
+    </div>
+  `).join("");
+  const leads = Array.isArray(log.leads) ? log.leads : [];
+  batchReportTableBody.innerHTML = leads.length ? leads.map((lead) => `
+    <tr>
+      <td>
+        <div class="log-stack">
+          <span class="log-stack__primary">${escapeHtml(lead.leadName || lead.leadId || "-")}</span>
+          <span class="log-stack__secondary">${escapeHtml(lead.email || "-")}</span>
+        </div>
+      </td>
+      <td>${escapeHtml(lead.phone || "-")}</td>
+      <td><span class="log-type log-type--${escapeHtml(getLogStatusTone(lead.status || lead.lastEventStatus || "submitted"))}">${escapeHtml(getLeadReportStatus(lead))}</span></td>
+      <td>${lead.events?.delivered ? "Yes" : "No"}</td>
+      <td>${lead.events?.read ? "Yes" : "No"}</td>
+      <td>${lead.events?.clicked ? "Yes" : "No"}</td>
+      <td>${lead.events?.replied ? escapeHtml(lead.replyText || "Yes") : "No"}</td>
+    </tr>
+  `).join("") : `<tr><td colspan="7" class="log-empty">No lead-level details recorded for this batch yet.</td></tr>`;
+  batchReportModal.classList.remove("hidden");
+}
+
+function closeBatchReport() {
+  batchReportModal.classList.add("hidden");
 }
 
 function uniqueOptions(leads, getter) {
@@ -545,22 +596,57 @@ function formatTime(iso) {
   }
 }
 
+function getLogStatusTone(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (["error", "failed", "fail"].includes(normalized)) return "error";
+  if (["partial", "mixed"].includes(normalized)) return "warning";
+  return "success";
+}
+
+function getLogStatusLabel(log) {
+  const submitted = Number(log.submitted || log.report?.submitted || 0);
+  const failed = Number(log.failed || log.report?.failed || 0);
+  if (submitted > 0 && failed > 0) return "Partial";
+  if (submitted > 0) return "Submitted";
+  return "Failed";
+}
+
+function getLeadReportStatus(lead) {
+  if (lead.events?.replied) return "Replied";
+  if (lead.events?.clicked) return "Clicked";
+  if (lead.events?.read) return "Read";
+  if (lead.events?.delivered) return "Delivered";
+  if (String(lead.status || "").toLowerCase() === "error") return "Failed";
+  return "Submitted";
+}
+
 async function loadLogs() {
   const res = await fetch(apiUrl("/api/reachout/logs?limit=60"), { credentials: "same-origin" });
   const json = await res.json();
   const logs = Array.isArray(json.logs) ? json.logs : [];
+  recentLogs = logs;
   const summary = json.summary || {};
   sendSummary.textContent = `${Number(summary.submitted || summary.success || 0)} / ${Number(summary.error || 0)}`;
   logsTableBody.innerHTML = logs.length ? logs.map((log) => `
     <tr>
       <td>${escapeHtml(formatTime(log.sentAt))}</td>
-      <td><span class="log-type log-type--${log.type === "error" ? "error" : "success"}">${escapeHtml(log.type === "error" ? "Failed" : "Submitted")}</span></td>
+      <td><span class="log-type log-type--${escapeHtml(getLogStatusTone(log.type))}">${escapeHtml(getLogStatusLabel(log))}</span></td>
       <td>${escapeHtml(String(log.channel || "").toUpperCase())}</td>
       <td>${escapeHtml(log.templateName || "-")}</td>
-      <td>${escapeHtml(log.leadName || log.leadId || "-")}</td>
-      <td>${escapeHtml(log.message || "-")}</td>
+      <td>
+        <div class="log-stack">
+          <span class="log-stack__primary">${escapeHtml(`${Number(log.audienceCount || 0)} lead${Number(log.audienceCount || 0) === 1 ? "" : "s"}`)}</span>
+          <span class="log-stack__secondary">${escapeHtml(`${Number(log.submitted || 0)} submitted • ${Number(log.failed || 0)} failed`)}</span>
+        </div>
+      </td>
+      <td>
+        <button type="button" class="btn-secondary" data-report-log-id="${escapeHtml(log.id)}">Report</button>
+      </td>
     </tr>
   `).join("") : `<tr><td colspan="6" class="log-empty">No sends recorded yet.</td></tr>`;
+  logsTableBody.querySelectorAll("[data-report-log-id]").forEach((button) => {
+    button.addEventListener("click", () => openBatchReport(button.dataset.reportLogId));
+  });
 }
 
 async function clearRecentSends() {
@@ -606,6 +692,12 @@ mediaLightboxModal.addEventListener("click", (event) => {
     closeMediaLightbox();
   }
 });
+batchReportCloseBtn.addEventListener("click", closeBatchReport);
+batchReportModal.addEventListener("click", (event) => {
+  if (event.target === batchReportModal) {
+    closeBatchReport();
+  }
+});
 sendBtn.addEventListener("click", sendSelected);
 clearRecentSendsBtn.addEventListener("click", clearRecentSends);
 resetFiltersBtn.addEventListener("click", resetAudienceFilters);
@@ -631,6 +723,11 @@ searchInput.addEventListener("keydown", (event) => {
     closeMediaLightbox();
     return;
   }
+  if (event.key === "Escape" && !batchReportModal.classList.contains("hidden")) {
+    event.preventDefault();
+    closeBatchReport();
+    return;
+  }
   if (event.key !== "Enter") {
     return;
   }
@@ -642,6 +739,11 @@ searchInput.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !mediaLightboxModal.classList.contains("hidden")) {
       event.preventDefault();
       closeMediaLightbox();
+      return;
+    }
+    if (event.key === "Escape" && !batchReportModal.classList.contains("hidden")) {
+      event.preventDefault();
+      closeBatchReport();
     }
   });
 });

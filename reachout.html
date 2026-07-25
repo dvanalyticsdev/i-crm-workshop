@@ -190,7 +190,7 @@
           </div>
           <div class="log-table-wrap">
             <table class="log-table">
-              <thead><tr><th>Time</th><th>Status</th><th>Channel</th><th>Template</th><th>Lead</th><th>Message</th></tr></thead>
+              <thead><tr><th>Time</th><th>Status</th><th>Channel</th><th>Template</th><th>Batch</th><th>Report</th></tr></thead>
               <tbody id="logsTableBody"></tbody>
             </table>
           </div>
@@ -207,6 +207,25 @@
       </div>
       <div class="reachout-lightbox__body">
         <img id="mediaLightboxImage" alt="Full header media preview" />
+      </div>
+    </div>
+  </div>
+
+  <div id="batchReportModal" class="modal hidden">
+    <div class="modal-content reachout-report-modal" role="dialog" aria-modal="true" aria-labelledby="batchReportTitle">
+      <div class="reachout-report-modal__header">
+        <div>
+          <h3 id="batchReportTitle">Batch Report</h3>
+          <p id="batchReportSubtitle" class="reachout-report-modal__subtitle">Delivery and engagement summary for this send batch.</p>
+        </div>
+        <button id="batchReportCloseBtn" type="button" class="close-btn" aria-label="Close batch report">&times;</button>
+      </div>
+      <div id="batchReportSummary" class="reachout-report-grid"></div>
+      <div class="log-table-wrap">
+        <table class="log-table">
+          <thead><tr><th>Lead</th><th>Phone</th><th>Status</th><th>Delivered</th><th>Read</th><th>Clicked</th><th>Replied</th></tr></thead>
+          <tbody id="batchReportTableBody"></tbody>
+        </table>
       </div>
     </div>
   </div>

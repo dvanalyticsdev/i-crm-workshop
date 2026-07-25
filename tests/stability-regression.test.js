@@ -1104,14 +1104,19 @@ test("ReachOut labels MSG91 accepted WhatsApp API calls as submitted, not delive
   const reachoutHtml = read("reachout.html");
   const reachout = read("reachout.js");
 
-  assert.match(server, /type: "submitted"/);
-  assert.match(server, /submitted: results\.filter\(\(item\) => item\.ok\)\.length/);
+  assert.match(server, /submittedCount > 0 \? "submitted" : "error"/);
+  assert.match(server, /submittedCount = results\.filter\(\(item\) => item\.ok\)\.length/);
+  assert.match(server, /kind: "batch"/);
   assert.match(server, /submitted to MSG91/);
   assert.match(server, /doc\?\.logSummary\?\.submitted \?\? doc\?\.logSummary\?\.success/);
   assert.match(reachoutHtml, /Submitted \/ Failed/);
+  assert.match(reachoutHtml, /Batch Report/);
+  assert.match(reachoutHtml, /<th>Batch<\/th>/);
+  assert.match(reachoutHtml, /<th>Report<\/th>/);
   assert.match(reachoutHtml, /Delivery, read, and reply events can now flow back into lead activity history/);
   assert.match(reachout, /Submitted \$\{submitted\} of \$\{json\.attempted \|\| 0\} to MSG91\. Delivery\/read\/reply updates can sync back through the webhook callback URL\./);
-  assert.match(reachout, /log\.type === "error" \? "Failed" : "Submitted"/);
+  assert.match(reachout, /function openBatchReport\(logId\)/);
+  assert.match(reachout, /data-report-log-id/);
 });
 
 test("ReachOut WhatsApp payload uses MSG91 component value shape for media and URL buttons", () => {

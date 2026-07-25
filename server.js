@@ -2389,15 +2389,24 @@ function buildReachoutPayload({ template, lead, config, session, integratedNumbe
 
 async function saveReachoutLog(entry) {
   const rawType = String(entry?.type || "error").trim().toLowerCase();
-  const type = rawType === "submitted" || rawType === "success" ? "submitted" : "error";
-  const log = { ...entry, type, sentAt: new Date().toISOString() };
+  const type = ["submitted", "success", "partial"].includes(rawType) ? rawType : "error";
+  const sentAt = new Date().toISOString();
+  const log = { id: String(entry?.id || crypto.randomUUID()), ...entry, type, sentAt: entry?.sentAt || sentAt };
+  const summaryIncrements = {
+    submitted: Math.max(0, Number(entry?.summaryIncrements?.submitted ?? ((type === "submitted" || type === "partial") ? 1 : 0)) || 0),
+    error: Math.max(0, Number(entry?.summaryIncrements?.error ?? (type === "error" ? 1 : 0)) || 0)
+  };
   await withMongoRetry(() => reachoutLogsCollection.insertOne(log), { retries: 1, label: "Write ReachOut log" });
   await withMongoRetry(
     () => reachoutConfigCollection.updateOne(
       { _id: REACHOUT_CONFIG_DOC_ID },
       {
-        $inc: { [`logSummary.${type}`]: 1 },
-        $set: { updatedAt: new Date().toISOString() },
+        $inc: {
+          "logSummary.submitted": summaryIncrements.submitted,
+          "logSummary.success": summaryIncrements.submitted,
+          "logSummary.error": summaryIncrements.error
+        },
+        $set: { updatedAt: sentAt },
         $setOnInsert: {
           enabled: true,
           authKey: process.env.MSG91_AUTH_KEY || "",
@@ -5542,13 +5551,13 @@ app.get("/api/reachout/logs", async (req, res) => {
     const session = await requireRole(req, res, ["admin", "marketing"]);
     if (!session) return;
     const limit = Math.min(Number(req.query.limit) || 80, MAX_REACHOUT_LOGS);
-    const logs = await reachoutLogsCollection
+    const rawLogs = await reachoutLogsCollection
       .find({}, { projection: { _id: 0, requestPayload: 0, responseBody: 0 } })
       .sort({ sentAt: -1 })
       .limit(limit)
       .toArray();
     const config = await getReachoutConfig();
-    return res.json({ logs, summary: publicReachoutConfig(config).logSummary });
+    return res.json({ logs: rawLogs.map(formatReachoutLogForClient), summary: publicReachoutConfig(config).logSummary });
   } catch (err) {
     return res.status(500).json({ message: "Failed to fetch ReachOut logs.", details: err.message });
   }
@@ -5631,6 +5640,7 @@ app.post("/api/reachout/send", async (req, res) => {
       return res.status(400).json({ message: "Unsupported ReachOut channel." });
     }
     const results = [];
+    const batchId = crypto.randomUUID();
 
     for (const lead of leads.slice(0, 250)) {
       let requestPayload = null;
@@ -5658,19 +5668,15 @@ app.post("/api/reachout/send", async (req, res) => {
         if (!response.ok) {
           throw new Error(parsed?.message || parsed?.error || text || `MSG91 HTTP ${response.status}`);
         }
-
-        await saveReachoutLog({
-          type: "submitted",
-          channel,
-          templateId: template.id,
-          templateName: template.name,
-          leadId: lead.id,
-          leadName: lead.name,
-          phone: lead.phone || "",
-          email: lead.email || "",
-          sentBy: session.name || session.email || session.role,
-          responseStatus: response.status
-        });
+        const providerMessageId = String(
+          parsed?.id ||
+          parsed?.messageId ||
+          parsed?.message_id ||
+          parsed?.requestId ||
+          parsed?.data?.id ||
+          parsed?.data?.messageId ||
+          ""
+        ).trim();
         await recordActivity({
           leadId: lead.id,
           leadName: lead.name,
@@ -5680,23 +5686,60 @@ app.post("/api/reachout/send", async (req, res) => {
           newValue: lead.phone,
           session
         });
-        results.push({ leadId: lead.id, ok: true });
-      } catch (error) {
-        await saveReachoutLog({
-          type: "error",
-          channel,
-          templateId: template.id,
-          templateName: template.name,
-          leadId: lead.id,
-          leadName: lead.name,
+        results.push({
+          leadId: String(lead.id || ""),
+          leadName: lead.name || "",
           phone: lead.phone || "",
           email: lead.email || "",
-          sentBy: session.name || session.email || session.role,
+          ok: true,
+          providerMessageId
+        });
+      } catch (error) {
+        results.push({
+          leadId: String(lead.id || ""),
+          leadName: lead.name || "",
+          phone: lead.phone || "",
+          email: lead.email || "",
+          ok: false,
           message: error.message
-        }).catch(() => undefined);
-        results.push({ leadId: lead.id, ok: false, message: error.message });
+        });
       }
     }
+
+    const submittedCount = results.filter((item) => item.ok).length;
+    const failedCount = results.filter((item) => !item.ok).length;
+    await saveReachoutLog({
+      id: batchId,
+      kind: "batch",
+      type: submittedCount > 0 && failedCount > 0 ? "partial" : (submittedCount > 0 ? "submitted" : "error"),
+      channel,
+      templateId: template.id,
+      templateName: template.name,
+      integratedNumber,
+      sentBy: session.name || session.email || session.role,
+      attempted: results.length,
+      submitted: submittedCount,
+      failed: failedCount,
+      audienceCount: results.length,
+      message: `${submittedCount} submitted, ${failedCount} failed.`,
+      leads: results.map((item) => normalizeReachoutBatchLead({
+        leadId: item.leadId,
+        leadName: item.leadName,
+        phone: item.phone,
+        email: item.email,
+        status: item.ok ? "submitted" : "error",
+        submittedAt: new Date().toISOString(),
+        errorMessage: item.message || "",
+        providerMessageId: item.providerMessageId || "",
+        lastEventStatus: item.ok ? "submitted" : "failed",
+        lastEventAt: new Date().toISOString(),
+        events: item.ok ? {} : { failed: true }
+      })),
+      summaryIncrements: {
+        submitted: submittedCount,
+        error: failedCount
+      }
+    });
 
     await stateCollection.updateOne(
       { _id: STATE_DOC_ID },
@@ -5709,8 +5752,9 @@ app.post("/api/reachout/send", async (req, res) => {
     return res.json({
       ok: true,
       attempted: results.length,
-      submitted: results.filter((item) => item.ok).length,
-      failed: results.filter((item) => !item.ok).length,
+      submitted: submittedCount,
+      failed: failedCount,
+      batchId,
       results
     });
   } catch (err) {
@@ -5760,6 +5804,7 @@ app.post("/api/reachout/whatsapp/webhook", async (req, res) => {
       remarks: activity.remarks || null,
       session: { role: "system", name: "ReachOut Webhook" }
     });
+    await updateReachoutBatchLogForEvent(lead, normalized).catch(() => null);
 
     const historyEvent = {
       at: new Date().toISOString(),
@@ -8006,6 +8051,235 @@ async function saveAuthConfig(config = {}) {
     },
     { upsert: true }
   );
+}
+
+function normalizeReachoutBatchLead(entry = {}) {
+  const rawEvents = entry?.events && typeof entry.events === "object" ? entry.events : {};
+  return {
+    leadId: String(entry.leadId || "").trim(),
+    leadName: String(entry.leadName || "").trim(),
+    phone: String(entry.phone || "").trim(),
+    email: String(entry.email || "").trim().toLowerCase(),
+    status: String(entry.status || "submitted").trim().toLowerCase(),
+    submittedAt: String(entry.submittedAt || entry.sentAt || new Date().toISOString()).trim(),
+    errorMessage: String(entry.errorMessage || entry.message || "").trim(),
+    providerMessageId: String(entry.providerMessageId || "").trim(),
+    lastEventStatus: String(entry.lastEventStatus || entry.status || "submitted").trim().toLowerCase(),
+    lastEventAt: String(entry.lastEventAt || entry.submittedAt || entry.sentAt || new Date().toISOString()).trim(),
+    replyText: String(entry.replyText || "").trim(),
+    clickedLink: String(entry.clickedLink || "").trim(),
+    failureReason: String(entry.failureReason || entry.errorMessage || entry.message || "").trim(),
+    events: {
+      delivered: rawEvents.delivered === true,
+      read: rawEvents.read === true,
+      clicked: rawEvents.clicked === true,
+      replied: rawEvents.replied === true,
+      opened: rawEvents.opened === true,
+      failed: rawEvents.failed === true
+    }
+  };
+}
+
+function buildReachoutBatchReport(log = {}) {
+  const leads = Array.isArray(log.leads) ? log.leads.map(normalizeReachoutBatchLead) : [];
+  const submitted = Number(log.submitted) || leads.filter((lead) => lead.status !== "error").length;
+  const failed = Number(log.failed) || leads.filter((lead) => lead.status === "error").length;
+  return {
+    audience: Number(log.audienceCount) || Number(log.attempted) || leads.length,
+    submitted,
+    failed,
+    delivered: leads.filter((lead) => lead.events.delivered).length,
+    read: leads.filter((lead) => lead.events.read).length,
+    clicked: leads.filter((lead) => lead.events.clicked).length,
+    replied: leads.filter((lead) => lead.events.replied).length,
+    opened: leads.filter((lead) => lead.events.opened).length
+  };
+}
+
+function getReachoutBatchLogType(report = {}) {
+  if (Number(report.submitted || 0) > 0 && Number(report.failed || 0) > 0) return "partial";
+  if (Number(report.submitted || 0) > 0) return "submitted";
+  return "error";
+}
+
+function formatReachoutLogForClient(log = {}) {
+  const leads = Array.isArray(log.leads)
+    ? log.leads.map(normalizeReachoutBatchLead)
+    : (log.leadId || log.leadName || log.phone || log.email ? [normalizeReachoutBatchLead({
+      leadId: log.leadId,
+      leadName: log.leadName,
+      phone: log.phone,
+      email: log.email,
+      status: log.type === "error" ? "error" : "submitted",
+      submittedAt: log.sentAt,
+      errorMessage: log.message || "",
+      lastEventStatus: log.type === "error" ? "failed" : "submitted",
+      lastEventAt: log.sentAt,
+      events: log.type === "error" ? { failed: true } : {}
+    })] : []);
+  const base = {
+    id: String(log.id || log._id || crypto.randomUUID()),
+    kind: String(log.kind || (Array.isArray(log.leads) ? "batch" : "legacy")).trim(),
+    sentAt: String(log.sentAt || log.createdAt || new Date().toISOString()),
+    type: String(log.type || "submitted").trim().toLowerCase(),
+    channel: String(log.channel || "").trim().toLowerCase(),
+    templateId: String(log.templateId || "").trim(),
+    templateName: String(log.templateName || "").trim(),
+    integratedNumber: String(log.integratedNumber || "").replace(/\D/g, ""),
+    sentBy: String(log.sentBy || "").trim(),
+    attempted: Number(log.attempted) || leads.length,
+    submitted: Number(log.submitted) || leads.filter((lead) => lead.status !== "error").length,
+    failed: Number(log.failed) || leads.filter((lead) => lead.status === "error").length,
+    audienceCount: Number(log.audienceCount) || Number(log.attempted) || leads.length,
+    message: String(log.message || "").trim(),
+    leads
+  };
+  const report = buildReachoutBatchReport(base);
+  return {
+    ...base,
+    type: getReachoutBatchLogType(report),
+    report
+  };
+}
+
+async function findReachoutBatchLogForEvent(lead = {}, normalizedEvent = {}) {
+  const leadId = String(lead?.id || normalizedEvent?.leadId || "").trim();
+  const templateName = String(normalizedEvent?.templateName || "").trim();
+  const integratedNumber = String(normalizedEvent?.integratedNumber || "").replace(/\D/g, "");
+  const providerMessageId = String(normalizedEvent?.providerMessageId || "").trim();
+  const phone = String(normalizedEvent?.phone || lead?.phone || "").trim();
+  const queries = [];
+
+  if (providerMessageId) {
+    queries.push({ kind: "batch", "leads.providerMessageId": providerMessageId });
+  }
+  if (leadId && templateName && integratedNumber) {
+    queries.push({ kind: "batch", "leads.leadId": leadId, templateName, integratedNumber });
+  }
+  if (leadId && templateName) {
+    queries.push({ kind: "batch", "leads.leadId": leadId, templateName });
+  }
+  if (leadId && integratedNumber) {
+    queries.push({ kind: "batch", "leads.leadId": leadId, integratedNumber });
+  }
+  if (leadId) {
+    queries.push({ kind: "batch", "leads.leadId": leadId });
+  }
+  if (phone && templateName) {
+    queries.push({ kind: "batch", "leads.phone": phone, templateName });
+  }
+
+  for (const query of queries) {
+    const log = await withMongoRetry(
+      () => reachoutLogsCollection.findOne(query, { sort: { sentAt: -1 } }),
+      { retries: 1, label: "Find ReachOut batch log" }
+    );
+    if (log) {
+      return log;
+    }
+  }
+  return null;
+}
+
+async function updateReachoutBatchLogForEvent(lead = {}, normalizedEvent = {}) {
+  const existing = await findReachoutBatchLogForEvent(lead, normalizedEvent);
+  if (!existing) {
+    return null;
+  }
+
+  const leadIdCandidates = new Set(getLeadIdCandidates(lead.id).map((value) => String(value).trim()).filter(Boolean));
+  const normalizedPhone = String(normalizedEvent.phone || lead.phone || "").trim();
+  const normalizedEmail = String(normalizedEvent.leadEmail || lead.email || "").trim().toLowerCase();
+  let changed = false;
+  const nextLeads = (Array.isArray(existing.leads) ? existing.leads : []).map((entry) => {
+    const current = normalizeReachoutBatchLead(entry);
+    const sameLead =
+      (current.providerMessageId && normalizedEvent.providerMessageId && current.providerMessageId === normalizedEvent.providerMessageId)
+      || (current.leadId && leadIdCandidates.has(current.leadId))
+      || (normalizedPhone && current.phone === normalizedPhone)
+      || (normalizedEmail && current.email === normalizedEmail);
+    if (!sameLead) {
+      return current;
+    }
+
+    const next = {
+      ...current,
+      providerMessageId: current.providerMessageId || normalizedEvent.providerMessageId || "",
+      lastEventStatus: String(normalizedEvent.status || current.lastEventStatus || current.status || "submitted").trim().toLowerCase(),
+      lastEventAt: String(normalizedEvent.occurredAt || new Date().toISOString()).trim(),
+      replyText: normalizedEvent.replyText || current.replyText,
+      clickedLink: normalizedEvent.clickedLink || current.clickedLink,
+      failureReason: normalizedEvent.failureReason || current.failureReason,
+      events: { ...current.events }
+    };
+
+    switch (next.lastEventStatus) {
+      case "delivered":
+        next.events.delivered = true;
+        break;
+      case "read":
+        next.events.delivered = true;
+        next.events.read = true;
+        break;
+      case "opened":
+        next.events.opened = true;
+        break;
+      case "clicked":
+        next.events.clicked = true;
+        break;
+      case "replied":
+        next.events.replied = true;
+        break;
+      case "failed":
+        next.events.failed = true;
+        if (next.status !== "error") {
+          next.status = "error";
+        }
+        break;
+      default:
+        break;
+    }
+
+    if (JSON.stringify(next) !== JSON.stringify(current)) {
+      changed = true;
+    }
+    return next;
+  });
+
+  if (!changed) {
+    return existing;
+  }
+
+  const submitted = nextLeads.filter((item) => item.status !== "error").length;
+  const failed = nextLeads.filter((item) => item.status === "error").length;
+  const nextReport = buildReachoutBatchReport({
+    attempted: Number(existing.attempted) || nextLeads.length,
+    audienceCount: Number(existing.audienceCount) || nextLeads.length,
+    submitted,
+    failed,
+    leads: nextLeads
+  });
+
+  await withMongoRetry(
+    () => reachoutLogsCollection.updateOne(
+      { _id: existing._id },
+      {
+        $set: {
+          leads: nextLeads,
+          submitted,
+          failed,
+          audienceCount: Number(existing.audienceCount) || nextLeads.length,
+          attempted: Number(existing.attempted) || nextLeads.length,
+          type: getReachoutBatchLogType(nextReport),
+          report: nextReport,
+          updatedAt: new Date().toISOString()
+        }
+      }
+    ),
+    { retries: 1, label: "Update ReachOut batch log" }
+  );
+
+  return { ...existing, leads: nextLeads, report: nextReport };
 }
 
 function canManageRoles(session) {
