@@ -554,6 +554,39 @@ test("monitoring keeps activity totals separate from fresh and old lead touch co
   assert.doesNotMatch(monitoring, /Old Lead Activities/);
 });
 
+test("monitoring attributes activity to real counselors instead of current lead ownership", () => {
+  const monitoring = read("monitoring.js");
+
+  assert.match(monitoring, /function resolveCounselorActivityActor\(/);
+  assert.match(monitoring, /function getCounselorActivityLeadRecords\(/);
+  assert.match(monitoring, /entry\?\.by/);
+  assert.match(monitoring, /normalizeText\(name\) !== "unassigned"/);
+  assert.match(monitoring, /getMonitoringCounselorNames\(rawLeads\)/);
+  assert.doesNotMatch(monitoring, /return names.length \? names : \["Unassigned"\]/);
+});
+
+test("monitoring uses assignment-based lead counts and consistent labels across tabs", () => {
+  const monitoring = read("monitoring.js");
+
+  assert.match(monitoring, /function getLeadAssignmentDate\(/);
+  assert.match(monitoring, /function countAssignedLeadsInRange\(/);
+  assert.equal(countMatches(monitoring, /assignedLeads: countAssignedLeadsInRange\(rawLeads, counselor, range\)/g), 4);
+  assert.match(monitoring, /label: "Leads Assigned"/);
+  assert.doesNotMatch(monitoring, /New Leads Received/);
+  assert.doesNotMatch(monitoring, /Fresh Leads Received/);
+});
+
+test("monitoring counselor scope includes touched leads and admins hide zero rows", () => {
+  const monitoring = read("monitoring.js");
+
+  assert.match(monitoring, /const MONITORING_ACTIVITY_HISTORY_FIELDS = \[/);
+  assert.match(monitoring, /MONITORING_ACTIVITY_HISTORY_FIELDS\.some\(\(historyField\) =>/);
+  assert.match(monitoring, /resolveCounselorActivityActor\(entry\?\.by\)\.toLowerCase\(\) === counselorName/);
+  assert.match(monitoring, /function filterVisibleMonitoringRows\(/);
+  assert.match(monitoring, /if \(isCounselorSession\(\)\) \{\s*return rows;/);
+  assert.equal(countMatches(monitoring, /return filterVisibleMonitoringRows\(sortRowsByPriority\(counselors\.map\(/g), 4);
+});
+
 test("activity update panels can save notes into activity history", () => {
   const preWorkshopHtml = read("pre-workshop.html");
   const postWorkshopHtml = read("post-workshop.html");

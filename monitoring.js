@@ -32,6 +32,12 @@ const session = getSession();
 const TIMELINE_STORAGE_KEY = "dvWorkshopMonitoringTimeline";
 const VIEW_STORAGE_KEY = "dvMonitoringActiveView";
 const CRASH_SEGMENT = "crash-course";
+const MONITORING_ACTIVITY_HISTORY_FIELDS = [
+  "workshopActivityHistory",
+  "admissionActivityHistory",
+  "registeredCourseActivityHistory",
+  "mainAdmissionActivityHistory"
+];
 
 const VIEW_CONFIG = {
   workshop: {
@@ -84,6 +90,12 @@ let activeView = {
   subsection: "workshop-calling"
 };
 
+let counselorDirectoryCacheKey = "";
+let counselorDirectoryCache = {
+  aliasToName: new Map(),
+  names: []
+};
+
 timelineFilter = {
   ...timelineFilter,
   ...await loadLocalPreference(TIMELINE_STORAGE_KEY, {})
@@ -105,6 +117,51 @@ function escapeHtml(value) {
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function getCounselorDirectory() {
+  const counselors = getCounselors();
+  const cacheKey = JSON.stringify(
+    counselors.map((item) => ({
+      name: String(item?.name || "").trim(),
+      email: String(item?.email || "").trim().toLowerCase()
+    }))
+  );
+
+  if (cacheKey === counselorDirectoryCacheKey) {
+    return counselorDirectoryCache;
+  }
+
+  const aliasToName = new Map();
+  const names = [];
+
+  counselors.forEach((item) => {
+    const name = String(item?.name || "").trim();
+    const email = String(item?.email || "").trim().toLowerCase();
+    if (name) {
+      names.push(name);
+      aliasToName.set(normalizeText(name), name);
+    }
+    if (email && name) {
+      aliasToName.set(email, name);
+    }
+  });
+
+  counselorDirectoryCacheKey = cacheKey;
+  counselorDirectoryCache = {
+    aliasToName,
+    names: [...new Set(names)].sort((left, right) => left.localeCompare(right))
+  };
+  return counselorDirectoryCache;
+}
+
+function resolveCounselorActivityActor(value) {
+  const normalized = normalizeText(value);
+  if (!normalized) {
+    return "";
+  }
+
+  return getCounselorDirectory().aliasToName.get(normalized) || "";
 }
 
 function toLocalDateKey(date = new Date()) {
@@ -177,8 +234,12 @@ function getScopedLeads(allLeads) {
     return [];
   }
 
-  return allLeads.filter(
-    (lead) => String(lead.counselor || "").trim().toLowerCase() === counselorName
+  return allLeads.filter((lead) =>
+    String(lead.counselor || "").trim().toLowerCase() === counselorName
+    || MONITORING_ACTIVITY_HISTORY_FIELDS.some((historyField) =>
+      Array.isArray(lead?.[historyField])
+      && lead[historyField].some((entry) => resolveCounselorActivityActor(entry?.by).toLowerCase() === counselorName)
+    )
   );
 }
 
@@ -505,33 +566,52 @@ function sortRowsByPriority(rows) {
     if (b.activities !== a.activities) {
       return b.activities - a.activities;
     }
-    if (b.freshActivities !== a.freshActivities) {
-      return b.freshActivities - a.freshActivities;
+    if (b.freshLeadTouches !== a.freshLeadTouches) {
+      return b.freshLeadTouches - a.freshLeadTouches;
     }
     return String(a.counselor).localeCompare(String(b.counselor));
   });
 }
 
-function getCounselorBuckets(leads) {
-  const names = [...new Set(leads.map((lead) => lead.counselor || "Unassigned"))]
-    .filter((name) => String(name || "").trim())
-    .sort((a, b) => a.localeCompare(b));
+function getMonitoringCounselorNames(leads = []) {
+  const { names } = getCounselorDirectory();
+  const fallbackNames = [...new Set(
+    leads
+      .map((lead) => String(lead?.counselor || "").trim())
+      .filter((name) => name && normalizeText(name) !== "unassigned")
+  )].sort((a, b) => a.localeCompare(b));
 
-  return names.length ? names : ["Unassigned"];
+  if (isCounselorSession()) {
+    const counselorName = getCounselorIdentity();
+    const matched = [...names, ...fallbackNames].find((name) => normalizeText(name) === counselorName);
+    return matched ? [matched] : [];
+  }
+
+  const merged = [...new Set([...names, ...fallbackNames])].sort((a, b) => a.localeCompare(b));
+  return merged;
 }
 
-function countNewLeads(rawLeads, range) {
+function getLeadAssignmentDate(lead) {
+  return parseLocalDate(
+    lead?.leadOwnerTimelineAt
+    || lead?.counselorAssignedAt
+    || lead?.createdAtExact
+    || lead?.createdAt
+  );
+}
+
+function countAssignedLeadsInRange(rawLeads, counselor, range) {
+  const normalizedCounselor = normalizeText(counselor);
+  const assignedLeads = rawLeads.filter((lead) => normalizeText(lead?.counselor) === normalizedCounselor);
+
   if (!range) {
-    return rawLeads.length;
+    return assignedLeads.length;
   }
 
   const { start, end } = range;
-  return rawLeads.filter((lead) => {
-    const created = parseLocalDate(lead.createdAt);
-    if (!created) {
-      return false;
-    }
-    return created >= start && created <= end;
+  return assignedLeads.filter((lead) => {
+    const assignedAt = getLeadAssignmentDate(lead);
+    return assignedAt && assignedAt >= start && assignedAt <= end;
   }).length;
 }
 
@@ -563,39 +643,37 @@ function splitFreshAndOldActivities(activityLeads, countField, range) {
   };
 }
 
+function getHistoryEntriesInRange(history, range) {
+  const entries = Array.isArray(history) ? history : [];
+  if (!range) {
+    return entries;
+  }
+
+  return filterHistoryInRange(entries, range.start, range.end);
+}
+
+function getCounselorActivityLeadRecords(leads, historyField, counselorName, range) {
+  return leads.reduce((records, lead) => {
+    const matchingEntries = getHistoryEntriesInRange(lead?.[historyField], range)
+      .filter((entry) => resolveCounselorActivityActor(entry?.by) === counselorName);
+
+    if (matchingEntries.length) {
+      records.push({
+        lead,
+        activityCount: matchingEntries.length
+      });
+    }
+
+    return records;
+  }, []);
+}
+
 function formatPercent(count, total) {
   if (!total) {
     return "0%";
   }
   const value = (count / total) * 100;
   return `${value.toFixed(value % 1 === 0 ? 0 : 1)}%`;
-}
-
-function getLeadKey(lead) {
-  return String(
-    lead.id
-    || lead.leadId
-    || lead.phone
-    || lead.phoneNumber
-    || lead.email
-    || `${lead.name || "lead"}-${lead.createdAt || ""}`
-  );
-}
-
-function wasLeadCreatedInRange(lead, range) {
-  if (!range) {
-    return true;
-  }
-  const created = parseLocalDate(lead.createdAt);
-  return Boolean(created && created >= range.start && created <= range.end);
-}
-
-function wasLeadCreatedBeforeRange(lead, range) {
-  if (!range) {
-    return false;
-  }
-  const created = parseLocalDate(lead.createdAt);
-  return Boolean(created && created < range.start);
 }
 
 function getOpportunityDate(lead) {
@@ -620,23 +698,29 @@ function getOpportunityAgeDays(lead) {
   return Math.max(0, Math.floor((now - opportunityDate) / 86400000));
 }
 
-function groupLeadsBy(leads, getKey) {
-  const groups = new Map();
-  leads.forEach((lead) => {
-    const key = String(getKey(lead) || "").trim() || "Unassigned";
-    if (!groups.has(key)) {
-      groups.set(key, []);
-    }
-    groups.get(key).push(lead);
-  });
-  return Array.from(groups.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+function rowHasMonitoringData(row) {
+  return Object.entries(row).some(([key, value]) =>
+    key !== "counselor"
+    && typeof value === "number"
+    && value > 0
+  );
+}
+
+function filterVisibleMonitoringRows(rows) {
+  if (isCounselorSession()) {
+    return rows;
+  }
+
+  return rows.filter((row) => rowHasMonitoringData(row));
 }
 
 function buildWorkshopRows(counselors, leads, rawLeads, range) {
-  return sortRowsByPriority(counselors.map((counselor) => {
-    const counselorLeads = leads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
-    const counselorRawLeads = rawLeads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
-    const activityLeads = counselorLeads.filter((lead) => (Number(lead.preActivityUpdates) || 0) > 0);
+  return filterVisibleMonitoringRows(sortRowsByPriority(counselors.map((counselor) => {
+    const counselorLeads = getCounselorActivityLeadRecords(rawLeads, "workshopActivityHistory", counselor, range);
+    const activityLeads = counselorLeads.map((record) => ({
+      ...record.lead,
+      preActivityUpdates: record.activityCount
+    }));
     const activitySummary = splitFreshAndOldActivities(activityLeads, "preActivityUpdates", range);
 
     return {
@@ -645,17 +729,19 @@ function buildWorkshopRows(counselors, leads, rawLeads, range) {
       workshopEntries: formatBreakdownEntries(activityLeads, "workshop", "preActivityUpdates"),
       interested: activityLeads.filter((lead) => lead.wsStatus === "Interested").length,
       notInterested: activityLeads.filter((lead) => lead.wsStatus === "Not Interested").length,
-      whatsappJoined: counselorLeads.filter((lead) => lead.whatsappGroupStatus === "Joined").length,
-      newLeads: countNewLeads(counselorRawLeads, range)
+      whatsappJoined: activityLeads.filter((lead) => lead.whatsappGroupStatus === "Joined").length,
+      assignedLeads: countAssignedLeadsInRange(rawLeads, counselor, range)
     };
-  }));
+  })));
 }
 
 function buildPostWorkshopRows(counselors, leads, rawLeads, range) {
-  return sortRowsByPriority(counselors.map((counselor) => {
-    const counselorLeads = leads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
-    const counselorRawLeads = rawLeads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
-    const activityLeads = counselorLeads.filter((lead) => (Number(lead.postActivityUpdates) || 0) > 0);
+  return filterVisibleMonitoringRows(sortRowsByPriority(counselors.map((counselor) => {
+    const counselorLeads = getCounselorActivityLeadRecords(rawLeads, "admissionActivityHistory", counselor, range);
+    const activityLeads = counselorLeads.map((record) => ({
+      ...record.lead,
+      postActivityUpdates: record.activityCount
+    }));
     const activitySummary = splitFreshAndOldActivities(activityLeads, "postActivityUpdates", range);
 
     return {
@@ -663,19 +749,21 @@ function buildPostWorkshopRows(counselors, leads, rawLeads, range) {
       ...activitySummary,
       workshopEntries: formatAdmissionWorkshopBreakdownEntries(activityLeads, "postActivityUpdates"),
       interested: activityLeads.filter((lead) => lead.courseStatus === "Interested").length,
-      notInterested: counselorLeads.filter((lead) => lead.courseStatus === "Not Interested").length,
+      notInterested: activityLeads.filter((lead) => lead.courseStatus === "Not Interested").length,
       enrolled: activityLeads.filter((lead) => lead.admissionStatus === "Enrolled").length,
       won: activityLeads.filter((lead) => lead.admissionStatus === "Won").length,
-      newLeads: countNewLeads(counselorRawLeads, range)
+      assignedLeads: countAssignedLeadsInRange(rawLeads, counselor, range)
     };
-  }));
+  })));
 }
 
 function buildMainAdmissionRows(counselors, leads, rawLeads, range) {
-  return sortRowsByPriority(counselors.map((counselor) => {
-    const counselorLeads = leads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
-    const counselorRawLeads = rawLeads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
-    const activityLeads = counselorLeads.filter((lead) => (Number(lead.mainAdmissionActivityUpdates) || 0) > 0);
+  return filterVisibleMonitoringRows(sortRowsByPriority(counselors.map((counselor) => {
+    const counselorLeads = getCounselorActivityLeadRecords(rawLeads, "mainAdmissionActivityHistory", counselor, range);
+    const activityLeads = counselorLeads.map((record) => ({
+      ...record.lead,
+      mainAdmissionActivityUpdates: record.activityCount
+    }));
     const activitySummary = splitFreshAndOldActivities(activityLeads, "mainAdmissionActivityUpdates", range);
 
     return {
@@ -688,31 +776,33 @@ function buildMainAdmissionRows(counselors, leads, rawLeads, range) {
         "Unspecified"
       ),
       interested: activityLeads.filter((lead) => lead.mainAdmissionCourseStatus === "Interested").length,
-      notInterested: counselorLeads.filter((lead) => lead.mainAdmissionCourseStatus === "Not Interested").length,
+      notInterested: activityLeads.filter((lead) => lead.mainAdmissionCourseStatus === "Not Interested").length,
       enrolled: activityLeads.filter((lead) => lead.mainAdmissionAdmissionStatus === "Enrolled").length,
       won: activityLeads.filter((lead) => lead.mainAdmissionAdmissionStatus === "Won").length,
-      newLeads: countNewLeads(counselorRawLeads, range)
+      assignedLeads: countAssignedLeadsInRange(rawLeads, counselor, range)
     };
-  }));
+  })));
 }
 
 function buildRegisteredRows(counselors, leads, rawLeads, range) {
-  return sortRowsByPriority(counselors.map((counselor) => {
-    const counselorLeads = leads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
-    const counselorRawLeads = rawLeads.filter((lead) => (lead.counselor || "Unassigned") === counselor);
-    const activityLeads = counselorLeads.filter((lead) => (Number(lead.registeredCourseActivityUpdates) || 0) > 0);
+  return filterVisibleMonitoringRows(sortRowsByPriority(counselors.map((counselor) => {
+    const counselorLeads = getCounselorActivityLeadRecords(rawLeads, "registeredCourseActivityHistory", counselor, range);
+    const activityLeads = counselorLeads.map((record) => ({
+      ...record.lead,
+      registeredCourseActivityUpdates: record.activityCount
+    }));
     const activitySummary = splitFreshAndOldActivities(activityLeads, "registeredCourseActivityUpdates", range);
 
     return {
       counselor,
       ...activitySummary,
       courseEntries: formatBreakdownEntries(activityLeads, "courseName", "registeredCourseActivityUpdates"),
-      newLeads: countNewLeads(counselorRawLeads, range),
+      assignedLeads: countAssignedLeadsInRange(rawLeads, counselor, range),
       dialed: activityLeads.filter((lead) => lead.registeredDialed === "Yes").length,
       interested: activityLeads.filter((lead) => lead.registeredCourseStatus === "Interested").length,
-      notInterested: counselorLeads.filter((lead) => lead.registeredCourseStatus === "Not Interested").length
+      notInterested: activityLeads.filter((lead) => lead.registeredCourseStatus === "Not Interested").length
     };
-  }));
+  })));
 }
 
 function buildMetricCards(metrics) {
@@ -910,7 +1000,7 @@ function renderSubsectionNav() {
 function renderWorkshopCallingView(counselors, leads, rawLeads, range) {
   const rows = buildWorkshopRows(counselors, leads, rawLeads, range);
   const totalActivity = rows.reduce((sum, row) => sum + row.activities, 0);
-  const newLeads = rows.reduce((sum, row) => sum + row.newLeads, 0);
+  const assignedLeads = rows.reduce((sum, row) => sum + row.assignedLeads, 0);
   const interested = rows.reduce((sum, row) => sum + row.interested, 0);
   const notInterested = rows.reduce((sum, row) => sum + row.notInterested, 0);
   const whatsappJoined = rows.reduce((sum, row) => sum + row.whatsappJoined, 0);
@@ -919,7 +1009,7 @@ function renderWorkshopCallingView(counselors, leads, rawLeads, range) {
 
   buildMetricCards([
     { label: "Overall Activity", value: totalActivity },
-    { label: "New Leads Received", value: newLeads },
+    { label: "Leads Assigned", value: assignedLeads },
     { label: "Interested Leads", value: interested },
     { label: "Not Interested Leads", value: notInterested },
     { label: "WhatsApp Group Joined", value: whatsappJoined },
@@ -934,7 +1024,7 @@ function renderWorkshopCallingView(counselors, leads, rawLeads, range) {
     { label: "Interested Leads", render: (row) => String(row.interested) },
     { label: "Not Interested Leads", render: (row) => String(row.notInterested) },
     { label: "WhatsApp Group Joined", render: (row) => String(row.whatsappJoined) },
-    { label: "New Leads Received", render: (row) => String(row.newLeads) },
+    { label: "Leads Assigned", render: (row) => String(row.assignedLeads) },
     { label: "Fresh Leads Touched", render: (row) => String(row.freshLeadTouches) },
     { label: "Old Leads Touched", render: (row) => String(row.oldLeadTouches) }
   ], rows, 9);
@@ -943,7 +1033,7 @@ function renderWorkshopCallingView(counselors, leads, rawLeads, range) {
 function renderAdmissionCallingView(counselors, leads, rawLeads, range) {
   const rows = buildPostWorkshopRows(counselors, leads, rawLeads, range);
   const totalActivity = rows.reduce((sum, row) => sum + row.activities, 0);
-  const newLeads = rows.reduce((sum, row) => sum + row.newLeads, 0);
+  const assignedLeads = rows.reduce((sum, row) => sum + row.assignedLeads, 0);
   const interested = rows.reduce((sum, row) => sum + row.interested, 0);
   const notInterested = rows.reduce((sum, row) => sum + row.notInterested, 0);
   const enrolled = rows.reduce((sum, row) => sum + row.enrolled, 0);
@@ -953,7 +1043,7 @@ function renderAdmissionCallingView(counselors, leads, rawLeads, range) {
 
   buildMetricCards([
     { label: "Overall Activity", value: totalActivity },
-    { label: "New Leads Received", value: newLeads },
+    { label: "Leads Assigned", value: assignedLeads },
     { label: "Interested Leads", value: interested },
     { label: "Not Interested Leads", value: notInterested },
     { label: "Enrolled", value: enrolled },
@@ -970,7 +1060,7 @@ function renderAdmissionCallingView(counselors, leads, rawLeads, range) {
     { label: "Not Interested Leads", render: (row) => String(row.notInterested) },
     { label: "Enrolled", render: (row) => String(row.enrolled) },
     { label: "Won", render: (row) => String(row.won) },
-    { label: "New Leads Received", render: (row) => String(row.newLeads) },
+    { label: "Leads Assigned", render: (row) => String(row.assignedLeads) },
     { label: "Fresh Leads Touched", render: (row) => String(row.freshLeadTouches) },
     { label: "Old Leads Touched", render: (row) => String(row.oldLeadTouches) }
   ], rows, 10);
@@ -979,7 +1069,7 @@ function renderAdmissionCallingView(counselors, leads, rawLeads, range) {
 function renderMainAdmissionView(counselors, leads, rawLeads, range) {
   const rows = buildMainAdmissionRows(counselors, leads, rawLeads, range);
   const totalActivity = rows.reduce((sum, row) => sum + row.activities, 0);
-  const newLeads = rows.reduce((sum, row) => sum + row.newLeads, 0);
+  const assignedLeads = rows.reduce((sum, row) => sum + row.assignedLeads, 0);
   const interested = rows.reduce((sum, row) => sum + row.interested, 0);
   const notInterested = rows.reduce((sum, row) => sum + row.notInterested, 0);
   const enrolled = rows.reduce((sum, row) => sum + row.enrolled, 0);
@@ -989,7 +1079,7 @@ function renderMainAdmissionView(counselors, leads, rawLeads, range) {
 
   buildMetricCards([
     { label: "Overall Activity", value: totalActivity },
-    { label: "New Leads Received", value: newLeads },
+    { label: "Leads Assigned", value: assignedLeads },
     { label: "Interested Leads", value: interested },
     { label: "Not Interested Leads", value: notInterested },
     { label: "Enrolled", value: enrolled },
@@ -1006,7 +1096,7 @@ function renderMainAdmissionView(counselors, leads, rawLeads, range) {
     { label: "Not Interested Leads", render: (row) => String(row.notInterested) },
     { label: "Enrolled", render: (row) => String(row.enrolled) },
     { label: "Won", render: (row) => String(row.won) },
-    { label: "New Leads Received", render: (row) => String(row.newLeads) },
+    { label: "Leads Assigned", render: (row) => String(row.assignedLeads) },
     { label: "Fresh Leads Touched", render: (row) => String(row.freshLeadTouches) },
     { label: "Old Leads Touched", render: (row) => String(row.oldLeadTouches) }
   ], rows, 10);
@@ -1015,7 +1105,7 @@ function renderMainAdmissionView(counselors, leads, rawLeads, range) {
 function renderRegisteredView(counselors, leads, rawLeads, range) {
   const rows = buildRegisteredRows(counselors, leads, rawLeads, range);
   const totalActivity = rows.reduce((sum, row) => sum + row.activities, 0);
-  const newLeads = rows.reduce((sum, row) => sum + row.newLeads, 0);
+  const assignedLeads = rows.reduce((sum, row) => sum + row.assignedLeads, 0);
   const dialed = rows.reduce((sum, row) => sum + row.dialed, 0);
   const interested = rows.reduce((sum, row) => sum + row.interested, 0);
   const notInterested = rows.reduce((sum, row) => sum + row.notInterested, 0);
@@ -1024,7 +1114,7 @@ function renderRegisteredView(counselors, leads, rawLeads, range) {
 
   buildMetricCards([
     { label: "Overall Activity", value: totalActivity },
-    { label: "Fresh Leads Received", value: newLeads },
+    { label: "Leads Assigned", value: assignedLeads },
     { label: "Dialed Leads", value: dialed },
     { label: "Interested Leads", value: interested },
     { label: "Not Interested Leads", value: notInterested },
@@ -1036,7 +1126,7 @@ function renderRegisteredView(counselors, leads, rawLeads, range) {
     { label: "Counselor Name", render: (row) => escapeHtml(row.counselor) },
     { label: "Overall Activity", render: (row) => String(row.activities) },
     { label: "Course-wise Activity Breakdown", render: (row) => renderBreakdownCell(row.courseEntries, "No course activity") },
-    { label: "Fresh Leads Received", render: (row) => String(row.newLeads) },
+    { label: "Leads Assigned", render: (row) => String(row.assignedLeads) },
     { label: "Fresh Leads Touched", render: (row) => String(row.freshLeadTouches) },
     { label: "Old Leads Touched", render: (row) => String(row.oldLeadTouches) },
     { label: "Dialed Leads", render: (row) => String(row.dialed) },
@@ -1059,7 +1149,7 @@ function renderActiveMonitoringView() {
   if (activeView.subsection === "workshop-calling") {
     const leads = legacyNonMainAdmissionTimelineLeads.filter((lead) => !isNonWorkshopPipelineLead(lead) && !isLostLead(lead));
     const rawLeads = legacyNonMainAdmissionRawLeads.filter((lead) => !isNonWorkshopPipelineLead(lead) && !isLostLead(lead));
-    const counselors = getCounselorBuckets(leads);
+    const counselors = getMonitoringCounselorNames(rawLeads);
     renderWorkshopCallingView(counselors, leads, rawLeads, range);
     return;
   }
@@ -1067,7 +1157,7 @@ function renderActiveMonitoringView() {
   if (activeView.subsection === "admission-calling") {
     const leads = legacyNonMainAdmissionTimelineLeads.filter((lead) => !isNonWorkshopPipelineLead(lead));
     const rawLeads = legacyNonMainAdmissionRawLeads.filter((lead) => !isNonWorkshopPipelineLead(lead));
-    const counselors = getCounselorBuckets(leads);
+    const counselors = getMonitoringCounselorNames(rawLeads);
     renderAdmissionCallingView(counselors, leads, rawLeads, range);
     return;
   }
@@ -1075,7 +1165,7 @@ function renderActiveMonitoringView() {
   if (activeView.subsection === "main-admission") {
     const leads = timelineLeads.filter(isMainAdmissionLead);
     const rawLeads = rawAllLeads.filter(isMainAdmissionLead);
-    const counselors = getCounselorBuckets(leads);
+    const counselors = getMonitoringCounselorNames(rawLeads);
     renderMainAdmissionView(counselors, leads, rawLeads, range);
     return;
   }
@@ -1083,14 +1173,14 @@ function renderActiveMonitoringView() {
   if (activeView.subsection === "registered-candidates") {
     const leads = timelineLeads.filter(isStandardRegisteredLead);
     const rawLeads = rawAllLeads.filter(isStandardRegisteredLead);
-    const counselors = getCounselorBuckets(leads);
+    const counselors = getMonitoringCounselorNames(rawLeads);
     renderRegisteredView(counselors, leads, rawLeads, range);
     return;
   }
 
   const leads = timelineLeads.filter(isCrashCourseRegistrationLead);
   const rawLeads = rawAllLeads.filter(isCrashCourseRegistrationLead);
-  const counselors = getCounselorBuckets(leads);
+  const counselors = getMonitoringCounselorNames(rawLeads);
   renderRegisteredView(counselors, leads, rawLeads, range);
 }
 
