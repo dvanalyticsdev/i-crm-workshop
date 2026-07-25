@@ -18,7 +18,7 @@ import {
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
-import { addLeadNote, deleteLeadNote, deleteLeads as deleteLeadsOnServer, getLeadIdsByActivityTypes, trackLeadView, updateLeadActivity as updateLeadActivityOnServer, updateMainAdmissionLeadDetails } from "./lead-service.js";
+import { addLeadNote, deleteLeadNote, deleteLeads as deleteLeadsOnServer, trackLeadView, updateLeadActivity as updateLeadActivityOnServer, updateMainAdmissionLeadDetails } from "./lead-service.js";
 
 await bootstrapLocalState();
 
@@ -112,9 +112,6 @@ let detailsLeadRef = null;
 let detailsEditMode = false;
 let mainAdmissionActivityModalMode = "edit";
 let activeSegment = DEFAULT_SEGMENT;
-let whatsappActivityLeadIds = null;
-let whatsappActivityLookupKey = "";
-
 populateCrmCourseSelect("modalMainAdmissionCoursePitched", { includeNo: true });
 
 function persistFilters() {
@@ -164,40 +161,57 @@ function leadMatchesWhatsappActivity(lead, selectedActivity) {
   }
 
   const history = Array.isArray(lead?.mainAdmissionActivityHistory) ? lead.mainAdmissionActivityHistory : [];
-  return history.some((entry) => getActivityLabel(entry) === selectedActivity);
-}
-
-async function ensureWhatsappActivityLeadIds() {
-  const selectedActivity = String(filter.whatsappActivity || "").trim();
-  if (!selectedActivity) {
-    whatsappActivityLeadIds = null;
-    whatsappActivityLookupKey = "";
-    return;
-  }
-
-  if (whatsappActivityLeadIds && whatsappActivityLookupKey === selectedActivity) {
-    return;
-  }
-
-  const result = await getLeadIdsByActivityTypes([selectedActivity]);
-  if (result?.ok) {
-    whatsappActivityLeadIds = new Set((result.leadIds || []).map((item) => String(item || "").trim()));
-    whatsappActivityLookupKey = selectedActivity;
-    return;
-  }
-
-  whatsappActivityLeadIds = new Set();
-  whatsappActivityLookupKey = selectedActivity;
+  const latestEntry = getLatestHistoryEntry(history);
+  return getActivityLabel(latestEntry) === selectedActivity;
 }
 
 function leadMatchesWhatsappActivityFilter(lead) {
-  if (leadMatchesWhatsappActivity(lead, filter.whatsappActivity)) {
-    return true;
+  return leadMatchesWhatsappActivity(lead, filter.whatsappActivity);
+}
+
+function getEntryTimestamp(value) {
+  const candidate = String(
+    value?.at
+    || value?.timestamp
+    || value?.createdAt
+    || value?.updatedAt
+    || value?.migratedAt
+    || value
+    || ""
+  ).trim();
+  if (!candidate) {
+    return Number.NaN;
   }
-  if (!(whatsappActivityLeadIds instanceof Set)) {
-    return false;
+  return new Date(candidate).getTime();
+}
+
+function getLatestHistoryEntry(history) {
+  if (!Array.isArray(history) || !history.length) {
+    return null;
   }
-  return whatsappActivityLeadIds.has(String(lead?.id || "").trim());
+
+  return history.reduce((latest, entry) => {
+    if (!latest) {
+      return entry;
+    }
+    return getEntryTimestamp(entry) >= getEntryTimestamp(latest) ? entry : latest;
+  }, null);
+}
+
+function getLatestLeadActivityTimestamp(lead) {
+  return getEntryTimestamp(getLatestHistoryEntry(lead?.mainAdmissionActivityHistory));
+}
+
+function getLatestRepeatEnquiryTimestamp(lead) {
+  const candidates = [
+    getEntryTimestamp(lead?.lastRepeatEnquiryAt),
+    getEntryTimestamp(lead?.lastWorkshopMigrationAt)
+  ];
+  if (Array.isArray(lead?.workshopMigrationHistory) && lead.workshopMigrationHistory.length) {
+    candidates.push(...lead.workshopMigrationHistory.map((entry) => getEntryTimestamp(entry)));
+  }
+  const valid = candidates.filter((value) => Number.isFinite(value));
+  return valid.length ? Math.max(...valid) : Number.NaN;
 }
 
 function toLocalDateKey(date = new Date()) {
@@ -310,12 +324,48 @@ function normalizeLeadFields(leads) {
     lead.mainAdmissionCallStatus = lead.mainAdmissionCallStatus || "";
     lead.mainAdmissionActivityUpdated = typeof lead.mainAdmissionActivityUpdated === "boolean" ? lead.mainAdmissionActivityUpdated : false;
     lead.mainAdmissionActivityHistory = Array.isArray(lead.mainAdmissionActivityHistory) ? lead.mainAdmissionActivityHistory : [];
-    lead.mainAdmissionActivityUpdates = lead.mainAdmissionActivityHistory.length
-      || (Number.isFinite(Number(lead.mainAdmissionActivityUpdates)) ? Number(lead.mainAdmissionActivityUpdates) : 0);
+    lead.mainAdmissionActivityTouchedByAssignee = typeof lead.mainAdmissionActivityTouchedByAssignee === "boolean"
+      ? lead.mainAdmissionActivityTouchedByAssignee
+      : lead.mainAdmissionActivityUpdated || hasAssigneeActivityHistory(lead.mainAdmissionActivityHistory);
+    lead.mainAdmissionActivityUpdates = lead.mainAdmissionActivityTouchedByAssignee
+      ? Math.max(
+          1,
+          Number.isFinite(Number(lead.mainAdmissionActivityUpdates)) ? Number(lead.mainAdmissionActivityUpdates) : 0
+        )
+      : 0;
     lead.leadNotes = Array.isArray(lead.leadNotes) ? lead.leadNotes : [];
     lead.metaExtraFields = lead.metaExtraFields && typeof lead.metaExtraFields === "object" ? lead.metaExtraFields : {};
     lead.elementorExtraFields = lead.elementorExtraFields && typeof lead.elementorExtraFields === "object" ? lead.elementorExtraFields : {};
   });
+}
+
+function hasAssigneeActivityHistory(history) {
+  if (!Array.isArray(history)) {
+    return false;
+  }
+
+  return history.some((entry) => {
+    const updates = entry?.updates;
+    if (updates && typeof updates === "object" && Object.keys(updates).length > 0) {
+      return true;
+    }
+
+    const by = String(entry?.by || "").trim().toLowerCase();
+    const source = String(entry?.source || "").trim().toLowerCase();
+    return Boolean(by) && !["reachout webhook", "system"].includes(by) && source !== "reachout webhook";
+  });
+}
+
+function getLeadActivityUpdateCount(lead) {
+  if (typeof lead?.mainAdmissionActivityTouchedByAssignee === "boolean") {
+    return lead.mainAdmissionActivityTouchedByAssignee ? 1 : 0;
+  }
+
+  if (typeof lead?.mainAdmissionActivityUpdated === "boolean") {
+    return lead.mainAdmissionActivityUpdated ? 1 : 0;
+  }
+
+  return hasAssigneeActivityHistory(lead?.mainAdmissionActivityHistory) ? 1 : 0;
 }
 
 function getRepeatEnquiryCount(lead) {
@@ -337,7 +387,13 @@ function getRepeatEnquiryCount(lead) {
 }
 
 function isRepeatEnquiryLead(lead) {
-  return getRepeatEnquiryCount(lead) > 0;
+  const repeatAt = getLatestRepeatEnquiryTimestamp(lead);
+  if (!Number.isFinite(repeatAt)) {
+    return false;
+  }
+
+  const latestActivityAt = getLatestLeadActivityTimestamp(lead);
+  return !Number.isFinite(latestActivityAt) || repeatAt >= latestActivityAt;
 }
 
 function renderRepeatEnquiryBadge(lead) {
@@ -1052,8 +1108,6 @@ function renderFilters(leads) {
   };
   document.getElementById("mainAdmissionResetFiltersBtn").onclick = () => {
     filter = { ...DEFAULT_FILTER };
-    whatsappActivityLeadIds = null;
-    whatsappActivityLookupKey = "";
     persistFilters();
     currentPage = 1;
     void renderAll();
@@ -1127,8 +1181,8 @@ function filterLeads(leads) {
     if (filter.mainAdmissionCourseStatus && filter.mainAdmissionCourseStatus !== lead.mainAdmissionCourseStatus) return false;
     if (filter.mainAdmissionAdmissionStatus && filter.mainAdmissionAdmissionStatus !== lead.mainAdmissionAdmissionStatus) return false;
     if (filter.mainAdmissionCallStatus && filter.mainAdmissionCallStatus !== lead.mainAdmissionCallStatus) return false;
-    if (filter.activityStatus === "Untouched" && lead.mainAdmissionActivityUpdates > 0) return false;
-    if (filter.activityStatus === "Updated" && lead.mainAdmissionActivityUpdates === 0) return false;
+    if (filter.activityStatus === "Untouched" && getLeadActivityUpdateCount(lead) > 0) return false;
+    if (filter.activityStatus === "Updated" && getLeadActivityUpdateCount(lead) === 0) return false;
     if (filter.repeatEnquiryStatus === "Repeat Enquiry" && !isRepeatEnquiryLead(lead)) return false;
     if (filter.repeatEnquiryStatus === "First Time" && isRepeatEnquiryLead(lead)) return false;
     if (filter.whatsappActivity && !leadMatchesWhatsappActivityFilter(lead)) return false;
@@ -1426,7 +1480,7 @@ function renderLeadDetailsModal(lead) {
 }
 
 function renderActivityPanel(lead) {
-  const hasActivity = lead.mainAdmissionActivityUpdates > 0;
+  const hasActivity = getLeadActivityUpdateCount(lead) > 0;
   const leadKey = escapeHtml(buildLeadKey(lead));
   const noteCount = lead.leadNotes.length;
   return `
@@ -1455,6 +1509,7 @@ function renderActivityPanel(lead) {
         </button>
       </div>
       <div class="activity-panel__secondary">
+        <button type="button" class="btn-ghost activity-panel__link" data-main-admission-action="details" data-lead-key="${leadKey}">View Details</button>
         ${canCreateTasks ? `<button type="button" class="btn-ghost btn-task activity-panel__link" data-main-admission-action="task" data-lead-key="${leadKey}">Task</button>` : ""}
         <button type="button" class="btn-ghost btn-notes activity-panel__link" data-main-admission-action="notes" data-lead-key="${leadKey}">Notes${noteCount ? ` (${noteCount})` : ""}</button>
         <button type="button" class="btn-ghost btn-activity-history activity-panel__link" data-main-admission-action="activity-history" data-lead-key="${leadKey}">Activity</button>
@@ -2084,7 +2139,6 @@ async function renderAll() {
       closeDetailsModal();
     }
   }
-  await ensureWhatsappActivityLeadIds();
   const allLeads = getScopedLeads(getAllLeads());
   const filteredLeads = filterLeads(allLeads);
   renderRegisteredRoutingPanel();

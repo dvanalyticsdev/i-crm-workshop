@@ -7952,7 +7952,9 @@ function getLeadAssignmentResetPatch(lead, counselor, assignedAt) {
     leadOwnerType: hasPreviousCounselor ? "reassigned" : "direct",
     leadOwnerTimelineAt: assignedAt,
     workshopActivityTouchedByAssignee: false,
-    admissionActivityTouchedByAssignee: false
+    admissionActivityTouchedByAssignee: false,
+    registeredActivityTouchedByAssignee: false,
+    mainAdmissionActivityTouchedByAssignee: false
   };
 
   if (!isAdmissionSopScopedLead(lead)) {
@@ -8012,6 +8014,12 @@ function getLeadActivityAssigneePatch(stage, session) {
   }
   if (stage === "admission") {
     return { admissionActivityTouchedByAssignee: true };
+  }
+  if (stage === "registered-course") {
+    return { registeredActivityTouchedByAssignee: true };
+  }
+  if (stage === "main-admission") {
+    return { mainAdmissionActivityTouchedByAssignee: true };
   }
   return {};
 }

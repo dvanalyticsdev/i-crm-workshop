@@ -19,7 +19,6 @@ import {
   deleteLeads as deleteLeadsOnServer,
   deleteLeadNote,
   formatLeadAssignmentResult,
-  getLeadIdsByActivityTypes,
   trackLeadView,
   updateLeadActivity as updateLeadActivityOnServer
 } from "./lead-service.js";
@@ -260,7 +259,53 @@ function leadMatchesWhatsappActivity(lead, selectedActivities, historyField) {
   }
 
   const history = Array.isArray(lead?.[historyField]) ? lead[historyField] : [];
-  return history.some((entry) => selected.includes(getActivityLabel(entry)));
+  const latestEntry = getLatestHistoryEntry(history);
+  return selected.includes(getActivityLabel(latestEntry));
+}
+
+function getEntryTimestamp(value) {
+  const candidate = String(
+    value?.at
+    || value?.timestamp
+    || value?.createdAt
+    || value?.updatedAt
+    || value?.migratedAt
+    || value
+    || ""
+  ).trim();
+  if (!candidate) {
+    return Number.NaN;
+  }
+  return new Date(candidate).getTime();
+}
+
+function getLatestHistoryEntry(history) {
+  if (!Array.isArray(history) || !history.length) {
+    return null;
+  }
+
+  return history.reduce((latest, entry) => {
+    if (!latest) {
+      return entry;
+    }
+    return getEntryTimestamp(entry) >= getEntryTimestamp(latest) ? entry : latest;
+  }, null);
+}
+
+function getLatestLeadActivityTimestamp(lead) {
+  return getEntryTimestamp(getLatestHistoryEntry(lead?.admissionActivityHistory));
+}
+
+function getLatestRepeatEnquiryTimestamp(lead) {
+  const candidates = [
+    getEntryTimestamp(lead?.lastRepeatEnquiryAt),
+    getEntryTimestamp(lead?.lastWorkshopMigrationAt)
+  ];
+  if (Array.isArray(lead?.workshopMigrationHistory) && lead.workshopMigrationHistory.length) {
+    candidates.push(...lead.workshopMigrationHistory.map((entry) => getEntryTimestamp(entry)));
+  }
+  const valid = candidates.filter((value) => Number.isFinite(value));
+  return valid.length ? Math.max(...valid) : Number.NaN;
 }
 
 function renderMultiSelectControl({ id, label, options, value, itemClass = "", itemAttrs = "" }) {
@@ -435,9 +480,6 @@ let selectedLeadKeys = new Set();
 let searchTimeout = null;
 let currentPage = 1;
 const pageSize = 50;
-let whatsappActivityLeadIds = null;
-let whatsappActivityLookupKey = "";
-
 const activityFields = ["modalPostDialed", "modalCoursePitched", "modalCourseStatus", "modalAdmissionStatus", "modalPostCallStatus", "modalAdmissionWorkshop", "modalWorkshopJoiningStatus", "modalPostActivityNote"];
 
 function setMessage(text, isError = true) {
@@ -536,7 +578,13 @@ function getRepeatEnquiryCount(lead) {
 }
 
 function isRepeatEnquiryLead(lead) {
-  return getRepeatEnquiryCount(lead) > 0;
+  const repeatAt = getLatestRepeatEnquiryTimestamp(lead);
+  if (!Number.isFinite(repeatAt)) {
+    return false;
+  }
+
+  const latestActivityAt = getLatestLeadActivityTimestamp(lead);
+  return !Number.isFinite(latestActivityAt) || repeatAt >= latestActivityAt;
 }
 
 function renderRepeatEnquiryBadge(lead) {
@@ -674,45 +722,28 @@ function getLeadActivityUpdateCount(lead) {
     return lead.admissionActivityTouchedByAssignee ? 1 : 0;
   }
 
-  return Array.isArray(lead?.admissionActivityHistory)
-    ? lead.admissionActivityHistory.length
-    : Number(lead?.postActivityUpdates) || 0;
+  return hasAssigneeActivityHistory(lead?.admissionActivityHistory) ? 1 : 0;
 }
 
-async function ensureWhatsappActivityLeadIds() {
-  const selectedActivities = getSelectedFilterValues(filter.whatsappActivity);
-  const lookupKey = selectedActivities.slice().sort().join("|");
-
-  if (!selectedActivities.length) {
-    whatsappActivityLeadIds = null;
-    whatsappActivityLookupKey = "";
-    return;
+function hasAssigneeActivityHistory(history) {
+  if (!Array.isArray(history)) {
+    return false;
   }
 
-  if (whatsappActivityLeadIds && whatsappActivityLookupKey === lookupKey) {
-    return;
-  }
+  return history.some((entry) => {
+    const updates = entry?.updates;
+    if (updates && typeof updates === "object" && Object.keys(updates).length > 0) {
+      return true;
+    }
 
-  const result = await getLeadIdsByActivityTypes(selectedActivities);
-  if (result?.ok) {
-    whatsappActivityLeadIds = new Set((result.leadIds || []).map((item) => String(item || "").trim()));
-    whatsappActivityLookupKey = lookupKey;
-    return;
-  }
-
-  whatsappActivityLeadIds = new Set();
-  whatsappActivityLookupKey = lookupKey;
+    const by = String(entry?.by || "").trim().toLowerCase();
+    const source = String(entry?.source || "").trim().toLowerCase();
+    return Boolean(by) && !["reachout webhook", "system"].includes(by) && source !== "reachout webhook";
+  });
 }
 
 function leadMatchesWhatsappActivityFilter(lead) {
-  const localHistoryMatch = leadMatchesWhatsappActivity(lead, filter.whatsappActivity, "admissionActivityHistory");
-  if (localHistoryMatch) {
-    return true;
-  }
-  if (!(whatsappActivityLeadIds instanceof Set)) {
-    return false;
-  }
-  return whatsappActivityLeadIds.has(String(lead?.id || "").trim());
+  return leadMatchesWhatsappActivity(lead, filter.whatsappActivity, "admissionActivityHistory");
 }
 
 function isUntouchedLead(lead) {
@@ -744,10 +775,10 @@ function normalizeLeadFields(leads) {
       || (Number.isFinite(Number(lead.postActivityUpdates)) ? Number(lead.postActivityUpdates) : 0);
     lead.workshopActivityTouchedByAssignee = typeof lead.workshopActivityTouchedByAssignee === "boolean"
       ? lead.workshopActivityTouchedByAssignee
-      : lead.preActivityUpdates > 0;
+      : hasAssigneeActivityHistory(lead.workshopActivityHistory);
     lead.admissionActivityTouchedByAssignee = typeof lead.admissionActivityTouchedByAssignee === "boolean"
       ? lead.admissionActivityTouchedByAssignee
-      : lead.postActivityUpdates > 0;
+      : hasAssigneeActivityHistory(lead.admissionActivityHistory);
     lead.whatsappGroupStatus = lead.whatsappGroupStatus || "";
     lead.leadNotes = Array.isArray(lead.leadNotes) ? lead.leadNotes : [];
   });
@@ -1154,8 +1185,6 @@ function renderFilters(leads) {
 
   document.getElementById("postResetFilters").onclick = () => {
     filter = { ...DEFAULT_FILTER };
-    whatsappActivityLeadIds = null;
-    whatsappActivityLookupKey = "";
     persistFilterState();
     currentPage = 1;
     void renderAll();
@@ -1339,6 +1368,7 @@ function renderActivityPanel(lead) {
         <button class="btn-update-status${hasActivity ? " btn-update-status--active" : ""} activity-panel__icon-btn" type="button" aria-label="Update" title="Update" ${leadAttrs}><span aria-hidden="true">&#9998;</span></button>
       </div>
       <div class="activity-panel__secondary">
+        <button class="btn-ghost btn-view-details activity-panel__link" type="button" ${leadAttrs}>View Details</button>
         ${canCreateTasks ? `<button class="btn-ghost btn-task activity-panel__link" type="button" ${leadAttrs}>Task</button>` : ""}
         <button class="btn-ghost btn-notes activity-panel__link" type="button" ${leadAttrs}>Notes${noteCount ? ` (${noteCount})` : ""}</button>
         <button class="btn-ghost btn-activity-history activity-panel__link" type="button" ${leadAttrs}>Activity</button>
@@ -1475,6 +1505,14 @@ function renderLeadTable(leads) {
     button.onclick = () => {
       const leadId = button.getAttribute("data-lead-id");
       openTaskModal(leadId);
+    };
+  });
+
+  document.querySelectorAll(".btn-view-details").forEach((button) => {
+    button.onclick = () => {
+      const leadId = button.getAttribute("data-lead-id");
+      const leadEmail = button.getAttribute("data-lead-email");
+      openPostActivityDetailsModal(leadId, leadEmail);
     };
   });
 
@@ -1982,6 +2020,22 @@ function openPostActivityModal(leadId, leadEmail = "") {
   void trackLeadView(lead.id, lead.email || leadEmail || "");
 }
 
+function openPostActivityDetailsModal(leadId, leadEmail = "") {
+  const allLeads = getAllLeads();
+  const lead = findLeadByActionIdentity(allLeads, leadId, leadEmail);
+  if (!lead) {
+    showToast("Could not open this lead. Please refresh and try again.", true);
+    return;
+  }
+
+  modalLeadId = lead.id;
+  modalLeadEmail = lead.email || leadEmail || "";
+  setPostActivityModalMode("view");
+  populatePostActivityModal(lead);
+  document.getElementById("postActivityModal").classList.remove("hidden");
+  void trackLeadView(lead.id, lead.email || leadEmail || "");
+}
+
 
 function closePostModal() {
   document.getElementById("postActivityModal").classList.add("hidden");
@@ -2258,7 +2312,6 @@ async function renderAll() {
   renderWorkshopSectionNav();
   const allLeads = getAllLeads();
   normalizeLeadFields(allLeads);
-  await ensureWhatsappActivityLeadIds();
 
   const scopedLeads = getScopedLeads(allLeads);
   const admissionLeads = getAdmissionCallingLeads(scopedLeads);

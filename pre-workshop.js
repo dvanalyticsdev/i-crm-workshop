@@ -328,9 +328,24 @@ function getLeadActivityUpdateCount(lead) {
     return lead.workshopActivityTouchedByAssignee ? 1 : 0;
   }
 
-  return Array.isArray(lead?.workshopActivityHistory)
-    ? lead.workshopActivityHistory.length
-    : Number(lead?.preActivityUpdates) || 0;
+  return hasAssigneeActivityHistory(lead?.workshopActivityHistory) ? 1 : 0;
+}
+
+function hasAssigneeActivityHistory(history) {
+  if (!Array.isArray(history)) {
+    return false;
+  }
+
+  return history.some((entry) => {
+    const updates = entry?.updates;
+    if (updates && typeof updates === "object" && Object.keys(updates).length > 0) {
+      return true;
+    }
+
+    const by = String(entry?.by || "").trim().toLowerCase();
+    const source = String(entry?.source || "").trim().toLowerCase();
+    return Boolean(by) && !["reachout webhook", "system"].includes(by) && source !== "reachout webhook";
+  });
 }
 
 function isUntouchedLead(lead) {
@@ -1050,10 +1065,10 @@ function normalizeLeadFields(leads) {
       || (Number.isFinite(Number(lead.postActivityUpdates)) ? Number(lead.postActivityUpdates) : 0);
     lead.workshopActivityTouchedByAssignee = typeof lead.workshopActivityTouchedByAssignee === "boolean"
       ? lead.workshopActivityTouchedByAssignee
-      : lead.preActivityUpdates > 0;
+      : hasAssigneeActivityHistory(lead.workshopActivityHistory);
     lead.admissionActivityTouchedByAssignee = typeof lead.admissionActivityTouchedByAssignee === "boolean"
       ? lead.admissionActivityTouchedByAssignee
-      : lead.postActivityUpdates > 0;
+      : hasAssigneeActivityHistory(lead.admissionActivityHistory);
     lead.whatsappGroupStatus = lead.whatsappGroupStatus || "";
     lead.leadNotes = Array.isArray(lead.leadNotes) ? lead.leadNotes : [];
   });
@@ -1752,6 +1767,7 @@ function renderActivityStatusPanel(lead) {
         <button class="btn-update-status${hasActivity ? " btn-update-status--active" : ""} activity-panel__icon-btn" type="button" aria-label="Update" title="Update" ${leadAttrs}><span aria-hidden="true">&#9998;</span></button>
       </div>
       <div class="activity-panel__secondary">
+        <button class="btn-ghost btn-view-details activity-panel__link" type="button" ${leadAttrs}>View Details</button>
         ${canCreateTasks ? `<button class="btn-ghost btn-task activity-panel__link" type="button" ${leadAttrs}>Task</button>` : ""}
         <button class="btn-ghost btn-notes activity-panel__link" type="button" ${leadAttrs}>Notes${noteCount ? ` (${noteCount})` : ""}</button>
         <button class="btn-ghost btn-activity-history activity-panel__link" type="button" ${leadAttrs}>Activity</button>
@@ -1888,6 +1904,14 @@ function renderLeadTable(leads) {
     button.onclick = () => {
       const leadId = button.getAttribute("data-lead-id");
       openTaskModal(leadId);
+    };
+  });
+
+  document.querySelectorAll(".btn-view-details").forEach((button) => {
+    button.onclick = () => {
+      const leadId = button.getAttribute("data-lead-id");
+      const leadEmail = button.getAttribute("data-lead-email");
+      openActivityDetailsModal(leadId, leadEmail);
     };
   });
 
@@ -2159,6 +2183,19 @@ function openActivityStatusModal(leadId, leadEmail = "") {
   }
 
   setActivityModalMode("edit");
+  populateActivityModal(lead);
+  document.getElementById("activityStatusModal").classList.remove("hidden");
+  void trackLeadView(lead.id, lead.email || leadEmail || "");
+}
+
+function openActivityDetailsModal(leadId, leadEmail = "") {
+  const lead = findLeadByActionIdentity(getAllLeads(), leadId, leadEmail);
+  if (!lead) {
+    showToast("Could not open this lead. Please refresh and try again.", true);
+    return;
+  }
+
+  setActivityModalMode("view");
   populateActivityModal(lead);
   document.getElementById("activityStatusModal").classList.remove("hidden");
   void trackLeadView(lead.id, lead.email || leadEmail || "");
