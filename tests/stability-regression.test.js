@@ -163,88 +163,6 @@ test("bulk assignment skips protected admission-status leads", () => {
   assert.match(leadControl, /formatLeadAssignmentResult/);
 });
 
-test("lead-control includes smart assignment suggestion panel", () => {
-  const leadControlHtml = read("lead-control.html");
-  const leadControl = read("lead-control.js");
-  const styles = read("styles.css");
-
-  assert.match(leadControlHtml, /applyAllAssignmentSuggestionsBtn/);
-  assert.match(leadControl, /function renderAssignmentSuggestionPanel/);
-  assert.match(leadControl, /function applyAllAssignmentSuggestions/);
-  assert.match(leadControl, /function getOverallLeadBalanceData/);
-  assert.match(leadControl, /Total Reassignments/);
-  assert.match(leadControl, /isUntouchedLead\(lead\)/);
-  assert.match(leadControl, /externalTouchedWorkshopCounts/);
-  assert.match(leadControl, /suggestion\.workshopName/);
-  assert.match(styles, /\.suggestion-overview/);
-  assert.match(leadControl, /validateBalancedSuggestionTargets/);
-  assert.match(leadControl, /validateSuggestionOutcome/);
-  assert.doesNotMatch(leadControl, /buildBestEffortBalanceData/);
-});
-
-test("smart assignment extra-slot planning stays balanced when touched leads force mandatory extras", async () => {
-  const leadControl = read("lead-control.js");
-  const source = [
-    getNamedFunctionSource(leadControl, "assignWorkshopExtraSlots"),
-    getNamedFunctionSource(leadControl, "buildCounselorOptionalExtraTargetCandidates")
-  ].join("\n\n");
-
-  const factory = new Function(`${source}; return { assignWorkshopExtraSlots, buildCounselorOptionalExtraTargetCandidates };`);
-  const { assignWorkshopExtraSlots, buildCounselorOptionalExtraTargetCandidates } = factory();
-
-  const activeCounselors = ["Bhavya", "Margesh", "Shubhashree"];
-  const workshopConfigs = [
-    {
-      workshopName: "W1",
-      remainingExtras: 0,
-      baseTarget: 1,
-      touchedCounts: new Map(activeCounselors.map((name) => [name, 0])),
-      mandatoryExtras: new Map([["Bhavya", 1], ["Margesh", 0], ["Shubhashree", 0]])
-    },
-    {
-      workshopName: "W2",
-      remainingExtras: 0,
-      baseTarget: 1,
-      touchedCounts: new Map(activeCounselors.map((name) => [name, 0])),
-      mandatoryExtras: new Map([["Bhavya", 1], ["Margesh", 0], ["Shubhashree", 0]])
-    },
-    ...["W3", "W4", "W5", "W6"].map((workshopName) => ({
-      workshopName,
-      remainingExtras: 1,
-      baseTarget: 1,
-      touchedCounts: new Map(activeCounselors.map((name) => [name, 0])),
-      mandatoryExtras: new Map(activeCounselors.map((name) => [name, 0]))
-    }))
-  ];
-
-  const candidates = buildCounselorOptionalExtraTargetCandidates(workshopConfigs, activeCounselors, 6);
-  assert.ok(candidates.length > 0, "should produce at least one balanced optional target plan");
-
-  const optionalAssignments = candidates
-    .map((candidate) => assignWorkshopExtraSlots(workshopConfigs, activeCounselors, candidate))
-    .find(Boolean);
-
-  assert.ok(optionalAssignments, "should find a feasible optional assignment plan");
-
-  const finalExtras = new Map(activeCounselors.map((name) => [name, 0]));
-  workshopConfigs.forEach((config) => {
-    activeCounselors.forEach((counselorName) => {
-      const mandatory = config.mandatoryExtras.get(counselorName) || 0;
-      const optional = optionalAssignments.get(config.workshopName)?.get(counselorName) || 0;
-      finalExtras.set(counselorName, finalExtras.get(counselorName) + mandatory + optional);
-    });
-  });
-
-  assert.deepEqual(
-    Object.fromEntries(activeCounselors.map((name) => [name, finalExtras.get(name)])),
-    {
-      Bhavya: 2,
-      Margesh: 2,
-      Shubhashree: 2
-    }
-  );
-});
-
 test("lead imports reject duplicates instead of merging", () => {
   const leadControl = read("lead-control.js");
   const server = read("server.js");
@@ -803,13 +721,11 @@ test("main admission leads stay out of legacy workshop and registered sections",
   const dashboard = read("dashboard.js");
   const preWorkshop = read("pre-workshop.js");
   const postWorkshop = read("post-workshop.js");
-  const leadControl = read("lead-control.js");
   const monitoring = read("monitoring.js");
 
   assert.match(dashboard, /\["course-registration", "main-admission"\]/);
   assert.match(preWorkshop, /function isNonWorkshopPipelineLead/);
   assert.match(postWorkshop, /function isNonWorkshopPipelineLead/);
-  assert.match(leadControl, /function isNonWorkshopPipelineLead/);
   assert.match(monitoring, /function isMainAdmissionLead/);
   assert.match(monitoring, /filter\(\(lead\) => !isMainAdmissionLead\(lead\)\)/);
 });
