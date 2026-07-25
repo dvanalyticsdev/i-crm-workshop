@@ -450,6 +450,29 @@ function formatAdmissionWorkshopBreakdownEntries(items, countField = "") {
   );
 }
 
+function formatDerivedBreakdownEntries(items, getLabel, countField = "", emptyLabel = "Unspecified") {
+  const counts = new Map();
+
+  items.forEach((item) => {
+    const value = String(getLabel(item) || "").trim() || emptyLabel;
+    const count = countField ? Number(item[countField]) || 0 : 1;
+    counts.set(value, (counts.get(value) || 0) + count);
+  });
+
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, count]) => ({ name, count }));
+}
+
+function getMainAdmissionBreakdownCourseName(lead) {
+  const pitchedCourse = String(lead?.mainAdmissionCoursePitched || "").trim();
+  if (pitchedCourse && normalizeText(pitchedCourse) !== "no") {
+    return pitchedCourse;
+  }
+
+  return String(lead?.courseName || "").trim();
+}
+
 function renderBreakdownCell(entries, emptyLabel) {
   if (!entries.length) {
     return `<span class="monitoring-breakdown monitoring-breakdown--empty">${escapeHtml(emptyLabel)}</span>`;
@@ -658,7 +681,12 @@ function buildMainAdmissionRows(counselors, leads, rawLeads, range) {
     return {
       counselor,
       ...activitySummary,
-      courseEntries: formatBreakdownEntries(activityLeads, "courseName", "mainAdmissionActivityUpdates"),
+      courseEntries: formatDerivedBreakdownEntries(
+        activityLeads,
+        getMainAdmissionBreakdownCourseName,
+        "mainAdmissionActivityUpdates",
+        "Unspecified"
+      ),
       interested: activityLeads.filter((lead) => lead.mainAdmissionCourseStatus === "Interested").length,
       notInterested: counselorLeads.filter((lead) => lead.mainAdmissionCourseStatus === "Not Interested").length,
       enrolled: activityLeads.filter((lead) => lead.mainAdmissionAdmissionStatus === "Enrolled").length,
