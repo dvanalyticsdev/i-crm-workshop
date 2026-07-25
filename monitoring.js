@@ -691,6 +691,7 @@ function getMcubeCallEntriesInRange(leads, range) {
       const duration = Math.max(Number(entry?.duration) || 0, Number(previous?.duration) || 0);
       const nextEntry = {
         leadId,
+        counselor: String(lead?.counselor || "").trim(),
         at: timestamp,
         callId,
         direction,
@@ -698,6 +699,8 @@ function getMcubeCallEntriesInRange(leads, range) {
         disposition: String(entry?.disposition || "").trim(),
         rawStatus: String(entry?.rawStatus || "").trim(),
         eventType: String(entry?.eventType || "").trim(),
+        agentName: String(entry?.agentName || "").trim(),
+        agentPhone: String(entry?.agentPhone || "").trim(),
         duration
       };
 
@@ -718,6 +721,20 @@ function getMcubeCallEntriesInRange(leads, range) {
   return Array.from(byKey.values());
 }
 
+function normalizeMcubeTalkTimeSeconds(value) {
+  const seconds = Math.max(0, Number(value) || 0);
+  if (!seconds) {
+    return 0;
+  }
+
+  // Ignore malformed legacy values that look like timestamps or otherwise impossible call lengths.
+  if (seconds > 8 * 60 * 60) {
+    return 0;
+  }
+
+  return Math.round(seconds);
+}
+
 function didLeadPickMcubeCall(entry = {}) {
   const status = normalizeText(
     entry?.normalizedStatus
@@ -734,7 +751,7 @@ function didLeadPickMcubeCall(entry = {}) {
 }
 
 function formatTalkTime(totalSeconds) {
-  const seconds = Math.max(0, Number(totalSeconds) || 0);
+  const seconds = normalizeMcubeTalkTimeSeconds(totalSeconds);
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   const remainingSeconds = seconds % 60;
@@ -797,6 +814,7 @@ function getOpportunityAgeDays(lead) {
 function rowHasMonitoringData(row) {
   return Object.entries(row).some(([key, value]) =>
     key !== "counselor"
+    && key !== "talkTimeLabel"
     && typeof value === "number"
     && value > 0
   );
@@ -1239,6 +1257,64 @@ function renderRegisteredView(counselors, leads, rawLeads, range) {
   ], rows, 9);
 }
 
+function getMcubeCounselorLabel(entry = {}) {
+  const agentName = String(entry?.agentName || "").trim();
+  if (agentName) {
+    return getCounselorDirectory().aliasToName.get(normalizeText(agentName)) || agentName;
+  }
+
+  const counselor = String(entry?.counselor || "").trim();
+  if (counselor) {
+    return counselor;
+  }
+
+  return "Unassigned";
+}
+
+function buildMcubeRows(rawLeads, range) {
+  const grouped = new Map();
+
+  getMcubeCallEntriesInRange(rawLeads, range).forEach((entry) => {
+    const counselor = getMcubeCounselorLabel(entry);
+    const current = grouped.get(counselor) || {
+      counselor,
+      totalCalls: 0,
+      outboundCalls: 0,
+      inboundCalls: 0,
+      callPicked: 0,
+      callNotPicked: 0,
+      talkTimeSeconds: 0,
+      talkTimeLabel: "0s"
+    };
+
+    current.totalCalls += 1;
+    if (normalizeText(entry.direction) === "outbound") {
+      current.outboundCalls += 1;
+    }
+    if (normalizeText(entry.direction) === "inbound") {
+      current.inboundCalls += 1;
+    }
+    if (didLeadPickMcubeCall(entry)) {
+      current.callPicked += 1;
+    } else {
+      current.callNotPicked += 1;
+    }
+    current.talkTimeSeconds += normalizeMcubeTalkTimeSeconds(entry.duration);
+    current.talkTimeLabel = formatTalkTime(current.talkTimeSeconds);
+
+    grouped.set(counselor, current);
+  });
+
+  return filterVisibleMonitoringRows(
+    [...grouped.values()].sort((left, right) => {
+      if (right.totalCalls !== left.totalCalls) {
+        return right.totalCalls - left.totalCalls;
+      }
+      return String(left.counselor).localeCompare(String(right.counselor));
+    })
+  );
+}
+
 function renderMcubeView(rawLeads, range) {
   const calls = getMcubeCallEntriesInRange(rawLeads, range);
   const totalCalls = calls.length;
@@ -1246,7 +1322,8 @@ function renderMcubeView(rawLeads, range) {
   const inboundCalls = calls.filter((entry) => normalizeText(entry.direction) === "inbound").length;
   const callPicked = calls.filter((entry) => didLeadPickMcubeCall(entry)).length;
   const callNotPicked = totalCalls - callPicked;
-  const totalTalkTime = calls.reduce((sum, entry) => sum + (Number(entry.duration) || 0), 0);
+  const totalTalkTime = calls.reduce((sum, entry) => sum + normalizeMcubeTalkTimeSeconds(entry.duration), 0);
+  const rows = buildMcubeRows(rawLeads, range);
 
   buildMetricCards([
     { label: "Total Calls", value: totalCalls },
@@ -1257,11 +1334,15 @@ function renderMcubeView(rawLeads, range) {
     { label: "Total Talk Time", value: formatTalkTime(totalTalkTime) }
   ]);
 
-  monitoringActiveTable.innerHTML = `
-    <div class="empty-state" style="padding:1.25rem 0 0;">
-      <p class="block-help">MCube monitoring shows overall call totals for the selected timeline without counselor sub-tabs.</p>
-    </div>
-  `;
+  renderTable([
+    { label: "Counselor Name", render: (row) => escapeHtml(row.counselor) },
+    { label: "Total Calls", render: (row) => String(row.totalCalls) },
+    { label: "Outbound Calls", render: (row) => String(row.outboundCalls) },
+    { label: "Inbound Calls", render: (row) => String(row.inboundCalls) },
+    { label: "Call Picked", render: (row) => String(row.callPicked) },
+    { label: "Call Not Picked / Not Connected", render: (row) => String(row.callNotPicked) },
+    { label: "Talk Time", render: (row) => escapeHtml(row.talkTimeLabel) }
+  ], rows, 7);
 }
 
 function renderActiveMonitoringView() {

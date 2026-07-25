@@ -594,14 +594,19 @@ test("monitoring includes a single-view MCube tab with call summary metrics", ()
   assert.match(monitoring, /"mcube-main"/);
   assert.match(monitoring, /if \(subsections\.length <= 1\) \{/);
   assert.match(monitoring, /function getMcubeCallEntriesInRange\(/);
+  assert.match(monitoring, /function normalizeMcubeTalkTimeSeconds\(/);
   assert.match(monitoring, /function didLeadPickMcubeCall\(/);
   assert.match(monitoring, /function formatTalkTime\(/);
+  assert.match(monitoring, /function buildMcubeRows\(/);
   assert.match(monitoring, /label: "Total Calls"/);
   assert.match(monitoring, /label: "Outbound Calls"/);
   assert.match(monitoring, /label: "Inbound Calls"/);
   assert.match(monitoring, /label: "Call Picked"/);
   assert.match(monitoring, /label: "Call Not Picked \/ Not Connected"/);
   assert.match(monitoring, /label: "Total Talk Time"/);
+  assert.match(monitoring, /label: "Counselor Name"/);
+  assert.match(monitoring, /label: "Talk Time"/);
+  assert.match(monitoring, /seconds > 8 \* 60 \* 60/);
   assert.match(monitoring, /renderMcubeView\(rawAllLeads, range\)/);
 });
 
