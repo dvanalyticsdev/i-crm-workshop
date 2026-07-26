@@ -422,7 +422,7 @@ function getFilteredRows() {
 function getSelectableBlockedRowKeys(rows) {
   return rows
     .filter((row) => row.sop?.blocked)
-    .map((row) => String(row.key || "").trim())
+    .map((row) => String(row.pageSelectionKey || row.key || "").trim())
     .filter(Boolean);
 }
 
@@ -458,6 +458,25 @@ function toggleBlockedLeadSelection(leadKey, isChecked) {
 
 function toggleAllBlockedLeadSelection(rows, isChecked) {
   selectedBlockedLeadKeys = isChecked ? new Set(getSelectableBlockedRowKeys(rows)) : new Set();
+}
+
+function clampSelectionCount(rawValue, maxCount) {
+  const parsed = Number.parseInt(String(rawValue || "").trim(), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 0;
+  }
+  return Math.min(parsed, Math.max(0, Number(maxCount) || 0));
+}
+
+function selectBlockedLeadBatch(rows, rawValue) {
+  const selectableKeys = getSelectableBlockedRowKeys(rows);
+  const count = clampSelectionCount(rawValue, selectableKeys.length);
+  if (!count) {
+    return 0;
+  }
+
+  selectedBlockedLeadKeys = new Set(selectableKeys.slice(0, count));
+  return count;
 }
 
 function ensureValidPage(totalItems) {
@@ -714,8 +733,8 @@ function renderLeadTable() {
         </label>
         <span class="selected-count">Selected: ${selectedBlockedRows.length}</span>
         <div class="bulk-admin-tools">
-          <input type="text" class="bulk-count-input" placeholder="Count" disabled />
-          <button type="button" class="btn-ghost bulk-action-btn" disabled>Select Count</button>
+          <input type="number" id="sopBulkCountInput" class="bulk-count-input" min="1" max="${pageBlockedRows.length || 1}" placeholder="Count" ${pageBlockedRows.length ? "" : "disabled"} />
+          <button type="button" class="btn-ghost bulk-action-btn" id="sopBulkCountApply" ${pageBlockedRows.length ? "" : "disabled"}>Select Count</button>
           <select id="sopBulkAssignCounselor" class="bulk-assign-select">
             <option value="">Assign to</option>
             ${getAssignableCounselors().map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("")}
@@ -819,6 +838,17 @@ function renderLeadTable() {
 
   document.getElementById("sopBulkDeleteBtn")?.addEventListener("click", () => {
     void deleteSelectedBlockedLeads();
+  });
+  document.getElementById("sopBulkCountApply")?.addEventListener("click", () => {
+    const countValue = String(document.getElementById("sopBulkCountInput")?.value || "").trim();
+    const selectedBatchCount = selectBlockedLeadBatch(pageRows, countValue);
+    if (!selectedBatchCount) {
+      showToast("Enter a valid blocked lead count to select.", true);
+      return;
+    }
+
+    renderLeadTable();
+    showToast(`Selected ${selectedBatchCount} blocked lead${selectedBatchCount === 1 ? "" : "s"}.`, false);
   });
   document.getElementById("sopBulkAssignBtn")?.addEventListener("click", () => {
     const counselor = String(document.getElementById("sopBulkAssignCounselor")?.value || "").trim();
