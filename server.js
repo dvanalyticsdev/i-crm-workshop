@@ -1017,7 +1017,6 @@ function resolveLsqCounselorName(state = {}, record = {}, counselorFilter = "all
   const counselors = Array.isArray(state?.counselors) ? state.counselors : [];
   const ownerEmail = normalizeLsqValue(record?.sourceSnapshot?.ownerEmail).toLowerCase();
   const ownerName = normalizeLsqValue(record?.sourceSnapshot?.owner).toLowerCase();
-  const ownerLabel = normalizeLsqValue(record?.sourceSnapshot?.owner);
   const normalizedFilter = normalizeLsqValue(counselorFilter).toLowerCase();
 
   const byEmail = ownerEmail
@@ -1034,6 +1033,19 @@ function resolveLsqCounselorName(state = {}, record = {}, counselorFilter = "all
     return String(byName.name).trim();
   }
 
+  const fuzzyMatches = ownerName
+    ? counselors.filter((item) => {
+        const candidate = normalizeLsqValue(item?.name).toLowerCase();
+        if (!candidate) {
+          return false;
+        }
+        return candidate.includes(ownerName) || ownerName.includes(candidate);
+      })
+    : [];
+  if (fuzzyMatches.length === 1 && fuzzyMatches[0]?.name) {
+    return String(fuzzyMatches[0].name).trim();
+  }
+
   if (normalizedFilter && normalizedFilter !== "all") {
     const filteredCounselor = counselors.find((item) => {
       const email = normalizeLsqValue(item?.email).toLowerCase();
@@ -1043,10 +1055,6 @@ function resolveLsqCounselorName(state = {}, record = {}, counselorFilter = "all
     if (filteredCounselor?.name) {
       return String(filteredCounselor.name).trim();
     }
-  }
-
-  if (ownerLabel) {
-    return ownerLabel;
   }
 
   return "Unassigned";
@@ -9700,6 +9708,38 @@ app.delete("/api/admin/lsq-archive", async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ message: "Failed to delete LSQ archive leads", details: error.message });
+  }
+});
+
+app.delete("/api/admin/lsq-leads", async (req, res) => {
+  try {
+    const session = await requireSuperAdmin(req, res);
+    if (!session) return;
+
+    const sourceFileName = normalizeLsqValue(req.query?.sourceFileName);
+    const query = sourceFileName
+      ? {
+          lsqImported: true,
+          $or: [
+            { importSourceFiles: sourceFileName },
+            { importSourceFile: sourceFileName },
+            { "lsqSourceSnapshot.sourceFileName": sourceFileName }
+          ]
+        }
+      : { lsqImported: true };
+
+    const result = await leadsCollection.deleteMany(query);
+    await touchStateUpdatedAt();
+    const nextState = await refreshStateAfterAtomicUpdate();
+    res.setHeader("ETag", buildStateEtag(nextState));
+    return res.json({
+      ok: true,
+      deletedCount: Number(result?.deletedCount) || 0,
+      sourceFileName: sourceFileName || "",
+      state: buildStateResponse(nextState)
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to delete LSQ leads", details: error.message });
   }
 });
 

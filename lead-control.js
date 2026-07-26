@@ -1013,10 +1013,17 @@ async function deleteLsqArchiveRows(sourceFileName = "") {
   }, 15000);
 }
 
+async function deleteLsqLiveLeads(sourceFileName = "") {
+  const query = sourceFileName ? `?sourceFileName=${encodeURIComponent(sourceFileName)}` : "";
+  return fetchJsonWithTimeout(apiUrl(`/api/admin/lsq-leads${query}`), {
+    method: "DELETE",
+    headers: { Accept: "application/json" }
+  }, 20000);
+}
+
 async function deleteWholeLsqDataset() {
   const allLeads = getAllLeads();
-  const retainedLeads = allLeads.filter((lead) => !isLsqImportedLead(lead));
-  const removedLeadCount = allLeads.length - retainedLeads.length;
+  const removedLeadCount = allLeads.filter((lead) => isLsqImportedLead(lead)).length;
 
   if (!removedLeadCount) {
     const { response, json } = await deleteLsqArchiveRows();
@@ -1034,18 +1041,15 @@ async function deleteWholeLsqDataset() {
     return;
   }
 
-  normalizeLeadFields(retainedLeads);
-  const saveResult = await saveAllLeads(retainedLeads);
-  if (!saveResult || saveResult.ok === false) {
-    setMessage(lsqCleanupMessage, saveResult?.message || "Failed to delete LSQ leads.", true);
+  const { response: deleteResponse, json: deleteJson } = await deleteLsqLiveLeads();
+  if (!deleteResponse.ok) {
+    setMessage(lsqCleanupMessage, deleteJson?.message || "Failed to delete LSQ leads.", true);
     return;
   }
-
-  const syncResult = await syncStateFromLocalAndVerify();
-  if (!syncResult.ok) {
-    setMessage(lsqCleanupMessage, syncResult.message || "Backend confirmation failed after deleting LSQ leads.", true);
-    return;
+  if (deleteJson?.state) {
+    acceptServerState(deleteJson.state, deleteResponse.headers.get("etag"));
   }
+  const deletedLeadCount = Number(deleteJson?.deletedCount) || 0;
 
   const { response, json } = await deleteLsqArchiveRows();
   if (!response.ok) {
@@ -1053,7 +1057,7 @@ async function deleteWholeLsqDataset() {
     return;
   }
 
-  setMessage(lsqCleanupMessage, `Deleted ${removedLeadCount} LSQ lead${removedLeadCount === 1 ? "" : "s"} and ${Number(json?.deletedCount) || 0} archived LSQ row${Number(json?.deletedCount) === 1 ? "" : "s"}.`, false);
+  setMessage(lsqCleanupMessage, `Deleted ${deletedLeadCount} LSQ lead${deletedLeadCount === 1 ? "" : "s"} and ${Number(json?.deletedCount) || 0} archived LSQ row${Number(json?.deletedCount) === 1 ? "" : "s"}.`, false);
   renderAll();
 }
 
@@ -1081,27 +1085,26 @@ async function deleteLsqFileImport() {
   }
 
   const allLeads = getAllLeads();
-  const retainedLeads = allLeads.filter((lead) => !(isLsqImportedLead(lead) && getLeadImportSourceFiles(lead).includes(selectedFile)));
-  const removedLeadCount = allLeads.length - retainedLeads.length;
+  const removedLeadCount = allLeads.filter((lead) => (
+    isLsqImportedLead(lead) && getLeadImportSourceFiles(lead).includes(selectedFile)
+  )).length;
 
   const confirmed = window.confirm(`Delete LSQ data imported from ${selectedFile}? This removes matching live LSQ leads and archived LSQ rows.`);
   if (!confirmed) {
     return;
   }
 
+  let deletedLeadCount = 0;
   if (removedLeadCount > 0) {
-    normalizeLeadFields(retainedLeads);
-    const saveResult = await saveAllLeads(retainedLeads);
-    if (!saveResult || saveResult.ok === false) {
-      setMessage(lsqCleanupMessage, saveResult?.message || `Failed to delete LSQ leads from ${selectedFile}.`, true);
+    const { response: deleteResponse, json: deleteJson } = await deleteLsqLiveLeads(selectedFile);
+    if (!deleteResponse.ok) {
+      setMessage(lsqCleanupMessage, deleteJson?.message || `Failed to delete LSQ leads from ${selectedFile}.`, true);
       return;
     }
-
-    const syncResult = await syncStateFromLocalAndVerify();
-    if (!syncResult.ok) {
-      setMessage(lsqCleanupMessage, syncResult.message || `Backend confirmation failed after deleting LSQ leads from ${selectedFile}.`, true);
-      return;
+    if (deleteJson?.state) {
+      acceptServerState(deleteJson.state, deleteResponse.headers.get("etag"));
     }
+    deletedLeadCount = Number(deleteJson?.deletedCount) || 0;
   }
 
   const { response, json } = await deleteLsqArchiveRows(selectedFile);
@@ -1110,7 +1113,7 @@ async function deleteLsqFileImport() {
     return;
   }
 
-  setMessage(lsqCleanupMessage, `Deleted ${removedLeadCount} LSQ lead${removedLeadCount === 1 ? "" : "s"} and ${Number(json?.deletedCount) || 0} archived LSQ row${Number(json?.deletedCount) === 1 ? "" : "s"} from ${selectedFile}.`, false);
+  setMessage(lsqCleanupMessage, `Deleted ${deletedLeadCount} LSQ lead${deletedLeadCount === 1 ? "" : "s"} and ${Number(json?.deletedCount) || 0} archived LSQ row${Number(json?.deletedCount) === 1 ? "" : "s"} from ${selectedFile}.`, false);
   renderAll();
 }
 
