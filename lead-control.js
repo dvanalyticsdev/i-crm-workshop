@@ -699,6 +699,39 @@ function updateLsqImportSummary(scanned = 0, created = 0, updated = 0, archived 
   `;
 }
 
+function buildLsqImportChunks(rows = [], { maxBytes = 1_500_000, maxRows = 150 } = {}) {
+  const encoder = typeof TextEncoder === "function" ? new TextEncoder() : null;
+  const chunks = [];
+  let currentChunk = [];
+  let currentBytes = 2;
+
+  const measureRowBytes = (row) => {
+    const serialized = JSON.stringify(row ?? {});
+    return encoder ? encoder.encode(serialized).length : serialized.length;
+  };
+
+  rows.forEach((row) => {
+    const rowBytes = measureRowBytes(row) + 1;
+    const wouldOverflow = currentChunk.length > 0
+      && (currentChunk.length >= maxRows || currentBytes + rowBytes > maxBytes);
+
+    if (wouldOverflow) {
+      chunks.push(currentChunk);
+      currentChunk = [];
+      currentBytes = 2;
+    }
+
+    currentChunk.push(row);
+    currentBytes += rowBytes;
+  });
+
+  if (currentChunk.length) {
+    chunks.push(currentChunk);
+  }
+
+  return chunks;
+}
+
 async function handleLeadImport() {
   if (!isAdmin) {
     setMessage(importMessage, "Only admin can import leads.", true);
@@ -871,44 +904,78 @@ async function handleLsqImport() {
   setMessage(lsqImportMessage, "Importing LSQ updates...", false);
   const counselorFilter = String(lsqCounselorFilter?.value || "all").trim() || "all";
   const stageFilter = String(lsqStageFilter?.value || "all").trim() || "all";
-  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/admin/lsq-import"), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json"
-    },
-    body: JSON.stringify({
-      sourceFileName: file.name,
-      counselorFilter,
-      stageFilter,
-      rows
-    })
-  }, 60000);
+  const chunks = buildLsqImportChunks(rows);
+  const combinedSummary = {
+    scanned: 0,
+    created: 0,
+    updated: 0,
+    archived: 0,
+    skippedByCounselorFilter: 0,
+    skippedByStageFilter: 0,
+    byReason: {}
+  };
 
-  if (!response.ok || !json?.ok) {
-    setMessage(lsqImportMessage, json?.message || "LSQ import failed.", true);
-    return;
+  for (const [index, chunk] of chunks.entries()) {
+    setMessage(lsqImportMessage, `Importing LSQ updates... batch ${index + 1} of ${chunks.length}`, false);
+    const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/admin/lsq-import"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
+      body: JSON.stringify({
+        sourceFileName: file.name,
+        counselorFilter,
+        stageFilter,
+        rows: chunk
+      })
+    }, 60000);
+
+    if (!response.ok || !json?.ok) {
+      updateLsqImportSummary(
+        combinedSummary.scanned,
+        combinedSummary.created,
+        combinedSummary.updated,
+        combinedSummary.archived
+      );
+      setMessage(
+        lsqImportMessage,
+        `${json?.message || "LSQ import failed."}${combinedSummary.scanned ? ` Imported ${combinedSummary.created + combinedSummary.updated} row${combinedSummary.created + combinedSummary.updated === 1 ? "" : "s"} before failure.` : ""}`,
+        true
+      );
+      return;
+    }
+
+    if (json?.state) {
+      acceptServerState(json.state, response.headers.get("etag"));
+    }
+
+    combinedSummary.scanned += Number(json?.summary?.scanned) || chunk.length;
+    combinedSummary.created += Number(json?.summary?.created) || 0;
+    combinedSummary.updated += Number(json?.summary?.updated) || 0;
+    combinedSummary.archived += Number(json?.summary?.archived) || 0;
+    combinedSummary.skippedByCounselorFilter += Number(json?.summary?.skippedByCounselorFilter) || 0;
+    combinedSummary.skippedByStageFilter += Number(json?.summary?.skippedByStageFilter) || 0;
+    Object.entries(json?.summary?.byReason || {}).forEach(([reason, count]) => {
+      combinedSummary.byReason[reason] = (combinedSummary.byReason[reason] || 0) + (Number(count) || 0);
+    });
+
+    updateLsqImportSummary(
+      combinedSummary.scanned,
+      combinedSummary.created,
+      combinedSummary.updated,
+      combinedSummary.archived
+    );
   }
 
-  if (json?.state) {
-    acceptServerState(json.state, response.headers.get("etag"));
-  }
-
-  updateLsqImportSummary(
-    Number(json?.summary?.scanned) || rows.length,
-    Number(json?.summary?.created) || 0,
-    Number(json?.summary?.updated) || 0,
-    Number(json?.summary?.archived) || 0
-  );
-
-  const createdCount = Number(json?.summary?.created) || 0;
-  const updatedCount = Number(json?.summary?.updated) || 0;
-  const skippedByCounselorFilter = Number(json?.summary?.skippedByCounselorFilter) || 0;
-  const skippedByStageFilter = Number(json?.summary?.skippedByStageFilter) || 0;
-  const primaryReason = Object.entries(json?.summary?.byReason || {}).sort((left, right) => right[1] - left[1])[0]?.[0] || "";
+  const createdCount = combinedSummary.created;
+  const updatedCount = combinedSummary.updated;
+  const skippedByCounselorFilter = combinedSummary.skippedByCounselorFilter;
+  const skippedByStageFilter = combinedSummary.skippedByStageFilter;
+  const primaryReason = Object.entries(combinedSummary.byReason).sort((left, right) => right[1] - left[1])[0]?.[0] || "";
   setMessage(
     lsqImportMessage,
-    `LSQ import completed. Created ${createdCount} and updated ${updatedCount} CRM lead${createdCount + updatedCount === 1 ? "" : "s"} into Main Admission, and archived ${Number(json?.summary?.archived) || 0}.${skippedByCounselorFilter ? ` Skipped ${skippedByCounselorFilter} row${skippedByCounselorFilter === 1 ? "" : "s"} due to counselor filter.` : ""}${skippedByStageFilter ? ` Skipped ${skippedByStageFilter} row${skippedByStageFilter === 1 ? "" : "s"} due to stage filter.` : ""}${primaryReason ? ` Top archive reason: ${primaryReason}.` : ""}`,
+    `LSQ import completed. Created ${createdCount} and updated ${updatedCount} CRM lead${createdCount + updatedCount === 1 ? "" : "s"} into Main Admission, and archived ${combinedSummary.archived}.${skippedByCounselorFilter ? ` Skipped ${skippedByCounselorFilter} row${skippedByCounselorFilter === 1 ? "" : "s"} due to counselor filter.` : ""}${skippedByStageFilter ? ` Skipped ${skippedByStageFilter} row${skippedByStageFilter === 1 ? "" : "s"} due to stage filter.` : ""}${primaryReason ? ` Top archive reason: ${primaryReason}.` : ""}`,
     false
   );
 
