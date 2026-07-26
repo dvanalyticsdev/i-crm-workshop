@@ -142,7 +142,6 @@ const permissionControlSection = document.getElementById("permissionControlSecti
 const permissionRoleSelect = document.getElementById("permissionRoleSelect");
 const permissionUserSelect = document.getElementById("permissionUserSelect");
 const permissionPanelHint = document.getElementById("permissionPanelHint");
-const permissionPanelSummary = document.getElementById("permissionPanelSummary");
 const accessControlGrid = document.getElementById("accessControlGrid");
 const permissionPanelMessage = document.getElementById("permissionPanelMessage");
 const loadFallbackPermissionsBtn = document.getElementById("loadFallbackPermissionsBtn");
@@ -791,10 +790,10 @@ function renderManagementSummary() {
 
   const counselors = getCounselors();
   const admins = getAdminUsers();
-  const workshopAccess = counselors.filter((item) => getEffectivePermissions("counselor", item).preWorkshop).length;
-  const monitoringAccess = counselors.filter((item) => getEffectivePermissions("counselor", item).monitoring).length;
-  const explicitCounselorOverrides = counselors.filter((item) => hasSavedPermissionOverride(item)).length;
-  const explicitAdminOverrides = admins.filter((item) => hasSavedPermissionOverride(item)).length;
+  const branchCounts = BRANCH_OPTIONS.map((branch) => ({
+    branch,
+    count: counselors.filter((item) => normalizeBranch(item.branch) === branch).length
+  }));
 
   managementSummarySection.innerHTML = `
     ${isSuperAdminSession ? `
@@ -802,27 +801,17 @@ function renderManagementSummary() {
         <p>Total Admins</p>
         <h2>${admins.length}</h2>
       </article>
-      <article class="card management-summary-card">
-        <p>Admin Overrides</p>
-        <h2>${explicitAdminOverrides}</h2>
-      </article>
     ` : ""}
     <article class="card management-summary-card">
       <p>Total Counselors</p>
       <h2>${counselors.length}</h2>
     </article>
-    <article class="card management-summary-card">
-      <p>Counselor Overrides</p>
-      <h2>${explicitCounselorOverrides}</h2>
-    </article>
-    <article class="card management-summary-card">
-      <p>Workshop Access Enabled</p>
-      <h2>${workshopAccess}</h2>
-    </article>
-    <article class="card management-summary-card">
-      <p>Monitoring Access Enabled</p>
-      <h2>${monitoringAccess}</h2>
-    </article>
+    ${branchCounts.map((item) => `
+      <article class="card management-summary-card">
+        <p>${escapeHtml(item.branch)} Counselors</p>
+        <h2>${item.count}</h2>
+      </article>
+    `).join("")}
   `;
 }
 
@@ -924,57 +913,6 @@ function getEnabledPermissionLabels(role, permissions) {
     .map((option) => option.label);
 }
 
-function renderPermissionPanelSummary(role, user) {
-  if (!permissionPanelSummary) {
-    return;
-  }
-
-  if (!user) {
-    permissionPanelSummary.innerHTML = "";
-    return;
-  }
-
-  const fallbackPermissions = getRoleConfig(role).fallback;
-  const fallbackCount = getEnabledPermissionLabels(role, fallbackPermissions).length;
-  const source = hasSavedPermissionOverride(user) ? "Saved override is active." : "Fallback is active until you save an override.";
-
-  permissionPanelSummary.innerHTML = `
-    <section class="management-details-card">
-      <h4>${escapeHtml(user.name || "Selected account")}</h4>
-      <dl class="management-details-list">
-        ${buildDetailsRows([
-          ["Current Source", source],
-          ["Fallback Pages", fallbackCount ? `${fallbackCount} pages` : "No fallback access"]
-        ])}
-      </dl>
-    </section>
-  `;
-}
-
-function renderEveryonePermissionPanelSummary(role, accounts) {
-  if (!permissionPanelSummary) {
-    return;
-  }
-
-  const config = getRoleConfig(role);
-  const fallbackPermissions = config.fallback;
-  const fallbackCount = getEnabledPermissionLabels(role, fallbackPermissions).length;
-  const savedOverrideCount = accounts.filter((item) => hasSavedPermissionOverride(item)).length;
-
-  permissionPanelSummary.innerHTML = `
-    <section class="management-details-card">
-      <h4>Everyone (${escapeHtml(config.label)}s)</h4>
-      <dl class="management-details-list">
-        ${buildDetailsRows([
-          ["Accounts", String(accounts.length)],
-          ["Saved Overrides", `${savedOverrideCount} / ${accounts.length}`],
-          ["Fallback Pages", fallbackCount ? `${fallbackCount} pages` : "No fallback access"]
-        ])}
-      </dl>
-    </section>
-  `;
-}
-
 function getSharedSavedPermissions(role, accounts) {
   const config = getRoleConfig(role);
   if (!accounts.length) {
@@ -1022,7 +960,6 @@ function renderPermissionControlPanel(forceFallbackDraft = false) {
     permissionUserSelect.innerHTML = `<option value="">No ${config.label.toLowerCase()} yet</option>`;
     permissionPanelHint.textContent = `Create a ${config.label.toLowerCase()} first, then assign saved access here if needed.`;
     renderPermissionPanelEmptyEditor(`No ${config.label.toLowerCase()} accounts available for access updates yet.`);
-    renderPermissionPanelSummary(selectedPermissionRole, null);
     setPermissionPanelActionsDisabled(true);
     return;
   }
@@ -1049,7 +986,6 @@ function renderPermissionControlPanel(forceFallbackDraft = false) {
       ? { ...config.fallback }
       : sharedSaved?.permissions || {};
     renderPermissionOptions(accessControlGrid, config.options, "accessControlPermission", draftPermissions);
-    renderEveryonePermissionPanelSummary(selectedPermissionRole, accounts);
 
     if (forceFallbackDraft) {
       permissionPanelHint.textContent = `The ${config.label.toLowerCase()} fallback has been loaded into the editor for everyone, but it will only become an explicit saved access list after you click Save Access.`;
@@ -1074,7 +1010,6 @@ function renderPermissionControlPanel(forceFallbackDraft = false) {
     : savedPermissions || {};
 
   renderPermissionOptions(accessControlGrid, config.options, "accessControlPermission", draftPermissions);
-  renderPermissionPanelSummary(selectedPermissionRole, selectedUser);
 
   if (forceFallbackDraft) {
     permissionPanelHint.textContent = `${config.label} currently uses fallback access. The fallback has been loaded into the editor, but it will not replace current behavior until you click Save Access.`;
