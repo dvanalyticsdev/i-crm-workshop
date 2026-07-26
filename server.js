@@ -9888,6 +9888,39 @@ app.get("/api/lost-leads/archive", async (req, res) => {
   }
 });
 
+app.delete("/api/lost-leads/archive", async (req, res) => {
+  try {
+    const session = await requireSuperAdmin(req, res);
+    if (!session) return;
+
+    const courseNameFilter = normalizeArchivedCourseName(req.query?.courseName);
+    if (!courseNameFilter) {
+      const result = await lsqArchiveCollection.deleteMany({});
+      return res.json({
+        ok: true,
+        deletedCount: Number(result?.deletedCount) || 0
+      });
+    }
+
+    const rows = await lsqArchiveCollection.find({}).toArray();
+    const targetIds = normalizeArchivedLeadDocs(rows)
+      .filter((row) => row.courseName === courseNameFilter)
+      .map((row) => row._id);
+
+    if (!targetIds.length) {
+      return res.json({ ok: true, deletedCount: 0 });
+    }
+
+    const result = await lsqArchiveCollection.deleteMany({ _id: { $in: targetIds } });
+    return res.json({
+      ok: true,
+      deletedCount: Number(result?.deletedCount) || 0
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to delete archived leads", details: error.message });
+  }
+});
+
 app.delete("/api/lost-leads/archive/:archiveId", async (req, res) => {
   try {
     const session = await requireSuperAdmin(req, res);
@@ -9905,6 +9938,47 @@ app.delete("/api/lost-leads/archive/:archiveId", async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ message: "Failed to delete archived lead", details: error.message });
+  }
+});
+
+app.delete("/api/lost-leads", async (req, res) => {
+  try {
+    const session = await requireSuperAdmin(req, res);
+    if (!session) return;
+
+    const courseNameFilter = normalizeArchivedCourseName(req.query?.courseName);
+    const storedLeads = await withMongoRetry(
+      () => leadsCollection.find({}).toArray(),
+      { retries: 1, label: "Load lost leads for deletion" }
+    );
+    const leads = decorateLeadListForStorage(storedLeads || []);
+    const targetIds = leads
+      .filter((lead) => isServerLostLead(lead))
+      .filter((lead) => !courseNameFilter || normalizeArchivedCourseName(getLostLeadProgramName(lead)) === courseNameFilter)
+      .map((lead) => String(lead?.id || "").trim())
+      .filter(Boolean);
+
+    if (!targetIds.length) {
+      const currentState = await refreshStateAfterAtomicUpdate();
+      res.setHeader("ETag", buildStateEtag(currentState));
+      return res.json({
+        ok: true,
+        deletedCount: 0,
+        state: buildStateResponse(currentState)
+      });
+    }
+
+    const result = await leadsCollection.deleteMany({ id: { $in: targetIds } });
+    await touchStateUpdatedAt();
+    const nextState = await refreshStateAfterAtomicUpdate();
+    res.setHeader("ETag", buildStateEtag(nextState));
+    return res.json({
+      ok: true,
+      deletedCount: Number(result?.deletedCount) || 0,
+      state: buildStateResponse(nextState)
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to delete lost leads", details: error.message });
   }
 });
 

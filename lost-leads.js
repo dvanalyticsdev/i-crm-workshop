@@ -14,7 +14,10 @@ const archivedLeadSection = document.getElementById("archivedLeadSection");
 const archivedLeadTableSection = document.getElementById("archivedLeadTableSection");
 const archivedLeadPagination = document.getElementById("archivedLeadPagination");
 const lostSearchInput = document.getElementById("lostSearchInput");
+const lostCourseFilter = document.getElementById("lostCourseFilter");
 const resetLostSearch = document.getElementById("resetLostSearch");
+const deleteAllLostLeadsBtn = document.getElementById("deleteAllLostLeadsBtn");
+const deleteAllArchivedLeadsBtn = document.getElementById("deleteAllArchivedLeadsBtn");
 
 const session = getSession();
 const SEARCH_STORAGE_KEY = "dvWorkshopLostLeadSearch";
@@ -25,6 +28,7 @@ let archivedLeads = [];
 let activeSubsection = "lost";
 let lostPage = 1;
 let archivedPage = 1;
+let selectedCourseFilter = "all";
 
 if (lostSearchInput) {
   lostSearchInput.value = searchQuery;
@@ -142,6 +146,17 @@ function getAllLeads() {
 
 function saveAllLeads(leads) {
   return persistLeads(leads);
+}
+
+function normalizeCourseFilterValue(value) {
+  const raw = String(value || "").trim();
+  return raw || "all";
+}
+
+function getCourseFilterLabel(value) {
+  return normalizeCourseFilterValue(value) === "all"
+    ? "all course names"
+    : String(value || "").trim();
 }
 
 function getAvailableSubsections() {
@@ -294,6 +309,72 @@ async function deleteArchivedLead(archiveId, leadName = "") {
   renderAll();
 }
 
+async function deleteAllLostLeads() {
+  if (!isSuperAdminSession()) {
+    return;
+  }
+
+  const courseName = normalizeCourseFilterValue(selectedCourseFilter);
+  const scopeLabel = courseName === "all"
+    ? "all lost leads"
+    : `all lost leads for ${courseName}`;
+  const confirmed = window.confirm(`Delete ${scopeLabel} permanently? This cannot be undone.`);
+  if (!confirmed) {
+    return;
+  }
+
+  const query = courseName === "all" ? "" : `?courseName=${encodeURIComponent(courseName)}`;
+  const { response, json } = await fetchJsonWithTimeout(apiUrl(`/api/lost-leads${query}`), {
+    method: "DELETE",
+    headers: { Accept: "application/json" }
+  }, 20000);
+
+  if (!response.ok || !json?.ok) {
+    window.alert(json?.message || "Failed to delete lost leads.");
+    return;
+  }
+
+  if (json?.state) {
+    acceptServerState(json.state, response.headers.get("etag"));
+  }
+
+  lostPage = 1;
+  renderAll();
+}
+
+async function deleteAllArchivedLeads() {
+  if (!isSuperAdminSession()) {
+    return;
+  }
+
+  const courseName = normalizeCourseFilterValue(selectedCourseFilter);
+  const scopeLabel = courseName === "all"
+    ? "all archived leads"
+    : `all archived leads for ${courseName}`;
+  const confirmed = window.confirm(`Delete ${scopeLabel} permanently? This cannot be undone.`);
+  if (!confirmed) {
+    return;
+  }
+
+  const query = courseName === "all" ? "" : `?courseName=${encodeURIComponent(courseName)}`;
+  const { response, json } = await fetchJsonWithTimeout(apiUrl(`/api/lost-leads/archive${query}`), {
+    method: "DELETE",
+    headers: { Accept: "application/json" }
+  }, 20000);
+
+  if (!response.ok || !json?.ok) {
+    window.alert(json?.message || "Failed to delete archived leads.");
+    return;
+  }
+
+  const deletedCourseName = normalizeCourseFilterValue(courseName);
+  archivedLeads = deletedCourseName === "all"
+    ? []
+    : archivedLeads.filter((lead) => String(lead?.courseName || "").trim() !== deletedCourseName);
+  archivedPage = 1;
+  renderAll();
+}
+
 function isLostLead(lead) {
   const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
 
@@ -379,6 +460,25 @@ function renderKpi(lostLeads, archivedRows) {
       <h2>${archivedRows.length}</h2>
     </article>
   `;
+}
+
+function renderCourseFilterOptions(lostLeads, archivedRows) {
+  if (!lostCourseFilter) {
+    return;
+  }
+
+  const courseNames = [...new Set([
+    ...lostLeads.map((lead) => getLostProgramName(lead)),
+    ...archivedRows.map((lead) => String(lead?.courseName || "").trim())
+  ].map((value) => String(value || "").trim()).filter(Boolean))].sort((left, right) => left.localeCompare(right));
+
+  const nextValue = courseNames.includes(selectedCourseFilter) ? selectedCourseFilter : "all";
+  lostCourseFilter.innerHTML = [
+    `<option value="all">All course names</option>`,
+    ...courseNames.map((courseName) => `<option value="${escapeHtml(courseName)}">${escapeHtml(courseName)}</option>`)
+  ].join("");
+  lostCourseFilter.value = nextValue;
+  selectedCourseFilter = nextValue;
 }
 
 function renderSubsectionNav() {
@@ -602,8 +702,11 @@ function renderArchivedTable(rows) {
 function renderAll() {
   const allLeads = getAllLeads();
   const scopedLeads = getScopedLeads(allLeads);
-  let lostLeads = scopedLeads.filter((lead) => isLostLead(lead));
-  let filteredArchivedLeads = [...archivedLeads];
+  const allLostLeads = scopedLeads.filter((lead) => isLostLead(lead));
+  const allArchivedLeads = [...archivedLeads];
+  renderCourseFilterOptions(allLostLeads, allArchivedLeads);
+  let lostLeads = [...allLostLeads];
+  let filteredArchivedLeads = [...allArchivedLeads];
 
   if (searchQuery) {
     const query = searchQuery.toLowerCase();
@@ -635,6 +738,11 @@ function renderAll() {
     });
   }
 
+  if (normalizeCourseFilterValue(selectedCourseFilter) !== "all") {
+    lostLeads = lostLeads.filter((lead) => getLostProgramName(lead) === selectedCourseFilter);
+    filteredArchivedLeads = filteredArchivedLeads.filter((lead) => String(lead?.courseName || "").trim() === selectedCourseFilter);
+  }
+
   lostPage = clampPage(lostPage, lostLeads.length);
   archivedPage = clampPage(archivedPage, filteredArchivedLeads.length);
   renderSubsectionNav();
@@ -663,13 +771,38 @@ if (lostSearchInput) {
 if (resetLostSearch) {
   resetLostSearch.onclick = () => {
     searchQuery = "";
+    selectedCourseFilter = "all";
     if (lostSearchInput) {
       lostSearchInput.value = "";
+    }
+    if (lostCourseFilter) {
+      lostCourseFilter.value = "all";
     }
     lostPage = 1;
     archivedPage = 1;
     persistSearchQuery();
     renderAll();
+  };
+}
+
+if (lostCourseFilter) {
+  lostCourseFilter.onchange = () => {
+    selectedCourseFilter = normalizeCourseFilterValue(lostCourseFilter.value);
+    lostPage = 1;
+    archivedPage = 1;
+    renderAll();
+  };
+}
+
+if (deleteAllLostLeadsBtn) {
+  deleteAllLostLeadsBtn.onclick = () => {
+    void deleteAllLostLeads();
+  };
+}
+
+if (deleteAllArchivedLeadsBtn) {
+  deleteAllArchivedLeadsBtn.onclick = () => {
+    void deleteAllArchivedLeads();
   };
 }
 
