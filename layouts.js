@@ -571,14 +571,15 @@ function warmSidebarRoutes() {
 }
 
 function getSessionIdentityLabel(session) {
+  if (session?.role === "super_admin") return "Super Admin";
+  if (session?.role === "admin") return "Admin";
+  if (session?.role === "marketing") return "Marketing";
+
   const name = String(session?.name || "").trim();
   if (name) {
     return name;
   }
 
-  if (session?.role === "super_admin") return "Super Admin";
-  if (session?.role === "admin") return "Admin";
-  if (session?.role === "marketing") return "Marketing";
   return "Counselor";
 }
 
