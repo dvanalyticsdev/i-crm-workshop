@@ -4,14 +4,12 @@ import {
   getAdminUsers as getStoredAdminUsers,
   getAllocation as getStoredAllocation,
   getCounselors as getStoredCounselors,
-  getSession,
   getLeads as getStoredLeads,
-  getMarketingUsers as getStoredMarketingUsers,
+  getSession,
   saveAdminUsers as persistAdminUsers,
   saveAllocation as persistAllocation,
   saveCounselors as persistCounselors,
   saveLeads as persistLeads,
-  saveMarketingUsers as persistMarketingUsers,
   startStatePolling,
   syncStateFromLocalAndVerify
 } from "./state-sync.js";
@@ -19,7 +17,7 @@ import { PUBLIC_COURSES } from "./course-catalog.js";
 
 await bootstrapLocalState();
 
-const DEFAULT_PERMISSIONS = {
+const COUNSELOR_FALLBACK_PERMISSIONS = {
   dashboard: true,
   leadBrowse: true,
   claimRaised: true,
@@ -40,7 +38,8 @@ const DEFAULT_PERMISSIONS = {
   leadFlowControl: true,
   reachout: true
 };
-const ADMIN_DEFAULT_PERMISSIONS = {
+
+const ADMIN_FALLBACK_PERMISSIONS = {
   dashboard: true,
   leadBrowse: true,
   claimRaised: true,
@@ -61,6 +60,7 @@ const ADMIN_DEFAULT_PERMISSIONS = {
   leadFlowControl: true,
   reachout: true
 };
+
 const COUNSELOR_PERMISSION_OPTIONS = [
   { key: "dashboard", label: "Dashboard" },
   { key: "preWorkshop", label: "Workshop Calling" },
@@ -81,6 +81,7 @@ const COUNSELOR_PERMISSION_OPTIONS = [
   { key: "admissionSop", label: "SOP Tracker" },
   { key: "taskTracker", label: "Task Tracker" }
 ];
+
 const ADMIN_PERMISSION_OPTIONS = [
   { key: "dashboard", label: "Dashboard" },
   { key: "preWorkshop", label: "Workshop Calling" },
@@ -102,6 +103,20 @@ const ADMIN_PERMISSION_OPTIONS = [
   { key: "taskTracker", label: "Task Tracker" },
   { key: "counselorManagement", label: "Counselor Management" }
 ];
+
+const ROLE_PANEL_CONFIG = {
+  counselor: {
+    label: "Counselor",
+    options: COUNSELOR_PERMISSION_OPTIONS,
+    fallback: COUNSELOR_FALLBACK_PERMISSIONS
+  },
+  admin: {
+    label: "Admin",
+    options: ADMIN_PERMISSION_OPTIONS,
+    fallback: ADMIN_FALLBACK_PERMISSIONS
+  }
+};
+
 const BRANCH_OPTIONS = ["Bangalore", "Bhubaneswar"];
 const DEFAULT_BRANCH = "Bangalore";
 const COURSE_PERMISSION_OPTIONS = PUBLIC_COURSES.map((course) => ({
@@ -114,13 +129,23 @@ const counselorForm = document.getElementById("counselorForm");
 const counselorFormMessage = document.getElementById("counselorFormMessage");
 const counselorList = document.getElementById("counselorList");
 const counselorSearchInput = document.getElementById("counselorSearchInput");
-const counselorPermissionsGrid = document.getElementById("counselorPermissionsGrid");
+const adminForm = document.getElementById("adminForm");
+const adminFormMessage = document.getElementById("adminFormMessage");
+const adminList = document.getElementById("adminList");
 const adminSearchInput = document.getElementById("adminSearchInput");
-const marketingSearchInput = document.getElementById("marketingSearchInput");
 const managementSummarySection = document.getElementById("managementSummarySection");
 const adminManagementSection = document.getElementById("adminManagementSection");
-const adminPermissionsGrid = document.getElementById("adminPermissionsGrid");
 const adminCreateCard = document.getElementById("adminCreateCard");
+const permissionControlSection = document.getElementById("permissionControlSection");
+const permissionRoleSelect = document.getElementById("permissionRoleSelect");
+const permissionUserSelect = document.getElementById("permissionUserSelect");
+const permissionPanelHint = document.getElementById("permissionPanelHint");
+const permissionPanelSummary = document.getElementById("permissionPanelSummary");
+const accessControlGrid = document.getElementById("accessControlGrid");
+const permissionPanelMessage = document.getElementById("permissionPanelMessage");
+const loadFallbackPermissionsBtn = document.getElementById("loadFallbackPermissionsBtn");
+const clearSavedPermissionsBtn = document.getElementById("clearSavedPermissionsBtn");
+const savePermissionPanelBtn = document.getElementById("savePermissionPanelBtn");
 const userDetailsModal = document.getElementById("userDetailsModal");
 const userDetailsTitle = document.getElementById("userDetailsTitle");
 const userDetailsSubtitle = document.getElementById("userDetailsSubtitle");
@@ -146,13 +171,15 @@ const userEditPhone = document.getElementById("userEditPhone");
 const userEditPhoneRow = document.getElementById("userEditPhoneRow");
 const userEditBranch = document.getElementById("userEditBranch");
 const userEditBranchRow = document.getElementById("userEditBranchRow");
-const userEditPermissionsRow = document.getElementById("userEditPermissionsRow");
-const editPermissionsGrid = document.getElementById("editPermissionsGrid");
 const userEditMessage = document.getElementById("userEditMessage");
+
 let counselorSearchTerm = "";
 let adminSearchTerm = "";
-let marketingSearchTerm = "";
 let activeDetailsUser = null;
+let selectedPermissionRole = permissionRoleSelect?.value || "counselor";
+let selectedPermissionUserId = "";
+let permissionDraftLoadedFromFallback = false;
+
 const activeSession = getSession();
 const isSuperAdminSession = activeSession?.role === "super_admin";
 
@@ -164,82 +191,57 @@ if (adminCreateCard) {
   adminCreateCard.classList.toggle("hidden", !isSuperAdminSession);
 }
 
+if (permissionControlSection) {
+  permissionControlSection.classList.toggle("hidden", !isSuperAdminSession);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function setCounselorMessage(text, isError = true) {
+  if (!counselorFormMessage) {
+    return;
+  }
+  counselorFormMessage.textContent = text;
+  counselorFormMessage.style.color = isError ? "var(--danger)" : "var(--success)";
+}
+
+function setAdminMessage(text, isError = true) {
+  if (!adminFormMessage) {
+    return;
+  }
+  adminFormMessage.textContent = text;
+  adminFormMessage.style.color = isError ? "var(--danger)" : "var(--success)";
+}
+
+function setPermissionPanelMessage(text, isError = true) {
+  if (!permissionPanelMessage) {
+    return;
+  }
+  permissionPanelMessage.textContent = text;
+  permissionPanelMessage.style.color = isError ? "var(--danger)" : "var(--success)";
+}
+
 function setPasswordChangeMessage(text, isError = true) {
   if (!passwordChangeMessage) {
     return;
   }
-
   passwordChangeMessage.textContent = text;
   passwordChangeMessage.style.color = isError ? "var(--danger)" : "var(--success)";
-}
-
-function closePasswordChangeModal() {
-  if (!passwordChangeModal || !passwordChangeForm) {
-    return;
-  }
-
-  passwordChangeForm.reset();
-  passwordChangeUserType.value = "";
-  passwordChangeUserId.value = "";
-  passwordChangeUserName.value = "";
-  setPasswordChangeMessage("");
-  passwordChangeModal.classList.add("hidden");
-}
-
-function closeUserDetailsModal() {
-  if (!userDetailsModal) {
-    return;
-  }
-
-  activeDetailsUser = null;
-  userDetailsModal.classList.add("hidden");
 }
 
 function setUserEditMessage(text, isError = true) {
   if (!userEditMessage) {
     return;
   }
-
   userEditMessage.textContent = text;
   userEditMessage.style.color = isError ? "var(--danger)" : "var(--success)";
-}
-
-function getSelectedEditPermissions() {
-  const fallback = userEditType.value === "admin"
-    ? ADMIN_DEFAULT_PERMISSIONS
-    : DEFAULT_PERMISSIONS;
-  return getSelectedPermissionMap("editPermission", fallback);
-}
-
-function renderPermissionOptions(container, options, inputName, selectedPermissions = {}) {
-  if (!container) {
-    return;
-  }
-
-  container.innerHTML = options.map((option) => `
-    <label class="permission-option">
-      <input
-        type="checkbox"
-        name="${escapeHtml(inputName)}"
-        value="${escapeHtml(option.key)}"
-        ${selectedPermissions[option.key] ? "checked" : ""}
-      />
-      ${escapeHtml(option.label)}
-    </label>
-  `).join("");
-}
-
-function getSelectedPermissionMap(inputName, fallback = {}) {
-  const selectedKeys = new Set(
-    Array.from(document.querySelectorAll(`input[name='${inputName}']:checked`))
-      .map((item) => String(item.value || "").trim())
-      .filter(Boolean)
-  );
-
-  return Object.keys(fallback).reduce((accumulator, key) => {
-    accumulator[key] = selectedKeys.has(key);
-    return accumulator;
-  }, {});
 }
 
 function normalizeBranch(value, fallback = DEFAULT_BRANCH) {
@@ -271,117 +273,13 @@ function coursePermissionText(courseIds) {
     .join(", ");
 }
 
-function closeUserEditModal() {
-  if (!userEditModal || !userEditForm) {
-    return;
+function clonePermissions(permissions) {
+  if (!permissions || typeof permissions !== "object") {
+    return null;
   }
-
-  userEditForm.reset();
-  userEditType.value = "";
-  userEditId.value = "";
-  setUserEditMessage("");
-  userEditEmailRow.classList.remove("hidden");
-  userEditEmail.required = true;
-  userEditPhoneRow.classList.add("hidden");
-  userEditBranchRow.classList.add("hidden");
-  userEditPermissionsRow.classList.add("hidden");
-  if (editPermissionsGrid) {
-    editPermissionsGrid.innerHTML = "";
-  }
-  userEditModal.classList.add("hidden");
-}
-
-function openUserEditModal({ userType, user }) {
-  if (!userEditModal || !user) {
-    return;
-  }
-
-  if (userType === "admin" && !isSuperAdminSession) {
-    setAdminMessage("You do not have permission to edit admin accounts.", true);
-    return;
-  }
-
-  userEditType.value = userType;
-  userEditId.value = user.id || "";
-  userEditName.value = user.name || "";
-  userEditEmail.value = user.email || "";
-  setUserEditMessage("");
-
-  const isCounselor = userType === "counselor";
-  const isAdmin = userType === "admin";
-  userEditTitle.textContent = isCounselor ? "Edit Counselor" : "Edit Marketing User";
-  if (isAdmin) {
-    userEditTitle.textContent = "Edit Admin";
-  }
-  userEditEmailRow.classList.toggle("hidden", isAdmin);
-  userEditEmail.required = !isAdmin;
-  userEditPhoneRow.classList.toggle("hidden", !(isCounselor || isAdmin));
-  userEditBranchRow.classList.toggle("hidden", !isCounselor);
-  userEditPermissionsRow.classList.toggle("hidden", !(isCounselor || isAdmin));
-
-  if (isCounselor) {
-    userEditPhone.value = user.phone || "";
-    userEditBranch.value = normalizeBranch(user.branch);
-    const permissions = {
-      ...DEFAULT_PERMISSIONS,
-      ...(user.permissions || {})
-    };
-    renderPermissionOptions(editPermissionsGrid, COUNSELOR_PERMISSION_OPTIONS, "editPermission", permissions);
-  } else if (isAdmin) {
-    userEditPhone.value = user.phone || "";
-    userEditBranch.value = "";
-    userEditEmail.value = user.email || "";
-    const permissions = {
-      ...ADMIN_DEFAULT_PERMISSIONS,
-      ...(user.permissions || {})
-    };
-    renderPermissionOptions(editPermissionsGrid, ADMIN_PERMISSION_OPTIONS, "editPermission", permissions);
-  } else {
-    userEditPhone.value = "";
-    userEditBranch.value = "";
-    if (editPermissionsGrid) {
-      editPermissionsGrid.innerHTML = "";
-    }
-  }
-
-  userEditModal.classList.remove("hidden");
-}
-
-function openPasswordChangeModal({ userType, userId, name }) {
-  if (!passwordChangeModal) {
-    return;
-  }
-
-  if (userType === "admin" && !isSuperAdminSession) {
-    setAdminMessage("You do not have permission to change admin passwords.", true);
-    return;
-  }
-
-  passwordChangeUserType.value = userType;
-  passwordChangeUserId.value = userId;
-  passwordChangeUserName.value = name || "";
-  passwordChangeTitle.textContent = userType === "marketing"
-    ? "Change Marketing User Password"
-    : userType === "admin"
-      ? "Change Admin Password"
-      : "Change Counselor Password";
-  passwordChangeNewPassword.value = "";
-  setPasswordChangeMessage("");
-  passwordChangeModal.classList.remove("hidden");
-}
-
-function setMessage(text, isError = true) {
-  counselorFormMessage.textContent = text;
-  counselorFormMessage.style.color = isError ? "var(--danger)" : "var(--success)";
-}
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+  return Object.fromEntries(
+    Object.entries(permissions).map(([key, value]) => [key, Boolean(value)])
+  );
 }
 
 function getCounselors() {
@@ -390,46 +288,133 @@ function getCounselors() {
     email: String(item.email || "").toLowerCase(),
     branch: normalizeBranch(item.branch),
     admissionCoursePermissions: normalizeCoursePermissions(item.admissionCoursePermissions),
-    permissions: {
-      ...DEFAULT_PERMISSIONS,
-      ...(item.permissions || {})
-    }
+    permissions: clonePermissions(item.permissions)
   }));
-}
-
-function saveCounselors(counselors) {
-  return persistCounselors(counselors);
-}
-
-function getLeads() {
-  return getStoredLeads();
 }
 
 function getAdminUsers() {
   return getStoredAdminUsers().map((item) => ({
     ...item,
     phone: String(item.phone || "").trim(),
-    permissions: {
-      ...ADMIN_DEFAULT_PERMISSIONS,
-      ...(item.permissions || {})
-    }
+    permissions: clonePermissions(item.permissions)
   }));
 }
 
-function saveAdminUsers(adminUsers) {
-  return persistAdminUsers(adminUsers);
-}
-
-function saveLeads(leads) {
-  return persistLeads(leads);
+function getLeads() {
+  return getStoredLeads();
 }
 
 function getAllocation() {
   return getStoredAllocation();
 }
 
+function saveCounselors(counselors) {
+  return persistCounselors(counselors);
+}
+
+function saveAdminUsers(adminUsers) {
+  return persistAdminUsers(adminUsers);
+}
+
 function saveAllocation(allocation) {
   return persistAllocation(allocation);
+}
+
+function saveLeads(leads) {
+  return persistLeads(leads);
+}
+
+function getRoleConfig(role) {
+  return ROLE_PANEL_CONFIG[role] || ROLE_PANEL_CONFIG.counselor;
+}
+
+function getRoleAccounts(role) {
+  return role === "admin" ? getAdminUsers() : getCounselors();
+}
+
+function getUserByRoleAndId(role, userId) {
+  return getRoleAccounts(role).find((item) => item.id === userId) || null;
+}
+
+function getRawPermissions(user) {
+  return user?.permissions && typeof user.permissions === "object"
+    ? clonePermissions(user.permissions)
+    : null;
+}
+
+function getEffectivePermissions(role, user) {
+  const fallback = getRoleConfig(role).fallback;
+  const rawPermissions = getRawPermissions(user);
+  return {
+    ...fallback,
+    ...(rawPermissions || {})
+  };
+}
+
+function hasSavedPermissionOverride(user) {
+  const rawPermissions = getRawPermissions(user);
+  return Boolean(rawPermissions && Object.keys(rawPermissions).length);
+}
+
+function permissionText(role, user) {
+  const effectivePermissions = getEffectivePermissions(role, user);
+  const options = getRoleConfig(role).options;
+  const names = options
+    .filter((option) => effectivePermissions[option.key])
+    .map((option) => option.label);
+  return names.length ? names.join(", ") : "No access";
+}
+
+function renderPermissionBadges(role, user) {
+  const effectivePermissions = getEffectivePermissions(role, user);
+  const options = getRoleConfig(role).options;
+  const items = options
+    .filter((option) => effectivePermissions[option.key])
+    .map((option) => option.label);
+
+  return items.length
+    ? `<div class="permission-badge-row">${items.map((item) => `<span class="permission-badge">${escapeHtml(item)}</span>`).join("")}</div>`
+    : `<span class="management-muted">No access</span>`;
+}
+
+function renderPermissionOptions(container, options, inputName, selectedPermissions = {}) {
+  if (!container) {
+    return;
+  }
+
+  container.innerHTML = options.map((option) => `
+    <label class="permission-option">
+      <input
+        type="checkbox"
+        name="${escapeHtml(inputName)}"
+        value="${escapeHtml(option.key)}"
+        ${selectedPermissions[option.key] ? "checked" : ""}
+      />
+      ${escapeHtml(option.label)}
+    </label>
+  `).join("");
+}
+
+function getSelectedPermissionMap(inputName, fallback) {
+  const selectedKeys = new Set(
+    Array.from(document.querySelectorAll(`input[name='${inputName}']:checked`))
+      .map((item) => String(item.value || "").trim())
+      .filter(Boolean)
+  );
+
+  return Object.keys(fallback).reduce((accumulator, key) => {
+    accumulator[key] = selectedKeys.has(key);
+    return accumulator;
+  }, {});
+}
+
+function buildDetailsRows(details) {
+  return details.map(([label, value]) => `
+    <div class="management-details-item">
+      <dt>${escapeHtml(label)}</dt>
+      <dd>${escapeHtml(value || "-")}</dd>
+    </div>
+  `).join("");
 }
 
 async function syncAllocationWithCounselors(counselors) {
@@ -466,7 +451,7 @@ function rebalanceAllocation(items) {
     }));
   }
 
-  let normalized = items.map((item) => ({
+  const normalized = items.map((item) => ({
     name: item.name,
     percentage: Number((((Number(item.percentage || 0) / total) * 100).toFixed(2)))
   }));
@@ -482,11 +467,105 @@ function rebalanceAllocation(items) {
   return normalized;
 }
 
+function closePasswordChangeModal() {
+  if (!passwordChangeModal || !passwordChangeForm) {
+    return;
+  }
+
+  passwordChangeForm.reset();
+  passwordChangeUserType.value = "";
+  passwordChangeUserId.value = "";
+  passwordChangeUserName.value = "";
+  setPasswordChangeMessage("");
+  passwordChangeModal.classList.add("hidden");
+}
+
+function closeUserDetailsModal() {
+  if (!userDetailsModal) {
+    return;
+  }
+
+  activeDetailsUser = null;
+  userDetailsModal.classList.add("hidden");
+}
+
+function closeUserEditModal() {
+  if (!userEditModal || !userEditForm) {
+    return;
+  }
+
+  userEditForm.reset();
+  userEditType.value = "";
+  userEditId.value = "";
+  setUserEditMessage("");
+  userEditEmailRow.classList.remove("hidden");
+  userEditEmail.required = true;
+  userEditPhoneRow.classList.add("hidden");
+  userEditBranchRow.classList.add("hidden");
+  userEditModal.classList.add("hidden");
+}
+
+function openUserEditModal({ userType, user }) {
+  if (!userEditModal || !user) {
+    return;
+  }
+
+  if (userType === "admin" && !isSuperAdminSession) {
+    setAdminMessage("You do not have permission to edit admin accounts.", true);
+    return;
+  }
+
+  userEditType.value = userType;
+  userEditId.value = user.id || "";
+  userEditName.value = user.name || "";
+  userEditEmail.value = user.email || "";
+  setUserEditMessage("");
+
+  const isCounselor = userType === "counselor";
+  const isAdmin = userType === "admin";
+  userEditTitle.textContent = isCounselor ? "Edit Counselor" : "Edit Admin";
+  userEditEmailRow.classList.toggle("hidden", isAdmin);
+  userEditEmail.required = !isAdmin;
+  userEditPhoneRow.classList.toggle("hidden", !(isCounselor || isAdmin));
+  userEditBranchRow.classList.toggle("hidden", !isCounselor);
+
+  if (isCounselor) {
+    userEditPhone.value = user.phone || "";
+    userEditBranch.value = normalizeBranch(user.branch);
+  } else if (isAdmin) {
+    userEditPhone.value = user.phone || "";
+    userEditBranch.value = "";
+  }
+
+  userEditModal.classList.remove("hidden");
+}
+
+function openPasswordChangeModal({ userType, userId, name }) {
+  if (!passwordChangeModal) {
+    return;
+  }
+
+  if (userType === "admin" && !isSuperAdminSession) {
+    setAdminMessage("You do not have permission to change admin passwords.", true);
+    return;
+  }
+
+  passwordChangeUserType.value = userType;
+  passwordChangeUserId.value = userId;
+  passwordChangeUserName.value = name || "";
+  passwordChangeTitle.textContent = userType === "admin"
+    ? "Change Admin Password"
+    : "Change Counselor Password";
+  passwordChangeNewPassword.value = "";
+  setPasswordChangeMessage("");
+  passwordChangeModal.classList.remove("hidden");
+}
+
 async function removeCounselor(counselorId) {
   const counselors = getCounselors();
   const target = counselors.find((item) => item.id === counselorId);
   if (!target) {
-    setMessage("Counselor not found.", true);
+    setCounselorMessage("Counselor not found.", true);
     return;
   }
 
@@ -498,7 +577,7 @@ async function removeCounselor(counselorId) {
   const nextCounselors = counselors.filter((item) => item.id !== counselorId);
   const saveCounselorResult = await saveCounselors(nextCounselors);
   if (!saveCounselorResult || saveCounselorResult.ok === false) {
-    setMessage(saveCounselorResult?.message || "Failed to save counselor changes. Please check your connection.", true);
+    setCounselorMessage(saveCounselorResult?.message || "Failed to save counselor changes. Please check your connection.", true);
     return;
   }
   await syncAllocationWithCounselors(nextCounselors);
@@ -515,10 +594,11 @@ async function removeCounselor(counselorId) {
     }
     return lead;
   });
+
   if (changed) {
     const saveLeadsResult = await saveLeads(updatedLeads);
     if (!saveLeadsResult || saveLeadsResult.ok === false) {
-      setMessage(saveLeadsResult?.message || "Counselor removed but failed to unassign leads. Please reload and retry.", true);
+      setCounselorMessage(saveLeadsResult?.message || "Counselor removed but failed to unassign leads. Please reload and retry.", true);
       return;
     }
   }
@@ -530,51 +610,55 @@ async function removeCounselor(counselorId) {
   if (filteredAllocation.length !== allocation.length) {
     const saveAllocResult = await saveAllocation(rebalanceAllocation(filteredAllocation));
     if (!saveAllocResult || saveAllocResult.ok === false) {
-      setMessage(saveAllocResult?.message || "Counselor removed but failed to update allocation. Please reload and retry.", true);
+      setCounselorMessage(saveAllocResult?.message || "Counselor removed but failed to update allocation. Please reload and retry.", true);
       return;
     }
   }
 
   const syncResult = await syncStateFromLocalAndVerify();
   if (!syncResult.ok) {
-    setMessage(syncResult.message || `Backend confirmation failed after removing counselor ${target.name}.`, true);
+    setCounselorMessage(syncResult.message || `Backend confirmation failed after removing counselor ${target.name}.`, true);
     return;
   }
 
-  setMessage(`Counselor ${target.name} removed successfully.`, false);
+  setCounselorMessage(`Counselor ${target.name} removed successfully.`, false);
   renderCounselorList();
+  renderPermissionControlPanel();
 }
 
-function permissionText(permissions) {
-  const names = [];
-  [...COUNSELOR_PERMISSION_OPTIONS, ...ADMIN_PERMISSION_OPTIONS].forEach((option) => {
-    if (permissions?.[option.key] && !names.includes(option.label)) {
-      names.push(option.label);
-    }
-  });
-  return names.length ? names.join(", ") : "No access";
-}
+async function removeAdminUser(userId) {
+  if (!isSuperAdminSession) {
+    setAdminMessage("You do not have permission to remove admin accounts.", true);
+    return;
+  }
 
-function renderPermissionBadges(permissions) {
-  const items = [];
-  [...COUNSELOR_PERMISSION_OPTIONS, ...ADMIN_PERMISSION_OPTIONS].forEach((option) => {
-    if (permissions?.[option.key] && !items.includes(option.label)) {
-      items.push(option.label);
-    }
-  });
+  const users = getAdminUsers();
+  const target = users.find((item) => item.id === userId);
+  if (!target) {
+    return;
+  }
 
-  return items.length
-    ? `<div class="permission-badge-row">${items.map((item) => `<span class="permission-badge">${escapeHtml(item)}</span>`).join("")}</div>`
-    : `<span class="management-muted">No access</span>`;
-}
+  const confirmed = window.confirm(`Remove admin ${target.name}?`);
+  if (!confirmed) {
+    return;
+  }
 
-function buildDetailsRows(details) {
-  return details.map(([label, value]) => `
-    <div class="management-details-item">
-      <dt>${escapeHtml(label)}</dt>
-      <dd>${escapeHtml(value || "-")}</dd>
-    </div>
-  `).join("");
+  const nextUsers = users.filter((item) => item.id !== userId);
+  const result = await saveAdminUsers(nextUsers);
+  if (!result || result.ok === false) {
+    setAdminMessage(result?.message || "Failed to remove admin.", true);
+    return;
+  }
+
+  const syncResult = await syncStateFromLocalAndVerify();
+  if (!syncResult.ok) {
+    setAdminMessage(syncResult.message || "Backend confirmation failed.", true);
+    return;
+  }
+
+  setAdminMessage(`${target.name} removed successfully.`, false);
+  renderAdminList();
+  renderPermissionControlPanel();
 }
 
 function openUserDetailsModal({ userType, user }) {
@@ -589,13 +673,13 @@ function openUserDetailsModal({ userType, user }) {
 
   activeDetailsUser = { userType, userId: user.id };
   const isCounselor = userType === "counselor";
-  const isAdmin = userType === "admin";
+  const roleLabel = isCounselor ? "Counselor" : "Admin";
+  const sourceLabel = hasSavedPermissionOverride(user) ? "Saved override" : "Current fallback";
+
   userDetailsTitle.textContent = user.name || "User";
   userDetailsSubtitle.textContent = isCounselor
-    ? "Counselor account details, assigned access, and quick management actions."
-    : isAdmin
-      ? "Admin account details and quick management actions."
-      : "Marketing account details and quick management actions.";
+    ? "Counselor account details, fallback behavior, and quick actions."
+    : "Admin account details, fallback behavior, and quick actions.";
 
   const detailsMarkup = isCounselor
     ? [
@@ -609,35 +693,27 @@ function openUserDetailsModal({ userType, user }) {
           ]
         },
         {
-          title: "Lead Permissions",
+          title: "Page Access",
           rows: [
-            ["Page Access", permissionText(user.permissions || DEFAULT_PERMISSIONS)],
+            ["Source", sourceLabel],
+            ["Allowed Pages", permissionText("counselor", user)],
             ["Course Eligibility", coursePermissionText(user.admissionCoursePermissions)]
           ]
         }
       ]
-    : isAdmin
-      ? [
-          {
-            title: "Profile",
-            rows: [
-              ["Name", user.name],
-              ["Phone Number", user.phone]
-            ]
-          },
-          {
-            title: "Page Access",
-            rows: [
-              ["Allowed Pages", permissionText(user.permissions || ADMIN_DEFAULT_PERMISSIONS)]
-            ]
-          }
-        ]
-      : [
+    : [
         {
           title: "Profile",
           rows: [
             ["Name", user.name],
-            ["Email", user.email]
+            ["Phone Number", user.phone]
+          ]
+        },
+        {
+          title: "Page Access",
+          rows: [
+            ["Source", sourceLabel],
+            ["Allowed Pages", permissionText("admin", user)]
           ]
         }
       ];
@@ -648,13 +724,12 @@ function openUserDetailsModal({ userType, user }) {
       <dl class="management-details-list">
         ${buildDetailsRows(section.rows)}
       </dl>
-      ${section.title === "Lead Permissions" && isCounselor ? renderPermissionBadges(user.permissions || DEFAULT_PERMISSIONS) : ""}
-      ${section.title === "Page Access" && isAdmin ? renderPermissionBadges(user.permissions || ADMIN_DEFAULT_PERMISSIONS) : ""}
+      ${section.title === "Page Access" ? renderPermissionBadges(isCounselor ? "counselor" : "admin", user) : ""}
     </section>
   `).join("");
 
   userDetailsActions.innerHTML = `
-    <button type="button" class="btn-primary" id="userDetailsEditBtn">Edit</button>
+    <button type="button" class="btn-primary" id="userDetailsEditBtn">Edit ${escapeHtml(roleLabel)}</button>
     <button type="button" class="btn-ghost" id="userDetailsPasswordBtn">Change Password</button>
     <button type="button" class="btn-ghost" id="userDetailsRemoveBtn">Remove</button>
   `;
@@ -663,24 +738,22 @@ function openUserDetailsModal({ userType, user }) {
     closeUserDetailsModal();
     openUserEditModal({ userType, user });
   });
-  document.getElementById("userDetailsPasswordBtn").onclick = () => {
+  document.getElementById("userDetailsPasswordBtn")?.addEventListener("click", () => {
     closeUserDetailsModal();
     openPasswordChangeModal({
       userType,
       userId: user.id,
       name: user.name
     });
-  };
-  document.getElementById("userDetailsRemoveBtn").onclick = () => {
+  });
+  document.getElementById("userDetailsRemoveBtn")?.addEventListener("click", () => {
     closeUserDetailsModal();
     if (isCounselor) {
       void removeCounselor(user.id);
-    } else if (isAdmin) {
-      void removeAdminUser(user.id);
     } else {
-      void removeMarketingUser(user.id);
+      void removeAdminUser(user.id);
     }
-  };
+  });
 
   userDetailsModal.classList.remove("hidden");
 }
@@ -692,23 +765,29 @@ function renderManagementSummary() {
 
   const counselors = getCounselors();
   const admins = getAdminUsers();
-  const marketingUsers = getMarketingUsers();
-  const workshopAccess = counselors.filter((item) => item.permissions?.preWorkshop).length;
-  const monitoringAccess = counselors.filter((item) => item.permissions?.monitoring).length;
+  const workshopAccess = counselors.filter((item) => getEffectivePermissions("counselor", item).preWorkshop).length;
+  const monitoringAccess = counselors.filter((item) => getEffectivePermissions("counselor", item).monitoring).length;
+  const explicitCounselorOverrides = counselors.filter((item) => hasSavedPermissionOverride(item)).length;
+  const explicitAdminOverrides = admins.filter((item) => hasSavedPermissionOverride(item)).length;
 
   managementSummarySection.innerHTML = `
     ${isSuperAdminSession ? `
-    <article class="card management-summary-card">
-      <p>Total Admins</p>
-      <h2>${admins.length}</h2>
-    </article>` : ""}
+      <article class="card management-summary-card">
+        <p>Total Admins</p>
+        <h2>${admins.length}</h2>
+      </article>
+      <article class="card management-summary-card">
+        <p>Admin Overrides</p>
+        <h2>${explicitAdminOverrides}</h2>
+      </article>
+    ` : ""}
     <article class="card management-summary-card">
       <p>Total Counselors</p>
       <h2>${counselors.length}</h2>
     </article>
     <article class="card management-summary-card">
-      <p>Total Marketing Users</p>
-      <h2>${marketingUsers.length}</h2>
+      <p>Counselor Overrides</p>
+      <h2>${explicitCounselorOverrides}</h2>
     </article>
     <article class="card management-summary-card">
       <p>Workshop Access Enabled</p>
@@ -722,6 +801,10 @@ function renderManagementSummary() {
 }
 
 function renderCounselorList() {
+  if (!counselorList) {
+    return;
+  }
+
   const counselors = getCounselors();
   const filteredCounselors = counselors.filter((counselor) => {
     if (!counselorSearchTerm) {
@@ -734,200 +817,59 @@ function renderCounselorList() {
       counselor.phone,
       counselor.branch,
       coursePermissionText(counselor.admissionCoursePermissions),
-      permissionText(counselor.permissions || DEFAULT_PERMISSIONS)
+      permissionText("counselor", counselor)
     ].join(" ").toLowerCase();
     return haystack.includes(counselorSearchTerm);
   });
 
-  counselorList.innerHTML = `
-    ${filteredCounselors.length
-      ? `<div class="management-name-list">
-          ${filteredCounselors.map((counselor) => `
-            <button
-              type="button"
-              class="management-name-card open-counselor-details-btn"
-              data-counselor-id="${counselor.id}"
-            >
-              <span class="management-name-card__title">${escapeHtml(counselor.name)}</span>
-              <span class="management-name-card__meta">${escapeHtml(counselor.email)}</span>
-              <span class="management-name-card__meta">${escapeHtml(normalizeBranch(counselor.branch))} branch</span>
-            </button>
-          `).join("")}
-        </div>`
-      : `<p class="management-empty-state">No counselors match the current search.</p>`
-    }
-  `;
+  counselorList.innerHTML = filteredCounselors.length
+    ? `<div class="management-name-list">
+        ${filteredCounselors.map((counselor) => `
+          <button
+            type="button"
+            class="management-name-card open-counselor-details-btn"
+            data-counselor-id="${escapeHtml(counselor.id)}"
+          >
+            <span class="management-name-card__title">${escapeHtml(counselor.name)}</span>
+            <span class="management-name-card__meta">${escapeHtml(counselor.email)}</span>
+            <span class="management-name-card__meta">${escapeHtml(normalizeBranch(counselor.branch))} branch</span>
+          </button>
+        `).join("")}
+      </div>`
+    : `<p class="management-empty-state">No counselors match the current search.</p>`;
 
   document.querySelectorAll(".open-counselor-details-btn").forEach((button) => {
     button.addEventListener("click", () => {
-      const counselorId = button.getAttribute("data-counselor-id");
-      const counselor = counselors.find((item) => item.id === counselorId);
-      if (!counselor) {
-        return;
+      const counselor = counselors.find((item) => item.id === button.getAttribute("data-counselor-id"));
+      if (counselor) {
+        openUserDetailsModal({ userType: "counselor", user: counselor });
       }
-      openUserDetailsModal({ userType: "counselor", user: counselor });
     });
   });
-}
-
-function getSelectedPermissions() {
-  return getSelectedPermissionMap("permission", DEFAULT_PERMISSIONS);
-}
-
-counselorForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-
-  const name = document.getElementById("counselorName").value.trim();
-  const email = document.getElementById("counselorEmail").value.trim().toLowerCase();
-  const phone = document.getElementById("counselorPhone").value.trim();
-  const branch = normalizeBranch(document.getElementById("counselorBranch").value, "");
-  const password = document.getElementById("counselorPassword").value.trim();
-  const permissions = getSelectedPermissions();
-
-  if (!name || !email || !phone || !branch || !password) {
-    setMessage("All counselor fields are required.", true);
-    return;
-  }
-
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    setMessage("Enter a valid counselor email address.", true);
-    return;
-  }
-
-  if (!Object.values(permissions).some(Boolean)) {
-    setMessage("Select at least one access permission.", true);
-    return;
-  }
-
-  const counselors = getCounselors();
-  if (counselors.some((item) => item.email === email)) {
-    setMessage("A counselor with this email already exists.", true);
-    return;
-  }
-
-  counselors.push({
-    id: `c-${Date.now()}`,
-    name,
-    email,
-    phone,
-    branch,
-    password,
-    roundRobinEnabled: true,
-    admissionRoundRobinEnabled: false,
-    admissionCoursePermissions: COURSE_PERMISSION_OPTIONS.map((course) => course.id),
-    permissions
-  });
-
-  await saveCounselors(counselors);
-  await syncAllocationWithCounselors(counselors);
-
-  const syncResult = await syncStateFromLocalAndVerify();
-  if (!syncResult.ok) {
-    setMessage(syncResult.message || "Backend confirmation failed after saving the counselor.", true);
-    return;
-  }
-
-  counselorForm.reset();
-
-  // restore default checked state for convenience
-  document.querySelectorAll("input[name='permission']").forEach((item) => {
-    item.checked = true;
-  });
-
-  setMessage("Counselor created successfully.", false);
-  renderCounselorList();
-});
-
-renderCounselorList();
-renderManagementSummary();
-renderPermissionOptions(
-  counselorPermissionsGrid,
-  COUNSELOR_PERMISSION_OPTIONS,
-  "permission",
-  DEFAULT_PERMISSIONS
-);
-renderPermissionOptions(
-  adminPermissionsGrid,
-  ADMIN_PERMISSION_OPTIONS,
-  "adminPermission",
-  ADMIN_DEFAULT_PERMISSIONS
-);
-const stopStatePolling = startStatePolling(() => {
-  renderManagementSummary();
-  renderCounselorList();
-  renderMarketingList();
-});
-registerPageCleanup(stopStatePolling);
-
-// ── Marketing Users ───────────────────────────────────────────────────────────
-
-renderManagementSummary = ((original) => function wrappedRenderManagementSummary() {
-  original();
-  renderAdminList();
-})(renderManagementSummary);
-
-const adminForm = document.getElementById("adminForm");
-const adminFormMessage = document.getElementById("adminFormMessage");
-const adminList = document.getElementById("adminList");
-
-function setAdminMessage(text, isError = true) {
-  if (!adminFormMessage) {
-    return;
-  }
-  adminFormMessage.textContent = text;
-  adminFormMessage.style.color = isError ? "var(--danger)" : "var(--success)";
-}
-
-async function removeAdminUser(userId) {
-  if (!isSuperAdminSession) {
-    setAdminMessage("You do not have permission to remove admin accounts.", true);
-    return;
-  }
-
-  const users = getAdminUsers();
-  const target = users.find((item) => item.id === userId);
-  if (!target) return;
-
-  const confirmed = window.confirm(`Remove admin ${target.name}?`);
-  if (!confirmed) return;
-
-  const next = users.filter((item) => item.id !== userId);
-  const result = await saveAdminUsers(next);
-  if (!result || result.ok === false) {
-    setAdminMessage(result?.message || "Failed to remove admin.", true);
-    return;
-  }
-
-  const syncResult = await syncStateFromLocalAndVerify();
-  if (!syncResult.ok) {
-    setAdminMessage(syncResult.message || "Backend confirmation failed.", true);
-    return;
-  }
-
-  setAdminMessage(`${target.name} removed successfully.`, false);
-  renderAdminList();
 }
 
 function renderAdminList() {
   if (!adminList) {
     return;
   }
+
   if (!isSuperAdminSession) {
     adminList.innerHTML = "";
     return;
   }
+
   const users = getAdminUsers();
   const filteredUsers = users.filter((user) => {
     if (!adminSearchTerm) {
       return true;
     }
-    return [user.name, user.phone].join(" ").toLowerCase().includes(adminSearchTerm);
+    return [user.name, user.phone, permissionText("admin", user)].join(" ").toLowerCase().includes(adminSearchTerm);
   });
 
   adminList.innerHTML = filteredUsers.length
     ? `<div class="management-name-list">
         ${filteredUsers.map((user) => `
-          <button type="button" class="management-name-card open-admin-details-btn" data-user-id="${user.id}">
+          <button type="button" class="management-name-card open-admin-details-btn" data-user-id="${escapeHtml(user.id)}">
             <span class="management-name-card__title">${escapeHtml(user.name)}</span>
             <span class="management-name-card__meta">${escapeHtml(user.phone)}</span>
           </button>
@@ -945,6 +887,244 @@ function renderAdminList() {
   });
 }
 
+function getPermissionPanelDraft() {
+  const fallback = getRoleConfig(selectedPermissionRole).fallback;
+  return getSelectedPermissionMap("accessControlPermission", fallback);
+}
+
+function renderPermissionPanelSummary(role, user) {
+  if (!permissionPanelSummary) {
+    return;
+  }
+
+  if (!user) {
+    permissionPanelSummary.innerHTML = "";
+    return;
+  }
+
+  const fallbackPermissions = getRoleConfig(role).fallback;
+  const fallbackNames = getRoleConfig(role).options
+    .filter((option) => fallbackPermissions[option.key])
+    .map((option) => option.label)
+    .join(", ");
+  const source = hasSavedPermissionOverride(user) ? "Saved override is active." : "Fallback is active until you save an override.";
+
+  permissionPanelSummary.innerHTML = `
+    <section class="management-details-card">
+      <h4>${escapeHtml(user.name || "Selected account")}</h4>
+      <dl class="management-details-list">
+        ${buildDetailsRows([
+          ["Current Source", source],
+          ["Fallback Access", fallbackNames || "No fallback access"]
+        ])}
+      </dl>
+    </section>
+  `;
+}
+
+function renderPermissionControlPanel(forceFallbackDraft = false) {
+  if (!isSuperAdminSession || !permissionRoleSelect || !permissionUserSelect || !accessControlGrid) {
+    return;
+  }
+
+  const config = getRoleConfig(selectedPermissionRole);
+  const accounts = getRoleAccounts(selectedPermissionRole);
+  if (!accounts.length) {
+    selectedPermissionUserId = "";
+    permissionUserSelect.innerHTML = `<option value="">No ${config.label.toLowerCase()} accounts</option>`;
+    permissionPanelHint.textContent = `Create a ${config.label.toLowerCase()} first, then assign saved access here if needed.`;
+    renderPermissionOptions(accessControlGrid, config.options, "accessControlPermission", {});
+    renderPermissionPanelSummary(selectedPermissionRole, null);
+    return;
+  }
+
+  if (!accounts.some((item) => item.id === selectedPermissionUserId)) {
+    selectedPermissionUserId = accounts[0].id;
+    permissionDraftLoadedFromFallback = false;
+  }
+
+  permissionUserSelect.innerHTML = accounts.map((item) => `
+    <option value="${escapeHtml(item.id)}" ${item.id === selectedPermissionUserId ? "selected" : ""}>
+      ${escapeHtml(item.name || item.email || item.phone || item.id)}
+    </option>
+  `).join("");
+
+  const selectedUser = getUserByRoleAndId(selectedPermissionRole, selectedPermissionUserId);
+  const savedPermissions = getRawPermissions(selectedUser);
+  const draftPermissions = forceFallbackDraft
+    ? getEffectivePermissions(selectedPermissionRole, selectedUser)
+    : savedPermissions || {};
+
+  renderPermissionOptions(accessControlGrid, config.options, "accessControlPermission", draftPermissions);
+  renderPermissionPanelSummary(selectedPermissionRole, selectedUser);
+
+  if (forceFallbackDraft) {
+    permissionPanelHint.textContent = `${config.label} currently uses fallback access. The fallback has been loaded into the editor, but it will not replace current behavior until you click Save Access.`;
+    permissionDraftLoadedFromFallback = true;
+  } else if (savedPermissions) {
+    permissionPanelHint.textContent = `${config.label} currently uses a saved access override. Edit the list below and save when you want to update it.`;
+    permissionDraftLoadedFromFallback = false;
+  } else {
+    permissionPanelHint.textContent = `${config.label} currently has no saved access override. The app is still using existing fallback access until Super Admin saves an explicit list here.`;
+    permissionDraftLoadedFromFallback = false;
+  }
+}
+
+async function savePermissionOverride() {
+  if (!isSuperAdminSession) {
+    setPermissionPanelMessage("Only Super Admin can save page access overrides.", true);
+    return;
+  }
+
+  const config = getRoleConfig(selectedPermissionRole);
+  const selectedUser = getUserByRoleAndId(selectedPermissionRole, selectedPermissionUserId);
+  if (!selectedUser) {
+    setPermissionPanelMessage(`Select a ${config.label.toLowerCase()} account first.`, true);
+    return;
+  }
+
+  const permissions = getPermissionPanelDraft();
+  if (!Object.values(permissions).some(Boolean)) {
+    setPermissionPanelMessage("Select at least one page before saving an override.", true);
+    return;
+  }
+
+  const accounts = getRoleAccounts(selectedPermissionRole);
+  const nextAccounts = accounts.map((item) => (
+    item.id === selectedUser.id
+      ? { ...item, permissions }
+      : item
+  ));
+
+  const result = selectedPermissionRole === "admin"
+    ? await saveAdminUsers(nextAccounts)
+    : await saveCounselors(nextAccounts);
+
+  if (!result || result.ok === false) {
+    setPermissionPanelMessage(result?.message || "Failed to save access override.", true);
+    return;
+  }
+
+  const syncResult = await syncStateFromLocalAndVerify();
+  if (!syncResult.ok) {
+    setPermissionPanelMessage(syncResult.message || "Backend confirmation failed after saving access.", true);
+    return;
+  }
+
+  permissionDraftLoadedFromFallback = false;
+  setPermissionPanelMessage(`Saved explicit ${config.label.toLowerCase()} access for ${selectedUser.name}.`, false);
+  renderManagementSummary();
+  renderCounselorList();
+  renderAdminList();
+  renderPermissionControlPanel();
+}
+
+async function clearPermissionOverride() {
+  if (!isSuperAdminSession) {
+    setPermissionPanelMessage("Only Super Admin can restore fallback access.", true);
+    return;
+  }
+
+  const config = getRoleConfig(selectedPermissionRole);
+  const selectedUser = getUserByRoleAndId(selectedPermissionRole, selectedPermissionUserId);
+  if (!selectedUser) {
+    setPermissionPanelMessage(`Select a ${config.label.toLowerCase()} account first.`, true);
+    return;
+  }
+
+  const accounts = getRoleAccounts(selectedPermissionRole);
+  const nextAccounts = accounts.map((item) => {
+    if (item.id !== selectedUser.id) {
+      return item;
+    }
+    const nextItem = { ...item };
+    delete nextItem.permissions;
+    return nextItem;
+  });
+
+  const result = selectedPermissionRole === "admin"
+    ? await saveAdminUsers(nextAccounts)
+    : await saveCounselors(nextAccounts);
+
+  if (!result || result.ok === false) {
+    setPermissionPanelMessage(result?.message || "Failed to restore fallback access.", true);
+    return;
+  }
+
+  const syncResult = await syncStateFromLocalAndVerify();
+  if (!syncResult.ok) {
+    setPermissionPanelMessage(syncResult.message || "Backend confirmation failed after restoring fallback access.", true);
+    return;
+  }
+
+  setPermissionPanelMessage(`${selectedUser.name} is now using fallback access again.`, false);
+  permissionDraftLoadedFromFallback = false;
+  renderManagementSummary();
+  renderCounselorList();
+  renderAdminList();
+  renderPermissionControlPanel();
+}
+
+if (counselorForm) {
+  counselorForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const name = document.getElementById("counselorName").value.trim();
+    const email = document.getElementById("counselorEmail").value.trim().toLowerCase();
+    const phone = document.getElementById("counselorPhone").value.trim();
+    const branch = normalizeBranch(document.getElementById("counselorBranch").value, "");
+    const password = document.getElementById("counselorPassword").value.trim();
+
+    if (!name || !email || !phone || !branch || !password) {
+      setCounselorMessage("All counselor fields are required.", true);
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setCounselorMessage("Enter a valid counselor email address.", true);
+      return;
+    }
+
+    const counselors = getCounselors();
+    if (counselors.some((item) => item.email === email)) {
+      setCounselorMessage("A counselor with this email already exists.", true);
+      return;
+    }
+
+    counselors.push({
+      id: `c-${Date.now()}`,
+      name,
+      email,
+      phone,
+      branch,
+      password,
+      roundRobinEnabled: true,
+      admissionRoundRobinEnabled: false,
+      admissionCoursePermissions: COURSE_PERMISSION_OPTIONS.map((course) => course.id)
+    });
+
+    const result = await saveCounselors(counselors);
+    if (!result || result.ok === false) {
+      setCounselorMessage(result?.message || "Failed to save counselor.", true);
+      return;
+    }
+
+    await syncAllocationWithCounselors(counselors);
+
+    const syncResult = await syncStateFromLocalAndVerify();
+    if (!syncResult.ok) {
+      setCounselorMessage(syncResult.message || "Backend confirmation failed after saving the counselor.", true);
+      return;
+    }
+
+    counselorForm.reset();
+    setCounselorMessage("Counselor created successfully. Fallback access will apply until Super Admin saves an override.", false);
+    renderManagementSummary();
+    renderCounselorList();
+    renderPermissionControlPanel();
+  });
+}
+
 if (adminForm) {
   adminForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -957,7 +1137,7 @@ if (adminForm) {
     const name = document.getElementById("adminName").value.trim();
     const phone = document.getElementById("adminPhone").value.trim();
     const password = document.getElementById("adminPassword").value.trim();
-    const permissions = getSelectedPermissionMap("adminPermission", ADMIN_DEFAULT_PERMISSIONS);
+
     if (!name || !phone || !password) {
       setAdminMessage("Name, phone number, and password are required.", true);
       return;
@@ -973,8 +1153,7 @@ if (adminForm) {
       id: `a-${Date.now()}`,
       name,
       phone,
-      password,
-      permissions
+      password
     });
 
     const result = await saveAdminUsers(users);
@@ -985,154 +1164,17 @@ if (adminForm) {
 
     const syncResult = await syncStateFromLocalAndVerify();
     if (!syncResult.ok) {
-      setAdminMessage(syncResult.message || "Backend confirmation failed.", true);
+      setAdminMessage(syncResult.message || "Backend confirmation failed after saving the admin.", true);
       return;
     }
 
     adminForm.reset();
-    renderPermissionOptions(
-      adminPermissionsGrid,
-      ADMIN_PERMISSION_OPTIONS,
-      "adminPermission",
-      ADMIN_DEFAULT_PERMISSIONS
-    );
-    setAdminMessage("Admin created successfully.", false);
+    setAdminMessage("Admin created successfully. Fallback access will apply until Super Admin saves an override.", false);
+    renderManagementSummary();
     renderAdminList();
+    renderPermissionControlPanel();
   });
 }
-
-const marketingForm = document.getElementById("marketingForm");
-const marketingFormMessage = document.getElementById("marketingFormMessage");
-const marketingList = document.getElementById("marketingList");
-
-function setMarketingMessage(text, isError = true) {
-  marketingFormMessage.textContent = text;
-  marketingFormMessage.style.color = isError ? "var(--danger)" : "var(--success)";
-}
-
-function getMarketingUsers() {
-  return getStoredMarketingUsers().map((item) => ({
-    ...item,
-    email: String(item.email || "").toLowerCase()
-  }));
-}
-
-function saveMarketingUsers(users) {
-  return persistMarketingUsers(users);
-}
-
-async function removeMarketingUser(userId) {
-  const users = getMarketingUsers();
-  const target = users.find((item) => item.id === userId);
-  if (!target) return;
-
-  const confirmed = window.confirm(`Remove marketing user ${target.name}?`);
-  if (!confirmed) return;
-
-  const next = users.filter((item) => item.id !== userId);
-  const result = await saveMarketingUsers(next);
-  if (!result || result.ok === false) {
-    setMarketingMessage(result?.message || "Failed to remove marketing user.", true);
-    return;
-  }
-
-  const syncResult = await syncStateFromLocalAndVerify();
-  if (!syncResult.ok) {
-    setMarketingMessage(syncResult.message || "Backend confirmation failed.", true);
-    return;
-  }
-
-  setMarketingMessage(`${target.name} removed successfully.`, false);
-  renderMarketingList();
-}
-
-function renderMarketingList() {
-  const users = getMarketingUsers();
-  const filteredUsers = users.filter((user) => {
-    if (!marketingSearchTerm) {
-      return true;
-    }
-
-    const haystack = [user.name, user.email].join(" ").toLowerCase();
-    return haystack.includes(marketingSearchTerm);
-  });
-
-  if (!users.length) {
-    marketingList.innerHTML = "<p style=\"opacity:0.5;font-size:0.85rem;\">No marketing users yet.</p>";
-    return;
-  }
-
-  marketingList.innerHTML = `
-    ${filteredUsers.length
-      ? `<div class="management-name-list">
-          ${filteredUsers.map((u) => `
-            <button
-              type="button"
-              class="management-name-card open-marketing-details-btn"
-              data-user-id="${u.id}"
-            >
-              <span class="management-name-card__title">${escapeHtml(u.name)}</span>
-              <span class="management-name-card__meta">${escapeHtml(u.email)}</span>
-            </button>
-          `).join("")}
-        </div>`
-      : `<p class="management-empty-state">No marketing users match the current search.</p>`
-    }
-  `;
-
-  document.querySelectorAll(".open-marketing-details-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = btn.getAttribute("data-user-id");
-      const user = users.find((item) => item.id === id);
-      if (!user) {
-        return;
-      }
-      openUserDetailsModal({ userType: "marketing", user });
-    });
-  });
-}
-
-marketingForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-
-  const name = document.getElementById("marketingName").value.trim();
-  const email = document.getElementById("marketingEmail").value.trim().toLowerCase();
-  const password = document.getElementById("marketingPassword").value.trim();
-
-  if (!name || !email || !password) {
-    setMarketingMessage("All fields are required.", true);
-    return;
-  }
-
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    setMarketingMessage("Enter a valid email address.", true);
-    return;
-  }
-
-  const users = getMarketingUsers();
-  if (users.some((u) => u.email === email)) {
-    setMarketingMessage("A marketing user with this email already exists.", true);
-    return;
-  }
-
-  users.push({ id: `m-${Date.now()}`, name, email, password });
-
-  const result = await saveMarketingUsers(users);
-  if (!result || result.ok === false) {
-    setMarketingMessage(result?.message || "Failed to save marketing user.", true);
-    return;
-  }
-
-  const syncResult = await syncStateFromLocalAndVerify();
-  if (!syncResult.ok) {
-    setMarketingMessage(syncResult.message || "Backend confirmation failed.", true);
-    return;
-  }
-
-  marketingForm.reset();
-  setMarketingMessage("Marketing user created successfully.", false);
-  renderMarketingList();
-});
 
 if (passwordChangeForm) {
   passwordChangeForm.addEventListener("submit", async (event) => {
@@ -1156,9 +1198,7 @@ if (passwordChangeForm) {
       }
 
       const nextCounselors = counselors.map((item) => (
-        item.id === userId
-          ? { ...item, password: newPassword }
-          : item
+        item.id === userId ? { ...item, password: newPassword } : item
       ));
       const result = await saveCounselors(nextCounselors);
       if (!result || result.ok === false) {
@@ -1179,31 +1219,11 @@ if (passwordChangeForm) {
       }
 
       const nextUsers = users.map((item) => (
-        item.id === userId
-          ? { ...item, password: newPassword }
-          : item
+        item.id === userId ? { ...item, password: newPassword } : item
       ));
       const result = await saveAdminUsers(nextUsers);
       if (!result || result.ok === false) {
         setPasswordChangeMessage(result?.message || "Failed to change admin password.", true);
-        return;
-      }
-    } else if (userType === "marketing") {
-      const users = getMarketingUsers();
-      const target = users.find((item) => item.id === userId);
-      if (!target) {
-        setPasswordChangeMessage("Marketing user not found.", true);
-        return;
-      }
-
-      const nextUsers = users.map((item) => (
-        item.id === userId
-          ? { ...item, password: newPassword }
-          : item
-      ));
-      const result = await saveMarketingUsers(nextUsers);
-      if (!result || result.ok === false) {
-        setPasswordChangeMessage(result?.message || "Failed to change marketing user password.", true);
         return;
       }
     } else {
@@ -1218,19 +1238,14 @@ if (passwordChangeForm) {
     }
 
     closePasswordChangeModal();
-    if (userType === "marketing") {
-      setMarketingMessage("Password changed successfully.", false);
-      renderMarketingList();
-    } else if (userType === "admin") {
+    if (userType === "admin") {
       setAdminMessage("Password changed successfully.", false);
       renderAdminList();
     } else {
-      setMessage("Password changed successfully.", false);
+      setCounselorMessage("Password changed successfully.", false);
       renderCounselorList();
     }
   });
-
-  document.getElementById("closePasswordChangeModalBtn").onclick = closePasswordChangeModal;
 }
 
 if (userEditForm) {
@@ -1264,12 +1279,6 @@ if (userEditForm) {
         return;
       }
 
-      const permissions = getSelectedEditPermissions();
-      if (!Object.values(permissions).some(Boolean)) {
-        setUserEditMessage("Select at least one access permission.", true);
-        return;
-      }
-
       const counselors = getCounselors();
       if (counselors.some((item) => item.id !== id && item.email === email)) {
         setUserEditMessage("Another counselor already uses this email.", true);
@@ -1278,7 +1287,7 @@ if (userEditForm) {
 
       const nextCounselors = counselors.map((item) => (
         item.id === id
-          ? { ...item, name, email, phone, branch, permissions }
+          ? { ...item, name, email, phone, branch }
           : item
       ));
 
@@ -1292,15 +1301,8 @@ if (userEditForm) {
         setUserEditMessage("You do not have permission to edit admin accounts.", true);
         return;
       }
-
       if (!phone) {
         setUserEditMessage("Phone number is required for admins.", true);
-        return;
-      }
-
-      const permissions = getSelectedEditPermissions();
-      if (!Object.values(permissions).some(Boolean)) {
-        setUserEditMessage("Select at least one access permission.", true);
         return;
       }
 
@@ -1312,31 +1314,13 @@ if (userEditForm) {
 
       const nextUsers = users.map((item) => (
         item.id === id
-          ? { ...item, name, phone, permissions }
+          ? { ...item, name, phone }
           : item
       ));
 
       const result = await saveAdminUsers(nextUsers);
       if (!result || result.ok === false) {
         setUserEditMessage(result?.message || "Failed to save admin changes.", true);
-        return;
-      }
-    } else if (userType === "marketing") {
-      const users = getMarketingUsers();
-      if (users.some((item) => item.id !== id && item.email === email)) {
-        setUserEditMessage("Another marketing user already uses this email.", true);
-        return;
-      }
-
-      const nextUsers = users.map((item) => (
-        item.id === id
-          ? { ...item, name, email }
-          : item
-      ));
-
-      const result = await saveMarketingUsers(nextUsers);
-      if (!result || result.ok === false) {
-        setUserEditMessage(result?.message || "Failed to save marketing user changes.", true);
         return;
       }
     } else {
@@ -1351,29 +1335,53 @@ if (userEditForm) {
     }
 
     closeUserEditModal();
-    if (userType === "marketing") {
-      setMarketingMessage("Marketing user updated successfully.", false);
-      renderMarketingList();
-    } else if (userType === "admin") {
+    if (userType === "admin") {
       setAdminMessage("Admin updated successfully.", false);
       renderAdminList();
     } else {
-      setMessage("Counselor updated successfully.", false);
+      setCounselorMessage("Counselor updated successfully.", false);
       renderCounselorList();
     }
+    renderManagementSummary();
+    renderPermissionControlPanel();
   });
-
-  document.getElementById("closeUserEditModalBtn").onclick = closeUserEditModal;
 }
 
-const closeUserDetailsModalBtn = document.getElementById("closeUserDetailsModalBtn");
-if (closeUserDetailsModalBtn) {
-  closeUserDetailsModalBtn.onclick = closeUserDetailsModal;
+if (permissionRoleSelect) {
+  permissionRoleSelect.addEventListener("change", (event) => {
+    selectedPermissionRole = String(event.target.value || "counselor");
+    selectedPermissionUserId = "";
+    permissionDraftLoadedFromFallback = false;
+    setPermissionPanelMessage("");
+    renderPermissionControlPanel();
+  });
 }
 
-renderMarketingList();
-renderManagementSummary();
-window.__dvMarkRouteViewReady?.();
+if (permissionUserSelect) {
+  permissionUserSelect.addEventListener("change", (event) => {
+    selectedPermissionUserId = String(event.target.value || "");
+    permissionDraftLoadedFromFallback = false;
+    setPermissionPanelMessage("");
+    renderPermissionControlPanel();
+  });
+}
+
+loadFallbackPermissionsBtn?.addEventListener("click", () => {
+  setPermissionPanelMessage("");
+  renderPermissionControlPanel(true);
+});
+
+clearSavedPermissionsBtn?.addEventListener("click", () => {
+  void clearPermissionOverride();
+});
+
+savePermissionPanelBtn?.addEventListener("click", () => {
+  void savePermissionOverride();
+});
+
+document.getElementById("closePasswordChangeModalBtn")?.addEventListener("click", closePasswordChangeModal);
+document.getElementById("closeUserEditModalBtn")?.addEventListener("click", closeUserEditModal);
+document.getElementById("closeUserDetailsModalBtn")?.addEventListener("click", closeUserDetailsModal);
 
 if (counselorSearchInput) {
   counselorSearchInput.addEventListener("keydown", (event) => {
@@ -1386,13 +1394,27 @@ if (counselorSearchInput) {
   });
 }
 
-if (marketingSearchInput) {
-  marketingSearchInput.addEventListener("keydown", (event) => {
+if (adminSearchInput) {
+  adminSearchInput.addEventListener("keydown", (event) => {
     if (event.key !== "Enter") {
       return;
     }
     event.preventDefault();
-    marketingSearchTerm = String(event.target.value || "").trim().toLowerCase();
-    renderMarketingList();
+    adminSearchTerm = String(event.target.value || "").trim().toLowerCase();
+    renderAdminList();
   });
 }
+
+renderManagementSummary();
+renderCounselorList();
+renderAdminList();
+renderPermissionControlPanel();
+
+const stopStatePolling = startStatePolling(() => {
+  renderManagementSummary();
+  renderCounselorList();
+  renderAdminList();
+});
+
+registerPageCleanup(stopStatePolling);
+window.__dvMarkRouteViewReady?.();

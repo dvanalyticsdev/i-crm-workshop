@@ -46,7 +46,7 @@
       <header class="topbar">
         <div class="topbar-title">
           <h1>Role Management</h1>
-          <p>Create admins, counselors, and marketing users with controlled page access.</p>
+          <p>Create admins and counselors, then manage page access separately from one control panel.</p>
         </div>
         <div class="topbar-profile">
           <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">
@@ -72,6 +72,51 @@
 
       <section class="management-summary-grid" id="managementSummarySection"></section>
 
+      <section class="card admin-panel hidden" id="permissionControlSection">
+        <div class="management-section-head">
+          <div>
+            <h3>Access Control Panel</h3>
+            <p>Super Admin can review current fallback access, save explicit page permissions, or restore fallback later.</p>
+          </div>
+        </div>
+        <div class="management-grid">
+          <div class="import-block management-form-card">
+            <div class="management-card-head">
+              <h4>Saved Access Overrides</h4>
+              <p>Unsaved users continue using current app fallback access until you save an override here.</p>
+            </div>
+            <div class="auth-form">
+              <div class="management-form-row management-form-row--two">
+                <div>
+                  <label for="permissionRoleSelect">Account Type</label>
+                  <select id="permissionRoleSelect">
+                    <option value="counselor">Counselor</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="permissionUserSelect">Account</label>
+                  <select id="permissionUserSelect"></select>
+                </div>
+              </div>
+
+              <p id="permissionPanelHint" class="block-help"></p>
+              <div class="management-details-grid" id="permissionPanelSummary"></div>
+
+              <label>Page Access</label>
+              <div class="permissions-grid" id="accessControlGrid"></div>
+
+              <div class="management-actions">
+                <button type="button" class="btn-ghost" id="loadFallbackPermissionsBtn">Load Current Fallback</button>
+                <button type="button" class="btn-ghost" id="clearSavedPermissionsBtn">Restore Fallback</button>
+                <button type="button" class="btn-primary management-submit-btn" id="savePermissionPanelBtn">Save Access</button>
+              </div>
+            </div>
+            <p id="permissionPanelMessage" class="message" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+
       <section class="card admin-panel" id="adminManagementSection">
         <div class="management-section-head">
           <div>
@@ -94,9 +139,6 @@
 
               <label for="adminPassword">Password</label>
               <input id="adminPassword" type="password" required />
-
-              <label>Access Permissions</label>
-              <div class="permissions-grid" id="adminPermissionsGrid"></div>
 
               <div class="management-actions">
                 <button type="submit" class="btn-primary management-submit-btn">Create Admin</button>
@@ -125,7 +167,7 @@
         <div class="management-section-head">
           <div>
             <h3>Counselors</h3>
-            <p>Create counselor accounts, assign permissions, and manage existing team members.</p>
+            <p>Create counselor accounts first, then manage page access separately when needed.</p>
           </div>
         </div>
         <div class="management-grid">
@@ -159,9 +201,6 @@
               <label for="counselorPassword">Password</label>
               <input id="counselorPassword" type="password" required />
 
-              <label>Access Permissions</label>
-              <div class="permissions-grid" id="counselorPermissionsGrid"></div>
-
               <div class="management-actions">
                 <button type="submit" class="btn-primary management-submit-btn">Create Counselor</button>
               </div>
@@ -181,52 +220,6 @@
               </div>
             </div>
             <div id="counselorList"></div>
-          </div>
-        </div>
-      </section>
-
-      <section class="card admin-panel" style="margin-top:1.5rem;">
-        <div class="management-section-head">
-          <div>
-            <h3>Marketing Users</h3>
-            <p>Manage lighter-access marketing accounts used for campaign and lead-source workflows.</p>
-          </div>
-        </div>
-        <div class="management-grid">
-          <div class="import-block management-form-card">
-            <div class="management-card-head">
-              <h4>Create Marketing User</h4>
-              <p>Add marketing-only users without counselor permissions.</p>
-            </div>
-            <form id="marketingForm" class="auth-form">
-              <label for="marketingName">Name</label>
-              <input id="marketingName" type="text" required />
-
-              <label for="marketingEmail">Email</label>
-              <input id="marketingEmail" type="email" required />
-
-              <label for="marketingPassword">Password</label>
-              <input id="marketingPassword" type="password" required />
-
-              <div class="management-actions">
-                <button type="submit" class="btn-primary management-submit-btn">Create Marketing User</button>
-              </div>
-            </form>
-            <p id="marketingFormMessage" class="message" aria-live="polite"></p>
-          </div>
-
-          <div class="import-block management-list-card">
-            <div class="management-card-head">
-              <div>
-                <h4>Existing Marketing Users</h4>
-                <p>Keep campaign-access accounts clean and easy to audit.</p>
-              </div>
-              <div class="management-search-wrap">
-                <label for="marketingSearchInput" class="sr-only">Search marketing users</label>
-                <input id="marketingSearchInput" type="search" placeholder="Search marketing users" />
-              </div>
-            </div>
-            <div id="marketingList"></div>
           </div>
         </div>
       </section>
@@ -293,10 +286,6 @@
                 <option value="Bangalore">Bangalore</option>
                 <option value="Bhubaneswar">Bhubaneswar</option>
               </select>
-            </div>
-            <div class="modal-row hidden" id="userEditPermissionsRow">
-              <label>Access Permissions</label>
-              <div class="permissions-grid" id="editPermissionsGrid"></div>
             </div>
             <p id="userEditMessage" class="message" aria-live="polite"></p>
             <div class="modal-actions">

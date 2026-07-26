@@ -35,9 +35,7 @@ if (!shouldForceLogin) {
       ? "dashboard.html"
       : existingSession.role === "admin"
       ? "dashboard.html"
-      : existingSession.role === "marketing"
-        ? "meta-integration.html"
-        : existingSession.permissions?.preWorkshop
+      : existingSession.permissions?.preWorkshop
           ? "pre-workshop.html"
           : existingSession.permissions?.postWorkshop
             ? "post-workshop.html"
@@ -67,10 +65,6 @@ const ROLE_COPY = {
   counselor: {
     label: "Counselor Email",
     placeholder: "Enter counselor email"
-  },
-  marketing: {
-    label: "Marketing Email",
-    placeholder: "Enter marketing email"
   }
 };
 
