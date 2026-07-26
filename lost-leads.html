@@ -85,12 +85,22 @@
           </div>
         </div>
       </section>
+
       <section class="card table-card">
+        <div class="card-head">
+          <h3>Lost Lead Subsections</h3>
+          <p>Use this section to switch between active lost leads and archived leads.</p>
+        </div>
+        <div id="lostSubsectionButtons" class="section-nav"></div>
+      </section>
+
+      <section class="card table-card" id="lostLeadCard">
         <div class="card-head">
           <h3>Lost Leads</h3>
           <p>These leads can still be restored while they remain in the active lost queue.</p>
         </div>
         <div id="lostLeadTableSection"></div>
+        <div id="lostLeadPagination" class="pagination-shell"></div>
       </section>
 
       <section class="card table-card" id="archivedLeadSection" data-admin-only="true">
@@ -99,6 +109,7 @@
           <p>LSQ out-of-SOP leads and lost leads older than 1 day move here with only basic contact details.</p>
         </div>
         <div id="archivedLeadTableSection"></div>
+        <div id="archivedLeadPagination" class="pagination-shell"></div>
       </section>
     </div>
   </div>

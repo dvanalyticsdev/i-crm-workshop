@@ -6,16 +6,25 @@ import { openActivityHistory } from "./activity-history.js";
 await bootstrapLocalState();
 
 const lostKpiSection = document.getElementById("lostKpiSection");
+const lostSubsectionButtons = document.getElementById("lostSubsectionButtons");
+const lostLeadCard = document.getElementById("lostLeadCard");
 const lostLeadTableSection = document.getElementById("lostLeadTableSection");
+const lostLeadPagination = document.getElementById("lostLeadPagination");
+const archivedLeadSection = document.getElementById("archivedLeadSection");
 const archivedLeadTableSection = document.getElementById("archivedLeadTableSection");
+const archivedLeadPagination = document.getElementById("archivedLeadPagination");
 const lostSearchInput = document.getElementById("lostSearchInput");
 const resetLostSearch = document.getElementById("resetLostSearch");
 
 const session = getSession();
 const SEARCH_STORAGE_KEY = "dvWorkshopLostLeadSearch";
+const PAGE_SIZE = 100;
 
 let searchQuery = String(await loadLocalPreference(SEARCH_STORAGE_KEY, "") || "");
 let archivedLeads = [];
+let activeSubsection = "lost";
+let lostPage = 1;
+let archivedPage = 1;
 
 if (lostSearchInput) {
   lostSearchInput.value = searchQuery;
@@ -129,6 +138,35 @@ function getAllLeads() {
 
 function saveAllLeads(leads) {
   return persistLeads(leads);
+}
+
+function getAvailableSubsections() {
+  return canViewArchivedLeads()
+    ? [
+        { key: "lost", label: "Lost Leads", help: "Review active lost leads that can still be restored." },
+        { key: "archived", label: "Archived Leads", help: "Review archived leads in compact 100-row pages." }
+      ]
+    : [
+        { key: "lost", label: "Lost Leads", help: "Review active lost leads that can still be restored." }
+      ];
+}
+
+function clampPage(page, totalItems) {
+  const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
+  return Math.min(Math.max(Number(page) || 1, 1), totalPages);
+}
+
+function getPageSlice(rows = [], page = 1) {
+  const safePage = clampPage(page, rows.length);
+  const startIndex = (safePage - 1) * PAGE_SIZE;
+  return {
+    page: safePage,
+    totalPages: Math.max(1, Math.ceil(rows.length / PAGE_SIZE)),
+    totalItems: rows.length,
+    rows: rows.slice(startIndex, startIndex + PAGE_SIZE),
+    startIndex: rows.length ? startIndex + 1 : 0,
+    endIndex: Math.min(startIndex + PAGE_SIZE, rows.length)
+  };
 }
 
 async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 8000) {
@@ -288,8 +326,83 @@ function renderKpi(lostLeads, archivedRows) {
   `;
 }
 
+function renderSubsectionNav() {
+  if (!lostSubsectionButtons) {
+    return;
+  }
+
+  const subsections = getAvailableSubsections();
+  if (!subsections.some((item) => item.key === activeSubsection)) {
+    activeSubsection = "lost";
+  }
+
+  lostSubsectionButtons.innerHTML = subsections.map((section) => `
+    <button
+      type="button"
+      class="${section.key === activeSubsection ? "btn-primary" : "btn-ghost"}"
+      data-lost-subsection="${escapeHtml(section.key)}"
+    >${escapeHtml(section.label)}</button>
+  `).join("");
+
+  lostSubsectionButtons.querySelectorAll("[data-lost-subsection]").forEach((button) => {
+    button.onclick = () => {
+      const nextSection = String(button.getAttribute("data-lost-subsection") || "lost").trim();
+      activeSubsection = nextSection === "archived" && canViewArchivedLeads() ? "archived" : "lost";
+      renderSectionVisibility();
+      renderAll();
+    };
+  });
+}
+
+function renderSectionVisibility() {
+  const showArchived = activeSubsection === "archived" && canViewArchivedLeads();
+  if (lostLeadCard) {
+    lostLeadCard.hidden = showArchived;
+  }
+  if (archivedLeadSection) {
+    archivedLeadSection.hidden = !showArchived;
+  }
+}
+
+function renderPagination(container, pageData, sectionKey) {
+  if (!container) {
+    return;
+  }
+
+  if (!pageData.totalItems) {
+    container.innerHTML = "";
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="table-footer" style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;padding-top:1rem;">
+      <p class="block-help" style="margin:0;">Showing ${pageData.startIndex}-${pageData.endIndex} of ${pageData.totalItems} leads</p>
+      <div style="display:flex;align-items:center;gap:0.75rem;">
+        <button type="button" class="btn-ghost" data-page-action="prev" data-page-section="${escapeHtml(sectionKey)}" ${pageData.page <= 1 ? "disabled" : ""}>Previous</button>
+        <span class="block-help" style="margin:0;">Page ${pageData.page} of ${pageData.totalPages}</span>
+        <button type="button" class="btn-ghost" data-page-action="next" data-page-section="${escapeHtml(sectionKey)}" ${pageData.page >= pageData.totalPages ? "disabled" : ""}>Next</button>
+      </div>
+    </div>
+  `;
+
+  container.querySelectorAll("[data-page-action]").forEach((button) => {
+    button.onclick = () => {
+      const action = button.getAttribute("data-page-action");
+      const targetSection = button.getAttribute("data-page-section");
+      if (targetSection === "archived") {
+        archivedPage = action === "next" ? archivedPage + 1 : archivedPage - 1;
+      } else {
+        lostPage = action === "next" ? lostPage + 1 : lostPage - 1;
+      }
+      renderAll();
+    };
+  });
+}
+
 function renderLostTable(lostLeads) {
   const isAdmin = session?.role === "admin" || session?.role === "super_admin";
+  const pageData = getPageSlice(lostLeads, lostPage);
+  lostPage = pageData.page;
   let html = `
     <div class="table-scroll">
       <table>
@@ -308,10 +421,10 @@ function renderLostTable(lostLeads) {
         <tbody>
   `;
 
-  if (!lostLeads.length) {
+  if (!pageData.rows.length) {
     html += `<tr><td colspan="8">No lost leads found.</td></tr>`;
   } else {
-    html += lostLeads
+    html += pageData.rows
       .map(
         (lead) => `
       <tr>
@@ -336,6 +449,7 @@ function renderLostTable(lostLeads) {
 
   html += `</tbody></table></div>`;
   lostLeadTableSection.innerHTML = html;
+  renderPagination(lostLeadPagination, pageData, "lost");
 
   document.querySelectorAll(".btn-activity-history").forEach((button) => {
     button.onclick = () => {
@@ -368,6 +482,8 @@ function renderArchivedTable(rows) {
     return;
   }
 
+  const pageData = getPageSlice(rows, archivedPage);
+  archivedPage = pageData.page;
   let html = `
     <div class="table-scroll">
       <table>
@@ -382,10 +498,10 @@ function renderArchivedTable(rows) {
         <tbody>
   `;
 
-  if (!rows.length) {
+  if (!pageData.rows.length) {
     html += `<tr><td colspan="4">No archived leads found.</td></tr>`;
   } else {
-    html += rows.map((lead) => `
+    html += pageData.rows.map((lead) => `
       <tr>
         <td>${escapeHtml(lead.name || "-")}</td>
         <td>${escapeHtml(lead.phone || "-")}</td>
@@ -397,6 +513,7 @@ function renderArchivedTable(rows) {
 
   html += `</tbody></table></div>`;
   archivedLeadTableSection.innerHTML = html;
+  renderPagination(archivedLeadPagination, pageData, "archived");
 }
 
 function renderAll() {
@@ -435,6 +552,10 @@ function renderAll() {
     });
   }
 
+  lostPage = clampPage(lostPage, lostLeads.length);
+  archivedPage = clampPage(archivedPage, filteredArchivedLeads.length);
+  renderSubsectionNav();
+  renderSectionVisibility();
   renderKpi(lostLeads, canViewArchivedLeads() ? filteredArchivedLeads : []);
   renderLostTable(lostLeads);
   if (canViewArchivedLeads()) {
@@ -449,6 +570,8 @@ if (lostSearchInput) {
     }
     event.preventDefault();
     searchQuery = String(lostSearchInput.value || "").trim();
+    lostPage = 1;
+    archivedPage = 1;
     persistSearchQuery();
     renderAll();
   };
@@ -460,6 +583,8 @@ if (resetLostSearch) {
     if (lostSearchInput) {
       lostSearchInput.value = "";
     }
+    lostPage = 1;
+    archivedPage = 1;
     persistSearchQuery();
     renderAll();
   };
