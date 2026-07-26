@@ -1,5 +1,5 @@
 import { initThemeSystem } from "./theme.js";
-import { bootstrapLocalState, getSession, login, refreshSession } from "./state-sync.js";
+import { bootstrapLocalState, getSession, login, logout, refreshSession } from "./state-sync.js";
 
 function revealAuthShell() {
   if (window.__dvLoadingOverlayTimer) {
@@ -21,23 +21,32 @@ revealAuthShell();
 
 void bootstrapLocalState().catch(() => undefined);
 
-const existingSession = await refreshSession().catch(() => null);
-if (existingSession?.role) {
-  window.location.href = existingSession.role === "super_admin"
-    ? "dashboard.html"
-    : existingSession.role === "admin"
-    ? "dashboard.html"
-    : existingSession.role === "marketing"
-      ? "meta-integration.html"
-      : existingSession.permissions?.preWorkshop
-        ? "pre-workshop.html"
-        : existingSession.permissions?.postWorkshop
-          ? "post-workshop.html"
-          : existingSession.permissions?.lostLeads
-            ? "lost-leads.html"
-            : existingSession.permissions?.monitoring
-              ? "monitoring.html"
-              : "index.html";
+const authUrl = new URL(window.location.href);
+const shouldForceLogin = authUrl.searchParams.has("forceLogin") || authUrl.searchParams.has("logout");
+
+if (authUrl.searchParams.has("logout")) {
+  await logout().catch(() => undefined);
+}
+
+if (!shouldForceLogin) {
+  const existingSession = await refreshSession().catch(() => null);
+  if (existingSession?.role) {
+    window.location.href = existingSession.role === "super_admin"
+      ? "dashboard.html"
+      : existingSession.role === "admin"
+      ? "dashboard.html"
+      : existingSession.role === "marketing"
+        ? "meta-integration.html"
+        : existingSession.permissions?.preWorkshop
+          ? "pre-workshop.html"
+          : existingSession.permissions?.postWorkshop
+            ? "post-workshop.html"
+            : existingSession.permissions?.lostLeads
+              ? "lost-leads.html"
+              : existingSession.permissions?.monitoring
+                ? "monitoring.html"
+                : "index.html";
+  }
 }
 
 const roleButtons = document.querySelectorAll(".role-btn");

@@ -653,9 +653,22 @@ function hydrate(leads) {
   renderCharts(filteredLeads, range);
 }
 
-await loadDashboardSummary();
-hydrate(getLeads());
-window.__dvMarkRouteViewReady?.();
+async function initializeDashboardPage() {
+  try {
+    await loadDashboardSummary();
+    hydrate(getLeads());
+  } catch (error) {
+    console.error("Failed to initialize dashboard.", error);
+    activeRangeLabel.textContent = "Dashboard failed to load. Please refresh or open login with ?logout=1.";
+    trendRangeText.textContent = "Dashboard data unavailable";
+    pieRangeText.textContent = "Dashboard data unavailable";
+  } finally {
+    window.__dvMarkRouteViewReady?.();
+  }
+}
+
+await initializeDashboardPage();
+
 const stopThemeListener = onThemeChange(() => {
   hydrate(getLeads());
 });
