@@ -1482,13 +1482,17 @@ function getLeadArchiveEligibilityTimestamp(lead = {}) {
 }
 
 function buildArchivedLeadDocFromLiveLead(lead = {}) {
-  return normalizeArchivedLeadDoc({
+  const archivedLead = normalizeArchivedLeadDoc({
     _id: `archived-lead-${crypto.randomUUID()}`,
     name: lead?.name,
     email: lead?.email,
     phone: lead?.phone,
     courseName: getLostLeadProgramName(lead)
   });
+
+  archivedLead.archivedFrom = "lost-lead";
+  archivedLead.sourceLeadId = String(lead?.id || "").trim();
+  return archivedLead;
 }
 
 async function syncStaleLostLeadsToArchive() {
@@ -1514,17 +1518,34 @@ async function syncStaleLostLeadsToArchive() {
   const leadIds = staleLostLeads
     .map((lead) => String(lead?.id || "").trim())
     .filter(Boolean);
+  const liveLeadIdQuery = buildLiveLeadIdQuery(
+    staleLostLeads.map((lead) => ({ id: lead?.id })),
+    leadIds
+  );
 
-  if (archivedDocs.length) {
-    await lsqArchiveCollection.insertMany(archivedDocs, { ordered: false });
+  const existingArchiveRows = leadIds.length
+    ? await lsqArchiveCollection.find({
+        archivedFrom: "lost-lead",
+        sourceLeadId: { $in: leadIds }
+      }).project({ sourceLeadId: 1 }).toArray()
+    : [];
+  const archivedSourceLeadIds = new Set(
+    existingArchiveRows.map((row) => String(row?.sourceLeadId || "").trim()).filter(Boolean)
+  );
+  const uniqueArchivedDocs = archivedDocs.filter(
+    (doc) => !archivedSourceLeadIds.has(String(doc?.sourceLeadId || "").trim())
+  );
+
+  if (uniqueArchivedDocs.length) {
+    await lsqArchiveCollection.insertMany(uniqueArchivedDocs, { ordered: false });
   }
-  if (leadIds.length) {
-    await leadsCollection.deleteMany({ id: { $in: leadIds } });
+  if (liveLeadIdQuery) {
+    await leadsCollection.deleteMany(liveLeadIdQuery);
   }
 
   await touchStateUpdatedAt();
   const nextState = await refreshStateAfterAtomicUpdate();
-  return { movedCount: staleLostLeads.length, state: nextState };
+  return { movedCount: uniqueArchivedDocs.length, state: nextState };
 }
 
 async function initMongo() {
