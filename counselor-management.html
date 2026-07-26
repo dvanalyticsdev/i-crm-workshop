@@ -80,36 +80,40 @@
           </div>
         </div>
         <div class="management-grid">
-          <div class="import-block management-form-card">
+          <div class="import-block management-form-card permission-panel-card">
             <div class="management-card-head">
               <h4>Saved Access Overrides</h4>
               <p>Unsaved users continue using current app fallback access until you save an override here.</p>
             </div>
-            <div class="auth-form">
-              <div class="management-form-row management-form-row--two">
-                <div>
-                  <label for="permissionRoleSelect">Account Type</label>
-                  <select id="permissionRoleSelect">
-                    <option value="counselor">Counselor</option>
-                    <option value="admin">Admin</option>
-                  </select>
+            <div class="auth-form permission-panel-shell">
+              <div class="permission-panel-sidebar">
+                <div class="management-form-row management-form-row--two permission-panel-selects">
+                  <div>
+                    <label for="permissionRoleSelect">Account Type</label>
+                    <select id="permissionRoleSelect">
+                      <option value="counselor">Counselor</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label for="permissionUserSelect">Target</label>
+                    <select id="permissionUserSelect"></select>
+                  </div>
                 </div>
-                <div>
-                  <label for="permissionUserSelect">Account</label>
-                  <select id="permissionUserSelect"></select>
-                </div>
+
+                <p id="permissionPanelHint" class="block-help"></p>
+                <div class="management-details-grid" id="permissionPanelSummary"></div>
               </div>
 
-              <p id="permissionPanelHint" class="block-help"></p>
-              <div class="management-details-grid" id="permissionPanelSummary"></div>
+              <div class="permission-panel-editor">
+                <label>Page Access</label>
+                <div class="permissions-grid permission-panel-grid" id="accessControlGrid"></div>
 
-              <label>Page Access</label>
-              <div class="permissions-grid" id="accessControlGrid"></div>
-
-              <div class="management-actions">
-                <button type="button" class="btn-ghost" id="loadFallbackPermissionsBtn">Load Current Fallback</button>
-                <button type="button" class="btn-ghost" id="clearSavedPermissionsBtn">Restore Fallback</button>
-                <button type="button" class="btn-primary management-submit-btn" id="savePermissionPanelBtn">Save Access</button>
+                <div class="management-actions permission-panel-actions">
+                  <button type="button" class="btn-ghost" id="loadFallbackPermissionsBtn">Load Current Fallback</button>
+                  <button type="button" class="btn-ghost" id="clearSavedPermissionsBtn">Restore Fallback</button>
+                  <button type="button" class="btn-primary management-submit-btn" id="savePermissionPanelBtn">Save Access</button>
+                </div>
               </div>
             </div>
             <p id="permissionPanelMessage" class="message" aria-live="polite"></p>

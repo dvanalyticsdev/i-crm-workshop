@@ -2206,6 +2206,37 @@ tbody tr:hover {
   align-content: start;
 }
 
+.permission-panel-card {
+  width: 100%;
+}
+
+.permission-panel-shell {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.95fr) minmax(540px, 1.6fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.permission-panel-sidebar,
+.permission-panel-editor {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+}
+
+.permission-panel-selects {
+  align-items: end;
+}
+
+.permission-panel-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.permission-panel-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
 .management-card-head {
   display: flex;
   align-items: flex-start;
@@ -2766,6 +2797,14 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
 
   .permissions-grid {
     grid-template-columns: 1fr;
+  }
+
+  .permission-panel-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .permission-panel-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .management-card-head,

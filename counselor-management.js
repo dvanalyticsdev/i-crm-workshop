@@ -117,6 +117,8 @@ const ROLE_PANEL_CONFIG = {
   }
 };
 
+const EVERYONE_PERMISSION_TARGET = "__everyone__";
+
 const BRANCH_OPTIONS = ["Bangalore", "Bhubaneswar"];
 const DEFAULT_BRANCH = "Bangalore";
 const COURSE_PERMISSION_OPTIONS = PUBLIC_COURSES.map((course) => ({
@@ -334,6 +336,10 @@ function getRoleAccounts(role) {
 
 function getUserByRoleAndId(role, userId) {
   return getRoleAccounts(role).find((item) => item.id === userId) || null;
+}
+
+function isEveryonePermissionTarget(userId) {
+  return String(userId || "") === EVERYONE_PERMISSION_TARGET;
 }
 
 function getRawPermissions(user) {
@@ -922,6 +928,33 @@ function renderPermissionPanelSummary(role, user) {
   `;
 }
 
+function renderEveryonePermissionPanelSummary(role, accounts) {
+  if (!permissionPanelSummary) {
+    return;
+  }
+
+  const config = getRoleConfig(role);
+  const fallbackPermissions = config.fallback;
+  const fallbackNames = config.options
+    .filter((option) => fallbackPermissions[option.key])
+    .map((option) => option.label)
+    .join(", ");
+  const savedOverrideCount = accounts.filter((item) => hasSavedPermissionOverride(item)).length;
+
+  permissionPanelSummary.innerHTML = `
+    <section class="management-details-card">
+      <h4>Everyone (${escapeHtml(config.label)}s)</h4>
+      <dl class="management-details-list">
+        ${buildDetailsRows([
+          ["Accounts", String(accounts.length)],
+          ["Saved Overrides", `${savedOverrideCount} / ${accounts.length}`],
+          ["Fallback Access", fallbackNames || "No fallback access"]
+        ])}
+      </dl>
+    </section>
+  `;
+}
+
 function renderPermissionControlPanel(forceFallbackDraft = false) {
   if (!isSuperAdminSession || !permissionRoleSelect || !permissionUserSelect || !accessControlGrid) {
     return;
@@ -938,16 +971,36 @@ function renderPermissionControlPanel(forceFallbackDraft = false) {
     return;
   }
 
-  if (!accounts.some((item) => item.id === selectedPermissionUserId)) {
-    selectedPermissionUserId = accounts[0].id;
+  if (!accounts.some((item) => item.id === selectedPermissionUserId) && !isEveryonePermissionTarget(selectedPermissionUserId)) {
+    selectedPermissionUserId = EVERYONE_PERMISSION_TARGET;
     permissionDraftLoadedFromFallback = false;
   }
 
-  permissionUserSelect.innerHTML = accounts.map((item) => `
+  permissionUserSelect.innerHTML = [
+    `<option value="${EVERYONE_PERMISSION_TARGET}" ${isEveryonePermissionTarget(selectedPermissionUserId) ? "selected" : ""}>Everyone</option>`,
+    ...accounts.map((item) => `
     <option value="${escapeHtml(item.id)}" ${item.id === selectedPermissionUserId ? "selected" : ""}>
       ${escapeHtml(item.name || item.email || item.phone || item.id)}
     </option>
-  `).join("");
+  `)
+  ].join("");
+
+  if (isEveryonePermissionTarget(selectedPermissionUserId)) {
+    const draftPermissions = forceFallbackDraft
+      ? { ...config.fallback }
+      : {};
+    renderPermissionOptions(accessControlGrid, config.options, "accessControlPermission", draftPermissions);
+    renderEveryonePermissionPanelSummary(selectedPermissionRole, accounts);
+
+    if (forceFallbackDraft) {
+      permissionPanelHint.textContent = `The ${config.label.toLowerCase()} fallback has been loaded into the editor for everyone, but it will only become an explicit saved access list after you click Save Access.`;
+      permissionDraftLoadedFromFallback = true;
+    } else {
+      permissionPanelHint.textContent = `Choose Everyone when you want to apply the same explicit page access to all ${config.label.toLowerCase()} accounts at once, or pick one account for a user-specific override.`;
+      permissionDraftLoadedFromFallback = false;
+    }
+    return;
+  }
 
   const selectedUser = getUserByRoleAndId(selectedPermissionRole, selectedPermissionUserId);
   const savedPermissions = getRawPermissions(selectedUser);
@@ -977,12 +1030,6 @@ async function savePermissionOverride() {
   }
 
   const config = getRoleConfig(selectedPermissionRole);
-  const selectedUser = getUserByRoleAndId(selectedPermissionRole, selectedPermissionUserId);
-  if (!selectedUser) {
-    setPermissionPanelMessage(`Select a ${config.label.toLowerCase()} account first.`, true);
-    return;
-  }
-
   const permissions = getPermissionPanelDraft();
   if (!Object.values(permissions).some(Boolean)) {
     setPermissionPanelMessage("Select at least one page before saving an override.", true);
@@ -990,11 +1037,21 @@ async function savePermissionOverride() {
   }
 
   const accounts = getRoleAccounts(selectedPermissionRole);
-  const nextAccounts = accounts.map((item) => (
-    item.id === selectedUser.id
-      ? { ...item, permissions }
-      : item
-  ));
+  const applyToEveryone = isEveryonePermissionTarget(selectedPermissionUserId);
+  const selectedUser = applyToEveryone
+    ? null
+    : getUserByRoleAndId(selectedPermissionRole, selectedPermissionUserId);
+  if (!applyToEveryone && !selectedUser) {
+    setPermissionPanelMessage(`Select a ${config.label.toLowerCase()} account first.`, true);
+    return;
+  }
+
+  const nextAccounts = accounts.map((item) => {
+    if (applyToEveryone || item.id === selectedUser.id) {
+      return { ...item, permissions };
+    }
+    return item;
+  });
 
   const result = selectedPermissionRole === "admin"
     ? await saveAdminUsers(nextAccounts)
@@ -1012,7 +1069,12 @@ async function savePermissionOverride() {
   }
 
   permissionDraftLoadedFromFallback = false;
-  setPermissionPanelMessage(`Saved explicit ${config.label.toLowerCase()} access for ${selectedUser.name}.`, false);
+  setPermissionPanelMessage(
+    applyToEveryone
+      ? `Saved explicit ${config.label.toLowerCase()} access for everyone in this role.`
+      : `Saved explicit ${config.label.toLowerCase()} access for ${selectedUser.name}.`,
+    false
+  );
   renderManagementSummary();
   renderCounselorList();
   renderAdminList();
@@ -1026,15 +1088,18 @@ async function clearPermissionOverride() {
   }
 
   const config = getRoleConfig(selectedPermissionRole);
-  const selectedUser = getUserByRoleAndId(selectedPermissionRole, selectedPermissionUserId);
-  if (!selectedUser) {
+  const accounts = getRoleAccounts(selectedPermissionRole);
+  const applyToEveryone = isEveryonePermissionTarget(selectedPermissionUserId);
+  const selectedUser = applyToEveryone
+    ? null
+    : getUserByRoleAndId(selectedPermissionRole, selectedPermissionUserId);
+  if (!applyToEveryone && !selectedUser) {
     setPermissionPanelMessage(`Select a ${config.label.toLowerCase()} account first.`, true);
     return;
   }
 
-  const accounts = getRoleAccounts(selectedPermissionRole);
   const nextAccounts = accounts.map((item) => {
-    if (item.id !== selectedUser.id) {
+    if (!applyToEveryone && item.id !== selectedUser.id) {
       return item;
     }
     const nextItem = { ...item };
@@ -1057,7 +1122,12 @@ async function clearPermissionOverride() {
     return;
   }
 
-  setPermissionPanelMessage(`${selectedUser.name} is now using fallback access again.`, false);
+  setPermissionPanelMessage(
+    applyToEveryone
+      ? `Everyone in the ${config.label.toLowerCase()} role is now using fallback access again.`
+      : `${selectedUser.name} is now using fallback access again.`,
+    false
+  );
   permissionDraftLoadedFromFallback = false;
   renderManagementSummary();
   renderCounselorList();
