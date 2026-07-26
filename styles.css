@@ -2151,6 +2151,10 @@ tbody tr:hover {
   align-items: start;
 }
 
+#permissionControlSection .management-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .management-summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2212,9 +2216,10 @@ tbody tr:hover {
 
 .permission-panel-shell {
   display: grid;
-  grid-template-columns: minmax(280px, 0.95fr) minmax(540px, 1.6fr);
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
   gap: var(--space-4);
   align-items: start;
+  width: 100%;
 }
 
 .permission-panel-sidebar,
@@ -2235,6 +2240,24 @@ tbody tr:hover {
 .permission-panel-actions {
   justify-content: flex-start;
   flex-wrap: wrap;
+}
+
+.permission-panel-empty-state {
+  grid-column: 1 / -1;
+  min-height: 260px;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.permission-panel-empty-state p {
+  margin: 0;
+  max-width: 28ch;
 }
 
 .management-card-head {

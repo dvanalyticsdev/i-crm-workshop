@@ -401,6 +401,26 @@ function renderPermissionOptions(container, options, inputName, selectedPermissi
   `).join("");
 }
 
+function setPermissionPanelActionsDisabled(disabled) {
+  [loadFallbackPermissionsBtn, clearSavedPermissionsBtn, savePermissionPanelBtn].forEach((button) => {
+    if (button) {
+      button.disabled = Boolean(disabled);
+    }
+  });
+}
+
+function renderPermissionPanelEmptyEditor(message) {
+  if (!accessControlGrid) {
+    return;
+  }
+
+  accessControlGrid.innerHTML = `
+    <div class="permission-panel-empty-state">
+      <p>${escapeHtml(message)}</p>
+    </div>
+  `;
+}
+
 function getSelectedPermissionMap(inputName, fallback) {
   const selectedKeys = new Set(
     Array.from(document.querySelectorAll(`input[name='${inputName}']:checked`))
@@ -964,12 +984,15 @@ function renderPermissionControlPanel(forceFallbackDraft = false) {
   const accounts = getRoleAccounts(selectedPermissionRole);
   if (!accounts.length) {
     selectedPermissionUserId = "";
-    permissionUserSelect.innerHTML = `<option value="">No ${config.label.toLowerCase()} accounts</option>`;
+    permissionUserSelect.innerHTML = `<option value="">No ${config.label.toLowerCase()} yet</option>`;
     permissionPanelHint.textContent = `Create a ${config.label.toLowerCase()} first, then assign saved access here if needed.`;
-    renderPermissionOptions(accessControlGrid, config.options, "accessControlPermission", {});
+    renderPermissionPanelEmptyEditor(`No ${config.label.toLowerCase()} accounts available for access updates yet.`);
     renderPermissionPanelSummary(selectedPermissionRole, null);
+    setPermissionPanelActionsDisabled(true);
     return;
   }
+
+  setPermissionPanelActionsDisabled(false);
 
   if (!accounts.some((item) => item.id === selectedPermissionUserId) && !isEveryonePermissionTarget(selectedPermissionUserId)) {
     selectedPermissionUserId = EVERYONE_PERMISSION_TARGET;
