@@ -1013,6 +1013,40 @@ function recordMatchesLsqStageFilter(record = {}, stageFilter = "all") {
   return leadStage === normalizedFilter;
 }
 
+function resolveLsqCounselorName(state = {}, record = {}, counselorFilter = "all") {
+  const counselors = Array.isArray(state?.counselors) ? state.counselors : [];
+  const ownerEmail = normalizeLsqValue(record?.sourceSnapshot?.ownerEmail).toLowerCase();
+  const ownerName = normalizeLsqValue(record?.sourceSnapshot?.owner).toLowerCase();
+  const normalizedFilter = normalizeLsqValue(counselorFilter).toLowerCase();
+
+  const byEmail = ownerEmail
+    ? counselors.find((item) => normalizeLsqValue(item?.email).toLowerCase() === ownerEmail)
+    : null;
+  if (byEmail?.name) {
+    return String(byEmail.name).trim();
+  }
+
+  const byName = ownerName
+    ? counselors.find((item) => normalizeLsqValue(item?.name).toLowerCase() === ownerName)
+    : null;
+  if (byName?.name) {
+    return String(byName.name).trim();
+  }
+
+  if (normalizedFilter && normalizedFilter !== "all") {
+    const filteredCounselor = counselors.find((item) => {
+      const email = normalizeLsqValue(item?.email).toLowerCase();
+      const name = normalizeLsqValue(item?.name).toLowerCase();
+      return email === normalizedFilter || name === normalizedFilter;
+    });
+    if (filteredCounselor?.name) {
+      return String(filteredCounselor.name).trim();
+    }
+  }
+
+  return "Unassigned";
+}
+
 function mapLsqAdmissionStatus(row = {}) {
   const tokens = [
     row["Lead Stage"],
@@ -1141,9 +1175,6 @@ function evaluateLsqSop(existingLead, record = {}) {
   if (!record.email && !record.phone) {
     return { inSop: false, reason: "Missing email and phone in LSQ row." };
   }
-  if (!existingLead) {
-    return { inSop: false, reason: "No matching CRM lead found for this LSQ row." };
-  }
   if (isLsqClosedOrOutOfScope(record)) {
     return { inSop: false, reason: "Lead is closed, rejected, lost, or not interested in LSQ." };
   }
@@ -1232,6 +1263,80 @@ function buildLsqUpdatedLead(existingLead, record = {}) {
   });
 
   return decorateLeadForStorage(nextLead);
+}
+
+function buildLsqImportedLead(record = {}, nextId, counselorName = "Unassigned") {
+  const now = new Date().toISOString();
+  const dialed = record.dialed || (/phone call|call/i.test(String(record.callStatus || "").toLowerCase()) ? "Yes" : "");
+  const courseName = String(record.courseName || "").trim();
+  const callStatus = String(record.callStatus || "").trim();
+  const admissionStatus = String(record.admissionStatus || "").trim();
+  const courseStatus = String(record.courseStatus || "").trim();
+  const importedLead = {
+    id: nextId,
+    name: String(record.name || "Unknown").trim() || "Unknown",
+    email: String(record.email || `lsq-${nextId}@noemail.lead`).trim().toLowerCase(),
+    phone: String(record.phone || "").trim(),
+    country: String(record.country || "India").trim(),
+    state: String(record.state || "").trim(),
+    city: String(record.city || "").trim(),
+    workshop: "",
+    courseName,
+    courseRawName: courseName,
+    status: "Updated",
+    source: "LeadSquared Import",
+    leadPipeline: MAIN_ADMISSION_PIPELINE,
+    createdAtExact: now,
+    createdAt: toKolkataDateKey(),
+    counselor: counselorName,
+    dialed: "",
+    callStatus: "",
+    wsStatus: "",
+    whatsappInvite: "",
+    postDialed: "",
+    coursePitched: "",
+    courseStatus: "",
+    admissionStatus: "",
+    admissionWorkshop: "",
+    postStatusUpdated: false,
+    preActivityUpdates: 0,
+    postActivityUpdates: 0,
+    workshopActivityHistory: [],
+    admissionActivityHistory: [],
+    mainAdmissionDialed: dialed,
+    mainAdmissionCoursePitched: courseName,
+    mainAdmissionCourseStatus: courseStatus,
+    mainAdmissionAdmissionStatus: admissionStatus,
+    mainAdmissionCallStatus: callStatus,
+    mainAdmissionActivityUpdated: true,
+    mainAdmissionActivityUpdates: 1,
+    mainAdmissionActivityHistory: [{
+      at: now,
+      source: "LeadSquared Import",
+      by: "system:lsq-import",
+      updates: {
+        mainAdmissionDialed: dialed,
+        mainAdmissionCoursePitched: courseName,
+        mainAdmissionCourseStatus: courseStatus,
+        mainAdmissionAdmissionStatus: admissionStatus,
+        mainAdmissionCallStatus: callStatus
+      }
+    }],
+    admissionSopAssignedAt: shouldTreatLeadAsAssigned(counselorName) ? now : null,
+    admissionSopLastProgressAt: record.updatedAt || now,
+    whatsappGroupStatus: "",
+    leadNotes: [],
+    importSourceFiles: [record.sourceFileName || "LeadSquared Import"].filter(Boolean),
+    importSourceSheets: [],
+    lsqImported: true,
+    lsqLastImportedAt: now,
+    lsqSourceSnapshot: {
+      ...(record.sourceSnapshot || {}),
+      sourceFileName: record.sourceFileName || ""
+    }
+  };
+
+  return decorateLeadForStorage(importedLead);
 }
 
 function buildLsqArchiveDoc(record = {}, reason = "", existingLead = null) {
@@ -9574,6 +9679,24 @@ app.get("/api/admin/lsq-archive", async (req, res) => {
   }
 });
 
+app.delete("/api/admin/lsq-archive", async (req, res) => {
+  try {
+    const session = await requireSuperAdmin(req, res);
+    if (!session) return;
+
+    const sourceFileName = normalizeLsqValue(req.query?.sourceFileName);
+    const query = sourceFileName ? { sourceFileName } : {};
+    const result = await lsqArchiveCollection.deleteMany(query);
+    return res.json({
+      ok: true,
+      deletedCount: Number(result?.deletedCount) || 0,
+      sourceFileName: sourceFileName || ""
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to delete LSQ archive leads", details: error.message });
+  }
+});
+
 app.post("/api/admin/lsq-import", async (req, res) => {
   try {
     const session = await requireSuperAdmin(req, res);
@@ -9612,8 +9735,8 @@ app.post("/api/admin/lsq-import", async (req, res) => {
       scanned: rows.length,
       deduped: dedupedRecords.size,
       updated: 0,
+      created: 0,
       archived: 0,
-      unmatched: 0,
       skippedByCounselorFilter: 0,
       skippedByStageFilter: 0,
       byReason: {}
@@ -9640,24 +9763,35 @@ app.post("/api/admin/lsq-import", async (req, res) => {
         const archiveDoc = buildLsqArchiveDoc(record, sopDecision.reason, existingLead);
         archivedDocs.push(archiveDoc);
         summary.archived += 1;
-        if (!existingLead) {
-          summary.unmatched += 1;
-        }
         summary.byReason[sopDecision.reason] = (summary.byReason[sopDecision.reason] || 0) + 1;
         continue;
       }
 
-      const nextLead = buildLsqUpdatedLead(existingLead, record);
-      await replaceLeadDocument(nextLead);
-      summary.updated += 1;
+      let nextLead = null;
+      let wasCreated = false;
+      if (existingLead) {
+        nextLead = buildLsqUpdatedLead(existingLead, record);
+        await replaceLeadDocument(nextLead);
+        summary.updated += 1;
+      } else {
+        const nextId = await getNextMetaLeadId();
+        const counselorName = resolveLsqCounselorName(state, record, counselorFilter);
+        nextLead = buildLsqImportedLead(record, nextId, counselorName);
+        await withMongoRetry(
+          () => leadsCollection.insertOne(nextLead),
+          { retries: 1, label: "Create LSQ imported lead" }
+        );
+        summary.created += 1;
+        wasCreated = true;
+      }
 
       await recordActivity({
         leadId: nextLead.id,
         leadName: nextLead.name,
         counselorName: nextLead.counselor || "",
-        activityType: "Lead Updated",
-        actionDescription: `Lead updated from LeadSquared import${record.admissionStatus ? ` with ${record.admissionStatus} status` : ""}`,
-        previousValue: existingLead?.lsqLastImportedAt || "No previous LSQ import",
+        activityType: wasCreated ? "Lead Created" : "Lead Updated",
+        actionDescription: `${wasCreated ? "Lead created" : "Lead updated"} from LeadSquared import${record.admissionStatus ? ` with ${record.admissionStatus} status` : ""}`,
+        previousValue: existingLead?.lsqLastImportedAt || (wasCreated ? "Created from LSQ import" : "No previous LSQ import"),
         newValue: record.updatedAt || new Date().toISOString(),
         session
       });

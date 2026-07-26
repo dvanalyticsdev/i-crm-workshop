@@ -40,6 +40,11 @@ const importLsqBtn = document.getElementById("importLsqBtn");
 const lsqImportSummary = document.getElementById("lsqImportSummary");
 const lsqImportMessage = document.getElementById("lsqImportMessage");
 const lsqArchiveTable = document.getElementById("lsqArchiveTable");
+const deleteAllLsqLeadsBtn = document.getElementById("deleteAllLsqLeadsBtn");
+const deleteArchivedLsqLeadsBtn = document.getElementById("deleteArchivedLsqLeadsBtn");
+const deleteLsqImportedFileSelect = document.getElementById("deleteLsqImportedFileSelect");
+const deleteLsqImportedFileBtn = document.getElementById("deleteLsqImportedFileBtn");
+const lsqCleanupMessage = document.getElementById("lsqCleanupMessage");
 const session = getSession();
 const isAdmin = session?.role === "admin" || session?.role === "super_admin";
 const isSuperAdmin = session?.role === "super_admin";
@@ -91,6 +96,11 @@ function getLeadImportSourceFiles(lead) {
 
   const fallback = String(lead?.importSourceFile || "").trim();
   return fallback ? [fallback] : [];
+}
+
+function isLsqImportedLead(lead) {
+  return Boolean(lead?.lsqImported)
+    || String(lead?.source || "").trim().toLowerCase().includes("leadsquared");
 }
 
 function getLeadActivityUpdateCount(lead) {
@@ -676,13 +686,14 @@ function updateImportSummary(total, success, failed) {
   `;
 }
 
-function updateLsqImportSummary(scanned = 0, updated = 0, archived = 0) {
+function updateLsqImportSummary(scanned = 0, created = 0, updated = 0, archived = 0) {
   if (!lsqImportSummary) {
     return;
   }
 
   lsqImportSummary.innerHTML = `
     <p>Rows Scanned: ${scanned}</p>
+    <p>Created CRM Leads: ${created}</p>
     <p>Updated CRM Leads: ${updated}</p>
     <p>Archived / Out of SOP: ${archived}</p>
   `;
@@ -853,7 +864,7 @@ async function handleLsqImport() {
 
   if (!rows.length) {
     setMessage(lsqImportMessage, "No rows found in the LSQ file.", true);
-    updateLsqImportSummary(0, 0, 0);
+    updateLsqImportSummary(0, 0, 0, 0);
     return;
   }
 
@@ -885,17 +896,19 @@ async function handleLsqImport() {
 
   updateLsqImportSummary(
     Number(json?.summary?.scanned) || rows.length,
+    Number(json?.summary?.created) || 0,
     Number(json?.summary?.updated) || 0,
     Number(json?.summary?.archived) || 0
   );
 
-  const unmatchedCount = Number(json?.summary?.unmatched) || 0;
+  const createdCount = Number(json?.summary?.created) || 0;
+  const updatedCount = Number(json?.summary?.updated) || 0;
   const skippedByCounselorFilter = Number(json?.summary?.skippedByCounselorFilter) || 0;
   const skippedByStageFilter = Number(json?.summary?.skippedByStageFilter) || 0;
   const primaryReason = Object.entries(json?.summary?.byReason || {}).sort((left, right) => right[1] - left[1])[0]?.[0] || "";
   setMessage(
     lsqImportMessage,
-    `LSQ import completed. Updated ${Number(json?.summary?.updated) || 0} CRM lead${Number(json?.summary?.updated) === 1 ? "" : "s"} into Main Admission and archived ${Number(json?.summary?.archived) || 0}.${skippedByCounselorFilter ? ` Skipped ${skippedByCounselorFilter} row${skippedByCounselorFilter === 1 ? "" : "s"} due to counselor filter.` : ""}${skippedByStageFilter ? ` Skipped ${skippedByStageFilter} row${skippedByStageFilter === 1 ? "" : "s"} due to stage filter.` : ""}${primaryReason ? ` Top archive reason: ${primaryReason}.` : ""}${unmatchedCount ? ` ${unmatchedCount} row${unmatchedCount === 1 ? "" : "s"} had no matching CRM lead.` : ""}`,
+    `LSQ import completed. Created ${createdCount} and updated ${updatedCount} CRM lead${createdCount + updatedCount === 1 ? "" : "s"} into Main Admission, and archived ${Number(json?.summary?.archived) || 0}.${skippedByCounselorFilter ? ` Skipped ${skippedByCounselorFilter} row${skippedByCounselorFilter === 1 ? "" : "s"} due to counselor filter.` : ""}${skippedByStageFilter ? ` Skipped ${skippedByStageFilter} row${skippedByStageFilter === 1 ? "" : "s"} due to stage filter.` : ""}${primaryReason ? ` Top archive reason: ${primaryReason}.` : ""}`,
     false
   );
 
@@ -929,8 +942,11 @@ async function renderLsqArchiveTable() {
   const rows = Array.isArray(json.rows) ? json.rows : [];
   if (!rows.length) {
     lsqArchiveTable.innerHTML = `<p class="block-help">No LSQ leads have been archived yet.</p>`;
+    renderLsqImportedFileOptions([]);
     return;
   }
+
+  renderLsqImportedFileOptions(rows);
 
   lsqArchiveTable.innerHTML = `
     <table class="data-table">
@@ -959,6 +975,143 @@ async function renderLsqArchiveTable() {
       </tbody>
     </table>
   `;
+}
+
+function renderLsqImportedFileOptions(archiveRows = []) {
+  if (!deleteLsqImportedFileSelect) {
+    return;
+  }
+
+  const allLeads = getAllLeads();
+  const leadFiles = allLeads
+    .filter((lead) => isLsqImportedLead(lead))
+    .flatMap((lead) => getLeadImportSourceFiles(lead));
+  const archiveFiles = (Array.isArray(archiveRows) ? archiveRows : [])
+    .map((row) => String(row?.sourceFileName || "").trim())
+    .filter(Boolean);
+  const fileNames = [...new Set([...leadFiles, ...archiveFiles])].sort((left, right) => left.localeCompare(right));
+  const currentValue = String(deleteLsqImportedFileSelect.value || "").trim();
+
+  deleteLsqImportedFileSelect.innerHTML = fileNames.length
+    ? [`<option value="">Select LSQ imported file</option>`, ...fileNames.map((fileName) => `<option value="${escapeHtml(fileName)}">${escapeHtml(fileName)}</option>`)].join("")
+    : `<option value="">No LSQ imported files found</option>`;
+
+  if (fileNames.includes(currentValue)) {
+    deleteLsqImportedFileSelect.value = currentValue;
+  }
+
+  if (deleteLsqImportedFileBtn) {
+    deleteLsqImportedFileBtn.disabled = !fileNames.length;
+  }
+}
+
+async function deleteLsqArchiveRows(sourceFileName = "") {
+  const query = sourceFileName ? `?sourceFileName=${encodeURIComponent(sourceFileName)}` : "";
+  return fetchJsonWithTimeout(apiUrl(`/api/admin/lsq-archive${query}`), {
+    method: "DELETE",
+    headers: { Accept: "application/json" }
+  }, 15000);
+}
+
+async function deleteWholeLsqDataset() {
+  const allLeads = getAllLeads();
+  const retainedLeads = allLeads.filter((lead) => !isLsqImportedLead(lead));
+  const removedLeadCount = allLeads.length - retainedLeads.length;
+
+  if (!removedLeadCount) {
+    const { response, json } = await deleteLsqArchiveRows();
+    if (!response.ok) {
+      setMessage(lsqCleanupMessage, json?.message || "Failed to delete archived LSQ leads.", true);
+      return;
+    }
+    setMessage(lsqCleanupMessage, `Deleted ${Number(json?.deletedCount) || 0} archived LSQ lead${Number(json?.deletedCount) === 1 ? "" : "s"}.`, false);
+    await renderLsqArchiveTable();
+    return;
+  }
+
+  const confirmed = window.confirm(`Delete ${removedLeadCount} LSQ lead${removedLeadCount === 1 ? "" : "s"} and all archived LSQ rows? This cannot be undone.`);
+  if (!confirmed) {
+    return;
+  }
+
+  normalizeLeadFields(retainedLeads);
+  const saveResult = await saveAllLeads(retainedLeads);
+  if (!saveResult || saveResult.ok === false) {
+    setMessage(lsqCleanupMessage, saveResult?.message || "Failed to delete LSQ leads.", true);
+    return;
+  }
+
+  const syncResult = await syncStateFromLocalAndVerify();
+  if (!syncResult.ok) {
+    setMessage(lsqCleanupMessage, syncResult.message || "Backend confirmation failed after deleting LSQ leads.", true);
+    return;
+  }
+
+  const { response, json } = await deleteLsqArchiveRows();
+  if (!response.ok) {
+    setMessage(lsqCleanupMessage, json?.message || "LSQ leads were deleted, but archive cleanup failed.", true);
+    return;
+  }
+
+  setMessage(lsqCleanupMessage, `Deleted ${removedLeadCount} LSQ lead${removedLeadCount === 1 ? "" : "s"} and ${Number(json?.deletedCount) || 0} archived LSQ row${Number(json?.deletedCount) === 1 ? "" : "s"}.`, false);
+  renderAll();
+}
+
+async function deleteArchivedLsqLeads() {
+  const confirmed = window.confirm("Delete all archived LSQ leads? This cannot be undone.");
+  if (!confirmed) {
+    return;
+  }
+
+  const { response, json } = await deleteLsqArchiveRows();
+  if (!response.ok) {
+    setMessage(lsqCleanupMessage, json?.message || "Failed to delete archived LSQ leads.", true);
+    return;
+  }
+
+  setMessage(lsqCleanupMessage, `Deleted ${Number(json?.deletedCount) || 0} archived LSQ lead${Number(json?.deletedCount) === 1 ? "" : "s"}.`, false);
+  await renderLsqArchiveTable();
+}
+
+async function deleteLsqFileImport() {
+  const selectedFile = String(deleteLsqImportedFileSelect?.value || "").trim();
+  if (!selectedFile) {
+    setMessage(lsqCleanupMessage, "Select an LSQ imported file to delete.", true);
+    return;
+  }
+
+  const allLeads = getAllLeads();
+  const retainedLeads = allLeads.filter((lead) => !(isLsqImportedLead(lead) && getLeadImportSourceFiles(lead).includes(selectedFile)));
+  const removedLeadCount = allLeads.length - retainedLeads.length;
+
+  const confirmed = window.confirm(`Delete LSQ data imported from ${selectedFile}? This removes matching live LSQ leads and archived LSQ rows.`);
+  if (!confirmed) {
+    return;
+  }
+
+  if (removedLeadCount > 0) {
+    normalizeLeadFields(retainedLeads);
+    const saveResult = await saveAllLeads(retainedLeads);
+    if (!saveResult || saveResult.ok === false) {
+      setMessage(lsqCleanupMessage, saveResult?.message || `Failed to delete LSQ leads from ${selectedFile}.`, true);
+      return;
+    }
+
+    const syncResult = await syncStateFromLocalAndVerify();
+    if (!syncResult.ok) {
+      setMessage(lsqCleanupMessage, syncResult.message || `Backend confirmation failed after deleting LSQ leads from ${selectedFile}.`, true);
+      return;
+    }
+  }
+
+  const { response, json } = await deleteLsqArchiveRows(selectedFile);
+  if (!response.ok) {
+    setMessage(lsqCleanupMessage, json?.message || `LSQ leads were updated, but archive cleanup failed for ${selectedFile}.`, true);
+    return;
+  }
+
+  setMessage(lsqCleanupMessage, `Deleted ${removedLeadCount} LSQ lead${removedLeadCount === 1 ? "" : "s"} and ${Number(json?.deletedCount) || 0} archived LSQ row${Number(json?.deletedCount) === 1 ? "" : "s"} from ${selectedFile}.`, false);
+  renderAll();
 }
 
 async function deleteWholeLeadDataset() {
@@ -1250,6 +1403,18 @@ function setupAdminPanel() {
     importLsqBtn.onclick = () => {
       void handleLsqImport();
     };
+  }
+
+  if (deleteAllLsqLeadsBtn) {
+    deleteAllLsqLeadsBtn.addEventListener("click", deleteWholeLsqDataset);
+  }
+
+  if (deleteArchivedLsqLeadsBtn) {
+    deleteArchivedLsqLeadsBtn.addEventListener("click", deleteArchivedLsqLeads);
+  }
+
+  if (deleteLsqImportedFileBtn) {
+    deleteLsqImportedFileBtn.addEventListener("click", deleteLsqFileImport);
   }
 
   void renderLsqArchiveTable();

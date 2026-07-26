@@ -175,6 +175,7 @@
             <h4>LSQ Import Summary</h4>
             <div class="import-summary" id="lsqImportSummary">
               <p>Rows Scanned: 0</p>
+              <p>Created CRM Leads: 0</p>
               <p>Updated CRM Leads: 0</p>
               <p>Archived / Out of SOP: 0</p>
             </div>
@@ -188,6 +189,25 @@
             <p>Rows rejected from live CRM update stay here with a clear archive reason.</p>
           </div>
           <div id="lsqArchiveTable" class="table-shell"></div>
+        </div>
+
+        <div class="allocation-block">
+          <div class="card-head">
+            <h4>LSQ Data Cleanup</h4>
+            <p>Use these actions to remove only LSQ-imported lead data when needed.</p>
+          </div>
+          <div class="allocation-actions cleanup-actions">
+            <button id="deleteAllLsqLeadsBtn" type="button" class="btn-ghost">Delete Whole LSQ Dataset</button>
+            <button id="deleteArchivedLsqLeadsBtn" type="button" class="btn-ghost">Delete Archived LSQ Leads</button>
+          </div>
+          <div class="cleanup-file-actions">
+            <select id="deleteLsqImportedFileSelect" class="cleanup-file-select">
+              <option value="">No LSQ imported files found</option>
+            </select>
+            <button id="deleteLsqImportedFileBtn" type="button" class="btn-ghost">Delete LSQ File Import</button>
+          </div>
+          <p class="block-help">Deletes LSQ leads and LSQ archive rows linked to the selected imported file.</p>
+          <p id="lsqCleanupMessage" class="message" aria-live="polite"></p>
         </div>
       </section>
     </div>

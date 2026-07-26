@@ -88,7 +88,8 @@ const DEFAULT_FILTER = {
   mainAdmissionCallStatus: "",
   activityStatus: "",
   repeatEnquiryStatus: "",
-  whatsappActivity: ""
+  whatsappActivity: "",
+  lsqLeads: ""
 };
 const WHATSAPP_ACTIVITY_FILTER_OPTIONS = ["WhatsApp Read", "WhatsApp Clicked", "WhatsApp Replied"];
 
@@ -168,6 +169,12 @@ function leadMatchesWhatsappActivity(lead, selectedActivity) {
 
 function leadMatchesWhatsappActivityFilter(lead) {
   return leadMatchesWhatsappActivity(lead, filter.whatsappActivity);
+}
+
+function isLsqImportedLead(lead = {}) {
+  return Boolean(lead?.lsqImported)
+    || String(lead?.source || "").trim().toLowerCase().includes("leadsquared")
+    || (lead?.lsqSourceSnapshot && typeof lead.lsqSourceSnapshot === "object");
 }
 
 function getEntryTimestamp(value) {
@@ -981,6 +988,14 @@ function renderFilters(leads) {
             ${WHATSAPP_ACTIVITY_FILTER_OPTIONS.map((item) => `<option value="${escapeHtml(item)}" ${filter.whatsappActivity === item ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
           </select>
         </div>
+        <div class="filter-item">
+          <label for="mainAdmissionLsqLeadsSelect">LSQ Leads</label>
+          <select id="mainAdmissionLsqLeadsSelect">
+            <option value="" ${filter.lsqLeads === "" ? "selected" : ""}>All</option>
+            <option value="only" ${filter.lsqLeads === "only" ? "selected" : ""}>Only LSQ</option>
+            <option value="hide" ${filter.lsqLeads === "hide" ? "selected" : ""}>Hide LSQ</option>
+          </select>
+        </div>
       </div>
     </div>
 
@@ -1107,6 +1122,12 @@ function renderFilters(leads) {
     currentPage = 1;
     renderAll();
   };
+  document.getElementById("mainAdmissionLsqLeadsSelect").onchange = (event) => {
+    filter.lsqLeads = event.target.value;
+    persistFilters();
+    currentPage = 1;
+    renderAll();
+  };
   document.getElementById("mainAdmissionResetFiltersBtn").onclick = () => {
     filter = { ...DEFAULT_FILTER };
     persistFilters();
@@ -1187,6 +1208,8 @@ function filterLeads(leads) {
     if (filter.repeatEnquiryStatus === "Repeat Enquiry" && !isRepeatEnquiryLead(lead)) return false;
     if (filter.repeatEnquiryStatus === "First Time" && isRepeatEnquiryLead(lead)) return false;
     if (filter.whatsappActivity && !leadMatchesWhatsappActivityFilter(lead)) return false;
+    if (filter.lsqLeads === "only" && !isLsqImportedLead(lead)) return false;
+    if (filter.lsqLeads === "hide" && isLsqImportedLead(lead)) return false;
     return true;
   });
 }
