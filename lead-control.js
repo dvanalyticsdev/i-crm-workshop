@@ -32,22 +32,8 @@ const exportBackupBtn = document.getElementById("exportBackupBtn");
 const restoreBackupFile = document.getElementById("restoreBackupFile");
 const restoreBackupBtn = document.getElementById("restoreBackupBtn");
 const backupMessage = document.getElementById("backupMessage");
-const lsqImportPanel = document.getElementById("lsqImportPanel");
-const lsqImportFile = document.getElementById("lsqImportFile");
-const lsqCounselorFilter = document.getElementById("lsqCounselorFilter");
-const lsqStageFilter = document.getElementById("lsqStageFilter");
-const importLsqBtn = document.getElementById("importLsqBtn");
-const lsqImportSummary = document.getElementById("lsqImportSummary");
-const lsqImportMessage = document.getElementById("lsqImportMessage");
-const lsqArchiveTable = document.getElementById("lsqArchiveTable");
-const deleteAllLsqLeadsBtn = document.getElementById("deleteAllLsqLeadsBtn");
-const deleteArchivedLsqLeadsBtn = document.getElementById("deleteArchivedLsqLeadsBtn");
-const deleteLsqImportedFileSelect = document.getElementById("deleteLsqImportedFileSelect");
-const deleteLsqImportedFileBtn = document.getElementById("deleteLsqImportedFileBtn");
-const lsqCleanupMessage = document.getElementById("lsqCleanupMessage");
 const session = getSession();
 const isAdmin = session?.role === "admin" || session?.role === "super_admin";
-const isSuperAdmin = session?.role === "super_admin";
 
 const DEFAULT_ALLOCATION = [];
 
@@ -98,11 +84,6 @@ function getLeadImportSourceFiles(lead) {
   return fallback ? [fallback] : [];
 }
 
-function isLsqImportedLead(lead) {
-  return Boolean(lead?.lsqImported)
-    || String(lead?.source || "").trim().toLowerCase().includes("leadsquared");
-}
-
 function getLeadActivityUpdateCount(lead) {
   const workshopUpdates = typeof lead?.workshopActivityTouchedByAssignee === "boolean"
     ? (lead.workshopActivityTouchedByAssignee ? 1 : 0)
@@ -124,26 +105,6 @@ function isLostLead(lead) {
 
 function isPostWorkshopLead(lead) {
   return lead.wsStatus === "Interested" && lead.whatsappInvite === "Yes";
-}
-
-function getActiveCounselorNames() {
-  let names = getStoredCounselors()
-    .map((item) => String(item.name || "").trim())
-    .filter(Boolean);
-
-  if (!names.length) {
-    names = getAllocation()
-      .map((item) => String(item.name || "").trim())
-      .filter(Boolean);
-  }
-
-  if (!names.length) {
-    names = getAllLeads()
-      .map((lead) => String(lead.counselor || "").trim())
-      .filter((name) => name && name.toLowerCase() !== "unassigned");
-  }
-
-  return [...new Set(names)];
 }
 
 function getAllLeads() {
@@ -235,10 +196,6 @@ function extractCounselorName(record) {
       ?? record?.displayName
       ?? ""
   ).trim();
-}
-
-function extractCounselorEmail(record) {
-  return String(record?.email || "").trim().toLowerCase();
 }
 
 async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 4000) {
@@ -349,56 +306,6 @@ async function getCounselorNamesForAllocation() {
   } catch {
     return [];
   }
-}
-
-async function getCounselorOptions() {
-  const localCounselors = getStoredCounselors();
-  if (Array.isArray(localCounselors) && localCounselors.length) {
-    return localCounselors
-      .map((item) => ({
-        name: extractCounselorName(item),
-        email: extractCounselorEmail(item)
-      }))
-      .filter((item) => item.name)
-      .sort((left, right) => left.name.localeCompare(right.name));
-  }
-
-  try {
-    const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/state"), {
-      method: "GET",
-      headers: { Accept: "application/json" }
-    }, 4000);
-
-    if (!response.ok) {
-      return [];
-    }
-
-    return (Array.isArray(json?.counselors) ? json.counselors : [])
-      .map((item) => ({
-        name: extractCounselorName(item),
-        email: extractCounselorEmail(item)
-      }))
-      .filter((item) => item.name)
-      .sort((left, right) => left.name.localeCompare(right.name));
-  } catch {
-    return [];
-  }
-}
-
-async function renderLsqCounselorFilter() {
-  if (!lsqCounselorFilter) {
-    return;
-  }
-
-  const currentValue = String(lsqCounselorFilter.value || "all").trim();
-  const options = await getCounselorOptions();
-  lsqCounselorFilter.innerHTML = [
-    `<option value="all">All counselors</option>`,
-    ...options.map((item) => `<option value="${escapeHtml(item.email || item.name.toLowerCase())}">${escapeHtml(item.name)}</option>`)
-  ].join("");
-
-  const validValues = new Set(["all", ...options.map((item) => item.email || item.name.toLowerCase())]);
-  lsqCounselorFilter.value = validValues.has(currentValue) ? currentValue : "all";
 }
 
 function mergeAllocationNames(names, existingAllocation) {
@@ -686,52 +593,6 @@ function updateImportSummary(total, success, failed) {
   `;
 }
 
-function updateLsqImportSummary(scanned = 0, created = 0, updated = 0, archived = 0) {
-  if (!lsqImportSummary) {
-    return;
-  }
-
-  lsqImportSummary.innerHTML = `
-    <p>Rows Scanned: ${scanned}</p>
-    <p>Created CRM Leads: ${created}</p>
-    <p>Updated CRM Leads: ${updated}</p>
-    <p>Archived / Out of SOP: ${archived}</p>
-  `;
-}
-
-function buildLsqImportChunks(rows = [], { maxBytes = 1_500_000, maxRows = 150 } = {}) {
-  const encoder = typeof TextEncoder === "function" ? new TextEncoder() : null;
-  const chunks = [];
-  let currentChunk = [];
-  let currentBytes = 2;
-
-  const measureRowBytes = (row) => {
-    const serialized = JSON.stringify(row ?? {});
-    return encoder ? encoder.encode(serialized).length : serialized.length;
-  };
-
-  rows.forEach((row) => {
-    const rowBytes = measureRowBytes(row) + 1;
-    const wouldOverflow = currentChunk.length > 0
-      && (currentChunk.length >= maxRows || currentBytes + rowBytes > maxBytes);
-
-    if (wouldOverflow) {
-      chunks.push(currentChunk);
-      currentChunk = [];
-      currentBytes = 2;
-    }
-
-    currentChunk.push(row);
-    currentBytes += rowBytes;
-  });
-
-  if (currentChunk.length) {
-    chunks.push(currentChunk);
-  }
-
-  return chunks;
-}
-
 async function handleLeadImport() {
   if (!isAdmin) {
     setMessage(importMessage, "Only admin can import leads.", true);
@@ -867,265 +728,6 @@ async function handleLeadImport() {
   }
 
   leadImportFile.value = "";
-  renderAll();
-}
-
-async function handleLsqImport() {
-  if (!isSuperAdmin) {
-    setMessage(lsqImportMessage, "Only super admin can import LSQ data.", true);
-    return;
-  }
-
-  const file = lsqImportFile?.files?.[0];
-  if (!file) {
-    setMessage(lsqImportMessage, "Please select an LSQ .xlsx or .csv file.", true);
-    return;
-  }
-
-  if (!/\.(xlsx|csv)$/i.test(file.name)) {
-    setMessage(lsqImportMessage, "Unsupported LSQ format. Please upload .xlsx or .csv.", true);
-    return;
-  }
-
-  let rows = [];
-  try {
-    rows = await parseImportFile(file);
-  } catch {
-    setMessage(lsqImportMessage, "Could not read LSQ file. Check format and try again.", true);
-    return;
-  }
-
-  if (!rows.length) {
-    setMessage(lsqImportMessage, "No rows found in the LSQ file.", true);
-    updateLsqImportSummary(0, 0, 0, 0);
-    return;
-  }
-
-  setMessage(lsqImportMessage, "Importing LSQ updates...", false);
-  const counselorFilter = String(lsqCounselorFilter?.value || "all").trim() || "all";
-  const stageFilter = String(lsqStageFilter?.value || "all").trim() || "all";
-  const chunks = buildLsqImportChunks(rows);
-  const combinedSummary = {
-    scanned: 0,
-    created: 0,
-    updated: 0,
-    archived: 0,
-    skippedByCounselorFilter: 0,
-    skippedByStageFilter: 0,
-    byReason: {}
-  };
-
-  for (const [index, chunk] of chunks.entries()) {
-    setMessage(lsqImportMessage, `Importing LSQ updates... batch ${index + 1} of ${chunks.length}`, false);
-    const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/admin/lsq-import"), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json"
-      },
-      body: JSON.stringify({
-        sourceFileName: file.name,
-        counselorFilter,
-        stageFilter,
-        rows: chunk
-      })
-    }, 60000);
-
-    if (!response.ok || !json?.ok) {
-      updateLsqImportSummary(
-        combinedSummary.scanned,
-        combinedSummary.created,
-        combinedSummary.updated,
-        combinedSummary.archived
-      );
-      setMessage(
-        lsqImportMessage,
-        `${json?.message || "LSQ import failed."}${combinedSummary.scanned ? ` Imported ${combinedSummary.created + combinedSummary.updated} row${combinedSummary.created + combinedSummary.updated === 1 ? "" : "s"} before failure.` : ""}`,
-        true
-      );
-      return;
-    }
-
-    if (json?.state) {
-      acceptServerState(json.state, response.headers.get("etag"));
-    }
-
-    combinedSummary.scanned += Number(json?.summary?.scanned) || chunk.length;
-    combinedSummary.created += Number(json?.summary?.created) || 0;
-    combinedSummary.updated += Number(json?.summary?.updated) || 0;
-    combinedSummary.archived += Number(json?.summary?.archived) || 0;
-    combinedSummary.skippedByCounselorFilter += Number(json?.summary?.skippedByCounselorFilter) || 0;
-    combinedSummary.skippedByStageFilter += Number(json?.summary?.skippedByStageFilter) || 0;
-    Object.entries(json?.summary?.byReason || {}).forEach(([reason, count]) => {
-      combinedSummary.byReason[reason] = (combinedSummary.byReason[reason] || 0) + (Number(count) || 0);
-    });
-
-    updateLsqImportSummary(
-      combinedSummary.scanned,
-      combinedSummary.created,
-      combinedSummary.updated,
-      combinedSummary.archived
-    );
-  }
-
-  const createdCount = combinedSummary.created;
-  const updatedCount = combinedSummary.updated;
-  const skippedByCounselorFilter = combinedSummary.skippedByCounselorFilter;
-  const skippedByStageFilter = combinedSummary.skippedByStageFilter;
-  const primaryReason = Object.entries(combinedSummary.byReason).sort((left, right) => right[1] - left[1])[0]?.[0] || "";
-  setMessage(
-    lsqImportMessage,
-    `LSQ import completed. Created ${createdCount} and updated ${updatedCount} CRM lead${createdCount + updatedCount === 1 ? "" : "s"} into Main Admission, and archived ${combinedSummary.archived}.${skippedByCounselorFilter ? ` Skipped ${skippedByCounselorFilter} row${skippedByCounselorFilter === 1 ? "" : "s"} due to counselor filter.` : ""}${skippedByStageFilter ? ` Skipped ${skippedByStageFilter} row${skippedByStageFilter === 1 ? "" : "s"} due to stage filter.` : ""}${primaryReason ? ` Top archive reason: ${primaryReason}.` : ""}`,
-    false
-  );
-
-  if (lsqImportFile) {
-    lsqImportFile.value = "";
-  }
-
-  await renderLsqArchiveTable();
-}
-
-async function renderLsqArchiveTable() {
-  if (!lsqArchiveTable) {
-    return;
-  }
-
-  if (!isSuperAdmin) {
-    lsqArchiveTable.innerHTML = `<p class="block-help">LSQ archive is available only to super admin.</p>`;
-    return;
-  }
-  renderLsqImportedFileOptions([]);
-  lsqArchiveTable.innerHTML = `<p class="block-help">Archived leads are now listed under Lost Leads > Archived Leads. Only basic contact details are kept there.</p>`;
-}
-
-function renderLsqImportedFileOptions(_archiveRows = []) {
-  if (!deleteLsqImportedFileSelect) {
-    return;
-  }
-
-  const allLeads = getAllLeads();
-  const leadFiles = allLeads
-    .filter((lead) => isLsqImportedLead(lead))
-    .flatMap((lead) => getLeadImportSourceFiles(lead));
-  const fileNames = [...new Set(leadFiles)].sort((left, right) => left.localeCompare(right));
-  const currentValue = String(deleteLsqImportedFileSelect.value || "").trim();
-
-  deleteLsqImportedFileSelect.innerHTML = fileNames.length
-    ? [`<option value="">Select LSQ imported file</option>`, ...fileNames.map((fileName) => `<option value="${escapeHtml(fileName)}">${escapeHtml(fileName)}</option>`)].join("")
-    : `<option value="">No LSQ imported files found</option>`;
-
-  if (fileNames.includes(currentValue)) {
-    deleteLsqImportedFileSelect.value = currentValue;
-  }
-
-  if (deleteLsqImportedFileBtn) {
-    deleteLsqImportedFileBtn.disabled = !fileNames.length;
-  }
-}
-
-async function deleteLsqArchiveRows(sourceFileName = "") {
-  const query = sourceFileName ? `?sourceFileName=${encodeURIComponent(sourceFileName)}` : "";
-  return fetchJsonWithTimeout(apiUrl(`/api/admin/lsq-archive${query}`), {
-    method: "DELETE",
-    headers: { Accept: "application/json" }
-  }, 15000);
-}
-
-async function deleteLsqLiveLeads(sourceFileName = "") {
-  const query = sourceFileName ? `?sourceFileName=${encodeURIComponent(sourceFileName)}` : "";
-  return fetchJsonWithTimeout(apiUrl(`/api/admin/lsq-leads${query}`), {
-    method: "DELETE",
-    headers: { Accept: "application/json" }
-  }, 20000);
-}
-
-async function deleteWholeLsqDataset() {
-  const allLeads = getAllLeads();
-  const removedLeadCount = allLeads.filter((lead) => isLsqImportedLead(lead)).length;
-
-  if (!removedLeadCount) {
-    const { response, json } = await deleteLsqArchiveRows();
-    if (!response.ok) {
-      setMessage(lsqCleanupMessage, json?.message || "Failed to delete archived LSQ leads.", true);
-      return;
-    }
-    setMessage(lsqCleanupMessage, `Deleted ${Number(json?.deletedCount) || 0} archived LSQ lead${Number(json?.deletedCount) === 1 ? "" : "s"}.`, false);
-    await renderLsqArchiveTable();
-    return;
-  }
-
-  const confirmed = window.confirm(`Delete ${removedLeadCount} LSQ lead${removedLeadCount === 1 ? "" : "s"} and all archived LSQ rows? This cannot be undone.`);
-  if (!confirmed) {
-    return;
-  }
-
-  const { response: deleteResponse, json: deleteJson } = await deleteLsqLiveLeads();
-  if (!deleteResponse.ok) {
-    setMessage(lsqCleanupMessage, deleteJson?.message || "Failed to delete LSQ leads.", true);
-    return;
-  }
-  if (deleteJson?.state) {
-    acceptServerState(deleteJson.state, deleteResponse.headers.get("etag"));
-  }
-  const deletedLeadCount = Number(deleteJson?.deletedCount) || 0;
-
-  const { response, json } = await deleteLsqArchiveRows();
-  if (!response.ok) {
-    setMessage(lsqCleanupMessage, json?.message || "LSQ leads were deleted, but archive cleanup failed.", true);
-    return;
-  }
-
-  setMessage(lsqCleanupMessage, `Deleted ${deletedLeadCount} LSQ lead${deletedLeadCount === 1 ? "" : "s"} and ${Number(json?.deletedCount) || 0} archived LSQ row${Number(json?.deletedCount) === 1 ? "" : "s"}.`, false);
-  renderAll();
-}
-
-async function deleteArchivedLsqLeads() {
-  const confirmed = window.confirm("Delete all archived LSQ leads? This cannot be undone.");
-  if (!confirmed) {
-    return;
-  }
-
-  const { response, json } = await deleteLsqArchiveRows();
-  if (!response.ok) {
-    setMessage(lsqCleanupMessage, json?.message || "Failed to delete archived LSQ leads.", true);
-    return;
-  }
-
-  setMessage(lsqCleanupMessage, `Deleted ${Number(json?.deletedCount) || 0} archived LSQ lead${Number(json?.deletedCount) === 1 ? "" : "s"}.`, false);
-  await renderLsqArchiveTable();
-}
-
-async function deleteLsqFileImport() {
-  const selectedFile = String(deleteLsqImportedFileSelect?.value || "").trim();
-  if (!selectedFile) {
-    setMessage(lsqCleanupMessage, "Select an LSQ imported file to delete.", true);
-    return;
-  }
-
-  const allLeads = getAllLeads();
-  const removedLeadCount = allLeads.filter((lead) => (
-    isLsqImportedLead(lead) && getLeadImportSourceFiles(lead).includes(selectedFile)
-  )).length;
-
-  const confirmed = window.confirm(`Delete LSQ data imported from ${selectedFile}? This removes matching live LSQ leads and archived LSQ rows.`);
-  if (!confirmed) {
-    return;
-  }
-
-  let deletedLeadCount = 0;
-  if (removedLeadCount > 0) {
-    const { response: deleteResponse, json: deleteJson } = await deleteLsqLiveLeads(selectedFile);
-    if (!deleteResponse.ok) {
-      setMessage(lsqCleanupMessage, deleteJson?.message || `Failed to delete LSQ leads from ${selectedFile}.`, true);
-      return;
-    }
-    if (deleteJson?.state) {
-      acceptServerState(deleteJson.state, deleteResponse.headers.get("etag"));
-    }
-    deletedLeadCount = Number(deleteJson?.deletedCount) || 0;
-  }
-  setMessage(lsqCleanupMessage, `Deleted ${deletedLeadCount} live LSQ lead${deletedLeadCount === 1 ? "" : "s"} from ${selectedFile}. Archived leads stay under Lost Leads > Archived Leads.`, false);
   renderAll();
 }
 
@@ -1408,32 +1010,6 @@ function setupAdminPanel() {
     };
   }
 
-  if (lsqImportPanel) {
-    lsqImportPanel.classList.toggle("hidden", !isSuperAdmin);
-  }
-
-  void renderLsqCounselorFilter();
-
-  if (importLsqBtn) {
-    importLsqBtn.onclick = () => {
-      void handleLsqImport();
-    };
-  }
-
-  if (deleteAllLsqLeadsBtn) {
-    deleteAllLsqLeadsBtn.addEventListener("click", deleteWholeLsqDataset);
-  }
-
-  if (deleteArchivedLsqLeadsBtn) {
-    deleteArchivedLsqLeadsBtn.addEventListener("click", deleteArchivedLsqLeads);
-  }
-
-  if (deleteLsqImportedFileBtn) {
-    deleteLsqImportedFileBtn.addEventListener("click", deleteLsqFileImport);
-  }
-
-  void renderLsqArchiveTable();
-
 }
 
 function initLeadControlPage() {
@@ -1462,9 +1038,6 @@ function renderAll() {
       deleteImportedFileBtn.disabled = !importedFileNames.length;
     }
   }
-
-  void renderLsqCounselorFilter();
-  void renderLsqArchiveTable();
 
 }
 
