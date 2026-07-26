@@ -8949,10 +8949,15 @@ function canManageRoles(session) {
   return session?.role === "super_admin";
 }
 
+function isAdminLikeSession(session) {
+  const role = String(session?.role || "").trim().toLowerCase();
+  return role === "admin" || role === "super_admin";
+}
+
 function getSessionPagePermissions(session = {}) {
   const role = String(session.role || "").trim().toLowerCase();
   if (role === "super_admin") {
-    return normalizePagePermissions(FULL_PAGE_ACCESS, FULL_PAGE_ACCESS);
+    return { ...FULL_PAGE_ACCESS };
   }
   if (role === "admin") {
     return normalizePagePermissions(session.permissions || {}, ADMIN_DEFAULT_PAGE_ACCESS);
@@ -9087,7 +9092,7 @@ function getSessionCounselorName(state, session) {
 }
 
 function getLeadMutationRestrictionMessage(session, state, lead) {
-  if (session?.role === "admin") {
+  if (isAdminLikeSession(session)) {
     return "";
   }
 
@@ -9114,7 +9119,7 @@ function canMutateLead(session, state, lead) {
 }
 
 function canViewLeadActivity(session, state, lead) {
-  if (session?.role === "admin") {
+  if (isAdminLikeSession(session)) {
     return true;
   }
   if (session?.role === "counselor") {
@@ -9632,7 +9637,7 @@ function findTaskById(state, taskId) {
 }
 
 function canMutateTask(session, state, task) {
-  if (session?.role === "admin") {
+  if (isAdminLikeSession(session)) {
     return true;
   }
 
@@ -9694,8 +9699,17 @@ app.post("/api/auth/login", async (req, res) => {
     if (role === "admin") {
       const state = await getStateDoc();
       const authConfig = await getAuthConfig();
+      const normalizedIdentifier = identifier.toLowerCase();
+      const superAdminIdentifier = String(ADMIN_USER.id || "").trim().toLowerCase();
+      const isSuperAdminLoginAttempt = Boolean(superAdminIdentifier) && normalizedIdentifier === superAdminIdentifier;
 
-      if (identifier === ADMIN_USER.id && password === authConfig.superAdminPassword) {
+      if (isSuperAdminLoginAttempt) {
+        if (password !== authConfig.superAdminPassword) {
+          return res.status(401).json({
+            message: "Invalid super admin credentials.",
+            requiresPasscode: true
+          });
+        }
         if (!passcode) {
           return res.status(428).json({
             message: "Passcode is required.",
@@ -9720,7 +9734,6 @@ app.post("/api/auth/login", async (req, res) => {
       }
 
       const adminUsers = Array.isArray(state.adminUsers) ? state.adminUsers : [];
-      const normalizedIdentifier = identifier.toLowerCase();
       const adminUser = adminUsers.find((item) => {
         const phone = String(item.phone || "").trim().toLowerCase();
         const email = String(item.email || "").trim().toLowerCase();
@@ -10616,7 +10629,7 @@ function serializeLeadClaim(claim = {}) {
 }
 
 function isClaimVisibleToSession(claim, session) {
-  if (session?.role === "admin") return true;
+  if (isAdminLikeSession(session)) return true;
   if (session?.role !== "counselor") return false;
 
   const email = String(session?.email || "").trim().toLowerCase();
@@ -10667,7 +10680,7 @@ function serializeLeadCreationRequest(request = {}) {
 }
 
 function isLeadCreationRequestVisibleToSession(request, session) {
-  if (session?.role === "admin") {
+  if (isAdminLikeSession(session)) {
     return !request.clearedByAdmin;
   }
   if (session?.role !== "counselor") {
@@ -11651,10 +11664,11 @@ app.delete("/api/lead-creation-requests", async (req, res) => {
     if (!session) return;
 
     const now = new Date().toISOString();
-    const query = session.role === "admin"
+    const isAdminLike = isAdminLikeSession(session);
+    const query = isAdminLike
       ? { clearedByAdmin: { $ne: true } }
       : { requesterEmail: String(session.email || "").trim().toLowerCase(), clearedByRequester: { $ne: true } };
-    const patch = session.role === "admin"
+    const patch = isAdminLike
       ? { clearedByAdmin: true, adminClearedAt: now, updatedAt: now }
       : { clearedByRequester: true, requesterClearedAt: now, updatedAt: now };
 
@@ -12024,7 +12038,7 @@ app.patch("/api/lead-claims/:claimId/decision", async (req, res) => {
     const updates = { updatedAt: now };
     const actorLabel = session.name || session.email || session.role;
 
-    if (session.role === "admin") {
+    if (isAdminLikeSession(session)) {
       updates.adminStatus = decision;
       updates.adminDecidedAt = now;
       updates.adminDecidedBy = actorLabel;

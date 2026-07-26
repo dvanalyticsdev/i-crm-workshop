@@ -576,7 +576,7 @@ function getSessionIdentityLabel(session) {
     return name;
   }
 
-  if (session?.role === "super_admin") return "Admin";
+  if (session?.role === "super_admin") return "Super Admin";
   if (session?.role === "admin") return "Admin";
   if (session?.role === "marketing") return "Marketing";
   return "Counselor";
@@ -612,8 +612,7 @@ function getSessionPermissions(session) {
 
   if (session?.role === "super_admin") {
     return {
-      ...base,
-      counselorManagement: true
+      ...FULL_PAGE_ACCESS
     };
   }
 

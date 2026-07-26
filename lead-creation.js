@@ -40,7 +40,7 @@ function normalize(value) {
 }
 
 function isAdmin() {
-  return session?.role === "admin";
+  return session?.role === "admin" || session?.role === "super_admin";
 }
 
 function formatDate(value) {

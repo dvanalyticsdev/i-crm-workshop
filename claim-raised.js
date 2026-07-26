@@ -42,7 +42,7 @@ function setMessage(text, isError = false) {
 }
 
 function isAdmin() {
-  return session?.role === "admin";
+  return session?.role === "admin" || session?.role === "super_admin";
 }
 
 function isCurrentOwnerClaim(claim) {
