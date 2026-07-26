@@ -1296,6 +1296,7 @@ function startNotificationPolling(session) {
     try {
       // 1. Poll popups (undelivered notifications)
       const popupResp = await fetch('/api/notifications?popup=true', {
+        cache: 'no-store',
         credentials: 'same-origin',
         headers: { 'Accept': 'application/json' }
       });
@@ -1312,6 +1313,7 @@ function startNotificationPolling(session) {
 
       // 2. Poll full unread list to update bell badge and dropdown items
       const listResp = await fetch('/api/notifications', {
+        cache: 'no-store',
         credentials: 'same-origin',
         headers: { 'Accept': 'application/json' }
       });
@@ -1389,6 +1391,7 @@ function injectNotificationBell() {
     try {
       await fetch('/api/notifications/read', {
         method: 'POST',
+        cache: 'no-store',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' }
       });
@@ -1426,6 +1429,7 @@ function closeAllDropdowns() {
 async function refreshDropdownList() {
   try {
     const resp = await fetch('/api/notifications', {
+      cache: 'no-store',
       credentials: 'same-origin',
       headers: { 'Accept': 'application/json' }
     });
@@ -1468,6 +1472,7 @@ function renderNotificationsList(unreadList) {
       try {
         await fetch('/api/notifications/read', {
           method: 'POST',
+          cache: 'no-store',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ids: [id] })

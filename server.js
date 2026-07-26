@@ -10494,9 +10494,14 @@ async function createNotification({ userId, role, type, title, message, sound = 
     await initMongo();
     logNotificationDebug("createNotification called", { userId, role, type, title });
 
+    const normalizedRole = String(role || "").trim().toLowerCase();
+    const normalizedUserId = normalizedRole === "admin" || normalizedRole === "super_admin"
+      ? "admin"
+      : String(userId).toLowerCase().trim();
+
     const notification = {
       id: `n-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
-      userId: String(userId).toLowerCase().trim(),
+      userId: normalizedUserId,
       role,
       type,
       title,
@@ -10772,6 +10777,14 @@ function isCounselorLeadViewNotificationEligible(session) {
   return role === "counselor";
 }
 
+function getNotificationInboxUserId(session) {
+  const role = String(session?.role || "").trim().toLowerCase();
+  if (role === "admin" || role === "super_admin") {
+    return "admin";
+  }
+  return String(session?.email || "").trim().toLowerCase();
+}
+
 app.post("/api/leads/:leadId/view", async (req, res) => {
   try {
     const session = await requireSession(req, res);
@@ -10842,9 +10855,12 @@ app.get("/api/notifications", async (req, res) => {
     }
 
     const session = activeSession.session;
-    const userId = session.role === "admin" ? "admin" : session.email.toLowerCase().trim();
+    const userId = getNotificationInboxUserId(session);
     const isPopupOnly = req.query.popup === "true";
     const state = await getStateDoc();
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
 
     if (isPopupOnly) {
       await createDueTaskNotificationsForSession(session, state);
@@ -10886,7 +10902,10 @@ app.post("/api/notifications/read", async (req, res) => {
     }
 
     const session = activeSession.session;
-    const userId = session.role === "admin" ? "admin" : session.email.toLowerCase().trim();
+    const userId = getNotificationInboxUserId(session);
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
 
     const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
     const query = { userId, read: false };
