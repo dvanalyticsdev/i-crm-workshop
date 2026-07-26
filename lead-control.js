@@ -23,11 +23,6 @@ const importMessage = document.getElementById("importMessage");
 const allocationRows = document.getElementById("allocationRows");
 const saveAllocationBtn = document.getElementById("saveAllocationBtn");
 const allocationMessage = document.getElementById("allocationMessage");
-const deleteAllLeadsBtn = document.getElementById("deleteAllLeadsBtn");
-const deleteLostLeadsBtn = document.getElementById("deleteLostLeadsBtn");
-const deleteImportedFileSelect = document.getElementById("deleteImportedFileSelect");
-const deleteImportedFileBtn = document.getElementById("deleteImportedFileBtn");
-const cleanupMessage = document.getElementById("cleanupMessage");
 const exportBackupBtn = document.getElementById("exportBackupBtn");
 const restoreBackupFile = document.getElementById("restoreBackupFile");
 const restoreBackupBtn = document.getElementById("restoreBackupBtn");
@@ -731,106 +726,6 @@ async function handleLeadImport() {
   renderAll();
 }
 
-async function deleteWholeLeadDataset() {
-  const confirmed = window.confirm("Delete the entire lead dataset? This cannot be undone.");
-  if (!confirmed) {
-    return;
-  }
-
-  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/state/reset"), {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json"
-    }
-  }, 4000);
-
-  if (!response.ok) {
-    setMessage(cleanupMessage, json?.message || "Backend reset failed.", true);
-    return;
-  }
-
-  replaceStateSnapshot(json);
-
-  const syncResult = await syncStateFromLocalAndVerify();
-  if (!syncResult.ok) {
-    setMessage(cleanupMessage, syncResult.message || "Backend confirmation failed after resetting the database.", true);
-    return;
-  }
-
-  setMessage(cleanupMessage, "Whole lead dataset deleted successfully.", false);
-  renderAll();
-}
-
-async function deleteImportedFileImport() {
-  const selectedFile = String(deleteImportedFileSelect?.value || "").trim();
-  if (!selectedFile) {
-    setMessage(cleanupMessage, "Select an imported file to delete.", true);
-    return;
-  }
-
-  const allLeads = getAllLeads();
-  const retainedLeads = allLeads.filter((lead) => !getLeadImportSourceFiles(lead).includes(selectedFile));
-  const removedCount = allLeads.length - retainedLeads.length;
-
-  if (!removedCount) {
-    setMessage(cleanupMessage, `No leads were tagged with ${selectedFile}.`, false);
-    return;
-  }
-
-  const confirmed = window.confirm(`Delete ${removedCount} lead${removedCount === 1 ? "" : "s"} imported from ${selectedFile}? This cannot be undone.`);
-  if (!confirmed) {
-    return;
-  }
-
-  normalizeLeadFields(retainedLeads);
-  const saveResult = await saveAllLeads(retainedLeads);
-  if (!saveResult || saveResult.ok === false) {
-    setMessage(cleanupMessage, saveResult?.message || `Failed to delete leads from ${selectedFile}.`, true);
-    return;
-  }
-
-  const syncResult = await syncStateFromLocalAndVerify();
-  if (!syncResult.ok) {
-    setMessage(cleanupMessage, syncResult.message || `Backend confirmation failed after deleting leads from ${selectedFile}.`, true);
-    return;
-  }
-
-  setMessage(cleanupMessage, `${removedCount} lead${removedCount === 1 ? "s" : "s"} from ${selectedFile} deleted successfully.`, false);
-  renderAll();
-}
-
-async function deleteLostLeads() {
-  const allLeads = getAllLeads();
-  const retainedLeads = allLeads.filter((lead) => !isLostLead(lead));
-  const removedCount = allLeads.length - retainedLeads.length;
-
-  if (!removedCount) {
-    setMessage(cleanupMessage, "No lost leads found to delete.", false);
-    return;
-  }
-
-  const confirmed = window.confirm(`Delete ${removedCount} lost lead${removedCount === 1 ? "" : "s"}? This cannot be undone.`);
-  if (!confirmed) {
-    return;
-  }
-
-  normalizeLeadFields(retainedLeads);
-  const saveResult = await saveAllLeads(retainedLeads);
-  if (!saveResult || saveResult.ok === false) {
-    setMessage(cleanupMessage, saveResult?.message || "Failed to delete lost leads.", true);
-    return;
-  }
-
-  const syncResult = await syncStateFromLocalAndVerify();
-  if (!syncResult.ok) {
-    setMessage(cleanupMessage, syncResult.message || "Backend confirmation failed after deleting lost leads.", true);
-    return;
-  }
-
-  setMessage(cleanupMessage, `${removedCount} lost lead${removedCount === 1 ? "s" : "s"} deleted successfully.`, false);
-  renderAll();
-}
-
 function buildBackupDownloadName(payload) {
   const stamp = String(payload?.exportedAt || new Date().toISOString())
     .replace(/[:.]/g, "-")
@@ -986,18 +881,6 @@ function setupAdminPanel() {
     handleLeadImport();
   };
 
-  if (deleteAllLeadsBtn) {
-    deleteAllLeadsBtn.addEventListener("click", deleteWholeLeadDataset);
-  }
-
-  if (deleteLostLeadsBtn) {
-    deleteLostLeadsBtn.addEventListener("click", deleteLostLeads);
-  }
-
-  if (deleteImportedFileBtn) {
-    deleteImportedFileBtn.addEventListener("click", deleteImportedFileImport);
-  }
-
   if (exportBackupBtn) {
     exportBackupBtn.onclick = () => {
       void downloadManualBackup();
@@ -1021,24 +904,6 @@ initLeadControlPage();
 function renderAll() {
   const allLeads = getAllLeads();
   normalizeLeadFields(allLeads);
-
-  if (deleteImportedFileSelect) {
-    const importedFileNames = [...new Set(allLeads.flatMap((lead) => getLeadImportSourceFiles(lead)))].sort((left, right) => left.localeCompare(right));
-    const currentValue = deleteImportedFileSelect.value;
-
-    deleteImportedFileSelect.innerHTML = importedFileNames.length
-      ? [`<option value="">Select imported file</option>`, ...importedFileNames.map((fileName) => `<option value="${escapeHtml(fileName)}">${escapeHtml(fileName)}</option>`)].join("")
-      : `<option value="">No imported files found</option>`;
-
-    if (importedFileNames.includes(currentValue)) {
-      deleteImportedFileSelect.value = currentValue;
-    }
-
-    if (deleteImportedFileBtn) {
-      deleteImportedFileBtn.disabled = !importedFileNames.length;
-    }
-  }
-
 }
 
 renderAll();
