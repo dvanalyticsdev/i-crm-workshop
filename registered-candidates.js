@@ -1058,9 +1058,9 @@ function renderFilters(leads) {
           </select>
         </div>
         <div class="filter-item">
-          <label for="registeredActivityStatusSelect">Activity Status</label>
+          <label for="registeredActivityStatusSelect">Untouched Leads</label>
           <select id="registeredActivityStatusSelect">
-            <option value="">All</option>
+            <option value="">Use Filter</option>
             <option value="Untouched" ${filter.activityStatus === "Untouched" ? "selected" : ""}>Untouched</option>
             <option value="Updated" ${filter.activityStatus === "Updated" ? "selected" : ""}>Updated</option>
           </select>
