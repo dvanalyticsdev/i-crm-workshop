@@ -2260,32 +2260,6 @@ tbody tr:hover {
   max-width: 28ch;
 }
 
-.permission-preview {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: var(--space-2);
-}
-
-.permission-preview__chip,
-.permission-preview__more {
-  display: inline-flex;
-  align-items: center;
-  min-height: 32px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--surface) 90%, var(--surface-muted));
-  color: var(--text-muted);
-  font-size: 0.8rem;
-  font-weight: 600;
-  line-height: 1;
-}
-
-.permission-preview__more {
-  border-style: dashed;
-}
-
 .management-card-head {
   display: flex;
   align-items: flex-start;

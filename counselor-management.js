@@ -924,20 +924,6 @@ function getEnabledPermissionLabels(role, permissions) {
     .map((option) => option.label);
 }
 
-function renderFallbackPreview(role) {
-  const fallbackPermissions = getRoleConfig(role).fallback;
-  const labels = getEnabledPermissionLabels(role, fallbackPermissions);
-  const previewItems = labels.slice(0, 4);
-  const remainingCount = Math.max(0, labels.length - previewItems.length);
-
-  return `
-    <div class="permission-preview">
-      ${previewItems.map((label) => `<span class="permission-preview__chip">${escapeHtml(label)}</span>`).join("")}
-      ${remainingCount ? `<span class="permission-preview__more">+${remainingCount} more</span>` : ""}
-    </div>
-  `;
-}
-
 function renderPermissionPanelSummary(role, user) {
   if (!permissionPanelSummary) {
     return;
@@ -961,7 +947,6 @@ function renderPermissionPanelSummary(role, user) {
           ["Fallback Pages", fallbackCount ? `${fallbackCount} pages` : "No fallback access"]
         ])}
       </dl>
-      ${renderFallbackPreview(role)}
     </section>
   `;
 }
@@ -986,7 +971,6 @@ function renderEveryonePermissionPanelSummary(role, accounts) {
           ["Fallback Pages", fallbackCount ? `${fallbackCount} pages` : "No fallback access"]
         ])}
       </dl>
-      ${renderFallbackPreview(role)}
     </section>
   `;
 }
