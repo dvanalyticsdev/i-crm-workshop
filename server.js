@@ -9837,9 +9837,10 @@ app.get("/api/admin/lsq-archive", async (req, res) => {
     const session = await requireSuperAdmin(req, res);
     if (!session) return;
 
-    const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
-    const rows = await lsqArchiveCollection.find({}).limit(limit).toArray();
-    return res.json({ ok: true, rows: normalizeArchivedLeadDocs(rows) });
+    const limit = Math.min(Math.max(Number(req.query.limit) || 1000, 1), 10000);
+    const rows = await lsqArchiveCollection.find({}).sort({ _id: -1 }).limit(limit).toArray();
+    const totalCount = await lsqArchiveCollection.countDocuments({});
+    return res.json({ ok: true, totalCount, rows: normalizeArchivedLeadDocs(rows) });
   } catch (error) {
     return res.status(500).json({ message: "Failed to fetch LSQ archive leads", details: error.message });
   }
@@ -9869,11 +9870,13 @@ app.get("/api/lost-leads/archive", async (req, res) => {
     if (!session) return;
 
     const syncResult = await syncStaleLostLeadsToArchive();
-    const limit = Math.min(Math.max(Number(req.query.limit) || 500, 1), 2000);
-    const rows = await lsqArchiveCollection.find({}).limit(limit).toArray();
+    const limit = Math.min(Math.max(Number(req.query.limit) || 5000, 1), 10000);
+    const rows = await lsqArchiveCollection.find({}).sort({ _id: -1 }).limit(limit).toArray();
+    const totalCount = await lsqArchiveCollection.countDocuments({});
     const response = {
       ok: true,
       movedCount: Number(syncResult?.movedCount) || 0,
+      totalCount,
       rows: normalizeArchivedLeadDocs(rows)
     };
 

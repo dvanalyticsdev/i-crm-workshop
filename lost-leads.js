@@ -25,6 +25,7 @@ const PAGE_SIZE = 100;
 
 let searchQuery = String(await loadLocalPreference(SEARCH_STORAGE_KEY, "") || "");
 let archivedLeads = [];
+let archivedLeadTotalCount = 0;
 let activeSubsection = "lost";
 let lostPage = 1;
 let archivedPage = 1;
@@ -336,6 +337,7 @@ async function deleteArchivedLead(archiveId, leadName = "") {
     }
 
     archivedLeads = archivedLeads.filter((lead) => String(lead?._id || "") !== String(archiveId || ""));
+    archivedLeadTotalCount = Math.max(0, archivedLeadTotalCount - 1);
     renderAll();
   } catch (error) {
     window.alert(error?.name === "AbortError"
@@ -433,6 +435,9 @@ async function deleteAllArchivedLeads() {
     archivedLeads = deletedCourseName === "all"
       ? []
       : archivedLeads.filter((lead) => String(lead?.courseName || "").trim() !== deletedCourseName);
+    archivedLeadTotalCount = deletedCourseName === "all"
+      ? 0
+      : Math.max(0, archivedLeadTotalCount - (Number(json?.deletedCount) || 0));
     archivedPage = 1;
     renderAll();
   } catch (error) {
@@ -495,17 +500,19 @@ function getLostProgramName(lead) {
 async function refreshArchivedLeads() {
   if (!archivedLeadTableSection || !canViewArchivedLeads()) {
     archivedLeads = [];
+    archivedLeadTotalCount = 0;
     return;
   }
 
   try {
-    const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/lost-leads/archive?limit=1000"), {
+    const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/lost-leads/archive?limit=10000"), {
       method: "GET",
       headers: { Accept: "application/json" }
     }, 15000);
 
     if (!response.ok || !json?.ok) {
       archivedLeads = [];
+      archivedLeadTotalCount = 0;
       return;
     }
 
@@ -514,8 +521,12 @@ async function refreshArchivedLeads() {
     }
 
     archivedLeads = Array.isArray(json?.rows) ? json.rows : [];
+    archivedLeadTotalCount = Number.isFinite(Number(json?.totalCount))
+      ? Number(json.totalCount)
+      : archivedLeads.length;
   } catch {
     archivedLeads = [];
+    archivedLeadTotalCount = 0;
   }
 }
 
@@ -527,7 +538,7 @@ function renderKpi(lostLeads, archivedRows) {
     </article>
     <article class="card kpi-card">
       <p>Archived Leads</p>
-      <h2>${archivedRows.length}</h2>
+      <h2>${archivedLeadTotalCount}</h2>
     </article>
   `;
 }
