@@ -29,6 +29,7 @@ let activeSubsection = "lost";
 let lostPage = 1;
 let archivedPage = 1;
 let selectedCourseFilter = "all";
+let bulkDeleteInFlight = false;
 
 if (lostSearchInput) {
   lostSearchInput.value = searchQuery;
@@ -209,6 +210,25 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 8000) {
   }
 }
 
+function notifyDeletePermissionDenied() {
+  window.alert("Only super admin can delete lost or archived leads.");
+}
+
+function setBulkDeleteButtonState(isBusy) {
+  [deleteAllLostLeadsBtn, deleteAllArchivedLeadsBtn].forEach((button) => {
+    if (!button) {
+      return;
+    }
+
+    if (!button.dataset.defaultLabel) {
+      button.dataset.defaultLabel = button.textContent || "";
+    }
+
+    button.disabled = isBusy;
+    button.textContent = isBusy ? "Deleting..." : button.dataset.defaultLabel;
+  });
+}
+
 async function restoreLead(leadId) {
   const allLeads = getAllLeads();
   const index = allLeads.findIndex((lead) => String(lead.id) === String(leadId));
@@ -260,6 +280,7 @@ async function restoreLead(leadId) {
 
 async function deleteLostLead(leadId, leadName = "") {
   if (!isSuperAdminSession()) {
+    notifyDeletePermissionDenied();
     return;
   }
 
@@ -268,25 +289,33 @@ async function deleteLostLead(leadId, leadName = "") {
     return;
   }
 
-  const { response, json } = await fetchJsonWithTimeout(apiUrl(`/api/lost-leads/${encodeURIComponent(String(leadId || "").trim())}`), {
-    method: "DELETE",
-    headers: { Accept: "application/json" }
-  }, 15000);
+  try {
+    const { response, json } = await fetchJsonWithTimeout(apiUrl(`/api/lost-leads/${encodeURIComponent(String(leadId || "").trim())}`), {
+      method: "DELETE",
+      headers: { Accept: "application/json" }
+    }, 15000);
 
-  if (!response.ok || !json?.ok) {
-    window.alert(json?.message || "Failed to delete lost lead.");
-    return;
+    if (!response.ok || !json?.ok) {
+      window.alert(json?.message || "Failed to delete lost lead.");
+      return;
+    }
+
+    if (json?.state) {
+      acceptServerState(json.state, response.headers.get("etag"));
+    }
+
+    await refreshArchivedLeads();
+    renderAll();
+  } catch (error) {
+    window.alert(error?.name === "AbortError"
+      ? "Deleting the lost lead timed out. Please try again."
+      : "Could not delete the lost lead. Please check your connection and try again.");
   }
-
-  if (json?.state) {
-    acceptServerState(json.state, response.headers.get("etag"));
-  }
-
-  renderAll();
 }
 
 async function deleteArchivedLead(archiveId, leadName = "") {
   if (!isSuperAdminSession()) {
+    notifyDeletePermissionDenied();
     return;
   }
 
@@ -295,22 +324,33 @@ async function deleteArchivedLead(archiveId, leadName = "") {
     return;
   }
 
-  const { response, json } = await fetchJsonWithTimeout(apiUrl(`/api/lost-leads/archive/${encodeURIComponent(String(archiveId || "").trim())}`), {
-    method: "DELETE",
-    headers: { Accept: "application/json" }
-  }, 15000);
+  try {
+    const { response, json } = await fetchJsonWithTimeout(apiUrl(`/api/lost-leads/archive/${encodeURIComponent(String(archiveId || "").trim())}`), {
+      method: "DELETE",
+      headers: { Accept: "application/json" }
+    }, 15000);
 
-  if (!response.ok || !json?.ok) {
-    window.alert(json?.message || "Failed to delete archived lead.");
-    return;
+    if (!response.ok || !json?.ok) {
+      window.alert(json?.message || "Failed to delete archived lead.");
+      return;
+    }
+
+    archivedLeads = archivedLeads.filter((lead) => String(lead?._id || "") !== String(archiveId || ""));
+    renderAll();
+  } catch (error) {
+    window.alert(error?.name === "AbortError"
+      ? "Deleting the archived lead timed out. Please try again."
+      : "Could not delete the archived lead. Please check your connection and try again.");
   }
-
-  archivedLeads = archivedLeads.filter((lead) => String(lead?._id || "") !== String(archiveId || ""));
-  renderAll();
 }
 
 async function deleteAllLostLeads() {
   if (!isSuperAdminSession()) {
+    notifyDeletePermissionDenied();
+    return;
+  }
+
+  if (bulkDeleteInFlight) {
     return;
   }
 
@@ -323,27 +363,45 @@ async function deleteAllLostLeads() {
     return;
   }
 
-  const query = courseName === "all" ? "" : `?courseName=${encodeURIComponent(courseName)}`;
-  const { response, json } = await fetchJsonWithTimeout(apiUrl(`/api/lost-leads${query}`), {
-    method: "DELETE",
-    headers: { Accept: "application/json" }
-  }, 20000);
+  bulkDeleteInFlight = true;
+  setBulkDeleteButtonState(true);
 
-  if (!response.ok || !json?.ok) {
-    window.alert(json?.message || "Failed to delete lost leads.");
-    return;
+  try {
+    const query = courseName === "all" ? "" : `?courseName=${encodeURIComponent(courseName)}`;
+    const { response, json } = await fetchJsonWithTimeout(apiUrl(`/api/lost-leads${query}`), {
+      method: "DELETE",
+      headers: { Accept: "application/json" }
+    }, 20000);
+
+    if (!response.ok || !json?.ok) {
+      window.alert(json?.message || "Failed to delete lost leads.");
+      return;
+    }
+
+    if (json?.state) {
+      acceptServerState(json.state, response.headers.get("etag"));
+    }
+
+    await refreshArchivedLeads();
+    lostPage = 1;
+    renderAll();
+  } catch (error) {
+    window.alert(error?.name === "AbortError"
+      ? "Deleting lost leads timed out. Please try again."
+      : "Could not delete lost leads. Please check your connection and try again.");
+  } finally {
+    bulkDeleteInFlight = false;
+    setBulkDeleteButtonState(false);
   }
-
-  if (json?.state) {
-    acceptServerState(json.state, response.headers.get("etag"));
-  }
-
-  lostPage = 1;
-  renderAll();
 }
 
 async function deleteAllArchivedLeads() {
   if (!isSuperAdminSession()) {
+    notifyDeletePermissionDenied();
+    return;
+  }
+
+  if (bulkDeleteInFlight) {
     return;
   }
 
@@ -356,23 +414,35 @@ async function deleteAllArchivedLeads() {
     return;
   }
 
-  const query = courseName === "all" ? "" : `?courseName=${encodeURIComponent(courseName)}`;
-  const { response, json } = await fetchJsonWithTimeout(apiUrl(`/api/lost-leads/archive${query}`), {
-    method: "DELETE",
-    headers: { Accept: "application/json" }
-  }, 20000);
+  bulkDeleteInFlight = true;
+  setBulkDeleteButtonState(true);
 
-  if (!response.ok || !json?.ok) {
-    window.alert(json?.message || "Failed to delete archived leads.");
-    return;
+  try {
+    const query = courseName === "all" ? "" : `?courseName=${encodeURIComponent(courseName)}`;
+    const { response, json } = await fetchJsonWithTimeout(apiUrl(`/api/lost-leads/archive${query}`), {
+      method: "DELETE",
+      headers: { Accept: "application/json" }
+    }, 20000);
+
+    if (!response.ok || !json?.ok) {
+      window.alert(json?.message || "Failed to delete archived leads.");
+      return;
+    }
+
+    const deletedCourseName = normalizeCourseFilterValue(courseName);
+    archivedLeads = deletedCourseName === "all"
+      ? []
+      : archivedLeads.filter((lead) => String(lead?.courseName || "").trim() !== deletedCourseName);
+    archivedPage = 1;
+    renderAll();
+  } catch (error) {
+    window.alert(error?.name === "AbortError"
+      ? "Deleting archived leads timed out. Please try again."
+      : "Could not delete archived leads. Please check your connection and try again.");
+  } finally {
+    bulkDeleteInFlight = false;
+    setBulkDeleteButtonState(false);
   }
-
-  const deletedCourseName = normalizeCourseFilterValue(courseName);
-  archivedLeads = deletedCourseName === "all"
-    ? []
-    : archivedLeads.filter((lead) => String(lead?.courseName || "").trim() !== deletedCourseName);
-  archivedPage = 1;
-  renderAll();
 }
 
 function isLostLead(lead) {
