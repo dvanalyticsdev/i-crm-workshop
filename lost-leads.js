@@ -38,6 +38,10 @@ function canViewArchivedLeads() {
   return !isCounselorSession();
 }
 
+function isSuperAdminSession() {
+  return session?.role === "super_admin";
+}
+
 function getCounselorIdentity() {
   if (!isCounselorSession()) {
     return "";
@@ -239,6 +243,57 @@ async function restoreLead(leadId) {
   renderAll();
 }
 
+async function deleteLostLead(leadId, leadName = "") {
+  if (!isSuperAdminSession()) {
+    return;
+  }
+
+  const confirmed = window.confirm(`Delete ${leadName || "this lost lead"} permanently? This cannot be undone.`);
+  if (!confirmed) {
+    return;
+  }
+
+  const { response, json } = await fetchJsonWithTimeout(apiUrl(`/api/lost-leads/${encodeURIComponent(String(leadId || "").trim())}`), {
+    method: "DELETE",
+    headers: { Accept: "application/json" }
+  }, 15000);
+
+  if (!response.ok || !json?.ok) {
+    window.alert(json?.message || "Failed to delete lost lead.");
+    return;
+  }
+
+  if (json?.state) {
+    acceptServerState(json.state, response.headers.get("etag"));
+  }
+
+  renderAll();
+}
+
+async function deleteArchivedLead(archiveId, leadName = "") {
+  if (!isSuperAdminSession()) {
+    return;
+  }
+
+  const confirmed = window.confirm(`Delete ${leadName || "this archived lead"} permanently? This cannot be undone.`);
+  if (!confirmed) {
+    return;
+  }
+
+  const { response, json } = await fetchJsonWithTimeout(apiUrl(`/api/lost-leads/archive/${encodeURIComponent(String(archiveId || "").trim())}`), {
+    method: "DELETE",
+    headers: { Accept: "application/json" }
+  }, 15000);
+
+  if (!response.ok || !json?.ok) {
+    window.alert(json?.message || "Failed to delete archived lead.");
+    return;
+  }
+
+  archivedLeads = archivedLeads.filter((lead) => String(lead?._id || "") !== String(archiveId || ""));
+  renderAll();
+}
+
 function isLostLead(lead) {
   const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
 
@@ -401,6 +456,7 @@ function renderPagination(container, pageData, sectionKey) {
 
 function renderLostTable(lostLeads) {
   const isAdmin = session?.role === "admin" || session?.role === "super_admin";
+  const isSuperAdmin = isSuperAdminSession();
   const pageData = getPageSlice(lostLeads, lostPage);
   lostPage = pageData.page;
   let html = `
@@ -439,6 +495,7 @@ function renderLostTable(lostLeads) {
           <div class="activity-panel">
             <button class="btn-ghost btn-activity-history" type="button" data-lead-id="${escapeHtml(lead.id)}" data-lead-email="${escapeHtml(lead.email)}" data-lead-name="${escapeHtml(lead.name)}">Activity History</button>
             ${isAdmin ? `<button class="btn-ghost btn-restore-lead" type="button" data-lead-id="${lead.id}">Restore</button>` : ""}
+            ${isSuperAdmin ? `<button class="btn-delete btn-delete-lost-lead" type="button" data-lead-id="${escapeHtml(lead.id)}" data-lead-name="${escapeHtml(lead.name)}">Delete</button>` : ""}
           </div>
         </td>
       </tr>
@@ -475,6 +532,18 @@ function renderLostTable(lostLeads) {
       };
     });
   }
+
+  if (isSuperAdmin) {
+    document.querySelectorAll(".btn-delete-lost-lead").forEach((button) => {
+      button.onclick = () => {
+        const leadId = button.getAttribute("data-lead-id");
+        const leadName = button.getAttribute("data-lead-name") || "";
+        if (leadId) {
+          void deleteLostLead(leadId, leadName);
+        }
+      };
+    });
+  }
 }
 
 function renderArchivedTable(rows) {
@@ -493,13 +562,14 @@ function renderArchivedTable(rows) {
             <th>Phone Number</th>
             <th>Email</th>
             <th>Course Name</th>
+            ${isSuperAdminSession() ? "<th>Actions</th>" : ""}
           </tr>
         </thead>
         <tbody>
   `;
 
   if (!pageData.rows.length) {
-    html += `<tr><td colspan="4">No archived leads found.</td></tr>`;
+    html += `<tr><td colspan="${isSuperAdminSession() ? "5" : "4"}">No archived leads found.</td></tr>`;
   } else {
     html += pageData.rows.map((lead) => `
       <tr>
@@ -507,6 +577,7 @@ function renderArchivedTable(rows) {
         <td>${escapeHtml(lead.phone || "-")}</td>
         <td>${escapeHtml(lead.email || "-")}</td>
         <td>${escapeHtml(lead.courseName || "-")}</td>
+        ${isSuperAdminSession() ? `<td><button type="button" class="btn-delete btn-delete-archived-lead" data-archive-id="${escapeHtml(lead._id || "")}" data-lead-name="${escapeHtml(lead.name || "")}">Delete</button></td>` : ""}
       </tr>
     `).join("");
   }
@@ -514,6 +585,18 @@ function renderArchivedTable(rows) {
   html += `</tbody></table></div>`;
   archivedLeadTableSection.innerHTML = html;
   renderPagination(archivedLeadPagination, pageData, "archived");
+
+  if (isSuperAdminSession()) {
+    archivedLeadTableSection.querySelectorAll(".btn-delete-archived-lead").forEach((button) => {
+      button.onclick = () => {
+        const archiveId = button.getAttribute("data-archive-id");
+        const leadName = button.getAttribute("data-lead-name") || "";
+        if (archiveId) {
+          void deleteArchivedLead(archiveId, leadName);
+        }
+      };
+    });
+  }
 }
 
 function renderAll() {

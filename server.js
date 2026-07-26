@@ -1364,13 +1364,27 @@ function buildLsqArchiveDoc(record = {}, reason = "", existingLead = null) {
   };
 }
 
+function normalizeArchivedCourseName(value = "") {
+  const rawCourseName = String(value || "").trim();
+  if (!rawCourseName) {
+    return "";
+  }
+
+  const courseIdentity = buildCourseIdentity(rawCourseName, {
+    courseName: rawCourseName,
+    courseRawName: rawCourseName
+  });
+  const normalizedCourseName = getAdmissionRoutingCourseName(rawCourseName, courseIdentity);
+  return String(normalizedCourseName || rawCourseName).trim();
+}
+
 function normalizeArchivedLeadDoc(doc = {}) {
   return {
     _id: String(doc?._id || `archived-lead-${crypto.randomUUID()}`),
     name: String(doc?.name || "").trim(),
     email: String(doc?.email || "").trim().toLowerCase(),
     phone: String(doc?.phone || "").trim(),
-    courseName: String(doc?.courseName || "").trim()
+    courseName: normalizeArchivedCourseName(doc?.courseName)
   };
 }
 
@@ -9871,6 +9885,50 @@ app.get("/api/lost-leads/archive", async (req, res) => {
     return res.json(response);
   } catch (error) {
     return res.status(500).json({ message: "Failed to load archived leads", details: error.message });
+  }
+});
+
+app.delete("/api/lost-leads/archive/:archiveId", async (req, res) => {
+  try {
+    const session = await requireSuperAdmin(req, res);
+    if (!session) return;
+
+    const archiveId = String(req.params.archiveId || "").trim();
+    if (!archiveId) {
+      return res.status(400).json({ message: "Archive id is required." });
+    }
+
+    const result = await lsqArchiveCollection.deleteOne({ _id: archiveId });
+    return res.json({
+      ok: true,
+      deletedCount: Number(result?.deletedCount) || 0
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to delete archived lead", details: error.message });
+  }
+});
+
+app.delete("/api/lost-leads/:leadId", async (req, res) => {
+  try {
+    const session = await requireSuperAdmin(req, res);
+    if (!session) return;
+
+    const leadId = String(req.params.leadId || "").trim();
+    if (!leadId) {
+      return res.status(400).json({ message: "Lead id is required." });
+    }
+
+    const result = await leadsCollection.deleteOne({ id: leadId });
+    await touchStateUpdatedAt();
+    const nextState = await refreshStateAfterAtomicUpdate();
+    res.setHeader("ETag", buildStateEtag(nextState));
+    return res.json({
+      ok: true,
+      deletedCount: Number(result?.deletedCount) || 0,
+      state: buildStateResponse(nextState)
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to delete lost lead", details: error.message });
   }
 });
 
