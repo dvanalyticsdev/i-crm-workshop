@@ -27,6 +27,7 @@ const MONGODB_MCUBE_RETRY_COLLECTION = process.env.MONGODB_MCUBE_RETRY_COLLECTIO
 const MONGODB_REACHOUT_CONFIG_COLLECTION = process.env.MONGODB_REACHOUT_CONFIG_COLLECTION || "reachout_config";
 const MONGODB_REACHOUT_LOGS_COLLECTION = process.env.MONGODB_REACHOUT_LOGS_COLLECTION || "reachout_logs";
 const MONGODB_REACHOUT_MEDIA_COLLECTION = process.env.MONGODB_REACHOUT_MEDIA_COLLECTION || "reachout_media";
+const MONGODB_LSQ_ARCHIVE_COLLECTION = process.env.MONGODB_LSQ_ARCHIVE_COLLECTION || "lsq_archive_leads";
 const META_WEBHOOK_FORWARD_URL = String(process.env.META_WEBHOOK_FORWARD_URL || "").trim();
 const ADMIN_LOGIN_ID = String(process.env.ADMIN_LOGIN_ID || "").trim();
 const ADMIN_LOGIN_PASSWORD = String(process.env.ADMIN_LOGIN_PASSWORD || "").trim();
@@ -302,6 +303,7 @@ let notificationsCollection;
 let activityLogsCollection;
 let leadClaimsCollection;
 let leadCreationRequestsCollection;
+let lsqArchiveCollection;
 
 function logNotificationDebug(message, extra) {
   const payload = extra === undefined ? "" : ` ${JSON.stringify(extra)}`;
@@ -780,7 +782,8 @@ async function buildBackupPayload() {
     elementorRetryJobs,
     mcubeConfig,
     mcubeLogs,
-    mcubeRetryJobs
+    mcubeRetryJobs,
+    lsqArchiveLeads
   ] = await Promise.all([
     getStateDoc(),
     preferenceCollection.find({}).toArray(),
@@ -792,7 +795,8 @@ async function buildBackupPayload() {
     elementorRetryCollection.find({}).sort({ createdAt: 1 }).toArray(),
     mcubeConfigCollection.findOne({ _id: MCUBE_CONFIG_DOC_ID }),
     mcubeLogsCollection.find({}).sort({ receivedAt: 1 }).toArray(),
-    mcubeRetryCollection.find({}).sort({ createdAt: 1 }).toArray()
+    mcubeRetryCollection.find({}).sort({ createdAt: 1 }).toArray(),
+    lsqArchiveCollection.find({}).sort({ importedAt: -1 }).toArray()
   ]);
 
   const stateDoc = normalizeStateDoc(state);
@@ -812,7 +816,8 @@ async function buildBackupPayload() {
       elementorRetryCollection: MONGODB_ELEMENTOR_RETRY_COLLECTION,
       mcubeConfigCollection: MONGODB_MCUBE_CONFIG_COLLECTION,
       mcubeLogsCollection: MONGODB_MCUBE_LOGS_COLLECTION,
-      mcubeRetryCollection: MONGODB_MCUBE_RETRY_COLLECTION
+      mcubeRetryCollection: MONGODB_MCUBE_RETRY_COLLECTION,
+      lsqArchiveCollection: MONGODB_LSQ_ARCHIVE_COLLECTION
     },
     summary: {
       leads: stateDoc.leads.length,
@@ -826,7 +831,8 @@ async function buildBackupPayload() {
       elementorLogs: elementorLogs.length,
       elementorRetryJobs: elementorRetryJobs.length,
       mcubeLogs: mcubeLogs.length,
-      mcubeRetryJobs: mcubeRetryJobs.length
+      mcubeRetryJobs: mcubeRetryJobs.length,
+      lsqArchiveLeads: lsqArchiveLeads.length
     },
     snapshot: {
       state: stateDoc,
@@ -839,7 +845,8 @@ async function buildBackupPayload() {
       elementorRetryJobs: normalizeBackupDocArray(elementorRetryJobs),
       mcubeConfig: mcubeConfig ? normalizeBackupDoc(mcubeConfig, MCUBE_CONFIG_DOC_ID) : null,
       mcubeLogs: normalizeBackupDocArray(mcubeLogs),
-      mcubeRetryJobs: normalizeBackupDocArray(mcubeRetryJobs)
+      mcubeRetryJobs: normalizeBackupDocArray(mcubeRetryJobs),
+      lsqArchiveLeads: normalizeBackupDocArray(lsqArchiveLeads)
     }
   };
 
@@ -877,6 +884,7 @@ function validateBackupPayload(payload = {}) {
   const elementorRetryJobs = normalizeBackupDocArray(snapshot.elementorRetryJobs);
   const mcubeLogs = normalizeBackupDocArray(snapshot.mcubeLogs);
   const mcubeRetryJobs = normalizeBackupDocArray(snapshot.mcubeRetryJobs);
+  const lsqArchiveLeads = normalizeBackupDocArray(snapshot.lsqArchiveLeads);
   const metaConfig = snapshot.metaConfig
     ? normalizeBackupDoc(snapshot.metaConfig, META_CONFIG_DOC_ID)
     : null;
@@ -900,8 +908,351 @@ function validateBackupPayload(payload = {}) {
       elementorRetryJobs,
       mcubeConfig,
       mcubeLogs,
-      mcubeRetryJobs
+      mcubeRetryJobs,
+      lsqArchiveLeads
     }
+  };
+}
+
+function normalizeLsqValue(value) {
+  return String(value ?? "").trim();
+}
+
+function normalizeLsqPhone(value) {
+  return normalizeLsqValue(value).replace(/\D+/g, "");
+}
+
+function parseLsqDateTime(value) {
+  const raw = normalizeLsqValue(value);
+  if (!raw) {
+    return null;
+  }
+
+  const isoMs = Date.parse(raw);
+  if (Number.isFinite(isoMs)) {
+    return new Date(isoMs).toISOString();
+  }
+
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{1,2}):(\d{2}):(\d{2})\s*([AP]M)$/i);
+  if (!match) {
+    return null;
+  }
+
+  let [, year, month, day, hour, minute, second, meridian] = match;
+  let normalizedHour = Number(hour) % 12;
+  if (String(meridian).toUpperCase() === "PM") {
+    normalizedHour += 12;
+  }
+
+  return new Date(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    normalizedHour,
+    Number(minute),
+    Number(second)
+  ).toISOString();
+}
+
+function getLsqFirstValue(row = {}, keys = []) {
+  for (const key of keys) {
+    const value = normalizeLsqValue(row?.[key]);
+    if (value) {
+      return value;
+    }
+  }
+  return "";
+}
+
+function normalizeLsqToken(value) {
+  return normalizeLsqValue(value).toLowerCase().replace(/[_-]+/g, " ");
+}
+
+function buildLsqSourceSnapshot(row = {}) {
+  return {
+    prospectId: normalizeLsqValue(row["Prospect ID"]),
+    leadNumber: normalizeLsqValue(row["Lead Number"]),
+    owner: normalizeLsqValue(row.Owner),
+    ownerEmail: normalizeLsqValue(row["Owner Email"]).toLowerCase(),
+    leadStage: normalizeLsqValue(row["Lead Stage"]),
+    leadOutcome: normalizeLsqValue(row["Lead outcome"]),
+    outcome: normalizeLsqValue(row.Outcome),
+    subStatus: normalizeLsqValue(row["Sub Status"]),
+    offeredAt: normalizeLsqValue(row["Offered At"]),
+    tasksOn: normalizeLsqValue(row["Tasks on"]),
+    taskNature: normalizeLsqValue(row["Task Nature"]),
+    taskType: normalizeLsqValue(row["Task Type"]),
+    lastActivity: normalizeLsqValue(row["Last Activity"]),
+    lastActivityDate: parseLsqDateTime(row["Last Activity Date"]),
+    recentlyModifiedOn: parseLsqDateTime(row["Recently Modified On"]),
+    modifiedOn: parseLsqDateTime(row["Modified On"]),
+    createdOn: parseLsqDateTime(row["Created On"]),
+    program: getLsqFirstValue(row, ["Program", "Course"]),
+    leadStageChangedTo: normalizeLsqValue(row["Lead Stage Changed To"])
+  };
+}
+
+function recordMatchesLsqCounselorFilter(record = {}, counselorFilter = "all") {
+  const normalizedFilter = normalizeLsqValue(counselorFilter).toLowerCase();
+  if (!normalizedFilter || normalizedFilter === "all") {
+    return true;
+  }
+
+  const ownerEmail = normalizeLsqValue(record?.sourceSnapshot?.ownerEmail).toLowerCase();
+  const ownerName = normalizeLsqValue(record?.sourceSnapshot?.owner).toLowerCase();
+  return ownerEmail === normalizedFilter || ownerName === normalizedFilter;
+}
+
+function recordMatchesLsqStageFilter(record = {}, stageFilter = "all") {
+  const normalizedFilter = normalizeLsqValue(stageFilter).toLowerCase();
+  if (!normalizedFilter || normalizedFilter === "all") {
+    return true;
+  }
+
+  const leadStage = normalizeLsqValue(record?.sourceSnapshot?.leadStage).toLowerCase();
+  return leadStage === normalizedFilter;
+}
+
+function mapLsqAdmissionStatus(row = {}) {
+  const tokens = [
+    row["Lead Stage"],
+    row["Lead outcome"],
+    row.Outcome,
+    row["Sub Status"],
+    row["Last Activity"],
+    row["Task Type"]
+  ].map(normalizeLsqToken).filter(Boolean).join(" | ");
+
+  if (!tokens) {
+    return "";
+  }
+  if (tokens.includes("offered")) {
+    return "Offered";
+  }
+  if (tokens.includes("opportunity")) {
+    return "Opportunity";
+  }
+  if (tokens.includes("enrolled")) {
+    return "Enrolled";
+  }
+  if (tokens.includes("won") || tokens.includes("joined")) {
+    return "Won";
+  }
+  if (
+    tokens.includes("interested")
+    || tokens.includes("shared details")
+    || tokens.includes("lead called")
+    || tokens.includes("phone call")
+    || tokens.includes("follow up")
+    || tokens.includes("in conversation")
+  ) {
+    return "In-Conversation";
+  }
+  return "";
+}
+
+function mapLsqCourseStatus(row = {}) {
+  const tokens = [
+    row["Lead Stage"],
+    row["Lead outcome"],
+    row.Outcome,
+    row["Sub Status"]
+  ].map(normalizeLsqToken).filter(Boolean).join(" | ");
+
+  if (!tokens) {
+    return "";
+  }
+  if (
+    tokens.includes("dnp")
+    || tokens.includes("no response")
+    || tokens.includes("not interested")
+    || tokens.includes("not shared details")
+    || tokens.includes("rejected")
+    || tokens.includes("lost")
+  ) {
+    return "Not Interested";
+  }
+  if (
+    tokens.includes("interested")
+    || tokens.includes("shared details")
+    || tokens.includes("opportunity")
+    || tokens.includes("offered")
+    || tokens.includes("enrolled")
+    || tokens.includes("won")
+  ) {
+    return "Interested";
+  }
+  return "";
+}
+
+function buildLsqNormalizedRecord(row = {}, sourceFileName = "") {
+  const firstName = normalizeLsqValue(row["First Name"]);
+  const lastName = normalizeLsqValue(row["Last Name"]);
+  const name = getLsqFirstValue(row, ["Lead Name"]) || [firstName, lastName].filter(Boolean).join(" ");
+  const sourceSnapshot = buildLsqSourceSnapshot(row);
+  const updatedAt = sourceSnapshot.lastActivityDate
+    || sourceSnapshot.recentlyModifiedOn
+    || sourceSnapshot.modifiedOn
+    || sourceSnapshot.createdOn
+    || new Date().toISOString();
+
+  return {
+    name,
+    email: normalizeLsqValue(row.Email).toLowerCase(),
+    phone: normalizeLsqPhone(getLsqFirstValue(row, ["Phone Number", "Mobile Number", "Whatsapp Number"])),
+    courseName: sourceSnapshot.program,
+    sourceFileName: normalizeLsqValue(sourceFileName),
+    city: normalizeLsqValue(row.City),
+    state: normalizeLsqValue(row.State),
+    country: normalizeLsqValue(row.Country),
+    callStatus: getLsqFirstValue(row, ["Task Type", "Task Nature", "Last Activity"]),
+    admissionStatus: mapLsqAdmissionStatus(row),
+    courseStatus: mapLsqCourseStatus(row),
+    dialed: /phone call|call/i.test(
+      [row["Last Activity"], row["Task Type"], row["Task Nature"]].map(normalizeLsqValue).join(" ")
+    ) ? "Yes" : "",
+    updatedAt,
+    sourceSnapshot
+  };
+}
+
+function isLsqClosedOrOutOfScope(record = {}) {
+  const statusToken = normalizeLsqToken(record.admissionStatus || record.sourceSnapshot?.leadStage || "");
+  const courseToken = normalizeLsqToken(record.courseStatus);
+  const rawToken = [
+    record.sourceSnapshot?.leadOutcome,
+    record.sourceSnapshot?.outcome,
+    record.sourceSnapshot?.subStatus,
+    record.sourceSnapshot?.leadStage
+  ].map(normalizeLsqToken).join(" | ");
+
+  return statusToken.includes("lost")
+    || statusToken.includes("rejected")
+    || statusToken.includes("closed")
+    || courseToken.includes("not interested")
+    || rawToken.includes("dnp")
+    || rawToken.includes("no response")
+    || rawToken.includes("not shared details")
+    || rawToken.includes("rejected")
+    || rawToken.includes("lost");
+}
+
+function evaluateLsqSop(existingLead, record = {}) {
+  if (!record.email && !record.phone) {
+    return { inSop: false, reason: "Missing email and phone in LSQ row." };
+  }
+  if (!existingLead) {
+    return { inSop: false, reason: "No matching CRM lead found for this LSQ row." };
+  }
+  if (isLsqClosedOrOutOfScope(record)) {
+    return { inSop: false, reason: "Lead is closed, rejected, lost, or not interested in LSQ." };
+  }
+
+  const progressAt = Date.parse(record.updatedAt || "");
+  if (!Number.isFinite(progressAt)) {
+    return { inSop: true, reason: "" };
+  }
+
+  const now = Date.now();
+  const normalizedAdmissionStatus = normalizeLsqToken(record.admissionStatus);
+  const windowDays = normalizedAdmissionStatus === "opportunity" || normalizedAdmissionStatus === "offered"
+    ? ADMISSION_SOP_OFFERED_WINDOW_DAYS
+    : ADMISSION_SOP_ACTIVE_WINDOW_DAYS;
+
+  if (now - progressAt > windowDays * 24 * 60 * 60 * 1000) {
+    return { inSop: false, reason: `Lead is outside the ${windowDays}-day SOP activity window.` };
+  }
+
+  return { inSop: true, reason: "" };
+}
+
+function getLsqLeadStageConfig() {
+  return {
+    dialedField: "mainAdmissionDialed",
+    courseField: "mainAdmissionCoursePitched",
+    courseStatusField: "mainAdmissionCourseStatus",
+    admissionStatusField: "mainAdmissionAdmissionStatus",
+    callStatusField: "mainAdmissionCallStatus",
+    updatedFlagField: "mainAdmissionActivityUpdated",
+    historyField: "mainAdmissionActivityHistory"
+  };
+}
+
+function buildLsqUpdatedLead(existingLead, record = {}) {
+  const config = getLsqLeadStageConfig();
+  const existingHistory = Array.isArray(existingLead?.[config.historyField]) ? existingLead[config.historyField] : [];
+  const nextLead = {
+    ...existingLead,
+    city: record.city || existingLead.city || "",
+    state: record.state || existingLead.state || "",
+    country: record.country || existingLead.country || "",
+    updatedAt: new Date().toISOString(),
+    leadPipeline: MAIN_ADMISSION_PIPELINE,
+    publicCourseSegment: "",
+    admissionSopLastProgressAt: record.updatedAt || existingLead.admissionSopLastProgressAt || "",
+    lsqLastImportedAt: new Date().toISOString(),
+    mainAdmissionActivityUpdates: existingHistory.length + 1,
+    lsqSourceSnapshot: {
+      ...(existingLead.lsqSourceSnapshot && typeof existingLead.lsqSourceSnapshot === "object" ? existingLead.lsqSourceSnapshot : {}),
+      ...record.sourceSnapshot,
+      sourceFileName: record.sourceFileName
+    }
+  };
+
+  if (record.courseName) {
+    nextLead.courseName = record.courseName;
+    nextLead.courseRawName = record.courseName;
+    nextLead[config.courseField] = record.courseName;
+  }
+  if (record.courseStatus) {
+    nextLead[config.courseStatusField] = record.courseStatus;
+  }
+  if (record.admissionStatus) {
+    nextLead[config.admissionStatusField] = record.admissionStatus;
+  }
+  if (record.callStatus) {
+    nextLead[config.callStatusField] = record.callStatus;
+  }
+  if (record.dialed) {
+    nextLead[config.dialedField] = record.dialed;
+  }
+  nextLead[config.updatedFlagField] = true;
+
+  nextLead[config.historyField] = existingHistory.concat({
+    at: new Date().toISOString(),
+    source: "LeadSquared Import",
+    by: "system:lsq-import",
+    updates: {
+      [config.courseField]: nextLead[config.courseField] || "",
+      [config.courseStatusField]: nextLead[config.courseStatusField] || "",
+      [config.admissionStatusField]: nextLead[config.admissionStatusField] || "",
+      [config.callStatusField]: nextLead[config.callStatusField] || "",
+      [config.dialedField]: nextLead[config.dialedField] || ""
+    }
+  });
+
+  return decorateLeadForStorage(nextLead);
+}
+
+function buildLsqArchiveDoc(record = {}, reason = "", existingLead = null) {
+  return {
+    _id: `lsq-archive-${crypto.randomUUID()}`,
+    importedAt: new Date().toISOString(),
+    reason: String(reason || "").trim() || "Outside SOP",
+    sourceFileName: record.sourceFileName || "",
+    matchLeadId: existingLead?.id || "",
+    matchLeadEmail: existingLead?.email || record.email || "",
+    matchLeadPhone: existingLead?.phone || record.phone || "",
+    name: record.name || existingLead?.name || "",
+    email: record.email || "",
+    phone: record.phone || "",
+    courseName: record.courseName || "",
+    admissionStatus: record.admissionStatus || "",
+    courseStatus: record.courseStatus || "",
+    updatedAt: record.updatedAt || "",
+    owner: record.sourceSnapshot?.owner || "",
+    ownerEmail: record.sourceSnapshot?.ownerEmail || "",
+    lsq: record.sourceSnapshot || {}
   };
 }
 
@@ -957,6 +1308,7 @@ async function initMongo() {
         activityLogsCollection  = db.collection("activity_logs");
         leadClaimsCollection    = db.collection("lead_claims");
         leadCreationRequestsCollection = db.collection("lead_creation_requests");
+        lsqArchiveCollection = db.collection(MONGODB_LSQ_ARCHIVE_COLLECTION);
 
         // Ensure indexes for activity_logs
         await activityLogsCollection.createIndex({ leadId: 1, timestamp: -1 }, { background: true }).catch(() => undefined);
@@ -5978,7 +6330,8 @@ app.post("/api/admin/restore", async (req, res) => {
       leadsCollection.deleteMany({}),
       counselorsCollection.deleteMany({}),
       tasksCollection.deleteMany({}),
-      allocationCollection.deleteMany({})
+      allocationCollection.deleteMany({}),
+      lsqArchiveCollection.deleteMany({})
     ]);
 
     if (Array.isArray(snapshot.state.leads) && snapshot.state.leads.length) {
@@ -5993,6 +6346,9 @@ app.post("/api/admin/restore", async (req, res) => {
     }
     if (Array.isArray(snapshot.state.allocation) && snapshot.state.allocation.length) {
       await allocationCollection.insertMany(snapshot.state.allocation);
+    }
+    if (Array.isArray(snapshot.lsqArchiveLeads) && snapshot.lsqArchiveLeads.length) {
+      await lsqArchiveCollection.insertMany(snapshot.lsqArchiveLeads, { ordered: true });
     }
 
     const metadata = {
@@ -6085,7 +6441,8 @@ app.post("/api/admin/restore", async (req, res) => {
         elementorLogs: snapshot.elementorLogs.length,
         elementorRetryJobs: snapshot.elementorRetryJobs.length,
         mcubeLogs: snapshot.mcubeLogs.length,
-        mcubeRetryJobs: snapshot.mcubeRetryJobs.length
+        mcubeRetryJobs: snapshot.mcubeRetryJobs.length,
+        lsqArchiveLeads: snapshot.lsqArchiveLeads.length
       },
       state: buildStateResponse(nextState)
     });
@@ -8009,6 +8366,20 @@ async function requireRole(req, res, roles) {
   return session;
 }
 
+async function requireSuperAdmin(req, res) {
+  const session = await requireSession(req, res);
+  if (!session) {
+    return null;
+  }
+
+  if (String(session.role || "").trim().toLowerCase() !== "super_admin") {
+    res.status(403).json({ message: "Super admin access required." });
+    return null;
+  }
+
+  return session;
+}
+
 function normalizePagePermissions(permissions = {}, fallback = FULL_PAGE_ACCESS) {
   return PAGE_ACCESS_KEYS.reduce((accumulator, key) => {
     const defaultValue = Boolean(fallback?.[key]);
@@ -9187,6 +9558,131 @@ app.post("/api/auth/logout", async (req, res) => {
     return res.json({ ok: true });
   } catch (error) {
     return res.status(500).json({ message: "Logout failed", details: error.message });
+  }
+});
+
+app.get("/api/admin/lsq-archive", async (req, res) => {
+  try {
+    const session = await requireSuperAdmin(req, res);
+    if (!session) return;
+
+    const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+    const rows = await lsqArchiveCollection.find({}).sort({ importedAt: -1 }).limit(limit).toArray();
+    return res.json({ ok: true, rows: normalizeBackupDocArray(rows) });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch LSQ archive leads", details: error.message });
+  }
+});
+
+app.post("/api/admin/lsq-import", async (req, res) => {
+  try {
+    const session = await requireSuperAdmin(req, res);
+    if (!session) return;
+
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    const sourceFileName = normalizeLsqValue(req.body?.sourceFileName);
+    if (!rows.length) {
+      return res.status(400).json({ message: "LSQ import rows are required." });
+    }
+    const counselorFilter = normalizeLsqValue(req.body?.counselorFilter || "all").toLowerCase() || "all";
+    const stageFilter = normalizeLsqValue(req.body?.stageFilter || "all").toLowerCase() || "all";
+
+    const state = await getStateDoc();
+    const dedupedRecords = new Map();
+
+    rows.forEach((row) => {
+      if (!row || typeof row !== "object") {
+        return;
+      }
+      const record = buildLsqNormalizedRecord(row, sourceFileName);
+      const dedupeKey = record.email || record.phone || record.sourceSnapshot?.leadNumber || record.sourceSnapshot?.prospectId;
+      if (!dedupeKey) {
+        return;
+      }
+
+      const previous = dedupedRecords.get(dedupeKey);
+      const previousTime = Date.parse(previous?.updatedAt || "") || 0;
+      const nextTime = Date.parse(record.updatedAt || "") || 0;
+      if (!previous || nextTime >= previousTime) {
+        dedupedRecords.set(dedupeKey, record);
+      }
+    });
+
+    const summary = {
+      scanned: rows.length,
+      deduped: dedupedRecords.size,
+      updated: 0,
+      archived: 0,
+      unmatched: 0,
+      skippedByCounselorFilter: 0,
+      skippedByStageFilter: 0,
+      byReason: {}
+    };
+    const archivedDocs = [];
+
+    for (const record of dedupedRecords.values()) {
+      if (!recordMatchesLsqCounselorFilter(record, counselorFilter)) {
+        summary.skippedByCounselorFilter += 1;
+        continue;
+      }
+      if (!recordMatchesLsqStageFilter(record, stageFilter)) {
+        summary.skippedByStageFilter += 1;
+        continue;
+      }
+
+      const existingLead = findDuplicateLeadByEmailOrPhone(state.leads, {
+        email: record.email,
+        phone: record.phone
+      });
+      const sopDecision = evaluateLsqSop(existingLead, record);
+
+      if (!sopDecision.inSop) {
+        const archiveDoc = buildLsqArchiveDoc(record, sopDecision.reason, existingLead);
+        archivedDocs.push(archiveDoc);
+        summary.archived += 1;
+        if (!existingLead) {
+          summary.unmatched += 1;
+        }
+        summary.byReason[sopDecision.reason] = (summary.byReason[sopDecision.reason] || 0) + 1;
+        continue;
+      }
+
+      const nextLead = buildLsqUpdatedLead(existingLead, record);
+      await replaceLeadDocument(nextLead);
+      summary.updated += 1;
+
+      await recordActivity({
+        leadId: nextLead.id,
+        leadName: nextLead.name,
+        counselorName: nextLead.counselor || "",
+        activityType: "Lead Updated",
+        actionDescription: `Lead updated from LeadSquared import${record.admissionStatus ? ` with ${record.admissionStatus} status` : ""}`,
+        previousValue: existingLead?.lsqLastImportedAt || "No previous LSQ import",
+        newValue: record.updatedAt || new Date().toISOString(),
+        session
+      });
+    }
+
+    if (archivedDocs.length) {
+      await lsqArchiveCollection.insertMany(archivedDocs, { ordered: false });
+    }
+
+    await stateCollection.updateOne(
+      { _id: STATE_DOC_ID },
+      { $set: { updatedAt: new Date().toISOString() } },
+      { upsert: true }
+    );
+
+    const nextState = await refreshStateAfterAtomicUpdate();
+    res.setHeader("ETag", buildStateEtag(nextState));
+    return res.json({
+      ok: true,
+      summary,
+      archivedSample: normalizeBackupDocArray(archivedDocs.slice(0, 20)),
+      state: buildStateResponse(nextState)
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to import LSQ leads", details: error.message });
   }
 });
 

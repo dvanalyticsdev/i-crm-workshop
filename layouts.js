@@ -662,11 +662,16 @@ function applyRoleVisibility(session) {
   ensureIntegrationSidebarLinks();
   rebuildSidebarSections();
   const adminOnlyElements = document.querySelectorAll("[data-admin-only='true']");
+  const superAdminOnlyElements = document.querySelectorAll("[data-super-admin-only='true']");
   const counselorOnlyElements = document.querySelectorAll("[data-counselor-only='true']");
   const isAdmin = session.role === "admin" || session.role === "super_admin";
+  const isSuperAdmin = session.role === "super_admin";
   const isCounselor = session.role === "counselor";
   adminOnlyElements.forEach((element) => {
     element.classList.toggle("hidden", !isAdmin);
+  });
+  superAdminOnlyElements.forEach((element) => {
+    element.classList.toggle("hidden", !isSuperAdmin);
   });
   counselorOnlyElements.forEach((element) => {
     element.classList.toggle("hidden", !isCounselor);

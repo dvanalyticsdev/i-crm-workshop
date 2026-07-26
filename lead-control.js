@@ -32,8 +32,17 @@ const exportBackupBtn = document.getElementById("exportBackupBtn");
 const restoreBackupFile = document.getElementById("restoreBackupFile");
 const restoreBackupBtn = document.getElementById("restoreBackupBtn");
 const backupMessage = document.getElementById("backupMessage");
+const lsqImportPanel = document.getElementById("lsqImportPanel");
+const lsqImportFile = document.getElementById("lsqImportFile");
+const lsqCounselorFilter = document.getElementById("lsqCounselorFilter");
+const lsqStageFilter = document.getElementById("lsqStageFilter");
+const importLsqBtn = document.getElementById("importLsqBtn");
+const lsqImportSummary = document.getElementById("lsqImportSummary");
+const lsqImportMessage = document.getElementById("lsqImportMessage");
+const lsqArchiveTable = document.getElementById("lsqArchiveTable");
 const session = getSession();
 const isAdmin = session?.role === "admin" || session?.role === "super_admin";
+const isSuperAdmin = session?.role === "super_admin";
 
 const DEFAULT_ALLOCATION = [];
 
@@ -56,6 +65,23 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function formatDateTime(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "Not available";
+  }
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return raw;
+  }
+
+  return parsed.toLocaleString("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short"
+  });
 }
 
 function getLeadImportSourceFiles(lead) {
@@ -201,6 +227,10 @@ function extractCounselorName(record) {
   ).trim();
 }
 
+function extractCounselorEmail(record) {
+  return String(record?.email || "").trim().toLowerCase();
+}
+
 async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 4000) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -309,6 +339,56 @@ async function getCounselorNamesForAllocation() {
   } catch {
     return [];
   }
+}
+
+async function getCounselorOptions() {
+  const localCounselors = getStoredCounselors();
+  if (Array.isArray(localCounselors) && localCounselors.length) {
+    return localCounselors
+      .map((item) => ({
+        name: extractCounselorName(item),
+        email: extractCounselorEmail(item)
+      }))
+      .filter((item) => item.name)
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  try {
+    const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/state"), {
+      method: "GET",
+      headers: { Accept: "application/json" }
+    }, 4000);
+
+    if (!response.ok) {
+      return [];
+    }
+
+    return (Array.isArray(json?.counselors) ? json.counselors : [])
+      .map((item) => ({
+        name: extractCounselorName(item),
+        email: extractCounselorEmail(item)
+      }))
+      .filter((item) => item.name)
+      .sort((left, right) => left.name.localeCompare(right.name));
+  } catch {
+    return [];
+  }
+}
+
+async function renderLsqCounselorFilter() {
+  if (!lsqCounselorFilter) {
+    return;
+  }
+
+  const currentValue = String(lsqCounselorFilter.value || "all").trim();
+  const options = await getCounselorOptions();
+  lsqCounselorFilter.innerHTML = [
+    `<option value="all">All counselors</option>`,
+    ...options.map((item) => `<option value="${escapeHtml(item.email || item.name.toLowerCase())}">${escapeHtml(item.name)}</option>`)
+  ].join("");
+
+  const validValues = new Set(["all", ...options.map((item) => item.email || item.name.toLowerCase())]);
+  lsqCounselorFilter.value = validValues.has(currentValue) ? currentValue : "all";
 }
 
 function mergeAllocationNames(names, existingAllocation) {
@@ -596,6 +676,18 @@ function updateImportSummary(total, success, failed) {
   `;
 }
 
+function updateLsqImportSummary(scanned = 0, updated = 0, archived = 0) {
+  if (!lsqImportSummary) {
+    return;
+  }
+
+  lsqImportSummary.innerHTML = `
+    <p>Rows Scanned: ${scanned}</p>
+    <p>Updated CRM Leads: ${updated}</p>
+    <p>Archived / Out of SOP: ${archived}</p>
+  `;
+}
+
 async function handleLeadImport() {
   if (!isAdmin) {
     setMessage(importMessage, "Only admin can import leads.", true);
@@ -732,6 +824,141 @@ async function handleLeadImport() {
 
   leadImportFile.value = "";
   renderAll();
+}
+
+async function handleLsqImport() {
+  if (!isSuperAdmin) {
+    setMessage(lsqImportMessage, "Only super admin can import LSQ data.", true);
+    return;
+  }
+
+  const file = lsqImportFile?.files?.[0];
+  if (!file) {
+    setMessage(lsqImportMessage, "Please select an LSQ .xlsx or .csv file.", true);
+    return;
+  }
+
+  if (!/\.(xlsx|csv)$/i.test(file.name)) {
+    setMessage(lsqImportMessage, "Unsupported LSQ format. Please upload .xlsx or .csv.", true);
+    return;
+  }
+
+  let rows = [];
+  try {
+    rows = await parseImportFile(file);
+  } catch {
+    setMessage(lsqImportMessage, "Could not read LSQ file. Check format and try again.", true);
+    return;
+  }
+
+  if (!rows.length) {
+    setMessage(lsqImportMessage, "No rows found in the LSQ file.", true);
+    updateLsqImportSummary(0, 0, 0);
+    return;
+  }
+
+  setMessage(lsqImportMessage, "Importing LSQ updates...", false);
+  const counselorFilter = String(lsqCounselorFilter?.value || "all").trim() || "all";
+  const stageFilter = String(lsqStageFilter?.value || "all").trim() || "all";
+  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/admin/lsq-import"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    },
+    body: JSON.stringify({
+      sourceFileName: file.name,
+      counselorFilter,
+      stageFilter,
+      rows
+    })
+  }, 60000);
+
+  if (!response.ok || !json?.ok) {
+    setMessage(lsqImportMessage, json?.message || "LSQ import failed.", true);
+    return;
+  }
+
+  if (json?.state) {
+    acceptServerState(json.state, response.headers.get("etag"));
+  }
+
+  updateLsqImportSummary(
+    Number(json?.summary?.scanned) || rows.length,
+    Number(json?.summary?.updated) || 0,
+    Number(json?.summary?.archived) || 0
+  );
+
+  const unmatchedCount = Number(json?.summary?.unmatched) || 0;
+  const skippedByCounselorFilter = Number(json?.summary?.skippedByCounselorFilter) || 0;
+  const skippedByStageFilter = Number(json?.summary?.skippedByStageFilter) || 0;
+  const primaryReason = Object.entries(json?.summary?.byReason || {}).sort((left, right) => right[1] - left[1])[0]?.[0] || "";
+  setMessage(
+    lsqImportMessage,
+    `LSQ import completed. Updated ${Number(json?.summary?.updated) || 0} CRM lead${Number(json?.summary?.updated) === 1 ? "" : "s"} into Main Admission and archived ${Number(json?.summary?.archived) || 0}.${skippedByCounselorFilter ? ` Skipped ${skippedByCounselorFilter} row${skippedByCounselorFilter === 1 ? "" : "s"} due to counselor filter.` : ""}${skippedByStageFilter ? ` Skipped ${skippedByStageFilter} row${skippedByStageFilter === 1 ? "" : "s"} due to stage filter.` : ""}${primaryReason ? ` Top archive reason: ${primaryReason}.` : ""}${unmatchedCount ? ` ${unmatchedCount} row${unmatchedCount === 1 ? "" : "s"} had no matching CRM lead.` : ""}`,
+    false
+  );
+
+  if (lsqImportFile) {
+    lsqImportFile.value = "";
+  }
+
+  await renderLsqArchiveTable();
+}
+
+async function renderLsqArchiveTable() {
+  if (!lsqArchiveTable) {
+    return;
+  }
+
+  if (!isSuperAdmin) {
+    lsqArchiveTable.innerHTML = `<p class="block-help">LSQ archive is available only to super admin.</p>`;
+    return;
+  }
+
+  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/admin/lsq-archive?limit=120"), {
+    method: "GET",
+    headers: { Accept: "application/json" }
+  }, 10000);
+
+  if (!response.ok || !json?.ok) {
+    lsqArchiveTable.innerHTML = `<p class="block-help">Could not load archived LSQ rows right now.</p>`;
+    return;
+  }
+
+  const rows = Array.isArray(json.rows) ? json.rows : [];
+  if (!rows.length) {
+    lsqArchiveTable.innerHTML = `<p class="block-help">No LSQ leads have been archived yet.</p>`;
+    return;
+  }
+
+  lsqArchiveTable.innerHTML = `
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Lead</th>
+          <th>Course</th>
+          <th>LSQ Status</th>
+          <th>Archive Reason</th>
+          <th>Imported</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((row) => `
+          <tr>
+            <td>
+              <strong>${escapeHtml(row.name || "Unnamed lead")}</strong>
+              <div class="table-meta">${escapeHtml(row.email || row.phone || "No contact")}</div>
+            </td>
+            <td>${escapeHtml(row.courseName || "-")}</td>
+            <td>${escapeHtml(row.admissionStatus || row.courseStatus || row.lsq?.leadStage || "-")}</td>
+            <td>${escapeHtml(row.reason || "-")}</td>
+            <td>${escapeHtml(formatDateTime(row.importedAt))}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
 }
 
 async function deleteWholeLeadDataset() {
@@ -1013,6 +1240,20 @@ function setupAdminPanel() {
     };
   }
 
+  if (lsqImportPanel) {
+    lsqImportPanel.classList.toggle("hidden", !isSuperAdmin);
+  }
+
+  void renderLsqCounselorFilter();
+
+  if (importLsqBtn) {
+    importLsqBtn.onclick = () => {
+      void handleLsqImport();
+    };
+  }
+
+  void renderLsqArchiveTable();
+
 }
 
 function initLeadControlPage() {
@@ -1041,6 +1282,9 @@ function renderAll() {
       deleteImportedFileBtn.disabled = !importedFileNames.length;
     }
   }
+
+  void renderLsqCounselorFilter();
+  void renderLsqArchiveTable();
 
 }
 
