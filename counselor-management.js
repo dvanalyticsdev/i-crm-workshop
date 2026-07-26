@@ -918,6 +918,26 @@ function getPermissionPanelDraft() {
   return getSelectedPermissionMap("accessControlPermission", fallback);
 }
 
+function getEnabledPermissionLabels(role, permissions) {
+  return getRoleConfig(role).options
+    .filter((option) => permissions?.[option.key])
+    .map((option) => option.label);
+}
+
+function renderFallbackPreview(role) {
+  const fallbackPermissions = getRoleConfig(role).fallback;
+  const labels = getEnabledPermissionLabels(role, fallbackPermissions);
+  const previewItems = labels.slice(0, 4);
+  const remainingCount = Math.max(0, labels.length - previewItems.length);
+
+  return `
+    <div class="permission-preview">
+      ${previewItems.map((label) => `<span class="permission-preview__chip">${escapeHtml(label)}</span>`).join("")}
+      ${remainingCount ? `<span class="permission-preview__more">+${remainingCount} more</span>` : ""}
+    </div>
+  `;
+}
+
 function renderPermissionPanelSummary(role, user) {
   if (!permissionPanelSummary) {
     return;
@@ -929,10 +949,7 @@ function renderPermissionPanelSummary(role, user) {
   }
 
   const fallbackPermissions = getRoleConfig(role).fallback;
-  const fallbackNames = getRoleConfig(role).options
-    .filter((option) => fallbackPermissions[option.key])
-    .map((option) => option.label)
-    .join(", ");
+  const fallbackCount = getEnabledPermissionLabels(role, fallbackPermissions).length;
   const source = hasSavedPermissionOverride(user) ? "Saved override is active." : "Fallback is active until you save an override.";
 
   permissionPanelSummary.innerHTML = `
@@ -941,9 +958,10 @@ function renderPermissionPanelSummary(role, user) {
       <dl class="management-details-list">
         ${buildDetailsRows([
           ["Current Source", source],
-          ["Fallback Access", fallbackNames || "No fallback access"]
+          ["Fallback Pages", fallbackCount ? `${fallbackCount} pages` : "No fallback access"]
         ])}
       </dl>
+      ${renderFallbackPreview(role)}
     </section>
   `;
 }
@@ -955,10 +973,7 @@ function renderEveryonePermissionPanelSummary(role, accounts) {
 
   const config = getRoleConfig(role);
   const fallbackPermissions = config.fallback;
-  const fallbackNames = config.options
-    .filter((option) => fallbackPermissions[option.key])
-    .map((option) => option.label)
-    .join(", ");
+  const fallbackCount = getEnabledPermissionLabels(role, fallbackPermissions).length;
   const savedOverrideCount = accounts.filter((item) => hasSavedPermissionOverride(item)).length;
 
   permissionPanelSummary.innerHTML = `
@@ -968,11 +983,47 @@ function renderEveryonePermissionPanelSummary(role, accounts) {
         ${buildDetailsRows([
           ["Accounts", String(accounts.length)],
           ["Saved Overrides", `${savedOverrideCount} / ${accounts.length}`],
-          ["Fallback Access", fallbackNames || "No fallback access"]
+          ["Fallback Pages", fallbackCount ? `${fallbackCount} pages` : "No fallback access"]
         ])}
       </dl>
+      ${renderFallbackPreview(role)}
     </section>
   `;
+}
+
+function getSharedSavedPermissions(role, accounts) {
+  const config = getRoleConfig(role);
+  if (!accounts.length) {
+    return null;
+  }
+
+  const accountsWithOverrides = accounts.filter((item) => hasSavedPermissionOverride(item));
+  if (!accountsWithOverrides.length) {
+    return null;
+  }
+
+  const firstPermissions = getRawPermissions(accountsWithOverrides[0]) || {};
+  const firstSignature = JSON.stringify(firstPermissions);
+  const allMatch = accountsWithOverrides.every((item) => {
+    const permissions = getRawPermissions(item) || {};
+    return JSON.stringify(permissions) === firstSignature;
+  });
+
+  if (!allMatch) {
+    return {
+      mixed: true,
+      permissions: null,
+      savedOverrideCount: accountsWithOverrides.length,
+      totalCount: accounts.length
+    };
+  }
+
+  return {
+    mixed: false,
+    permissions: Object.keys(firstPermissions).length ? firstPermissions : null,
+    savedOverrideCount: accountsWithOverrides.length,
+    totalCount: accounts.length
+  };
 }
 
 function renderPermissionControlPanel(forceFallbackDraft = false) {
@@ -1009,15 +1060,22 @@ function renderPermissionControlPanel(forceFallbackDraft = false) {
   ].join("");
 
   if (isEveryonePermissionTarget(selectedPermissionUserId)) {
+    const sharedSaved = getSharedSavedPermissions(selectedPermissionRole, accounts);
     const draftPermissions = forceFallbackDraft
       ? { ...config.fallback }
-      : {};
+      : sharedSaved?.permissions || {};
     renderPermissionOptions(accessControlGrid, config.options, "accessControlPermission", draftPermissions);
     renderEveryonePermissionPanelSummary(selectedPermissionRole, accounts);
 
     if (forceFallbackDraft) {
       permissionPanelHint.textContent = `The ${config.label.toLowerCase()} fallback has been loaded into the editor for everyone, but it will only become an explicit saved access list after you click Save Access.`;
       permissionDraftLoadedFromFallback = true;
+    } else if (sharedSaved?.mixed) {
+      permissionPanelHint.textContent = `These ${config.label.toLowerCase()} accounts currently have mixed saved overrides. The editor stays blank until you save a new shared access list for everyone.`;
+      permissionDraftLoadedFromFallback = false;
+    } else if (sharedSaved?.permissions) {
+      permissionPanelHint.textContent = `Everyone in this ${config.label.toLowerCase()} role is currently using the same saved access override.`;
+      permissionDraftLoadedFromFallback = false;
     } else {
       permissionPanelHint.textContent = `Choose Everyone when you want to apply the same explicit page access to all ${config.label.toLowerCase()} accounts at once, or pick one account for a user-specific override.`;
       permissionDraftLoadedFromFallback = false;
