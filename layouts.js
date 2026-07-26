@@ -1089,27 +1089,55 @@ async function guardProtectedPages() {
   return session;
 }
 
-const session = await guardProtectedPages();
-if (session) {
-  activeSession = session;
-  applyRoleVisibility(session);
-  const allowed = enforceAccess(session);
-  if (allowed) {
-    applyActiveSidebarState();
-    warmSidebarRoutes();
-    streamlineTopbarProfile();
-    hydrateRoleTag(session);
-    injectHeaderMenu();
-    bindLogout();
-    bindHeaderPasswordChange();
-    bindThemeControls();
-    bindClientRouter();
-    startPingMonitor();
-    injectNotificationBell();
-    startNotificationPolling(session);
-    startVersionCheck();
-    revealAppShell();
+function renderBootstrapFailure(message) {
+  const mainContent = document.querySelector(".main-content");
+  if (!mainContent) {
+    return;
   }
+
+  const { contentWindow } = ensureMainContentStructure(mainContent);
+  if (!contentWindow) {
+    return;
+  }
+
+  contentWindow.innerHTML = `
+    <section class="card" style="margin:24px;">
+      <div class="card-head">
+        <h3>App Load Failed</h3>
+        <p>${escapeHtml(message || "The CRM could not finish loading.")}</p>
+      </div>
+      <p class="block-help">Refresh once, or open <strong>index.html?logout=1</strong> and sign in again.</p>
+    </section>
+  `;
+}
+
+try {
+  const session = await guardProtectedPages();
+  if (session) {
+    activeSession = session;
+    applyRoleVisibility(session);
+    const allowed = enforceAccess(session);
+    if (allowed) {
+      applyActiveSidebarState();
+      warmSidebarRoutes();
+      streamlineTopbarProfile();
+      hydrateRoleTag(session);
+      injectHeaderMenu();
+      bindLogout();
+      bindHeaderPasswordChange();
+      bindThemeControls();
+      bindClientRouter();
+      startPingMonitor();
+      injectNotificationBell();
+      startNotificationPolling(session);
+      startVersionCheck();
+    }
+  }
+} catch (error) {
+  console.error("Failed to bootstrap protected page.", error);
+  renderBootstrapFailure(error?.message || "The CRM could not finish loading.");
+} finally {
+  revealAppShell();
 }
 
 function playNotificationSound() {
