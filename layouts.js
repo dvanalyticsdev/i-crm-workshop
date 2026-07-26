@@ -612,7 +612,7 @@ function getSessionPermissions(session) {
 
   if (session?.role === "super_admin") {
     return {
-      ...FULL_PAGE_ACCESS
+      ...Object.fromEntries(Object.keys(DEFAULT_PERMISSIONS).map((key) => [key, true]))
     };
   }
 
@@ -713,8 +713,8 @@ function bindLogout() {
 
     button.dataset.logoutBound = "true";
     button.addEventListener("click", async () => {
-      await logout();
-      window.location.href = "index.html";
+      await logout().catch(() => undefined);
+      window.location.href = "index.html?forceLogin=1";
     });
   });
 }
