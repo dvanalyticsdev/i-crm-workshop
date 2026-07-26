@@ -1017,6 +1017,7 @@ function resolveLsqCounselorName(state = {}, record = {}, counselorFilter = "all
   const counselors = Array.isArray(state?.counselors) ? state.counselors : [];
   const ownerEmail = normalizeLsqValue(record?.sourceSnapshot?.ownerEmail).toLowerCase();
   const ownerName = normalizeLsqValue(record?.sourceSnapshot?.owner).toLowerCase();
+  const ownerLabel = normalizeLsqValue(record?.sourceSnapshot?.owner);
   const normalizedFilter = normalizeLsqValue(counselorFilter).toLowerCase();
 
   const byEmail = ownerEmail
@@ -1042,6 +1043,10 @@ function resolveLsqCounselorName(state = {}, record = {}, counselorFilter = "all
     if (filteredCounselor?.name) {
       return String(filteredCounselor.name).trim();
     }
+  }
+
+  if (ownerLabel) {
+    return ownerLabel;
   }
 
   return "Unassigned";
@@ -1209,7 +1214,7 @@ function getLsqLeadStageConfig() {
   };
 }
 
-function buildLsqUpdatedLead(existingLead, record = {}) {
+function buildLsqUpdatedLead(existingLead, record = {}, counselorName = "") {
   const config = getLsqLeadStageConfig();
   const existingHistory = Array.isArray(existingLead?.[config.historyField]) ? existingLead[config.historyField] : [];
   const nextLead = {
@@ -1220,6 +1225,7 @@ function buildLsqUpdatedLead(existingLead, record = {}) {
     updatedAt: new Date().toISOString(),
     leadPipeline: MAIN_ADMISSION_PIPELINE,
     publicCourseSegment: "",
+    counselor: String(counselorName || existingLead.counselor || "Unassigned").trim() || "Unassigned",
     admissionSopLastProgressAt: record.updatedAt || existingLead.admissionSopLastProgressAt || "",
     lsqLastImportedAt: new Date().toISOString(),
     mainAdmissionActivityUpdates: existingHistory.length + 1,
@@ -9757,6 +9763,7 @@ app.post("/api/admin/lsq-import", async (req, res) => {
         email: record.email,
         phone: record.phone
       });
+      const counselorName = resolveLsqCounselorName(state, record, counselorFilter);
       const sopDecision = evaluateLsqSop(existingLead, record);
 
       if (!sopDecision.inSop) {
@@ -9770,12 +9777,11 @@ app.post("/api/admin/lsq-import", async (req, res) => {
       let nextLead = null;
       let wasCreated = false;
       if (existingLead) {
-        nextLead = buildLsqUpdatedLead(existingLead, record);
+        nextLead = buildLsqUpdatedLead(existingLead, record, counselorName);
         await replaceLeadDocument(nextLead);
         summary.updated += 1;
       } else {
         const nextId = await getNextMetaLeadId();
-        const counselorName = resolveLsqCounselorName(state, record, counselorFilter);
         nextLead = buildLsqImportedLead(record, nextId, counselorName);
         await withMongoRetry(
           () => leadsCollection.insertOne(nextLead),
