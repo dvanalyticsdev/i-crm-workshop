@@ -1,5 +1,5 @@
-import { bootstrapLocalState, getLeads, getSession, refreshState, startStatePolling } from "./state-sync.js";
-import { deleteLeads, trackLeadView } from "./lead-service.js";
+import { bootstrapLocalState, getCounselors, getLeads, getSession, refreshState, startStatePolling } from "./state-sync.js";
+import { assignLeads, deleteLeads, formatLeadAssignmentResult, trackLeadView } from "./lead-service.js";
 import { openActivityHistory } from "./activity-history.js";
 
 const KOLKATA_OFFSET_MS = 5.5 * 60 * 60 * 1000;
@@ -486,6 +486,14 @@ function getActiveCourses() {
     .sort((left, right) => left.localeCompare(right));
 }
 
+function getAssignableCounselors() {
+  return [...new Set(
+    getCounselors()
+      .map((item) => String(item?.name || "").trim())
+      .filter(Boolean)
+  )].sort((left, right) => left.localeCompare(right));
+}
+
 function renderClock() {
   if (!liveClock) return;
   liveClock.textContent = new Date().toLocaleString("en-IN", {
@@ -708,6 +716,11 @@ function renderLeadTable() {
         <div class="bulk-admin-tools">
           <input type="text" class="bulk-count-input" placeholder="Count" disabled />
           <button type="button" class="btn-ghost bulk-action-btn" disabled>Select Count</button>
+          <select id="sopBulkAssignCounselor" class="bulk-assign-select">
+            <option value="">Assign to</option>
+            ${getAssignableCounselors().map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("")}
+          </select>
+          <button type="button" class="btn-ghost bulk-action-btn" id="sopBulkAssignBtn" ${selectedBlockedRows.length ? "" : "disabled"}>Assign Selected</button>
           <button type="button" class="btn-delete bulk-delete-btn" id="sopBulkDeleteBtn" ${selectedBlockedRows.length ? "" : "disabled"}>Delete Selected</button>
         </div>
       </div>
@@ -807,6 +820,10 @@ function renderLeadTable() {
   document.getElementById("sopBulkDeleteBtn")?.addEventListener("click", () => {
     void deleteSelectedBlockedLeads();
   });
+  document.getElementById("sopBulkAssignBtn")?.addEventListener("click", () => {
+    const counselor = String(document.getElementById("sopBulkAssignCounselor")?.value || "").trim();
+    void assignSelectedBlockedLeads(counselor);
+  });
 
   leadTable.querySelectorAll("[data-history-key]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -842,6 +859,38 @@ async function deleteSelectedBlockedLeads() {
   selectedBlockedLeadKeys = new Set();
   render();
   showToast(`Deleted ${selectedRows.length} blocked lead${selectedRows.length === 1 ? "" : "s"}.`);
+}
+
+async function assignSelectedBlockedLeads(counselorName) {
+  if (!isAdminSession()) return;
+
+  const selectedRows = getCurrentPageRowModels(getFilteredRows())
+    .filter((row) => selectedBlockedLeadKeys.has(row.pageSelectionKey) && row.sop?.blocked);
+  if (!selectedRows.length) {
+    showToast("Select at least one blocked lead to assign.", true);
+    return;
+  }
+
+  const targetCounselor = String(counselorName || "").trim();
+  if (!targetCounselor) {
+    showToast("Select a counselor first.", true);
+    return;
+  }
+
+  const assignmentResult = await assignLeads(
+    selectedRows.map((row) => buildLeadRef(row.lead)),
+    targetCounselor
+  );
+  if (!assignmentResult || assignmentResult.ok === false) {
+    showToast(assignmentResult?.message || "Failed to assign selected blocked leads. Please try again.", true);
+    return;
+  }
+
+  const assignmentSummary = formatLeadAssignmentResult(assignmentResult, selectedRows.length, targetCounselor);
+  selectedBlockedLeadKeys = new Set();
+  await refreshState().catch(() => undefined);
+  render();
+  showToast(assignmentSummary.message, assignmentSummary.assignedCount === 0);
 }
 
 function render() {
