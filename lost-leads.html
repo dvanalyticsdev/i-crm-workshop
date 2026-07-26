@@ -46,7 +46,7 @@
       <header class="topbar">
         <div class="topbar-title">
           <h1>Lost Leads</h1>
-          <p>Track leads marked as not interested across workshop and admission calling stages.</p>
+          <p>Track active lost leads and review archived leads once they have remained lost for more than 1 day.</p>
         </div>
         <div class="topbar-profile">
           <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">
@@ -85,7 +85,21 @@
           </div>
         </div>
       </section>
-      <section class="card table-card" id="lostLeadTableSection"></section>
+      <section class="card table-card">
+        <div class="card-head">
+          <h3>Lost Leads</h3>
+          <p>These leads can still be restored while they remain in the active lost queue.</p>
+        </div>
+        <div id="lostLeadTableSection"></div>
+      </section>
+
+      <section class="card table-card" id="archivedLeadSection" data-admin-only="true">
+        <div class="card-head">
+          <h3>Archived Leads</h3>
+          <p>LSQ out-of-SOP leads and lost leads older than 1 day move here with only basic contact details.</p>
+        </div>
+        <div id="archivedLeadTableSection"></div>
+      </section>
     </div>
   </div>
 

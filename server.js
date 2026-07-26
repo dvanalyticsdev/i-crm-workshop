@@ -69,6 +69,7 @@ const PUBLIC_COURSE_SEGMENT_CONFIG = {
 const MAIN_ADMISSION_PIPELINE = "main-admission";
 const MAIN_ADMISSION_ROUND_ROBIN_FIELD = "mainAdmissionRoundRobinIndex";
 const KOLKATA_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+const LOST_LEAD_ARCHIVE_AFTER_MS = 24 * 60 * 60 * 1000;
 const ADMISSION_SOP_NEW_WINDOW_MS = 48 * 60 * 60 * 1000;
 const ADMISSION_SOP_ACTIVE_WINDOW_DAYS = 15;
 const ADMISSION_SOP_OFFERED_WINDOW_DAYS = 30;
@@ -1355,24 +1356,161 @@ function buildLsqImportedLead(record = {}, nextId, counselorName = "Unassigned")
 
 function buildLsqArchiveDoc(record = {}, reason = "", existingLead = null) {
   return {
-    _id: `lsq-archive-${crypto.randomUUID()}`,
-    importedAt: new Date().toISOString(),
-    reason: String(reason || "").trim() || "Outside SOP",
-    sourceFileName: record.sourceFileName || "",
-    matchLeadId: existingLead?.id || "",
-    matchLeadEmail: existingLead?.email || record.email || "",
-    matchLeadPhone: existingLead?.phone || record.phone || "",
-    name: record.name || existingLead?.name || "",
-    email: record.email || "",
-    phone: record.phone || "",
-    courseName: record.courseName || "",
-    admissionStatus: record.admissionStatus || "",
-    courseStatus: record.courseStatus || "",
-    updatedAt: record.updatedAt || "",
-    owner: record.sourceSnapshot?.owner || "",
-    ownerEmail: record.sourceSnapshot?.ownerEmail || "",
-    lsq: record.sourceSnapshot || {}
+    _id: `archived-lead-${crypto.randomUUID()}`,
+    name: String(record.name || existingLead?.name || "").trim(),
+    email: String(record.email || existingLead?.email || "").trim().toLowerCase(),
+    phone: String(record.phone || existingLead?.phone || "").trim(),
+    courseName: String(record.courseName || existingLead?.courseName || existingLead?.courseRawName || "").trim()
   };
+}
+
+function normalizeArchivedLeadDoc(doc = {}) {
+  return {
+    _id: String(doc?._id || `archived-lead-${crypto.randomUUID()}`),
+    name: String(doc?.name || "").trim(),
+    email: String(doc?.email || "").trim().toLowerCase(),
+    phone: String(doc?.phone || "").trim(),
+    courseName: String(doc?.courseName || "").trim()
+  };
+}
+
+function normalizeArchivedLeadDocs(docs = []) {
+  return (Array.isArray(docs) ? docs : []).map((doc) => normalizeArchivedLeadDoc(doc));
+}
+
+function isServerLostLead(lead = {}) {
+  const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
+
+  if (pipeline === MAIN_ADMISSION_PIPELINE) {
+    return Boolean(lead?.mainAdmissionActivityUpdated)
+      && String(lead?.mainAdmissionCourseStatus || "").trim() === "Not Interested";
+  }
+
+  if (pipeline === "course-registration") {
+    return Boolean(lead?.registeredActivityUpdated)
+      && String(lead?.registeredCourseStatus || "").trim() === "Not Interested";
+  }
+
+  return String(lead?.wsStatus || "").trim() === "Not Interested"
+    || (Boolean(lead?.postStatusUpdated) && String(lead?.courseStatus || "").trim() === "Not Interested");
+}
+
+function getLostLeadProgramName(lead = {}) {
+  const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
+  if (pipeline === MAIN_ADMISSION_PIPELINE || pipeline === "course-registration") {
+    return String(lead?.courseName || lead?.courseCode || "").trim();
+  }
+  return String(lead?.courseName || lead?.workshop || lead?.courseRawName || "").trim();
+}
+
+function getHistoryEntries(history = []) {
+  return Array.isArray(history) ? history : [];
+}
+
+function getHistoryTimestamp(history = [], matchesNotInterested) {
+  const entries = getHistoryEntries(history)
+    .filter((entry) => entry && typeof entry === "object")
+    .map((entry) => ({
+      at: Date.parse(String(entry.at || "").trim()),
+      matches: matchesNotInterested(entry)
+    }))
+    .filter((entry) => Number.isFinite(entry.at));
+
+  const matchingTimes = entries.filter((entry) => entry.matches).map((entry) => entry.at);
+  if (matchingTimes.length) {
+    return Math.max(...matchingTimes);
+  }
+
+  const allTimes = entries.map((entry) => entry.at);
+  return allTimes.length ? Math.max(...allTimes) : null;
+}
+
+function getLeadArchiveEligibilityTimestamp(lead = {}) {
+  const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
+
+  if (pipeline === MAIN_ADMISSION_PIPELINE) {
+    const historyTime = getHistoryTimestamp(lead?.mainAdmissionActivityHistory, (entry) => (
+      String(entry?.updates?.mainAdmissionCourseStatus || "").trim() === "Not Interested"
+    ));
+    if (historyTime) {
+      return historyTime;
+    }
+  } else if (pipeline === "course-registration") {
+    const historyTime = getHistoryTimestamp(lead?.registeredCourseActivityHistory, (entry) => (
+      String(entry?.updates?.registeredCourseStatus || "").trim() === "Not Interested"
+    ));
+    if (historyTime) {
+      return historyTime;
+    }
+  } else if (String(lead?.wsStatus || "").trim() === "Not Interested") {
+    const historyTime = getHistoryTimestamp(lead?.workshopActivityHistory, (entry) => (
+      String(entry?.updates?.wsStatus || "").trim() === "Not Interested"
+      || String(entry?.updates?.workshopStatus || "").trim() === "Not Interested"
+    ));
+    if (historyTime) {
+      return historyTime;
+    }
+  } else {
+    const historyTime = getHistoryTimestamp(lead?.admissionActivityHistory, (entry) => (
+      String(entry?.updates?.courseStatus || "").trim() === "Not Interested"
+    ));
+    if (historyTime) {
+      return historyTime;
+    }
+  }
+
+  const exactTime = Date.parse(String(lead?.updatedAt || lead?.createdAtExact || "").trim());
+  if (Number.isFinite(exactTime)) {
+    return exactTime;
+  }
+
+  return parseDateKeyToTime(lead?.createdAt);
+}
+
+function buildArchivedLeadDocFromLiveLead(lead = {}) {
+  return normalizeArchivedLeadDoc({
+    _id: `archived-lead-${crypto.randomUUID()}`,
+    name: lead?.name,
+    email: lead?.email,
+    phone: lead?.phone,
+    courseName: getLostLeadProgramName(lead)
+  });
+}
+
+async function syncStaleLostLeadsToArchive() {
+  const storedLeads = await withMongoRetry(
+    () => leadsCollection.find({}).toArray(),
+    { retries: 1, label: "Load leads for lost lead archive sync" }
+  );
+  const leads = decorateLeadListForStorage(storedLeads || []);
+  const now = Date.now();
+  const staleLostLeads = leads.filter((lead) => {
+    if (!isServerLostLead(lead)) {
+      return false;
+    }
+    const lostAt = getLeadArchiveEligibilityTimestamp(lead);
+    return Number.isFinite(lostAt) && (now - lostAt) >= LOST_LEAD_ARCHIVE_AFTER_MS;
+  });
+
+  if (!staleLostLeads.length) {
+    return { movedCount: 0, state: null };
+  }
+
+  const archivedDocs = staleLostLeads.map((lead) => buildArchivedLeadDocFromLiveLead(lead));
+  const leadIds = staleLostLeads
+    .map((lead) => String(lead?.id || "").trim())
+    .filter(Boolean);
+
+  if (archivedDocs.length) {
+    await lsqArchiveCollection.insertMany(archivedDocs, { ordered: false });
+  }
+  if (leadIds.length) {
+    await leadsCollection.deleteMany({ id: { $in: leadIds } });
+  }
+
+  await touchStateUpdatedAt();
+  const nextState = await refreshStateAfterAtomicUpdate();
+  return { movedCount: staleLostLeads.length, state: nextState };
 }
 
 async function initMongo() {
@@ -9686,8 +9824,8 @@ app.get("/api/admin/lsq-archive", async (req, res) => {
     if (!session) return;
 
     const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
-    const rows = await lsqArchiveCollection.find({}).sort({ importedAt: -1 }).limit(limit).toArray();
-    return res.json({ ok: true, rows: normalizeBackupDocArray(rows) });
+    const rows = await lsqArchiveCollection.find({}).limit(limit).toArray();
+    return res.json({ ok: true, rows: normalizeArchivedLeadDocs(rows) });
   } catch (error) {
     return res.status(500).json({ message: "Failed to fetch LSQ archive leads", details: error.message });
   }
@@ -9708,6 +9846,31 @@ app.delete("/api/admin/lsq-archive", async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ message: "Failed to delete LSQ archive leads", details: error.message });
+  }
+});
+
+app.get("/api/lost-leads/archive", async (req, res) => {
+  try {
+    const session = await requireSession(req, res);
+    if (!session) return;
+
+    const syncResult = await syncStaleLostLeadsToArchive();
+    const limit = Math.min(Math.max(Number(req.query.limit) || 500, 1), 2000);
+    const rows = await lsqArchiveCollection.find({}).limit(limit).toArray();
+    const response = {
+      ok: true,
+      movedCount: Number(syncResult?.movedCount) || 0,
+      rows: normalizeArchivedLeadDocs(rows)
+    };
+
+    if (syncResult?.state) {
+      res.setHeader("ETag", buildStateEtag(syncResult.state));
+      response.state = buildStateResponse(syncResult.state);
+    }
+
+    return res.json(response);
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load archived leads", details: error.message });
   }
 });
 

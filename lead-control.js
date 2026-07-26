@@ -995,56 +995,11 @@ async function renderLsqArchiveTable() {
     lsqArchiveTable.innerHTML = `<p class="block-help">LSQ archive is available only to super admin.</p>`;
     return;
   }
-
-  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/admin/lsq-archive?limit=120"), {
-    method: "GET",
-    headers: { Accept: "application/json" }
-  }, 10000);
-
-  if (!response.ok || !json?.ok) {
-    lsqArchiveTable.innerHTML = `<p class="block-help">Could not load archived LSQ rows right now.</p>`;
-    return;
-  }
-
-  const rows = Array.isArray(json.rows) ? json.rows : [];
-  if (!rows.length) {
-    lsqArchiveTable.innerHTML = `<p class="block-help">No LSQ leads have been archived yet.</p>`;
-    renderLsqImportedFileOptions([]);
-    return;
-  }
-
-  renderLsqImportedFileOptions(rows);
-
-  lsqArchiveTable.innerHTML = `
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>Lead</th>
-          <th>Course</th>
-          <th>LSQ Status</th>
-          <th>Archive Reason</th>
-          <th>Imported</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows.map((row) => `
-          <tr>
-            <td>
-              <strong>${escapeHtml(row.name || "Unnamed lead")}</strong>
-              <div class="table-meta">${escapeHtml(row.email || row.phone || "No contact")}</div>
-            </td>
-            <td>${escapeHtml(row.courseName || "-")}</td>
-            <td>${escapeHtml(row.admissionStatus || row.courseStatus || row.lsq?.leadStage || "-")}</td>
-            <td>${escapeHtml(row.reason || "-")}</td>
-            <td>${escapeHtml(formatDateTime(row.importedAt))}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-  `;
+  renderLsqImportedFileOptions([]);
+  lsqArchiveTable.innerHTML = `<p class="block-help">Archived leads are now listed under Lost Leads > Archived Leads. Only basic contact details are kept there.</p>`;
 }
 
-function renderLsqImportedFileOptions(archiveRows = []) {
+function renderLsqImportedFileOptions(_archiveRows = []) {
   if (!deleteLsqImportedFileSelect) {
     return;
   }
@@ -1053,10 +1008,7 @@ function renderLsqImportedFileOptions(archiveRows = []) {
   const leadFiles = allLeads
     .filter((lead) => isLsqImportedLead(lead))
     .flatMap((lead) => getLeadImportSourceFiles(lead));
-  const archiveFiles = (Array.isArray(archiveRows) ? archiveRows : [])
-    .map((row) => String(row?.sourceFileName || "").trim())
-    .filter(Boolean);
-  const fileNames = [...new Set([...leadFiles, ...archiveFiles])].sort((left, right) => left.localeCompare(right));
+  const fileNames = [...new Set(leadFiles)].sort((left, right) => left.localeCompare(right));
   const currentValue = String(deleteLsqImportedFileSelect.value || "").trim();
 
   deleteLsqImportedFileSelect.innerHTML = fileNames.length
@@ -1173,14 +1125,7 @@ async function deleteLsqFileImport() {
     }
     deletedLeadCount = Number(deleteJson?.deletedCount) || 0;
   }
-
-  const { response, json } = await deleteLsqArchiveRows(selectedFile);
-  if (!response.ok) {
-    setMessage(lsqCleanupMessage, json?.message || `LSQ leads were updated, but archive cleanup failed for ${selectedFile}.`, true);
-    return;
-  }
-
-  setMessage(lsqCleanupMessage, `Deleted ${deletedLeadCount} LSQ lead${deletedLeadCount === 1 ? "" : "s"} and ${Number(json?.deletedCount) || 0} archived LSQ row${Number(json?.deletedCount) === 1 ? "" : "s"} from ${selectedFile}.`, false);
+  setMessage(lsqCleanupMessage, `Deleted ${deletedLeadCount} live LSQ lead${deletedLeadCount === 1 ? "" : "s"} from ${selectedFile}. Archived leads stay under Lost Leads > Archived Leads.`, false);
   renderAll();
 }
 

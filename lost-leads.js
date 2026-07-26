@@ -1,11 +1,13 @@
 import { registerPageCleanup } from "./page-runtime.js";
-import { bootstrapLocalState, getCounselors, getLeads as getStoredLeads, getSession, loadLocalPreference, saveLeads as persistLeads, saveLocalPreference, startStatePolling } from "./state-sync.js";
+import { apiUrl } from "./api-client.js";
+import { acceptServerState, bootstrapLocalState, getCounselors, getLeads as getStoredLeads, getSession, loadLocalPreference, saveLeads as persistLeads, saveLocalPreference, startStatePolling } from "./state-sync.js";
 import { openActivityHistory } from "./activity-history.js";
 
 await bootstrapLocalState();
 
 const lostKpiSection = document.getElementById("lostKpiSection");
 const lostLeadTableSection = document.getElementById("lostLeadTableSection");
+const archivedLeadTableSection = document.getElementById("archivedLeadTableSection");
 const lostSearchInput = document.getElementById("lostSearchInput");
 const resetLostSearch = document.getElementById("resetLostSearch");
 
@@ -13,6 +15,7 @@ const session = getSession();
 const SEARCH_STORAGE_KEY = "dvWorkshopLostLeadSearch";
 
 let searchQuery = String(await loadLocalPreference(SEARCH_STORAGE_KEY, "") || "");
+let archivedLeads = [];
 
 if (lostSearchInput) {
   lostSearchInput.value = searchQuery;
@@ -20,6 +23,10 @@ if (lostSearchInput) {
 
 function isCounselorSession() {
   return session?.role === "counselor";
+}
+
+function canViewArchivedLeads() {
+  return !isCounselorSession();
 }
 
 function getCounselorIdentity() {
@@ -124,6 +131,27 @@ function saveAllLeads(leads) {
   return persistLeads(leads);
 }
 
+async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+
+    const contentType = response.headers.get("content-type") || "";
+    const json = contentType.includes("application/json")
+      ? await response.json().catch(() => null)
+      : null;
+
+    return { response, json };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 async function restoreLead(leadId) {
   const allLeads = getAllLeads();
   const index = allLeads.findIndex((lead) => String(lead.id) === String(leadId));
@@ -220,16 +248,47 @@ function getLostProgramName(lead) {
   return String(lead.workshop || "").trim() || "-";
 }
 
-function renderKpi(lostLeads) {
+async function refreshArchivedLeads() {
+  if (!archivedLeadTableSection || !canViewArchivedLeads()) {
+    archivedLeads = [];
+    return;
+  }
+
+  try {
+    const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/lost-leads/archive?limit=1000"), {
+      method: "GET",
+      headers: { Accept: "application/json" }
+    }, 15000);
+
+    if (!response.ok || !json?.ok) {
+      archivedLeads = [];
+      return;
+    }
+
+    if (json?.state) {
+      acceptServerState(json.state, response.headers.get("etag"));
+    }
+
+    archivedLeads = Array.isArray(json?.rows) ? json.rows : [];
+  } catch {
+    archivedLeads = [];
+  }
+}
+
+function renderKpi(lostLeads, archivedRows) {
   lostKpiSection.innerHTML = `
     <article class="card kpi-card">
-      <p>Overall Lost Leads</p>
+      <p>Active Lost Leads</p>
       <h2>${lostLeads.length}</h2>
+    </article>
+    <article class="card kpi-card">
+      <p>Archived Leads</p>
+      <h2>${archivedRows.length}</h2>
     </article>
   `;
 }
 
-function renderTable(lostLeads) {
+function renderLostTable(lostLeads) {
   const isAdmin = session?.role === "admin" || session?.role === "super_admin";
   let html = `
     <div class="table-scroll">
@@ -304,10 +363,47 @@ function renderTable(lostLeads) {
   }
 }
 
+function renderArchivedTable(rows) {
+  if (!archivedLeadTableSection || !canViewArchivedLeads()) {
+    return;
+  }
+
+  let html = `
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Phone Number</th>
+            <th>Email</th>
+            <th>Course Name</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+
+  if (!rows.length) {
+    html += `<tr><td colspan="4">No archived leads found.</td></tr>`;
+  } else {
+    html += rows.map((lead) => `
+      <tr>
+        <td>${escapeHtml(lead.name || "-")}</td>
+        <td>${escapeHtml(lead.phone || "-")}</td>
+        <td>${escapeHtml(lead.email || "-")}</td>
+        <td>${escapeHtml(lead.courseName || "-")}</td>
+      </tr>
+    `).join("");
+  }
+
+  html += `</tbody></table></div>`;
+  archivedLeadTableSection.innerHTML = html;
+}
+
 function renderAll() {
   const allLeads = getAllLeads();
   const scopedLeads = getScopedLeads(allLeads);
   let lostLeads = scopedLeads.filter((lead) => isLostLead(lead));
+  let filteredArchivedLeads = [...archivedLeads];
 
   if (searchQuery) {
     const query = searchQuery.toLowerCase();
@@ -324,10 +420,26 @@ function renderAll() {
 
       return haystack.includes(query);
     });
+
+    filteredArchivedLeads = filteredArchivedLeads.filter((lead) => {
+      const haystack = [
+        lead.name,
+        lead.email,
+        lead.phone,
+        lead.courseName
+      ]
+        .map((value) => String(value || "").toLowerCase())
+        .join(" ");
+
+      return haystack.includes(query);
+    });
   }
 
-  renderKpi(lostLeads);
-  renderTable(lostLeads);
+  renderKpi(lostLeads, canViewArchivedLeads() ? filteredArchivedLeads : []);
+  renderLostTable(lostLeads);
+  if (canViewArchivedLeads()) {
+    renderArchivedTable(filteredArchivedLeads);
+  }
 }
 
 if (lostSearchInput) {
@@ -353,9 +465,12 @@ if (resetLostSearch) {
   };
 }
 
+await refreshArchivedLeads();
 renderAll();
 window.__dvMarkRouteViewReady?.();
 const stopStatePolling = startStatePolling(() => {
-  renderAll();
+  void refreshArchivedLeads().then(() => {
+    renderAll();
+  });
 });
 registerPageCleanup(stopStatePolling);

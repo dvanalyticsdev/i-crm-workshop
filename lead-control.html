@@ -185,10 +185,12 @@
 
         <div class="allocation-block">
           <div class="card-head">
-            <h4>Archived LSQ Leads</h4>
-            <p>Rows rejected from live CRM update stay here with a clear archive reason.</p>
+            <h4>Archived Leads Destination</h4>
+            <p>LSQ rows that fall outside SOP now move into Lost Leads &gt; Archived Leads together with aged lost leads.</p>
           </div>
-          <div id="lsqArchiveTable" class="table-shell"></div>
+          <div id="lsqArchiveTable" class="table-shell">
+            <p class="block-help">Use the Lost Leads page to review archived leads. Archived records keep only name, email, phone number, and course name.</p>
+          </div>
         </div>
 
         <div class="allocation-block">
@@ -206,7 +208,7 @@
             </select>
             <button id="deleteLsqImportedFileBtn" type="button" class="btn-ghost">Delete LSQ File Import</button>
           </div>
-          <p class="block-help">Deletes LSQ leads and LSQ archive rows linked to the selected imported file.</p>
+          <p class="block-help">Deletes live LSQ leads linked to the selected imported file. Archived leads are managed from the Lost Leads page.</p>
           <p id="lsqCleanupMessage" class="message" aria-live="polite"></p>
         </div>
       </section>
