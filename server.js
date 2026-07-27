@@ -3353,9 +3353,28 @@ function findLeadByPhone(state, phone) {
   if (!normalizedPhone) {
     return null;
   }
-  return (Array.isArray(state?.leads) ? state.leads : []).find(
+  const matches = (Array.isArray(state?.leads) ? state.leads : []).filter(
     (lead) => normalizeLeadPhone(lead?.phone) === normalizedPhone
-  ) || null;
+  );
+  if (!matches.length) {
+    return null;
+  }
+
+  const rankedMatches = [...matches].sort((left, right) => {
+    const leftAssigned = shouldTreatLeadAsAssigned(left?.counselor) ? 1 : 0;
+    const rightAssigned = shouldTreatLeadAsAssigned(right?.counselor) ? 1 : 0;
+    if (leftAssigned !== rightAssigned) {
+      return rightAssigned - leftAssigned;
+    }
+
+    const leftUpdatedAt = Date.parse(String(left?.updatedAt || left?.createdAtExact || left?.createdAt || ""));
+    const rightUpdatedAt = Date.parse(String(right?.updatedAt || right?.createdAtExact || right?.createdAt || ""));
+    const safeLeftUpdatedAt = Number.isFinite(leftUpdatedAt) ? leftUpdatedAt : 0;
+    const safeRightUpdatedAt = Number.isFinite(rightUpdatedAt) ? rightUpdatedAt : 0;
+    return safeRightUpdatedAt - safeLeftUpdatedAt;
+  });
+
+  return rankedMatches[0] || null;
 }
 
 function getMcubeExecutiveNumber(counselor = {}, session = {}, config = {}) {

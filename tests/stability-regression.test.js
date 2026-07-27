@@ -1012,6 +1012,36 @@ test("MCUBE auto-created leads assign only when a picked call matches a CRM coun
   assert.doesNotMatch(server, /assignMcubeCounselorRoundRobin/);
 });
 
+test("phone lookup prefers assigned lead records for inbound MCUBE matches", () => {
+  const server = read("server.js");
+  const source = [
+    getNamedFunctionSource(server, "normalizeLeadContactValue"),
+    getNamedFunctionSource(server, "shouldTreatLeadAsAssigned"),
+    getNamedFunctionSource(server, "normalizeLeadPhone"),
+    getNamedFunctionSource(server, "findLeadByPhone")
+  ].join("\n\n");
+  const factory = new Function(`${source}; return { findLeadByPhone };`);
+  const { findLeadByPhone } = factory();
+  const state = {
+    leads: [
+      {
+        id: "L-1",
+        phone: "+91 98765 43210",
+        counselor: "Unassigned",
+        updatedAt: "2026-07-20T10:00:00.000Z"
+      },
+      {
+        id: "L-2",
+        phone: "9876543210",
+        counselor: "Asha",
+        updatedAt: "2026-07-19T10:00:00.000Z"
+      }
+    ]
+  };
+
+  assert.equal(findLeadByPhone(state, "9876543210")?.id, "L-2");
+});
+
 test("MCUBE auto-created lead contact placeholders are replaceable only when synthetic", () => {
   const server = read("server.js");
   const buildMcubeLead = getNamedFunctionSource(server, "buildMcubeLead");
