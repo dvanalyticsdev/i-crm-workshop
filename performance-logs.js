@@ -12,6 +12,10 @@ if (session?.role !== "super_admin") {
 const summaryCards = document.getElementById("performanceSummaryCards");
 const windowLabel = document.getElementById("performanceWindowLabel");
 const operationsTable = document.getElementById("performanceOperationsTable");
+const pagesTable = document.getElementById("performancePagesTable");
+const rolesTable = document.getElementById("performanceRolesTable");
+const sectionsTable = document.getElementById("performanceSectionsTable");
+const phasesTable = document.getElementById("performancePhasesTable");
 const slowEvents = document.getElementById("performanceSlowEvents");
 const failures = document.getElementById("performanceFailures");
 
@@ -64,26 +68,32 @@ async function loadPerformanceSummary() {
 }
 
 function renderSummary(summary) {
+  const pageRows = Array.isArray(summary.pages) ? summary.pages : [];
+  const apiRows = (Array.isArray(summary.operations) ? summary.operations : []).filter((row) => row.kind === "api");
+  const slowestPage = pageRows[0] || {};
+  const slowestApi = apiRows[0] || {};
+  const slowestSection = Array.isArray(summary.sections) ? summary.sections[0] || {} : {};
+
   summaryCards.innerHTML = `
     <article class="performance-card">
-      <span class="performance-card__label">CRM Speed</span>
-      <strong>${escapeHtml(summary.status || "Good")}</strong>
-      <span>${formatMs(summary.avgDurationMs)} average</span>
+      <span class="performance-card__label">User Page Speed</span>
+      <strong>${formatMs(slowestPage.avgDurationMs || 0)}</strong>
+      <span>${escapeHtml(slowestPage.page || "No page events yet")}</span>
+    </article>
+    <article class="performance-card">
+      <span class="performance-card__label">API Speed</span>
+      <strong>${formatMs(slowestApi.avgDurationMs || 0)}</strong>
+      <span>${escapeHtml(slowestApi.operation || "No API events yet")}</span>
     </article>
     <article class="performance-card">
       <span class="performance-card__label">Reliability</span>
       <strong>${Number(summary.successRate || 100).toFixed(1)}%</strong>
-      <span>successful events</span>
+      <span>${Number(summary.totalEvents || 0)} events logged</span>
     </article>
     <article class="performance-card">
-      <span class="performance-card__label">Events Logged</span>
-      <strong>${Number(summary.totalEvents || 0)}</strong>
-      <span>${escapeHtml(summary.windowLabel || "Last 14 days")}</span>
-    </article>
-    <article class="performance-card">
-      <span class="performance-card__label">Slowest Operation</span>
-      <strong>${escapeHtml(summary.operations?.[0]?.operation || "-")}</strong>
-      <span>${formatMs(summary.operations?.[0]?.avgDurationMs || 0)} average</span>
+      <span class="performance-card__label">Slowest Section</span>
+      <strong>${formatMs(slowestSection.avgDurationMs || 0)}</strong>
+      <span>${escapeHtml(slowestSection.name || "-")}</span>
     </article>
   `;
 
@@ -123,6 +133,37 @@ function renderOperations(rows = []) {
   `;
 }
 
+function renderMetricTable(container, rows = [], labelKey = "name", emptyText = "No performance events logged yet.") {
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Status</th>
+          <th>Avg</th>
+          <th>P95</th>
+          <th>Max</th>
+          <th>Success</th>
+          <th>Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.length ? rows.map((row) => `
+          <tr>
+            <td>${escapeHtml(row[labelKey] || row.name || row.operation || row.page || row.role || "-")}</td>
+            <td><span class="badge ${getStatusClass(row.status)}">${escapeHtml(row.status)}</span></td>
+            <td>${formatMs(row.avgDurationMs)}</td>
+            <td>${formatMs(row.p95DurationMs)}</td>
+            <td>${formatMs(row.maxDurationMs)}</td>
+            <td>${Number(row.successRate || 0).toFixed(1)}%</td>
+            <td>${Number(row.total || 0)}</td>
+          </tr>
+        `).join("") : `<tr><td colspan="7">${escapeHtml(emptyText)}</td></tr>`}
+      </tbody>
+    </table>
+  `;
+}
+
 function renderEventTable(container, rows = [], emptyText) {
   container.innerHTML = `
     <table>
@@ -130,6 +171,8 @@ function renderEventTable(container, rows = [], emptyText) {
         <tr>
           <th>Time</th>
           <th>Operation</th>
+          <th>Page / Section</th>
+          <th>Role</th>
           <th>Status</th>
           <th>Duration</th>
         </tr>
@@ -139,10 +182,12 @@ function renderEventTable(container, rows = [], emptyText) {
           <tr>
             <td>${formatDate(row.createdAt)}</td>
             <td>${escapeHtml(row.operation || row.route || row.page || "-")}</td>
+            <td>${escapeHtml([row.page, row.section, row.subsection, row.phase].filter(Boolean).join(" / ") || "-")}</td>
+            <td>${escapeHtml(row.role || "-")}</td>
             <td>${escapeHtml(row.status || (row.success === false ? "failure" : "success"))}</td>
             <td>${formatMs(row.durationMs)}</td>
           </tr>
-        `).join("") : `<tr><td colspan="4">${escapeHtml(emptyText)}</td></tr>`}
+        `).join("") : `<tr><td colspan="6">${escapeHtml(emptyText)}</td></tr>`}
       </tbody>
     </table>
   `;
@@ -153,11 +198,19 @@ async function renderPerformanceDashboard() {
     const summary = await loadPerformanceSummary();
     renderSummary(summary);
     renderOperations(summary.operations || []);
+    renderMetricTable(pagesTable, summary.pages || [], "page", "No page experience events logged yet.");
+    renderMetricTable(rolesTable, summary.roles || [], "role", "No role events logged yet.");
+    renderMetricTable(sectionsTable, summary.sections || [], "name", "No section events logged yet.");
+    renderMetricTable(phasesTable, summary.phases || [], "name", "No phase events logged yet.");
     renderEventTable(slowEvents, summary.slowEvents || [], "No slow events logged yet.");
     renderEventTable(failures, summary.recentFailures || [], "No failures logged yet.");
   } catch (error) {
     summaryCards.innerHTML = `<article class="performance-card"><strong>Unable to load</strong><span>${escapeHtml(error.message)}</span></article>`;
     operationsTable.innerHTML = "";
+    pagesTable.innerHTML = "";
+    rolesTable.innerHTML = "";
+    sectionsTable.innerHTML = "";
+    phasesTable.innerHTML = "";
     slowEvents.innerHTML = "";
     failures.innerHTML = "";
   }

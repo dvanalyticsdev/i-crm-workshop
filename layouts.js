@@ -229,6 +229,35 @@ function hideRouteLoadingOverlay(mainContent) {
   mainContent.querySelector(":scope > .route-loading-overlay")?.remove();
 }
 
+function recordRouteNavigationPerformance(route, startedAt, { success = true, message = "" } = {}) {
+  const nowValue = typeof performance !== "undefined" ? performance.now() : Date.now();
+  const durationMs = Math.max(0, Math.round(nowValue - startedAt));
+  try {
+    void fetch("/api/performance-logs/client", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
+      body: JSON.stringify({
+        kind: "page",
+        operation: `${route}:route-interactive`,
+        page: route,
+        section: "Route Navigation",
+        subsection: "soft-navigation",
+        phase: "interactive-ready",
+        role: activeSession?.role || "",
+        durationMs,
+        success,
+        message
+      })
+    });
+  } catch {
+    // Performance logging should never block navigation.
+  }
+}
+
 function recoverStaleRouteLoadingOverlay() {
   const mainContent = document.querySelector(".main-content.route-loading");
   if (!mainContent) {
@@ -967,6 +996,7 @@ async function navigateToRoute(href, options = {}) {
     return;
   }
 
+  const navigationStartedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
   // Check version on soft navigation
   void checkSystemVersion();
 
@@ -1084,7 +1114,12 @@ async function navigateToRoute(href, options = {}) {
     await loadRouteModules(targetDocument, url.href);
     await waitForRouteReady(navigationToken);
     await waitForNextPaint(2);
+    recordRouteNavigationPerformance(route, navigationStartedAt);
   } catch (error) {
+    recordRouteNavigationPerformance(route, navigationStartedAt, {
+      success: false,
+      message: error?.message || "Soft navigation failed"
+    });
     console.error("Soft navigation failed, falling back to a full page load.", error);
     window.location.href = href;
   } finally {

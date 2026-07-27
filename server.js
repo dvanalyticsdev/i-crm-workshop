@@ -653,6 +653,10 @@ function recordPerformanceEvent(event = {}) {
     operation: String(event.operation || "unknown"),
     route: String(event.route || ""),
     page: String(event.page || ""),
+    section: String(event.section || ""),
+    subsection: String(event.subsection || ""),
+    phase: String(event.phase || ""),
+    role: String(event.role || ""),
     status: String(event.status || "success"),
     durationMs,
     success: event.success !== false,
@@ -685,55 +689,89 @@ function recordRoutePerformance(req, startedAt, { operation, success = true, sta
 
 function buildPerformanceSummary(logs = []) {
   const safeLogs = Array.isArray(logs) ? logs : [];
-  const byOperation = new Map();
+  const summarizeBy = (getKey, getMeta = () => ({})) => {
+    const rows = new Map();
+    safeLogs.forEach((log) => {
+      const key = String(getKey(log) || "").trim();
+      if (!key) {
+        return;
+      }
+      if (!rows.has(key)) {
+        rows.set(key, {
+          name: key,
+          ...getMeta(log),
+          total: 0,
+          success: 0,
+          failure: 0,
+          totalDuration: 0,
+          maxDurationMs: 0,
+          durations: []
+        });
+      }
+      const row = rows.get(key);
+      const durationMs = Math.max(0, Number(log.durationMs) || 0);
+      row.total += 1;
+      row.totalDuration += durationMs;
+      row.maxDurationMs = Math.max(row.maxDurationMs, durationMs);
+      row.durations.push(durationMs);
+      if (log.success !== false && String(log.status || "").toLowerCase() !== "failure") {
+        row.success += 1;
+      } else {
+        row.failure += 1;
+      }
+    });
+
+    return Array.from(rows.values()).map((row) => {
+      const sorted = row.durations.sort((a, b) => a - b);
+      const p95Index = sorted.length ? Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1) : 0;
+      const avgDurationMs = row.total ? Math.round(row.totalDuration / row.total) : 0;
+      const successRate = row.total ? Math.round((row.success / row.total) * 1000) / 10 : 100;
+      return {
+        ...row,
+        avgDurationMs,
+        p95DurationMs: sorted[p95Index] || 0,
+        successRate,
+        status: getPerformanceStatus(avgDurationMs, successRate),
+        durations: undefined,
+        totalDuration: undefined
+      };
+    }).sort((a, b) => b.avgDurationMs - a.avgDurationMs || b.total - a.total);
+  };
+
   let totalSuccess = 0;
 
   safeLogs.forEach((log) => {
-    const operation = String(log.operation || log.route || log.page || "unknown");
-    if (!byOperation.has(operation)) {
-      byOperation.set(operation, {
-        operation,
-        kind: String(log.kind || "api"),
-        total: 0,
-        success: 0,
-        failure: 0,
-        totalDuration: 0,
-        maxDurationMs: 0,
-        durations: []
-      });
-    }
-    const row = byOperation.get(operation);
-    const durationMs = Math.max(0, Number(log.durationMs) || 0);
-    row.total += 1;
-    row.totalDuration += durationMs;
-    row.maxDurationMs = Math.max(row.maxDurationMs, durationMs);
-    row.durations.push(durationMs);
     if (log.success !== false && String(log.status || "").toLowerCase() !== "failure") {
-      row.success += 1;
       totalSuccess += 1;
-    } else {
-      row.failure += 1;
     }
   });
 
-  const operationRows = Array.from(byOperation.values()).map((row) => {
-    const sorted = row.durations.sort((a, b) => a - b);
-    const p95Index = sorted.length ? Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1) : 0;
-    const avgDurationMs = row.total ? Math.round(row.totalDuration / row.total) : 0;
-    const successRate = row.total ? Math.round((row.success / row.total) * 1000) / 10 : 100;
-    return {
-      operation: row.operation,
-      kind: row.kind,
-      total: row.total,
-      success: row.success,
-      failure: row.failure,
-      avgDurationMs,
-      p95DurationMs: sorted[p95Index] || 0,
-      maxDurationMs: row.maxDurationMs,
-      successRate,
-      status: getPerformanceStatus(avgDurationMs, successRate)
-    };
-  }).sort((a, b) => b.avgDurationMs - a.avgDurationMs || b.total - a.total);
+  const operationRows = summarizeBy(
+    (log) => log.operation || log.route || log.page || "unknown",
+    (log) => ({
+      operation: String(log.operation || log.route || log.page || "unknown"),
+      kind: String(log.kind || "api"),
+      page: String(log.page || ""),
+      section: String(log.section || ""),
+      subsection: String(log.subsection || ""),
+      phase: String(log.phase || ""),
+      role: String(log.role || "")
+    })
+  );
+  const pageRows = summarizeBy((log) => log.page, (log) => ({ page: String(log.page || ""), role: String(log.role || "") }));
+  const roleRows = summarizeBy((log) => log.role || "unknown", (log) => ({ role: String(log.role || "unknown") }));
+  const sectionRows = summarizeBy((log) => [log.page, log.section, log.subsection].filter(Boolean).join(" / "), (log) => ({
+    page: String(log.page || ""),
+    section: String(log.section || ""),
+    subsection: String(log.subsection || ""),
+    role: String(log.role || "")
+  }));
+  const phaseRows = summarizeBy((log) => [log.page, log.section, log.phase].filter(Boolean).join(" / "), (log) => ({
+    page: String(log.page || ""),
+    section: String(log.section || ""),
+    phase: String(log.phase || ""),
+    role: String(log.role || "")
+  }));
 
   const total = safeLogs.length;
   const successRate = total ? Math.round((totalSuccess / total) * 1000) / 10 : 100;
@@ -749,6 +787,10 @@ function buildPerformanceSummary(logs = []) {
     avgDurationMs,
     status: getPerformanceStatus(avgDurationMs, successRate),
     operations: operationRows.slice(0, 30),
+    pages: pageRows.slice(0, 30),
+    roles: roleRows.slice(0, 20),
+    sections: sectionRows.slice(0, 30),
+    phases: phaseRows.slice(0, 30),
     slowEvents: [...safeLogs]
       .sort((a, b) => (Number(b.durationMs) || 0) - (Number(a.durationMs) || 0))
       .slice(0, 20),
@@ -12686,9 +12728,13 @@ app.post("/api/performance-logs/client", async (req, res) => {
 
     const durationMs = Math.max(0, Number(req.body?.durationMs) || 0);
     recordPerformanceEvent({
-      kind: "page",
-      operation: String(req.body?.page || "page-load"),
+      kind: String(req.body?.kind || "page"),
+      operation: String(req.body?.operation || req.body?.page || "page-load"),
       page: String(req.body?.page || ""),
+      section: String(req.body?.section || ""),
+      subsection: String(req.body?.subsection || ""),
+      phase: String(req.body?.phase || ""),
+      role: String(req.body?.role || session.role || ""),
       durationMs,
       success: req.body?.success !== false,
       status: req.body?.success === false ? "failure" : "success",

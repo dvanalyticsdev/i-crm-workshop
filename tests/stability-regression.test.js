@@ -1348,3 +1348,36 @@ test("notification badge uses a cheap summary endpoint and lazy dropdown loading
   assert.match(refreshDropdownSource, /Loading notifications/);
   assert.match(refreshDropdownSource, /\/api\/notifications\?limit=\$\{NOTIFICATION_LIST_LIMIT\}/);
 });
+
+test("performance logs capture user-facing page, role, section, subsection, and phase context", () => {
+  const server = read("server.js");
+  const layouts = read("layouts.js");
+  const mainAdmission = read("main-admission-leads.js");
+  const performanceClient = read("performance-client.js");
+  const performanceHtml = read("performance-logs.html");
+  const performanceJs = read("performance-logs.js");
+
+  assert.match(server, /section: String\(event\.section/);
+  assert.match(server, /subsection: String\(event\.subsection/);
+  assert.match(server, /phase: String\(event\.phase/);
+  assert.match(server, /role: String\(event\.role/);
+  assert.match(server, /pages: pageRows\.slice/);
+  assert.match(server, /roles: roleRows\.slice/);
+  assert.match(server, /sections: sectionRows\.slice/);
+  assert.match(server, /phases: phaseRows\.slice/);
+  assert.match(getNamedFunctionSource(layouts, "recordRouteNavigationPerformance"), /soft-navigation/);
+  assert.match(getNamedFunctionSource(layouts, "navigateToRoute"), /recordRouteNavigationPerformance\(route, navigationStartedAt\)/);
+  assert.match(performanceClient, /export async function recordClientPerformance/);
+  assert.match(performanceClient, /role: session\.role/);
+  assert.match(mainAdmission, /phase: "interactive-ready"/);
+  assert.match(mainAdmission, /phase: "data-fetch"/);
+  assert.match(mainAdmission, /phase: "render"/);
+  assert.match(performanceHtml, /performancePagesTable/);
+  assert.match(performanceHtml, /performanceRolesTable/);
+  assert.match(performanceHtml, /performanceSectionsTable/);
+  assert.match(performanceHtml, /performancePhasesTable/);
+  assert.match(performanceHtml, /Page Experience/);
+  assert.match(performanceJs, /User Page Speed/);
+  assert.match(performanceJs, /summary\.sections/);
+  assert.match(performanceJs, /summary\.phases/);
+});

@@ -31,8 +31,8 @@ import {
 } from "./lead-service.js";
 import { formatKolkataDate, getKolkataDayRange, parseKolkataDate as parseTimelineDate, toKolkataDateKey } from "./date-utils.js";
 import { createRenderScheduler, withButtonBusy } from "./ui-feedback.js";
+import { getPerformanceDuration, recordClientPerformance, waitForPaint } from "./performance-client.js";
 
-const pageLoadStartedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
 await bootstrapLocalState({ skipStateRefresh: true });
 
 const session = getSession();
@@ -174,31 +174,23 @@ function mergeScopedLeadUpdates(leads) {
   normalizeLeadFields(scopedMainAdmissionLeads);
 }
 
-async function recordMainAdmissionPageLoad(success = true, message = "") {
-  const nowValue = typeof performance !== "undefined" ? performance.now() : Date.now();
-  const durationMs = Math.max(0, Math.round(nowValue - pageLoadStartedAt));
-  try {
-    await fetch(apiUrl("/api/performance-logs/client"), {
-      method: "POST",
-      credentials: "same-origin",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json"
-      },
-      body: JSON.stringify({
-        page: "main-admission-leads.html",
-        durationMs,
-        success,
-        message,
-        count: Array.isArray(scopedMainAdmissionLeads) ? scopedMainAdmissionLeads.length : getAllLeads().length
-      })
-    });
-  } catch {
-    // Performance logging should never block CRM usage.
-  }
+function recordMainAdmissionPerformance({ phase, subsection = "", durationMs = null, success = true, message = "", count = null } = {}) {
+  void recordClientPerformance({
+    kind: phase === "interactive-ready" ? "page" : "section",
+    operation: `main-admission:${phase || "event"}`,
+    page: "main-admission-leads.html",
+    section: "Main Admission",
+    subsection,
+    phase,
+    durationMs,
+    success,
+    message,
+    count: count ?? (Array.isArray(scopedMainAdmissionLeads) ? scopedMainAdmissionLeads.length : getAllLeads().length)
+  });
 }
 
 async function loadScopedMainAdmissionLeads() {
+  const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
   try {
     const response = await fetch(apiUrl("/api/leads/scoped?section=main-admission"), {
       credentials: "same-origin",
@@ -213,6 +205,13 @@ async function loadScopedMainAdmissionLeads() {
     scopedCounselors = Array.isArray(payload?.counselors) ? payload.counselors : [];
     scopedLoadActive = true;
     normalizeLeadFields(scopedMainAdmissionLeads);
+    recordMainAdmissionPerformance({
+      phase: "data-fetch",
+      subsection: "scoped-leads",
+      durationMs: Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt),
+      count: scopedMainAdmissionLeads.length,
+      message: "scoped"
+    });
     return true;
   } catch (error) {
     console.warn("[main-admission] Scoped loading failed, falling back to full state:", error?.message || error);
@@ -220,6 +219,14 @@ async function loadScopedMainAdmissionLeads() {
     scopedMainAdmissionLeads = null;
     scopedCounselors = null;
     await refreshState();
+    recordMainAdmissionPerformance({
+      phase: "data-fetch",
+      subsection: "full-state-fallback",
+      durationMs: Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt),
+      success: false,
+      message: error?.message || "full-state-fallback",
+      count: getAllLeads().length
+    });
     return false;
   }
 }
@@ -2636,6 +2643,7 @@ function restoreActiveInputState(state) {
 }
 
 async function renderAll() {
+  const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
   const activeInputState = getActiveInputState();
   renderAdmissionSectionNav();
   renderSegmentSection();
@@ -2654,6 +2662,12 @@ async function renderAll() {
   renderFilters(allLeads);
   renderLeadTable(filteredLeads);
   restoreActiveInputState(activeInputState);
+  recordMainAdmissionPerformance({
+    phase: "render",
+    subsection: "table-and-panels",
+    durationMs: Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt),
+    count: filteredLeads.length
+  });
 }
 
 document.getElementById("mainAdmissionActivityForm").onsubmit = saveActivity;
@@ -2684,9 +2698,16 @@ if (mainAdmissionTaskModal && mainAdmissionTaskForm) {
 setupRegisteredRoutingPanel();
 const scheduleRenderAll = createRenderScheduler(renderAll);
 const scopedLoadSucceeded = await loadScopedMainAdmissionLeads();
-void renderAll();
+await renderAll();
+await waitForPaint(2);
 window.__dvMarkRouteViewReady?.();
-void recordMainAdmissionPageLoad(scopedLoadSucceeded, scopedLoadSucceeded ? "scoped" : "full-state-fallback");
+recordMainAdmissionPerformance({
+  phase: "interactive-ready",
+  subsection: scopedLoadSucceeded ? "scoped-leads" : "full-state-fallback",
+  durationMs: getPerformanceDuration(),
+  success: true,
+  message: scopedLoadSucceeded ? "scoped" : "full-state-fallback"
+});
 const stopStatePolling = startMainAdmissionPolling(() => {
   void scheduleRenderAll();
 });
