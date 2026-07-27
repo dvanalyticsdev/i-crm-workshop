@@ -89,7 +89,7 @@ const DEFAULT_FILTER = {
   search: "",
   leadOwner: isCounselorSession() ? "direct" : "all",
   counselor: "",
-  courseName: "",
+  courseName: [],
   location: "",
   mainAdmissionDialed: "",
   mainAdmissionCourseStatus: "",
@@ -110,6 +110,7 @@ let filter = { ...DEFAULT_FILTER, ...persistedFilter };
 filter.leadOwner = ["all", "direct", "reassigned"].includes(String(filter.leadOwner || "").trim())
   ? String(filter.leadOwner || "").trim()
   : DEFAULT_FILTER.leadOwner;
+filter.courseName = normalizeMultiValueFilter(filter.courseName);
 filter.location = normalizeLocationLabel(filter.location);
 if (isCounselorSession() && (!persistedFilter.timeline || persistedFilter.timeline === "week")) {
   filter.timeline = "overall";
@@ -125,6 +126,7 @@ let detailsEditMode = false;
 let mainAdmissionActivityModalMode = "edit";
 let activeSegment = DEFAULT_SEGMENT;
 let locationSortDirection = "";
+let isCourseFilterOpen = false;
 populateCrmCourseSelect("modalMainAdmissionCoursePitched", { includeNo: true });
 
 function persistFilters() {
@@ -155,6 +157,14 @@ function formatFieldLabel(value) {
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function normalizeMultiValueFilter(value) {
+  if (Array.isArray(value)) {
+    return [...new Set(value.map((item) => String(item || "").trim()).filter(Boolean))];
+  }
+  const normalized = String(value || "").trim();
+  return normalized ? [normalized] : [];
 }
 
 function getActivityLabel(activity = {}) {
@@ -874,6 +884,15 @@ function renderFilters(leads) {
   const counselors = getUniqueValues(leads, "counselor");
   const courses = getUniqueValues(leads, "courseName");
   const locations = [...new Set(leads.map((lead) => getLeadLocation(lead)).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const selectedCourses = normalizeMultiValueFilter(filter.courseName);
+  const allCoursesSelected = courses.length > 0 && selectedCourses.length === courses.length;
+  const courseTriggerLabel = !selectedCourses.length
+    ? "All"
+    : allCoursesSelected
+      ? `All (${selectedCourses.length})`
+      : selectedCourses.length === 1
+        ? selectedCourses[0]
+        : `${selectedCourses.length} selected`;
 
   mainAdmissionFilterBar.innerHTML = `
     <div class="filter-section">
@@ -932,11 +951,42 @@ function renderFilters(leads) {
       <div class="filter-row">
         ${activeSegment === DEFAULT_SEGMENT ? `
         <div class="filter-item">
-          <label for="mainAdmissionCourseSelect">Course Name</label>
-          <select id="mainAdmissionCourseSelect">
-            <option value="">All</option>
-            ${courses.map((item) => `<option value="${escapeHtml(item)}" ${filter.courseName === item ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
-          </select>
+          <label for="mainAdmissionCourseTrigger">Course Name</label>
+          <div class="multi-filter ${isCourseFilterOpen ? "multi-filter--open" : ""}" id="mainAdmissionCourseMultiFilter">
+            <button
+              type="button"
+              id="mainAdmissionCourseTrigger"
+              class="multi-filter-trigger"
+              aria-haspopup="true"
+              aria-expanded="${isCourseFilterOpen ? "true" : "false"}"
+            >
+              <span class="multi-filter-trigger__text">${escapeHtml(courseTriggerLabel)}</span>
+              <span class="multi-filter-caret" aria-hidden="true">${isCourseFilterOpen ? "&#9650;" : "&#9660;"}</span>
+            </button>
+            ${isCourseFilterOpen ? `
+            <div class="multi-filter-menu" id="mainAdmissionCourseMenu">
+              <div class="multi-filter-actions">
+                <button type="button" class="multi-filter-action-btn" id="mainAdmissionCourseSelectAllBtn">Select All</button>
+                <button type="button" class="multi-filter-action-btn" id="mainAdmissionCourseClearBtn">Clear</button>
+                <button type="button" class="multi-filter-action-btn multi-filter-action-btn--primary" id="mainAdmissionCourseCloseBtn">Close</button>
+              </div>
+              ${courses.length
+                ? courses.map((item) => {
+                    const checked = selectedCourses.includes(item);
+                    return `
+                    <label class="multi-filter-option ${checked ? "multi-filter-option--selected" : ""}">
+                      <input type="checkbox" value="${escapeHtml(item)}" data-course-filter-option ${checked ? "checked" : ""} />
+                      <span>${escapeHtml(item)}</span>
+                    </label>
+                  `;
+                  }).join("")
+                : `<div class="multi-filter-empty">No course options available.</div>`}
+              <div class="multi-filter-meta">
+                <span class="selected-count">Selected: ${selectedCourses.length || "All"}</span>
+              </div>
+            </div>
+            ` : ""}
+          </div>
         </div>
         ` : ""}
         <div class="filter-item">
@@ -1087,16 +1137,39 @@ function renderFilters(leads) {
       renderAll();
     };
   }
-  const courseSelect = document.getElementById("mainAdmissionCourseSelect");
-  if (courseSelect) {
-    courseSelect.onchange = (event) => {
-      filter.courseName = event.target.value;
-      persistFilters();
-      currentPage = 1;
+  const courseTrigger = document.getElementById("mainAdmissionCourseTrigger");
+  if (courseTrigger) {
+    courseTrigger.onclick = () => {
+      isCourseFilterOpen = !isCourseFilterOpen;
       renderAll();
     };
+    document.querySelectorAll("[data-course-filter-option]").forEach((input) => {
+      input.onchange = (event) => {
+        toggleCourseFilterValue(event.target.value);
+      };
+    });
+    const selectAllCoursesBtn = document.getElementById("mainAdmissionCourseSelectAllBtn");
+    if (selectAllCoursesBtn) {
+      selectAllCoursesBtn.onclick = () => {
+        setAllCourseFilters(leads);
+      };
+    }
+    const clearCoursesBtn = document.getElementById("mainAdmissionCourseClearBtn");
+    if (clearCoursesBtn) {
+      clearCoursesBtn.onclick = () => {
+        clearCourseFilters();
+      };
+    }
+    const closeCoursesBtn = document.getElementById("mainAdmissionCourseCloseBtn");
+    if (closeCoursesBtn) {
+      closeCoursesBtn.onclick = () => {
+        isCourseFilterOpen = false;
+        renderAll();
+      };
+    }
   } else {
-    filter.courseName = "";
+    filter.courseName = [];
+    isCourseFilterOpen = false;
   }
   document.getElementById("mainAdmissionLocationSelect").onchange = (event) => {
     filter.location = event.target.value;
@@ -1154,6 +1227,7 @@ function renderFilters(leads) {
   };
   document.getElementById("mainAdmissionResetFiltersBtn").onclick = () => {
     filter = { ...DEFAULT_FILTER };
+    isCourseFilterOpen = false;
     persistFilters();
     currentPage = 1;
     void renderAll();
@@ -1171,6 +1245,36 @@ function getMainAdmissionExportRows() {
 
 function getCurrentFilteredLeads() {
   return getMainAdmissionExportRows();
+}
+
+function updateCourseFilterSelection(nextValues) {
+  filter.courseName = normalizeMultiValueFilter(nextValues);
+  persistFilters();
+  currentPage = 1;
+  renderAll();
+}
+
+function toggleCourseFilterValue(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return;
+  }
+
+  const currentValues = normalizeMultiValueFilter(filter.courseName);
+  const nextValues = currentValues.includes(normalized)
+    ? currentValues.filter((item) => item !== normalized)
+    : [...currentValues, normalized];
+
+  updateCourseFilterSelection(nextValues);
+}
+
+function setAllCourseFilters(leads) {
+  const courses = getUniqueValues(leads, "courseName");
+  updateCourseFilterSelection(courses);
+}
+
+function clearCourseFilters() {
+  updateCourseFilterSelection([]);
 }
 
 function compareLeadLocations(a, b) {
@@ -1256,6 +1360,7 @@ function exportFilteredLeads() {
 }
 
 function filterLeads(leads) {
+  const selectedCourses = normalizeMultiValueFilter(filter.courseName);
   const filtered = filterLeadsByTimeline(leads).filter((lead) => {
     const location = getLeadLocation(lead);
     if (filter.search) {
@@ -1263,7 +1368,9 @@ function filterLeads(leads) {
       if (!haystack.includes(filter.search.toLowerCase())) return false;
     }
     if (filter.counselor && filter.counselor !== lead.counselor) return false;
-    if (activeSegment === DEFAULT_SEGMENT && filter.courseName && filter.courseName !== lead.courseName) return false;
+    if (activeSegment === DEFAULT_SEGMENT) {
+      if (selectedCourses.length && !selectedCourses.includes(lead.courseName)) return false;
+    }
     if (filter.location && filter.location !== location) return false;
     if (filter.mainAdmissionDialed && filter.mainAdmissionDialed !== lead.mainAdmissionDialed) return false;
     if (filter.mainAdmissionCourseStatus && filter.mainAdmissionCourseStatus !== lead.mainAdmissionCourseStatus) return false;

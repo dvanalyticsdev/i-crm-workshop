@@ -1402,6 +1402,44 @@ textarea:focus {
   box-shadow: var(--shadow-md);
 }
 
+.multi-filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.multi-filter-action-btn {
+  min-width: auto;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color var(--ease), background var(--ease), color var(--ease);
+}
+
+.multi-filter-action-btn:hover,
+.multi-filter-action-btn:focus-visible {
+  border-color: var(--primary);
+  color: var(--heading);
+}
+
+.multi-filter-action-btn--primary {
+  margin-left: auto;
+  background: color-mix(in srgb, var(--primary) 16%, var(--surface));
+  border-color: color-mix(in srgb, var(--primary) 40%, var(--border));
+  color: var(--heading);
+}
+
 .multi-filter-option {
   display: flex;
   align-items: center;
