@@ -1736,6 +1736,7 @@ function renderLeadTable(leads) {
   const selectedUnassignedCount = isAdmin ? getSelectedUnassignedLeads(leads).length : 0;
   const allSelected = isAdmin && pageLeads.length > 0 && pageLeads.every(isLeadSelected);
   const assignCounselorOptions = getActiveCounselorNames();
+  const filteredLeadCountLabel = `${leads.length} ${leads.length === 1 ? "lead" : "leads"}`;
   const bulkToolbar = isAdmin ? `
     <div class="bulk-toolbar">
       <label class="bulk-select-control">
@@ -1758,6 +1759,10 @@ function renderLeadTable(leads) {
           </select>
           <button id="mainAdmissionBulkAssign" type="button" class="btn-ghost bulk-action-btn" ${(selectedUnassignedCount && bulkAssignCounselor) ? "" : "disabled"}>Assign Selected</button>
         </div>
+      </div>
+      <div class="bulk-toolbar-summary" aria-live="polite">
+        <span class="bulk-toolbar-summary__label">Filtered Leads</span>
+        <strong class="bulk-toolbar-summary__value">${filteredLeadCountLabel}</strong>
       </div>
     </div>
   ` : "";
