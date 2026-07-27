@@ -475,9 +475,9 @@ function getBucketKey(model) {
   return "active";
 }
 
-function getFilteredRows() {
+function getFilteredRowsFromRows(rows) {
   const query = normalize(filter.query);
-  return getAllRowModels().filter((model) => {
+  return rows.filter((model) => {
     if (filter.bucket !== "all" && getBucketKey(model) !== filter.bucket) return false;
     if (filter.counselor !== "all" && normalize(model.counselor) !== normalize(filter.counselor)) return false;
     if (filter.section !== "all" && model.sectionKey !== filter.section) return false;
@@ -495,6 +495,10 @@ function getFilteredRows() {
     ].map((value) => normalize(value)).join(" ");
     return haystack.includes(query);
   });
+}
+
+function getFilteredRows() {
+  return getFilteredRowsFromRows(getAllRowModels());
 }
 
 function getSelectableBlockedRowKeys(rows) {
@@ -573,13 +577,13 @@ function getCurrentPageRowModels(rows) {
     }));
 }
 
-function getActiveCounselors() {
-  return [...new Set(getAllRowModels().map((model) => model.counselor).filter(Boolean))]
+function getActiveCounselors(rows = getAllRowModels()) {
+  return [...new Set(rows.map((model) => model.counselor).filter(Boolean))]
     .sort((left, right) => left.localeCompare(right));
 }
 
-function getActiveCourses() {
-  return [...new Set(getAllRowModels().map((model) => model.courseLabel).filter(Boolean))]
+function getActiveCourses(rows = getAllRowModels()) {
+  return [...new Set(rows.map((model) => model.courseLabel).filter(Boolean))]
     .sort((left, right) => left.localeCompare(right));
 }
 
@@ -600,8 +604,7 @@ function renderClock() {
   });
 }
 
-function renderKpis() {
-  const rows = getFilteredRows();
+function renderKpis(rows = getFilteredRows()) {
   const metrics = [
     { label: "Admission Leads", value: rows.length, tone: "neutral" },
     { label: "New Window", value: rows.filter((row) => row.sop?.stageKey === "new" && !row.sop?.blocked).length, tone: "neutral" },
@@ -618,13 +621,13 @@ function renderKpis() {
   `).join("");
 }
 
-function renderFilters() {
+function renderFilters(rows = getAllRowModels()) {
   const counselorOptions = isAdminSession()
     ? `<label>
         Counselor
         <select id="sopCounselorFilter">
           <option value="all">All counselors</option>
-          ${getActiveCounselors().map((name) => `<option value="${escapeHtml(name)}" ${filter.counselor === name ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}
+          ${getActiveCounselors(rows).map((name) => `<option value="${escapeHtml(name)}" ${filter.counselor === name ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}
         </select>
       </label>`
     : "";
@@ -632,7 +635,7 @@ function renderFilters() {
         Course
         <select id="sopCourseFilter">
           <option value="all">All courses</option>
-          ${getActiveCourses().map((name) => `<option value="${escapeHtml(name)}" ${filter.course === name ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}
+          ${getActiveCourses(rows).map((name) => `<option value="${escapeHtml(name)}" ${filter.course === name ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}
         </select>
       </label>`;
 
@@ -709,7 +712,7 @@ function renderFilters() {
   });
 }
 
-function renderAdminSummary() {
+function renderAdminSummary(rows = getAllRowModels()) {
   if (!isAdminSession()) {
     adminSummary.classList.add("hidden");
     adminSummary.innerHTML = "";
@@ -717,7 +720,7 @@ function renderAdminSummary() {
   }
 
   const byCounselor = new Map();
-  getAllRowModels().forEach((model) => {
+  rows.forEach((model) => {
     const entry = byCounselor.get(model.counselor) || {
       counselor: model.counselor,
       total: 0,
@@ -786,8 +789,7 @@ function buildLeadRef(lead) {
   };
 }
 
-function renderLeadTable() {
-  const rows = getFilteredRows();
+function renderLeadTable(rows = getFilteredRows()) {
   const totalPages = ensureValidPage(rows.length);
   const pageRows = getCurrentPageRowModels(rows);
   const pageBlockedRows = pageRows.filter((row) => row.sop?.blocked);
@@ -1004,16 +1006,18 @@ async function assignSelectedBlockedLeads(counselorName) {
 
 function render() {
   renderClock();
-  renderKpis();
-  renderFilters();
-  renderAdminSummary();
-  renderLeadTable();
+  const allRows = getAllRowModels();
+  const filteredRows = getFilteredRowsFromRows(allRows);
+  renderFilters(allRows);
+  renderAdminSummary(allRows);
+  renderLeadTable(filteredRows);
+  window.__dvMarkRouteViewReady?.();
+  renderKpis(filteredRows);
 }
 
 await bootstrapLocalState({ skipStateRefresh: true });
 await loadScopedAdmissionSopData();
 render();
-window.__dvMarkRouteViewReady?.();
 
 const stopAdmissionSopPolling = startAdmissionSopPolling(() => {
   render();

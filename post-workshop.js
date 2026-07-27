@@ -2339,7 +2339,6 @@ async function renderAll() {
   const admissionLeads = getAdmissionCallingLeads(scopedLeads);
   const filteredLeads = filterLeads(admissionLeads);
 
-  renderKpis(filteredLeads);
   const _focusedId = document.activeElement?.id;
   const _selStart = document.activeElement?.selectionStart;
   const _selEnd = document.activeElement?.selectionEnd;
@@ -2352,12 +2351,13 @@ async function renderAll() {
     }
   }
   renderLeadTable(filteredLeads);
+  window.__dvMarkRouteViewReady?.();
+  renderKpis(filteredLeads);
 }
 
 const scheduleRenderAll = createRenderScheduler(renderAll);
 
 void renderAll();
-window.__dvMarkRouteViewReady?.();
 const stopStatePolling = startStatePolling(() => {
   void scheduleRenderAll();
 });

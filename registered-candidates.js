@@ -1959,10 +1959,11 @@ async function renderAll() {
   const allLeads = getScopedLeads(getAllLeads());
   const filteredLeads = filterLeads(allLeads);
   renderRegisteredRoutingPanel();
-  renderKpis(filteredLeads);
   renderFilters(allLeads);
   renderLeadTable(filteredLeads);
   restoreActiveInputState(activeInputState);
+  window.__dvMarkRouteViewReady?.();
+  renderKpis(filteredLeads);
 }
 
 document.getElementById("registeredActivityForm").onsubmit = saveActivity;
@@ -1980,7 +1981,6 @@ setupRegisteredRoutingPanel();
 const scheduleRenderAll = createRenderScheduler(renderAll);
 await loadScopedRegisteredCandidates();
 void renderAll();
-window.__dvMarkRouteViewReady?.();
 const stopStatePolling = startRegisteredCandidatePolling(() => {
   void scheduleRenderAll();
 });

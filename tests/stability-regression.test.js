@@ -1298,6 +1298,7 @@ test("main admission page uses scoped loading with full-state fallback", () => {
   assert.match(layouts, /ROUTES_WITH_LOCAL_STATE_BOOTSTRAP/);
   assert.match(layouts, /"admission-sop\.html"/);
   assert.match(layouts, /"registered-candidates\.html"/);
+  assert.match(layouts, /const skipStateRefresh = ROUTES_WITH_LOCAL_STATE_BOOTSTRAP\.has\(route\)/);
   assert.match(layouts, /bootstrapLocalState\(\{ skipStateRefresh \}\)/);
 });
 

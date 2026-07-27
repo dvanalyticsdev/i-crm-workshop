@@ -828,11 +828,12 @@ function renderAll() {
   archivedPage = clampPage(archivedPage, filteredArchivedLeads.length);
   renderSubsectionNav();
   renderSectionVisibility();
-  renderKpi(lostLeads, canViewArchivedLeads() ? filteredArchivedLeads : []);
   renderLostTable(lostLeads);
   if (canViewArchivedLeads()) {
     renderArchivedTable(filteredArchivedLeads);
   }
+  window.__dvMarkRouteViewReady?.();
+  renderKpi(lostLeads, canViewArchivedLeads() ? filteredArchivedLeads : []);
 }
 
 if (lostSearchInput) {
@@ -889,7 +890,6 @@ if (deleteAllArchivedLeadsBtn) {
 
 await refreshArchivedLeads();
 renderAll();
-window.__dvMarkRouteViewReady?.();
 const stopStatePolling = startStatePolling(() => {
   void refreshArchivedLeads().then(() => {
     renderAll();

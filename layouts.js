@@ -1189,7 +1189,7 @@ function bindClientRouter() {
 
 async function guardProtectedPages() {
   const route = window.location.pathname.split("/").pop() || "dashboard.html";
-  const skipStateRefresh = ["main-admission-leads.html", "performance-logs.html"].includes(route);
+  const skipStateRefresh = ROUTES_WITH_LOCAL_STATE_BOOTSTRAP.has(route);
   await bootstrapLocalState({ skipStateRefresh });
   initThemeSystem();
   ensureMainContentStructure(document.querySelector(".main-content"));

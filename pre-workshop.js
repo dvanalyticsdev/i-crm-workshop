@@ -2556,7 +2556,6 @@ function renderAll() {
   normalizeFilterState(preWorkshopLeads);
   const filteredLeads = filterLeads(preWorkshopLeads);
 
-  renderKpis(filteredLeads);
   const _focusedId = document.activeElement?.id;
   const _selStart = document.activeElement?.selectionStart;
   const _selEnd = document.activeElement?.selectionEnd;
@@ -2569,12 +2568,13 @@ function renderAll() {
     }
   }
   renderLeadTable(filteredLeads);
+  window.__dvMarkRouteViewReady?.();
+  renderKpis(filteredLeads);
 }
 
 const scheduleRenderAll = createRenderScheduler(renderAll);
 
 renderAll();
-window.__dvMarkRouteViewReady?.();
 const stopStatePolling = startStatePolling(() => {
   scheduleRenderAll();
 });

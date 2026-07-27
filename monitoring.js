@@ -29,6 +29,7 @@ const exportMonitoringBtn = document.getElementById("exportMonitoringBtn");
 const monitoringExportMessage = document.getElementById("monitoringExportMessage");
 
 const session = getSession();
+let monitoringKpiRenderToken = 0;
 
 const TIMELINE_STORAGE_KEY = "dvWorkshopMonitoringTimeline";
 const VIEW_STORAGE_KEY = "dvMonitoringActiveView";
@@ -1144,12 +1145,18 @@ function buildRegisteredRows(counselors, leads, rawLeads, range) {
 }
 
 function buildMetricCards(metrics) {
-  monitoringKpiSection.innerHTML = metrics.map((metric) => `
-    <article class="card kpi-card">
-      <p>${escapeHtml(metric.label)}</p>
-      <h2>${escapeHtml(metric.value)}</h2>
-    </article>
-  `).join("");
+  const token = ++monitoringKpiRenderToken;
+  window.requestAnimationFrame(() => {
+    if (token !== monitoringKpiRenderToken) {
+      return;
+    }
+    monitoringKpiSection.innerHTML = metrics.map((metric) => `
+      <article class="card kpi-card">
+        <p>${escapeHtml(metric.label)}</p>
+        <h2>${escapeHtml(metric.value)}</h2>
+      </article>
+    `).join("");
+  });
 }
 
 function renderTable(columns, rows, emptyColspan, tableClass = "") {
@@ -1659,6 +1666,7 @@ function renderAll() {
   renderSectionNav();
   renderSubsectionNav();
   renderActiveMonitoringView();
+  window.__dvMarkRouteViewReady?.();
 
   if (exportMonitoringBtn) {
     exportMonitoringBtn.onclick = () => {
@@ -1669,7 +1677,6 @@ function renderAll() {
 
 bindTimelineControls();
 renderAll();
-window.__dvMarkRouteViewReady?.();
 const stopStatePolling = startStatePolling(() => {
   renderAll();
 });
