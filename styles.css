@@ -529,6 +529,10 @@ textarea:focus {
   margin-top: 1rem;
 }
 
+.performance-speed-buckets {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .performance-trend-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -542,7 +546,7 @@ textarea:focus {
 
 .performance-chart-card canvas {
   width: 100%;
-  height: 220px;
+  height: 260px;
   display: block;
 }
 
@@ -570,6 +574,16 @@ textarea:focus {
   max-width: 240px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.performance-table--role-pages,
+.performance-table--bucket {
+  min-width: 620px;
+}
+
+.performance-table--bucket th:first-child,
+.performance-table--bucket td:first-child {
+  width: 220px;
 }
 
 @media (max-width: 900px) {

@@ -64,97 +64,63 @@
         </div>
         <div class="performance-filter-controls" aria-describedby="performanceFilterHint">
           <select id="performanceRangePreset" class="input">
+            <option value="1h">Last 1 hour</option>
+            <option value="3h">Last 3 hours</option>
+            <option value="6h" selected>Last 6 hours</option>
+            <option value="12h">Last 12 hours</option>
+            <option value="24h">Last 24 hours</option>
             <option value="today">Today</option>
             <option value="7">Last 7 days</option>
-            <option value="14" selected>Last 14 days</option>
-            <option value="30">Last 30 days</option>
-            <option value="custom">Custom</option>
+            <option value="14">Last 14 days</option>
           </select>
-          <div class="performance-custom-range hidden" id="performanceCustomRange">
-            <input type="date" id="performanceStartDate" class="input" aria-label="Performance start date" />
-            <input type="date" id="performanceEndDate" class="input" aria-label="Performance end date" />
-          </div>
           <button type="button" class="btn-secondary" id="refreshPerformanceLogsBtn">Refresh</button>
+          <button type="button" class="btn-delete" id="clearPerformanceLogsBtn">Clear logs</button>
         </div>
       </section>
 
       <section class="performance-log-grid" id="performanceSummaryCards"></section>
-      <section class="performance-trend-grid">
-        <article class="card performance-chart-card">
-          <div class="card-head">
-            <h3>Page Speed Trend</h3>
-            <p>Daily interactive-ready average.</p>
-          </div>
-          <canvas id="pageSpeedTrendChart" height="220"></canvas>
-        </article>
-        <article class="card performance-chart-card">
-          <div class="card-head">
-            <h3>API Speed Trend</h3>
-            <p>Daily API response average.</p>
-          </div>
-          <canvas id="apiSpeedTrendChart" height="220"></canvas>
-        </article>
-        <article class="card performance-chart-card">
-          <div class="card-head">
-            <h3>Reliability Trend</h3>
-            <p>Daily successful event rate.</p>
-          </div>
-          <canvas id="reliabilityTrendChart" height="220"></canvas>
-        </article>
+      <section class="card table-card">
+        <div class="card-head">
+          <h3>Page Loading by Role</h3>
+          <p id="performanceWindowLabel">Loading performance window...</p>
+        </div>
+        <div class="table-scroll" id="performancePageRoleTable"></div>
+      </section>
+      <section class="card performance-chart-card">
+        <div class="card-head">
+          <h3>Overall CRM Performance Trend</h3>
+          <p>Score trend for the selected timeline.</p>
+        </div>
+        <canvas id="overallPerformanceTrendChart" height="260"></canvas>
       </section>
       <section class="card table-card">
         <div class="card-head">
-          <h3>Operation Speed & Reliability</h3>
-          <p id="performanceWindowLabel">Loading performance window...</p>
+          <h3>Activity Speed</h3>
+          <p>Assignment, deletion, activity update, notifications, and related operation timings.</p>
         </div>
-        <div class="table-scroll" id="performanceOperationsTable"></div>
+        <div class="table-scroll" id="performanceActivityTable"></div>
       </section>
-      <section class="performance-log-columns">
+      <section class="performance-log-columns performance-speed-buckets">
         <div class="card table-card">
           <div class="card-head">
-            <h3>Page Experience</h3>
-            <p>Human-perceived page readiness by route.</p>
+            <h3>Fastest</h3>
+            <p>Fast pages, APIs, and actions.</p>
           </div>
-          <div class="table-scroll" id="performancePagesTable"></div>
+          <div class="table-scroll" id="performanceFastestTable"></div>
         </div>
         <div class="card table-card">
           <div class="card-head">
-            <h3>Role Experience</h3>
-            <p>Speed split across Super Admin, Admin, and Counselor usage.</p>
+            <h3>Medium Speed</h3>
+            <p>Items that are acceptable but can improve.</p>
           </div>
-          <div class="table-scroll" id="performanceRolesTable"></div>
-        </div>
-      </section>
-      <section class="performance-log-columns">
-        <div class="card table-card">
-          <div class="card-head">
-            <h3>Sections & Subsections</h3>
-            <p>Slow CRM areas inside each page.</p>
-          </div>
-          <div class="table-scroll" id="performanceSectionsTable"></div>
+          <div class="table-scroll" id="performanceMediumTable"></div>
         </div>
         <div class="card table-card">
           <div class="card-head">
-            <h3>Load Phases</h3>
-            <p>Data fetch, render, and interactive-ready timing.</p>
+            <h3>Slowest</h3>
+            <p>Highest priority optimization targets.</p>
           </div>
-          <div class="table-scroll" id="performancePhasesTable"></div>
-        </div>
-      </section>
-      <section class="performance-log-columns">
-        <div class="card table-card">
-          <div class="card-head">
-            <h3>Recent Slow Events</h3>
-            <p>Highest duration requests and page loads.</p>
-          </div>
-          <div class="table-scroll" id="performanceSlowEvents"></div>
-        </div>
-        <div class="card table-card">
-          <div class="card-head">
-            <h3>Recent Failures</h3>
-            <p>Failed API calls and page events.</p>
-          </div>
-          <div class="table-scroll" id="performanceFailures"></div>
+          <div class="table-scroll" id="performanceSlowestTable"></div>
         </div>
       </section>
     </div>

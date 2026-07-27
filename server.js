@@ -698,9 +698,20 @@ function parsePerformanceDateInput(value) {
 
 function getPerformanceWindowFromQuery(query = {}) {
   const now = new Date();
+  const requestedHours = Number.parseInt(String(query.hours || "").trim(), 10);
   const requestedDays = String(query.days || "14").trim().toLowerCase();
   const customStart = parsePerformanceDateInput(query.start);
   const customEnd = parsePerformanceDateInput(query.end);
+
+  if (Number.isFinite(requestedHours) && requestedHours > 0) {
+    const hours = Math.min(Math.max(requestedHours, 1), 168);
+    return {
+      start: new Date(now.getTime() - hours * 60 * 60 * 1000),
+      end: now,
+      label: `Last ${hours} hour${hours === 1 ? "" : "s"}`,
+      bucket: hours <= 24 ? "hour" : "day"
+    };
+  }
 
   if (customStart && customEnd) {
     const start = customStart <= customEnd ? customStart : customEnd;
@@ -709,7 +720,8 @@ function getPerformanceWindowFromQuery(query = {}) {
     return {
       start,
       end,
-      label: `${start.toISOString().slice(0, 10)} to ${end.toISOString().slice(0, 10)}`
+      label: `${start.toISOString().slice(0, 10)} to ${end.toISOString().slice(0, 10)}`,
+      bucket: "day"
     };
   }
 
@@ -722,7 +734,8 @@ function getPerformanceWindowFromQuery(query = {}) {
   return {
     start,
     end: now,
-    label: days === 1 ? "Today" : `Last ${days} days`
+    label: days === 1 ? "Today" : `Last ${days} days`,
+    bucket: "day"
   };
 }
 
@@ -826,13 +839,44 @@ function buildPerformanceSummary(logs = [], window = getPerformanceWindowFromQue
     phase: String(log.phase || ""),
     role: String(log.role || "")
   }));
+  const pageRoleBaseRows = summarizeBy(
+    pageInteractiveLogs.filter((log) => String(log.page || "").trim() && String(log.role || "").trim()),
+    (log) => `${log.page}::${normalizePerformanceRole(log.role)}`,
+    (log) => ({
+      page: String(log.page || ""),
+      roleGroup: normalizePerformanceRole(log.role)
+    })
+  );
+  const pageRoleRows = buildPerformancePageRoleRows(pageRoleBaseRows);
+  const activityRows = summarizeBy(
+    safeLogs.filter(isPerformanceActivityLog),
+    (log) => getPerformanceActivityName(log),
+    (log) => ({
+      operation: getPerformanceActivityName(log),
+      kind: String(log.kind || ""),
+      page: String(log.page || ""),
+      role: String(log.role || "")
+    })
+  ).slice(0, 20);
 
   const total = safeLogs.length;
   const successRate = total ? Math.round((totalSuccess / total) * 1000) / 10 : 100;
+  const pageAverageDurationMs = pageInteractiveLogs.length
+    ? Math.round(pageInteractiveLogs.reduce((sum, log) => sum + (Number(log.durationMs) || 0), 0) / pageInteractiveLogs.length)
+    : 0;
   const avgDurationMs = total
     ? Math.round(safeLogs.reduce((sum, log) => sum + (Number(log.durationMs) || 0), 0) / total)
     : 0;
+  const overallScore = total ? getPerformanceScore(pageAverageDurationMs || avgDurationMs, successRate) : 0;
   const trendRows = buildPerformanceTrends({ safeLogs, apiLogs, pageInteractiveLogs, window });
+  const allSpeedRows = operationRows.map((row) => ({
+    name: row.operation || row.name,
+    type: getPerformanceThingType(row),
+    avgDurationMs: row.avgDurationMs,
+    successRate: row.successRate,
+    total: row.total,
+    status: row.status
+  }));
 
   return {
     generatedAt: new Date().toISOString(),
@@ -840,11 +884,18 @@ function buildPerformanceSummary(logs = [], window = getPerformanceWindowFromQue
     totalEvents: total,
     successRate,
     avgDurationMs,
-    status: getPerformanceStatus(avgDurationMs, successRate),
+    pageAverageDurationMs,
+    overallScore,
+    status: total ? getPerformanceStatus(avgDurationMs, successRate) : "No Data",
     operations: operationRows.slice(0, 30),
     apis: apiRows.slice(0, 30),
     pages: pageRows.slice(0, 30),
+    pageRoles: pageRoleRows,
     roles: roleRows.slice(0, 20),
+    activities: activityRows,
+    fastest: allSpeedRows.filter((row) => row.avgDurationMs <= 2000).sort((a, b) => a.avgDurationMs - b.avgDurationMs).slice(0, 12),
+    medium: allSpeedRows.filter((row) => row.avgDurationMs > 2000 && row.avgDurationMs <= 6000).sort((a, b) => a.avgDurationMs - b.avgDurationMs).slice(0, 12),
+    slowest: allSpeedRows.filter((row) => row.avgDurationMs > 6000).sort((a, b) => b.avgDurationMs - a.avgDurationMs).slice(0, 12),
     sections: sectionRows.slice(0, 30),
     phases: phaseRows.slice(0, 30),
     trends: trendRows,
@@ -857,18 +908,106 @@ function buildPerformanceSummary(logs = [], window = getPerformanceWindowFromQue
   };
 }
 
+function normalizePerformanceRole(role) {
+  const normalized = String(role || "").trim().toLowerCase();
+  if (normalized === "super_admin" || normalized === "admin") return "admin";
+  if (normalized === "counselor") return "counselor";
+  return normalized || "unknown";
+}
+
+function getPerformanceScore(avgDurationMs, successRate) {
+  const speedPenalty = Math.min(55, Math.max(0, ((Number(avgDurationMs) || 0) - 1500) / 8500) * 55);
+  const reliabilityPenalty = Math.min(45, Math.max(0, 100 - (Number(successRate) || 0)) * 2.5);
+  return Math.max(0, Math.min(100, Math.round(100 - speedPenalty - reliabilityPenalty)));
+}
+
+function buildPerformancePageRoleRows(rows = []) {
+  const grouped = new Map();
+  rows.forEach((row) => {
+    const page = String(row.page || row.name || "").trim();
+    if (!page) return;
+    const current = grouped.get(page) || {
+      page,
+      adminAvgDurationMs: 0,
+      adminTotal: 0,
+      counselorAvgDurationMs: 0,
+      counselorTotal: 0
+    };
+    if (row.roleGroup === "admin") {
+      current.adminAvgDurationMs = row.avgDurationMs || 0;
+      current.adminTotal = row.total || 0;
+    }
+    if (row.roleGroup === "counselor") {
+      current.counselorAvgDurationMs = row.avgDurationMs || 0;
+      current.counselorTotal = row.total || 0;
+    }
+    grouped.set(page, current);
+  });
+  return [...grouped.values()].sort((a, b) => {
+    const aWorst = Math.max(a.adminAvgDurationMs || 0, a.counselorAvgDurationMs || 0);
+    const bWorst = Math.max(b.adminAvgDurationMs || 0, b.counselorAvgDurationMs || 0);
+    return bWorst - aWorst || a.page.localeCompare(b.page);
+  });
+}
+
+function isPerformanceActivityLog(log = {}) {
+  const kind = String(log.kind || "").toLowerCase();
+  const text = [log.operation, log.route, log.page, log.section, log.subsection, log.phase]
+    .map((value) => String(value || "").toLowerCase())
+    .join(" ");
+  if (kind === "action" || kind === "activity" || kind === "mutation" || kind === "batch") return true;
+  return /(assign|assignment|delete|deletion|activity|save|update|restore|claim|reachout|notification|sync|webhook)/.test(text)
+    && !/route-interactive|interactive-ready/.test(text);
+}
+
+function getPerformanceActivityName(log = {}) {
+  const text = [log.operation, log.route, log.section, log.subsection, log.phase]
+    .map((value) => String(value || "").toLowerCase())
+    .join(" ");
+  if (/assign|assignment/.test(text)) return "Lead Assignment";
+  if (/delete|deletion/.test(text)) return "Deletion";
+  if (/restore/.test(text)) return "Lead Restore";
+  if (/activity|save|update/.test(text)) return "Counselor Activity Update";
+  if (/notification/.test(text)) return "Notification Loading";
+  if (/reachout|whatsapp/.test(text)) return "ReachOut Operation";
+  if (/claim/.test(text)) return "Lead Claim";
+  if (/sync|webhook/.test(text)) return "Integration Sync";
+  return String(log.operation || log.route || log.page || "Activity").trim();
+}
+
+function getPerformanceThingType(row = {}) {
+  const kind = String(row.kind || "").toLowerCase();
+  const name = String(row.operation || row.name || "").toLowerCase();
+  if (kind === "page" || /html|route-interactive|interactive-ready/.test(name)) return "Page";
+  if (kind === "api" || name.startsWith("/api/")) return "API";
+  if (kind === "section") return "Section";
+  return "Activity";
+}
+
 function buildPerformanceTrends({ safeLogs = [], apiLogs = [], pageInteractiveLogs = [], window = getPerformanceWindowFromQuery() } = {}) {
   const start = new Date(window.start || Date.now());
   const end = new Date(window.end || Date.now());
-  start.setUTCHours(0, 0, 0, 0);
-  end.setUTCHours(0, 0, 0, 0);
-  const dayKeys = [];
-  for (const date = new Date(start); date <= end; date.setUTCDate(date.getUTCDate() + 1)) {
-    dayKeys.push(date.toISOString().slice(0, 10));
+  const useHourBuckets = window.bucket === "hour";
+  if (useHourBuckets) {
+    start.setUTCMinutes(0, 0, 0);
+    end.setUTCMinutes(0, 0, 0);
+  } else {
+    start.setUTCHours(0, 0, 0, 0);
+    end.setUTCHours(0, 0, 0, 0);
+  }
+  const keys = [];
+  for (const date = new Date(start); date <= end;) {
+    keys.push(useHourBuckets ? date.toISOString().slice(0, 13) : date.toISOString().slice(0, 10));
+    if (useHourBuckets) {
+      date.setUTCHours(date.getUTCHours() + 1);
+    } else {
+      date.setUTCDate(date.getUTCDate() + 1);
+    }
   }
 
-  const buckets = new Map(dayKeys.map((day) => [day, {
-    day,
+  const buckets = new Map(keys.map((key) => [key, {
+    key,
+    day: key,
     total: 0,
     success: 0,
     pageDurations: [],
@@ -876,16 +1015,16 @@ function buildPerformanceTrends({ safeLogs = [], apiLogs = [], pageInteractiveLo
   }]));
 
   const addDuration = (log, field) => {
-    const day = String(log.createdAt || "").slice(0, 10);
-    const bucket = buckets.get(day);
+    const key = String(log.createdAt || "").slice(0, useHourBuckets ? 13 : 10);
+    const bucket = buckets.get(key);
     if (!bucket) return;
     const durationMs = Math.max(0, Number(log.durationMs) || 0);
     bucket[field].push(durationMs);
   };
 
   safeLogs.forEach((log) => {
-    const day = String(log.createdAt || "").slice(0, 10);
-    const bucket = buckets.get(day);
+    const key = String(log.createdAt || "").slice(0, useHourBuckets ? 13 : 10);
+    const bucket = buckets.get(key);
     if (!bucket) return;
     bucket.total += 1;
     if (log.success !== false && String(log.status || "").toLowerCase() !== "failure") {
@@ -901,9 +1040,11 @@ function buildPerformanceTrends({ safeLogs = [], apiLogs = [], pageInteractiveLo
       : 0;
     return {
       day: bucket.day,
+      label: useHourBuckets ? `${bucket.day.slice(11)}:00` : bucket.day.slice(5),
       pageAvgDurationMs: avg(bucket.pageDurations),
       apiAvgDurationMs: avg(bucket.apiDurations),
       successRate: bucket.total ? Math.round((bucket.success / bucket.total) * 1000) / 10 : 100,
+      score: bucket.total ? getPerformanceScore(avg(bucket.pageDurations) || avg(bucket.apiDurations), bucket.total ? Math.round((bucket.success / bucket.total) * 1000) / 10 : 100) : 0,
       totalEvents: bucket.total,
       pageEvents: bucket.pageDurations.length,
       apiEvents: bucket.apiDurations.length
@@ -13523,6 +13664,25 @@ app.get("/api/performance-logs/summary", async (req, res) => {
     return res.json(buildPerformanceSummary(logs, window));
   } catch (error) {
     return res.status(500).json({ message: "Failed to fetch performance summary", details: error.message });
+  }
+});
+
+app.delete("/api/performance-logs", async (req, res) => {
+  try {
+    const session = await requireSuperAdmin(req, res);
+    if (!session) return;
+
+    const result = await withMongoRetry(
+      () => performanceLogsCollection.deleteMany({}),
+      { retries: 1, label: "Clear performance logs" }
+    );
+    return res.json({
+      ok: true,
+      clearedCount: result.deletedCount || 0,
+      clearedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to clear performance logs", details: error.message });
   }
 });
 
