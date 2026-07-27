@@ -13,6 +13,7 @@ import {
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
+import { formatKolkataDate, getKolkataDayRange, parseKolkataDate, toKolkataDateKey } from "./date-utils.js";
 import {
   addLeadNote,
   assignLeads as assignLeadsOnServer,
@@ -502,17 +503,7 @@ function parseDateKey(dateKey) {
 }
 
 function parseLeadOwnerDate(value) {
-  const raw = String(value || "").trim();
-  if (!raw) {
-    return null;
-  }
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-    return parseDateKey(raw);
-  }
-
-  const parsed = new Date(raw);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  return parseKolkataDate(value);
 }
 
 function getLeadOwnerType(lead) {
@@ -557,11 +548,7 @@ function getLeadOwnerFilterLabel() {
 }
 
 function formatReadableDate(date) {
-  return date.toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric"
-  });
+  return formatKolkataDate(date);
 }
 
 function getRepeatEnquiryCount(lead) {
@@ -601,17 +588,12 @@ function renderRepeatEnquiryBadge(lead) {
 }
 
 function getTimelineRange(leads) {
-  const now = new Date();
-
   if (filter.timeline === "overall") {
     return null;
   }
 
   if (filter.timeline === "today") {
-    const start = new Date(now);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(now);
-    end.setHours(23, 59, 59, 999);
+    const { start, end } = getKolkataDayRange(0);
     return {
       start,
       end,
@@ -620,12 +602,7 @@ function getTimelineRange(leads) {
   }
 
   if (filter.timeline === "yesterday") {
-    const day = new Date(now);
-    day.setDate(day.getDate() - 1);
-    const start = new Date(day);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(day);
-    end.setHours(23, 59, 59, 999);
+    const { start, end } = getKolkataDayRange(-1);
     return {
       start,
       end,
@@ -634,11 +611,8 @@ function getTimelineRange(leads) {
   }
 
   if (filter.timeline === "week") {
-    const start = new Date(now);
-    start.setDate(start.getDate() - 6);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(now);
-    end.setHours(23, 59, 59, 999);
+    const { start } = getKolkataDayRange(-6);
+    const { end } = getKolkataDayRange(0);
     return {
       start,
       end,
@@ -646,12 +620,13 @@ function getTimelineRange(leads) {
     };
   }
 
-  const customStart = filter.startDate ? parseDateKey(filter.startDate) : null;
-  const customEnd = filter.endDate ? parseDateKey(filter.endDate) : null;
+  const customStart = filter.startDate ? parseKolkataDate(filter.startDate) : null;
+  const customEndBase = filter.endDate ? parseKolkataDate(filter.endDate) : null;
 
-  if (!customStart || !customEnd || customStart > customEnd) {
+  if (!customStart || !customEndBase || customStart > customEndBase) {
     return { start: null, end: null, label: "Custom: Select a valid date range" };
   }
+  const customEnd = new Date(`${toKolkataDateKey(customEndBase)}T23:59:59.999+05:30`);
 
   return {
     start: customStart,

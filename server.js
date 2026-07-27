@@ -674,6 +674,7 @@ function buildDashboardSummary(state) {
     },
     leadTimelineRows: leads.map((lead) => ({
       createdAt: normalizeDashboardDateKey(lead?.createdAt || lead?.createdAtExact),
+      timelineAt: String(lead?.createdAtExact || lead?.createdAt || "").trim(),
       workshop: String(lead?.workshop || lead?.workshopName || "").trim(),
       admissionWorkshop: String(lead?.admissionWorkshop || lead?.courseName || lead?.workshop || "").trim(),
       stage: inferLeadStageForCallUpdate(lead).stage,

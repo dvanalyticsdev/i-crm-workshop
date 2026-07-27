@@ -2,6 +2,7 @@ import { registerPageCleanup } from "./page-runtime.js";
 import { onThemeChange, readThemePalette } from "./theme.js";
 import { apiUrl } from "./api-client.js";
 import { bootstrapLocalState, getSession, loadLocalPreference, saveLocalPreference, startStatePolling } from "./state-sync.js";
+import { formatKolkataDate, getKolkataDayRange, parseKolkataDate, shiftKolkataDateKey, toKolkataDateKey } from "./date-utils.js";
 
 await bootstrapLocalState();
 
@@ -43,7 +44,6 @@ const DEFAULT_TIMELINE_STATE = {
   startDate: "",
   endDate: ""
 };
-const REFERENCE_TODAY = new Date();
 const RECENT_WINDOW_DAYS = 30;
 let dashboardSummary = {
   leadTimelineRows: [],
@@ -208,51 +208,34 @@ function getAdmissionLeadStatus(lead) {
   return String(lead?.admissionStatus || "").trim();
 }
 
-function toDateKey(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 function parseDateKey(dateKey) {
-  const raw = String(dateKey || "").trim();
-  if (!raw) {
-    return new Date(REFERENCE_TODAY);
-  }
-  const directParsed = new Date(raw);
-  if (!Number.isNaN(directParsed.getTime())) {
-    return directParsed;
-  }
-  const [year, month, day] = raw.split("-").map(Number);
-  return new Date(year, (month || 1) - 1, day || 1);
+  return parseKolkataDate(dateKey) || parseKolkataDate(toKolkataDateKey());
 }
 
 function formatReadableDate(date) {
-  return date.toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric"
-  });
+  return formatKolkataDate(date);
 }
 
 function getLatestLeadDate(leads) {
   if (!leads.length) {
-    return new Date(REFERENCE_TODAY);
+    return parseKolkataDate(toKolkataDateKey());
   }
 
   return leads
-    .map((lead) => parseDateKey(lead.createdAt))
+    .map((lead) => parseKolkataDate(lead.timelineAt || lead.createdAt))
+    .filter(Boolean)
     .sort((a, b) => a - b)
     .at(-1);
 }
 
 function getDateSequence(startDate, endDate) {
   const dates = [];
-  const cursor = new Date(startDate);
-  while (cursor <= endDate) {
-    dates.push(toDateKey(cursor));
-    cursor.setDate(cursor.getDate() + 1);
+  let cursorKey = toKolkataDateKey(startDate);
+  const endKey = toKolkataDateKey(endDate);
+
+  while (cursorKey <= endKey) {
+    dates.push(cursorKey);
+    cursorKey = shiftKolkataDateKey(cursorKey, 1);
   }
   return dates;
 }
@@ -266,12 +249,10 @@ function getQuarterBounds(referenceDate) {
 
 function getTimelineRange(leads) {
   const preset = timelinePreset.value;
-  const referenceDate = getLatestLeadDate(leads);
-  const start = new Date(referenceDate);
-  const end = new Date(referenceDate);
 
   if (preset === "overall") {
     if (!leads.length) {
+      const { start, end } = getKolkataDayRange(0);
       return {
         start,
         end,
@@ -279,7 +260,10 @@ function getTimelineRange(leads) {
       };
     }
 
-    const dates = leads.map((lead) => parseDateKey(lead.createdAt)).sort((a, b) => a - b);
+    const dates = leads
+      .map((lead) => parseKolkataDate(lead.timelineAt || lead.createdAt))
+      .filter(Boolean)
+      .sort((a, b) => a - b);
     return {
       start: dates[0],
       end: dates[dates.length - 1],
@@ -288,6 +272,7 @@ function getTimelineRange(leads) {
   }
 
   if (preset === "daily") {
+    const { start, end } = getKolkataDayRange(0);
     return {
       start,
       end,
@@ -296,7 +281,8 @@ function getTimelineRange(leads) {
   }
 
   if (preset === "weekly") {
-    start.setDate(end.getDate() - 6);
+    const { start } = getKolkataDayRange(-6);
+    const { end } = getKolkataDayRange(0);
     return {
       start,
       end,
@@ -305,22 +291,27 @@ function getTimelineRange(leads) {
   }
 
   if (preset === "monthly") {
-    const monthStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1);
-    const monthEnd = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 0);
+    const currentDateKey = toKolkataDateKey();
+    const monthKey = currentDateKey.slice(0, 7);
+    const monthStart = parseKolkataDate(`${monthKey}-01`);
+    const nextMonthStart = parseKolkataDate(`${monthKey}-01`);
+    nextMonthStart.setUTCMonth(nextMonthStart.getUTCMonth() + 1);
+    const monthEnd = new Date(nextMonthStart.getTime() - 1);
     return {
       start: monthStart,
       end: monthEnd,
-      label: `Monthly: ${monthStart.toLocaleDateString("en-IN", { month: "long", year: "numeric" })}`
+      label: `Monthly: ${monthStart.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", month: "long", year: "numeric" })}`
     };
   }
 
   if (preset === "quarterly") {
+    const referenceDate = parseKolkataDate(toKolkataDateKey());
     const quarter = getQuarterBounds(referenceDate);
-    const quarterIndex = Math.floor(referenceDate.getMonth() / 3) + 1;
+    const quarterIndex = Math.floor(referenceDate.getUTCMonth() / 3) + 1;
     return {
       start: quarter.start,
       end: quarter.end,
-      label: `Quarterly: Q${quarterIndex} ${referenceDate.getFullYear()}`
+      label: `Quarterly: Q${quarterIndex} ${referenceDate.getUTCFullYear()}`
     };
   }
 
@@ -351,7 +342,10 @@ function filterLeadsByTimeline(leads, range) {
   const endTime = range.end.getTime();
 
   return leads.filter((lead) => {
-    const leadTime = parseDateKey(lead.createdAt).getTime();
+    const leadTime = parseKolkataDate(lead.timelineAt || lead.createdAt)?.getTime();
+    if (!leadTime) {
+      return false;
+    }
     return leadTime >= startTime && leadTime <= endTime;
   });
 }
@@ -416,7 +410,8 @@ function extractWorkshopDate(workshopName) {
     return null;
   }
 
-  return new Date(REFERENCE_TODAY.getFullYear(), monthIndex, day);
+  const referenceDate = parseKolkataDate(toKolkataDateKey());
+  return new Date(Date.UTC(referenceDate.getUTCFullYear(), monthIndex, day, 0, 0, 0));
 }
 
 function getWorkshopBucket(workshopDate) {
@@ -424,10 +419,9 @@ function getWorkshopBucket(workshopDate) {
     return "recent";
   }
 
-  const today = new Date(REFERENCE_TODAY);
-  today.setHours(0, 0, 0, 0);
+  const { start: today } = getKolkataDayRange(0);
   const recentCutoff = new Date(today);
-  recentCutoff.setDate(recentCutoff.getDate() - RECENT_WINDOW_DAYS);
+  recentCutoff.setUTCDate(recentCutoff.getUTCDate() - RECENT_WINDOW_DAYS);
 
   if (workshopDate > today) {
     return "upcoming";
@@ -533,7 +527,8 @@ function renderCharts(leads, range) {
   const trendDates = range.start && range.end ? getDateSequence(range.start, range.end) : [];
   const trendCountMap = new Map();
   leads.forEach((lead) => {
-    trendCountMap.set(lead.createdAt, (trendCountMap.get(lead.createdAt) || 0) + 1);
+    const dateKey = toKolkataDateKey(parseKolkataDate(lead.timelineAt || lead.createdAt) || new Date());
+    trendCountMap.set(dateKey, (trendCountMap.get(dateKey) || 0) + 1);
   });
 
   const trendCounts = trendDates.map((day) => trendCountMap.get(day) || 0);

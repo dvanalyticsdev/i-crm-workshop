@@ -19,6 +19,7 @@ import {
 import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
 import { addLeadNote, deleteLeadNote, deleteLeads as deleteLeadsOnServer, trackLeadView, updateLeadActivity as updateLeadActivityOnServer } from "./lead-service.js";
+import { formatKolkataDate, getKolkataDayRange, parseKolkataDate as parseTimelineDate, toKolkataDateKey } from "./date-utils.js";
 
 await bootstrapLocalState();
 
@@ -197,13 +198,6 @@ function getLatestRepeatEnquiryTimestamp(lead) {
   return valid.length ? Math.max(...valid) : Number.NaN;
 }
 
-function toLocalDateKey(date = new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 function getLeadOwnerType(lead) {
   return String(lead?.leadOwnerType || "").trim().toLowerCase() === "reassigned"
     || (String(lead?.assignedFromCounselor || "").trim() && String(lead?.assignedFromCounselor || "").trim().toLowerCase() !== "unassigned")
@@ -306,7 +300,7 @@ function normalizeLeadFields(leads) {
     lead.courseRawName = String(lead.courseRawName || lead.courseName || "").trim();
     lead.courseName = canonicalCourse.label || String(lead.courseName || "").trim();
     lead.courseKey = canonicalCourse.key || String(lead.courseKey || "").trim();
-    lead.createdAt = lead.createdAt || toLocalDateKey();
+    lead.createdAt = lead.createdAt || toKolkataDateKey();
     lead.registeredDialed = lead.registeredDialed || "";
     lead.registeredCoursePitched = normalizeCrmCourseValue(lead.registeredCoursePitched, { allowNo: true, preserveUnknown: true });
     lead.registeredCourseStatus = lead.registeredCourseStatus || "";
@@ -537,53 +531,28 @@ function getUniqueValues(leads, key) {
   return [...new Set(leads.map((lead) => String(lead[key] || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }
 
-function parseTimelineDate(value) {
-  const raw = String(value || "").trim();
-  if (!raw) return null;
-
-  const dateOnlyMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (dateOnlyMatch) {
-    const [, year, month, day] = dateOnlyMatch;
-    return new Date(Number(year), Number(month) - 1, Number(day));
-  }
-
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-  return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
-}
-
 function formatReadableDate(date) {
-  return date.toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric"
-  });
+  return formatKolkataDate(date);
 }
 
 function getTimelineRange() {
-  const now = new Date();
-
   if (filter.timeline === "overall") {
     return null;
   }
 
   if (filter.timeline === "today") {
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    const { start, end } = getKolkataDayRange(0);
     return { start, end };
   }
 
   if (filter.timeline === "yesterday") {
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 23, 59, 59, 999);
+    const { start, end } = getKolkataDayRange(-1);
     return { start, end };
   }
 
   if (filter.timeline === "week") {
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
-    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    const { start } = getKolkataDayRange(-6);
+    const { end } = getKolkataDayRange(0);
     return { start, end };
   }
 
@@ -593,7 +562,7 @@ function getTimelineRange() {
     return { start: null, end: null };
   }
 
-  const end = new Date(endBase.getFullYear(), endBase.getMonth(), endBase.getDate(), 23, 59, 59, 999);
+  const end = new Date(`${toKolkataDateKey(endBase)}T23:59:59.999+05:30`);
   return { start, end };
 }
 

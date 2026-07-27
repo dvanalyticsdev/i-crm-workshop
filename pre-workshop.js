@@ -17,6 +17,7 @@ import {
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
+import { getKolkataDayRange, parseKolkataDate as parseLocalDate, toKolkataDateKey } from "./date-utils.js";
 import {
   addLeadNote,
   assignLeads as assignLeadsOnServer,
@@ -828,30 +829,6 @@ const pageSize = 50;
 
 const activityFields = ["modalDialed", "modalCallStatus", "modalWsStatus", "modalWhatsappInvite", "modalWhatsappGroupStatus", "modalActivityNote"];
 
-function toIsoDate(date = new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function parseLocalDate(value) {
-  const raw = String(value || "").trim();
-  if (!raw) return null;
-
-  const dateOnlyMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (dateOnlyMatch) {
-    const [, year, month, day] = dateOnlyMatch;
-    return new Date(Number(year), Number(month) - 1, Number(day));
-  }
-
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-  return parsed;
-}
-
 function getLeadOwnerType(lead) {
   return String(lead?.leadOwnerType || "").trim().toLowerCase() === "reassigned"
     || (String(lead?.assignedFromCounselor || "").trim() && String(lead?.assignedFromCounselor || "").trim().toLowerCase() !== "unassigned")
@@ -1038,7 +1015,7 @@ function normalizeLeadFields(leads) {
     lead.workshop = lead.workshop || "";
     lead.workshopName = getLeadWorkshopName(lead);
     lead.workshopDateLabel = getLeadWorkshopDate(lead);
-    lead.createdAt = lead.createdAt || toIsoDate();
+    lead.createdAt = lead.createdAt || toKolkataDateKey();
     lead.importSourceFiles = getLeadImportSourceFiles(lead);
     lead.importSourceSheets = Array.isArray(lead.importSourceSheets)
       ? lead.importSourceSheets.map((name) => String(name || "").trim()).filter(Boolean)
@@ -1278,39 +1255,30 @@ function filterByTimeline(leads) {
   }
 
   if (filter.timeline === "today") {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const { start: todayStart, end: todayEnd } = getKolkataDayRange(0);
     return scopedLeads.filter((lead) => {
       const created = parseLocalDate(getLeadOwnerTimelineValue(lead));
       if (!created) {
         return false;
       }
-      created.setHours(0, 0, 0, 0);
-      return created.getTime() === today.getTime();
+      return created >= todayStart && created <= todayEnd;
     });
   }
 
   if (filter.timeline === "yesterday") {
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    yesterday.setHours(0, 0, 0, 0);
+    const { start: yesterdayStart, end: yesterdayEnd } = getKolkataDayRange(-1);
     return scopedLeads.filter((lead) => {
       const created = parseLocalDate(getLeadOwnerTimelineValue(lead));
       if (!created) {
         return false;
       }
-      created.setHours(0, 0, 0, 0);
-      return created.getTime() === yesterday.getTime();
+      return created >= yesterdayStart && created <= yesterdayEnd;
     });
   }
 
   if (filter.timeline === "week") {
-    const end = new Date();
-    end.setHours(23, 59, 59, 999);
-
-    const start = new Date();
-    start.setDate(start.getDate() - 6);
-    start.setHours(0, 0, 0, 0);
+    const { end } = getKolkataDayRange(0);
+    const { start } = getKolkataDayRange(-6);
 
     return scopedLeads.filter((lead) => {
       const created = parseLocalDate(getLeadOwnerTimelineValue(lead));
@@ -1330,20 +1298,18 @@ function filterByTimeline(leads) {
     if (!start) {
       return scopedLeads;
     }
-    start.setHours(0, 0, 0, 0);
-
     const end = parseLocalDate(filter.endDate);
     if (!end) {
       return leads;
     }
-    end.setHours(23, 59, 59, 999);
+    const customEnd = new Date(`${toKolkataDateKey(end)}T23:59:59.999+05:30`);
 
     return scopedLeads.filter((lead) => {
       const created = parseLocalDate(getLeadOwnerTimelineValue(lead));
       if (!created) {
         return false;
       }
-      return created >= start && created <= end;
+      return created >= start && created <= customEnd;
     });
   }
 

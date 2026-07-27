@@ -8,6 +8,7 @@ import {
   saveLocalPreference,
   startStatePolling
 } from "./state-sync.js";
+import { formatKolkataDate, getKolkataDayRange, parseKolkataDate as parseLocalDate, toKolkataDateKey } from "./date-utils.js";
 
 await bootstrapLocalState();
 
@@ -284,30 +285,6 @@ function resolveCounselorActivityActor(value) {
   return resolveCounselorName(value);
 }
 
-function toLocalDateKey(date = new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function parseLocalDate(value) {
-  const raw = String(value || "").trim();
-  if (!raw) return null;
-
-  const dateOnlyMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (dateOnlyMatch) {
-    const [, year, month, day] = dateOnlyMatch;
-    return new Date(Number(year), Number(month) - 1, Number(day));
-  }
-
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-  return parsed;
-}
-
 function isCounselorSession() {
   return session?.role === "counselor";
 }
@@ -373,7 +350,7 @@ function normalizeLeadFields(leads) {
     lead.email = String(lead.email || "").toLowerCase();
     lead.workshop = lead.workshop || "";
     lead.courseName = lead.courseName || "";
-    lead.createdAt = lead.createdAt || toLocalDateKey();
+    lead.createdAt = lead.createdAt || toKolkataDateKey();
     lead.counselor = lead.counselor || "Unassigned";
 
     lead.dialed = lead.dialed || "";
@@ -446,31 +423,20 @@ function getTimelineRange() {
     return null;
   }
 
-  const now = new Date();
-
   if (timelineFilter.type === "today") {
-    const start = new Date(now);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(now);
-    end.setHours(23, 59, 59, 999);
+    const { start, end } = getKolkataDayRange(0);
     return { start, end };
   }
 
   if (timelineFilter.type === "week") {
-    const start = new Date(now);
-    start.setDate(start.getDate() - 6);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(now);
-    end.setHours(23, 59, 59, 999);
+    const { start } = getKolkataDayRange(-6);
+    const { end } = getKolkataDayRange(0);
     return { start, end };
   }
 
   if (timelineFilter.type === "recent") {
-    const start = new Date(now);
-    start.setDate(start.getDate() - 29);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(now);
-    end.setHours(23, 59, 59, 999);
+    const { start } = getKolkataDayRange(-29);
+    const { end } = getKolkataDayRange(0);
     return { start, end };
   }
 
@@ -483,13 +449,14 @@ function getTimelineRange() {
     if (!start) {
       return null;
     }
-    start.setHours(0, 0, 0, 0);
     const end = parseLocalDate(timelineFilter.endDate);
     if (!end) {
       return null;
     }
-    end.setHours(23, 59, 59, 999);
-    return { start, end };
+    return {
+      start,
+      end: new Date(`${toKolkataDateKey(end)}T23:59:59.999+05:30`)
+    };
   }
 
   return null;
@@ -731,11 +698,20 @@ function getLeadOwnershipDate(lead) {
   );
 }
 
-function countAssignedLeads(rawLeads, counselor) {
+function countAssignedLeads(rawLeads, counselor, range = null) {
   const normalizedCounselor = normalizeText(counselor);
-  return rawLeads.filter(
+  const assignedLeads = rawLeads.filter(
     (lead) => normalizeText(resolveCounselorName(lead?.counselor, true)) === normalizedCounselor
-  ).length;
+  );
+
+  if (!range) {
+    return assignedLeads.length;
+  }
+
+  return assignedLeads.filter((lead) => {
+    const assignmentDate = getLeadOwnershipDate(lead);
+    return assignmentDate && assignmentDate >= range.start && assignmentDate <= range.end;
+  }).length;
 }
 
 function splitFreshAndOldActivities(activityLeads, countField, range) {
@@ -1092,7 +1068,7 @@ function buildWorkshopRows(counselors, leads, rawLeads, range) {
       interested: countLeadsByLatestHistoryUpdate(counselorLeads, "wsStatus", "Interested"),
       notInterested: countLeadsByLatestHistoryUpdate(counselorLeads, "wsStatus", "Not Interested"),
       whatsappJoined: countLeadsByLatestHistoryUpdate(counselorLeads, "whatsappGroupStatus", "Joined"),
-      assignedLeads: countAssignedLeads(rawLeads, counselor)
+      assignedLeads: countAssignedLeads(rawLeads, counselor, range)
     };
   })));
 }
@@ -1114,7 +1090,7 @@ function buildPostWorkshopRows(counselors, leads, rawLeads, range) {
       notInterested: countLeadsByLatestHistoryUpdate(counselorLeads, "courseStatus", "Not Interested"),
       enrolled: countLeadsByLatestHistoryUpdate(counselorLeads, "admissionStatus", "Enrolled"),
       won: countLeadsByLatestHistoryUpdate(counselorLeads, "admissionStatus", "Won"),
-      assignedLeads: countAssignedLeads(rawLeads, counselor)
+      assignedLeads: countAssignedLeads(rawLeads, counselor, range)
     };
   })));
 }
@@ -1141,7 +1117,7 @@ function buildMainAdmissionRows(counselors, leads, rawLeads, range) {
       notInterested: countLeadsByLatestHistoryUpdate(counselorLeads, "mainAdmissionCourseStatus", "Not Interested"),
       enrolled: countLeadsByLatestHistoryUpdate(counselorLeads, "mainAdmissionAdmissionStatus", "Enrolled"),
       won: countLeadsByLatestHistoryUpdate(counselorLeads, "mainAdmissionAdmissionStatus", "Won"),
-      assignedLeads: countAssignedLeads(rawLeads, counselor)
+      assignedLeads: countAssignedLeads(rawLeads, counselor, range)
     };
   })));
 }
@@ -1159,7 +1135,7 @@ function buildRegisteredRows(counselors, leads, rawLeads, range) {
       counselor,
       ...activitySummary,
       courseEntries: formatBreakdownEntries(activityLeads, "courseName", "registeredCourseActivityUpdates"),
-      assignedLeads: countAssignedLeads(rawLeads, counselor),
+      assignedLeads: countAssignedLeads(rawLeads, counselor, range),
       dialed: countLeadsByLatestHistoryUpdate(counselorLeads, "registeredDialed", "Yes"),
       interested: countLeadsByLatestHistoryUpdate(counselorLeads, "registeredCourseStatus", "Interested"),
       notInterested: countLeadsByLatestHistoryUpdate(counselorLeads, "registeredCourseStatus", "Not Interested")
@@ -1229,10 +1205,11 @@ function getTimelineLabel() {
   if (timelineFilter.type === "week") return "Week";
   if (timelineFilter.type === "recent") return "Last 30 Days";
   if (timelineFilter.type === "custom") {
-    if (!timelineFilter.startDate || !timelineFilter.endDate) {
+    const range = getTimelineRange();
+    if (!range?.start || !range?.end) {
       return "Custom Range";
     }
-    return `${timelineFilter.startDate} to ${timelineFilter.endDate}`;
+    return `${formatKolkataDate(range.start)} to ${formatKolkataDate(range.end)}`;
   }
   return "Monitoring Report";
 }
@@ -1506,17 +1483,17 @@ function renderRegisteredView(counselors, leads, rawLeads, range) {
 }
 
 function getMcubeCounselorLabel(entry = {}) {
-  const agentName = resolveCounselorName(entry?.agentName, true);
+  const agentName = resolveCounselorName(entry?.agentName);
   if (agentName) {
     return agentName;
   }
 
-  const counselor = resolveCounselorName(entry?.counselor, true);
+  const counselor = resolveCounselorName(entry?.counselor);
   if (counselor) {
     return counselor;
   }
 
-  return "Unassigned";
+  return resolveCounselorName(entry?.agentName, true) || resolveCounselorName(entry?.counselor, true) || "Unassigned";
 }
 
 function scopeMcubeCallsForSession(entries) {
