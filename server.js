@@ -10003,6 +10003,28 @@ function canMutateTask(session, state, task) {
   return !!counselorName && (leadCounselor === counselorName || taskCounselor === counselorName);
 }
 
+function getScopedTasksForSession(tasks, counselors, session) {
+  const safeTasks = Array.isArray(tasks) ? tasks : [];
+  if (isAdminLikeSession(session)) {
+    return safeTasks;
+  }
+  if (session?.role !== "counselor") {
+    return [];
+  }
+
+  const sessionEmail = String(session.email || "").trim().toLowerCase();
+  const sessionName = String(session.name || "").trim().toLowerCase();
+  const counselorMatch = (Array.isArray(counselors) ? counselors : []).find(
+    (counselor) => String(counselor?.email || "").trim().toLowerCase() === sessionEmail
+  );
+  const counselorName = String(counselorMatch?.name || session.name || "").trim().toLowerCase() || sessionName;
+  return safeTasks.filter((task) => {
+    const leadCounselor = String(task?.leadCounselor || "").trim().toLowerCase();
+    const taskCounselor = String(task?.counselor || "").trim().toLowerCase();
+    return leadCounselor === counselorName || taskCounselor === counselorName;
+  });
+}
+
 function buildLeadArrayFilter(leadId, leadEmail = "") {
   const filter = { "lead.id": { $in: getLeadIdCandidates(leadId) } };
   const email = String(leadEmail || "").trim().toLowerCase();
@@ -12561,6 +12583,33 @@ app.patch("/api/lead-claims/:claimId/decision", async (req, res) => {
     return res.json(response);
   } catch (error) {
     return res.status(500).json({ message: "Failed to update lead claim", details: error.message });
+  }
+});
+
+app.get("/api/tasks", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "counselor"]);
+    if (!session) return;
+
+    const [tasks, counselors] = await Promise.all([
+      withMongoRetry(
+        () => tasksCollection.find({}).sort({ dueDate: 1, createdAt: -1 }).toArray(),
+        { retries: 1, label: "Load task tracker tasks" }
+      ),
+      withMongoRetry(
+        () => counselorsCollection.find({}).toArray(),
+        { retries: 1, label: "Load task tracker counselors" }
+      )
+    ]);
+
+    return res.json({
+      ok: true,
+      tasks: getScopedTasksForSession(tasks, counselors, session),
+      counselors: Array.isArray(counselors) ? counselors : [],
+      updatedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch tasks", details: error.message });
   }
 });
 

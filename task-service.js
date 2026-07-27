@@ -15,6 +15,8 @@ const CATEGORY_LABELS = {
   [TASK_CATEGORY.mainAdmission]: "Main Admission Leads"
 };
 
+let taskCache = null;
+
 function parseTaskDueDate(value) {
   const raw = String(value || "").trim();
   if (!raw) {
@@ -96,8 +98,33 @@ export function normalizeTask(task = {}) {
 }
 
 export function getTasks() {
-  const tasks = getStoredTasks();
+  const tasks = Array.isArray(taskCache) ? taskCache : getStoredTasks();
   return tasks.map((task) => normalizeTask(task));
+}
+
+export function acceptTaskList(tasks) {
+  taskCache = Array.isArray(tasks) ? tasks.map((task) => normalizeTask(task)) : [];
+  return getTasks();
+}
+
+function mergeTaskIntoCache(task) {
+  if (!Array.isArray(taskCache) || !task) {
+    return;
+  }
+  const normalized = normalizeTask(task);
+  const index = taskCache.findIndex((item) => String(item.id) === String(normalized.id));
+  if (index >= 0) {
+    taskCache[index] = normalized;
+  } else {
+    taskCache.push(normalized);
+  }
+}
+
+function removeTaskFromCache(taskId) {
+  if (!Array.isArray(taskCache)) {
+    return;
+  }
+  taskCache = taskCache.filter((task) => String(task.id) !== String(taskId));
 }
 
 export function getTasksByCategory(category) {
@@ -126,6 +153,11 @@ async function requestJson(path, options = {}) {
   if (payload?.state) {
     acceptServerState(payload.state, response.headers.get("etag"));
   }
+  if (Array.isArray(payload?.tasks)) {
+    acceptTaskList(payload.tasks);
+  } else if (payload?.task) {
+    mergeTaskIntoCache(payload.task);
+  }
 
   if (!response.ok) {
     return { ok: false, message: payload?.message || "Task request failed." };
@@ -143,6 +175,7 @@ export async function createTask(taskInput) {
   if (!result || result.ok === false) {
     return { ok: false, message: result?.message || "Failed to save task." };
   }
+  mergeTaskIntoCache(result.task || nextTask);
   return { ok: true, task: result.task || nextTask };
 }
 
@@ -166,6 +199,7 @@ export async function updateTask(taskId, updates) {
   if (!result || result.ok === false) {
     return { ok: false, message: result?.message || "Failed to update task." };
   }
+  mergeTaskIntoCache(result.task || updatedTask);
   return { ok: true, task: result.task || updatedTask };
 }
 
@@ -177,5 +211,6 @@ export async function deleteTask(taskId, completed = false) {
   if (!result || result.ok === false) {
     return { ok: false, message: result?.message || "Failed to delete task." };
   }
+  removeTaskFromCache(taskId);
   return { ok: true };
 }

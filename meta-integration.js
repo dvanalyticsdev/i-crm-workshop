@@ -1,9 +1,9 @@
 import { registerPageCleanup } from "./page-runtime.js";
-import { acceptServerState, bootstrapLocalState, getSession, getCounselors, refreshState } from "./state-sync.js";
+import { acceptServerState, bootstrapLocalState, getSession, refreshState } from "./state-sync.js";
 import { apiUrl } from "./api-client.js";
 import { PUBLIC_COURSES } from "./course-catalog.js";
 
-await bootstrapLocalState();
+await bootstrapLocalState({ skipStateRefresh: true });
 
 const session = getSession();
 if (!session || !["super_admin", "admin", "marketing"].includes(session.role)) {
@@ -54,6 +54,7 @@ const retryQueueWrap           = document.getElementById("retryQueueWrap");
 let allLogs = [];
 let logSummary = { success: 0, ignored: 0, error: 0 };
 let retryJobs = [];
+let integrationCounselors = [];
 const COURSE_PERMISSION_OPTIONS = PUBLIC_COURSES.map((course) => ({
   id: course.id,
   label: course.code || course.shortName || course.name,
@@ -257,7 +258,7 @@ function applyConfig(config) {
 }
 
 function updateRRDisplay(rrIdx) {
-  const allCounselors = getCounselors();
+  const allCounselors = integrationCounselors;
   const counselors = allCounselors.filter(isCounselorInMetaRotation);
   const admissionCounselors = allCounselors.filter(isCounselorInAdmissionRotation);
   if (rrCounselorCount) rrCounselorCount.textContent = counselors.length;
@@ -275,7 +276,7 @@ function updateRRDisplay(rrIdx) {
 function renderRoundRobinCounselors() {
   if (!rrCounselorList) return;
 
-  const counselors = getCounselors();
+  const counselors = integrationCounselors;
   if (!counselors.length) {
     rrCounselorList.innerHTML = '<p class="rr-roster-empty">No counselors found yet. Add counselors in Counselor Management.</p>';
     return;
@@ -299,7 +300,7 @@ function renderRoundRobinCounselors() {
 function renderAdmissionRotationCounselors() {
   if (!admissionRrCounselorList) return;
 
-  const counselors = getCounselors();
+  const counselors = integrationCounselors;
   if (!counselors.length) {
     admissionRrCounselorList.innerHTML = '<p class="rr-roster-empty">No counselors found yet. Add counselors in Counselor Management.</p>';
     return;
@@ -416,6 +417,7 @@ async function updateCounselorRoundRobinStatus(counselorId, field, enabled) {
     } else {
       acceptServerState(payload?.state || {});
       result = { ok: true };
+      await loadCounselors().catch(() => undefined);
     }
   } catch (error) {
     result = { ok: false, message: error?.message || "Failed to update counselor rotation." };
@@ -433,6 +435,19 @@ async function updateCounselorRoundRobinStatus(counselorId, field, enabled) {
   renderAdmissionRotationCounselors();
   updateRRDisplay(Number(rrIndexDisplay.textContent) || 0);
   showMessage(targetMessage, isCoursePermissionUpdate ? "Course permissions updated." : "Counselor rotation updated.");
+}
+
+async function loadCounselors() {
+  const response = await fetch(apiUrl("/api/counselors"), {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" }
+  });
+  const payload = await response.json().catch(() => []);
+  if (!response.ok) {
+    throw new Error(payload?.message || "Failed to load counselors.");
+  }
+  integrationCounselors = Array.isArray(payload) ? payload : [];
+  return integrationCounselors;
 }
 
 function renderFormIds(ids) {
@@ -720,6 +735,7 @@ if (logTypeFilter) {
 webhookUrlInput.value = buildWebhookUrl();
 
 renderIntegrationSectionNav();
+await loadCounselors().catch((error) => showMessage(rrRosterMessage, error.message, true));
 const config = await loadConfig();
 applyConfig(config);
 renderRoundRobinCounselors();

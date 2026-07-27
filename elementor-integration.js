@@ -1,8 +1,8 @@
 import { registerPageCleanup } from "./page-runtime.js";
-import { bootstrapLocalState, getSession, getCounselors } from "./state-sync.js";
+import { bootstrapLocalState, getSession } from "./state-sync.js";
 import { apiUrl } from "./api-client.js";
 
-await bootstrapLocalState();
+await bootstrapLocalState({ skipStateRefresh: true });
 
 const session = getSession();
 if (!session || !["super_admin", "admin", "marketing"].includes(session.role)) {
@@ -55,6 +55,7 @@ const addButtons = [
 
 let allLogs = [];
 let retryJobs = [];
+let integrationCounselors = [];
 
 function showMessage(el, text, isError = false) {
   if (!el) return;
@@ -246,7 +247,7 @@ function renderRetryQueue(jobs, errorMessage = "") {
 }
 
 function updateRotationSnapshot(rrIdx = 0) {
-  const counselors = getCounselors();
+  const counselors = integrationCounselors;
   const workshopCounselors = counselors.filter(isCounselorInWorkshopRotation);
   const admissionCounselors = counselors.filter(isCounselorInAdmissionRotation);
   rrCounselorCount.textContent = String(workshopCounselors.length);
@@ -261,6 +262,19 @@ function updateRotationSnapshot(rrIdx = 0) {
 
   const idx = (rrIdx % workshopCounselors.length + workshopCounselors.length) % workshopCounselors.length;
   rrNextCounselor.textContent = workshopCounselors[idx]?.name || "—";
+}
+
+async function loadCounselors() {
+  const response = await fetch(apiUrl("/api/counselors"), {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" }
+  });
+  const payload = await response.json().catch(() => []);
+  if (!response.ok) {
+    throw new Error(payload?.message || "Failed to load counselors.");
+  }
+  integrationCounselors = Array.isArray(payload) ? payload : [];
+  return integrationCounselors;
 }
 
 async function loadConfig() {
@@ -515,6 +529,7 @@ if (!isAdminLike) {
 webhookUrlInput.value = buildWebhookUrl();
 
 renderIntegrationSectionNav();
+await loadCounselors().catch((error) => showMessage(rrMessage, error.message, true));
 const config = await loadConfig();
 applyConfig(config);
 await loadLogs();

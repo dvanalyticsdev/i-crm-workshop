@@ -1,4 +1,5 @@
-import { getLeads, getSession, refreshState, startStatePolling } from "./state-sync.js";
+import { registerPageCleanup } from "./page-runtime.js";
+import { getSession } from "./state-sync.js";
 import { trackLeadView } from "./lead-service.js";
 import { raiseLeadClaim } from "./lead-claim-service.js";
 import { openActivityHistory } from "./activity-history.js";
@@ -37,6 +38,7 @@ let activeClaimLeadKey = "";
 let duplicateGroups = [];
 let duplicateGroupsLoading = false;
 let duplicateGroupsLoaded = false;
+let leadBrowseLeads = [];
 const selectedDuplicateKeeperByGroup = new Map();
 const duplicateMergeOptions = {
   preferWorkshopKeeper: true,
@@ -145,7 +147,56 @@ function getCreatedAt(lead) {
 }
 
 function getAllLeads() {
-  return getLeads().filter((lead) => lead && !lead.isDeleted);
+  return leadBrowseLeads.filter((lead) => lead && !lead.isDeleted);
+}
+
+async function loadLeadBrowseData() {
+  const response = await fetch(apiUrl("/api/leads"), {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" }
+  });
+  const payload = await response.json().catch(() => []);
+  if (!response.ok) {
+    throw new Error(payload?.message || "Failed to load leads.");
+  }
+  leadBrowseLeads = Array.isArray(payload) ? payload : [];
+  return leadBrowseLeads;
+}
+
+function startLeadBrowsePolling(onRefresh, intervalMs = 15000) {
+  let destroyed = false;
+  let activePoll = false;
+
+  async function poll() {
+    if (destroyed || activePoll || document.visibilityState === "hidden") {
+      return;
+    }
+    activePoll = true;
+    try {
+      await loadLeadBrowseData();
+      await onRefresh();
+    } catch (error) {
+      console.warn("[lead-browse] polling failed:", error?.message || error);
+    } finally {
+      activePoll = false;
+    }
+  }
+
+  const timer = window.setInterval(() => {
+    void poll();
+  }, intervalMs);
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === "visible") {
+      void poll();
+    }
+  };
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+
+  return () => {
+    destroyed = true;
+    window.clearInterval(timer);
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+  };
 }
 
 function getSessionCounselorName() {
@@ -302,7 +353,7 @@ async function mergeDuplicateGroup(group) {
   if (!response.ok) {
     throw new Error(payload?.details || payload?.message || "Failed to merge duplicate leads.");
   }
-  await refreshState().catch(() => undefined);
+  await loadLeadBrowseData().catch(() => undefined);
   await fetchDuplicateGroups();
   showLeadBrowseToast("Duplicate leads merged successfully.");
 }
@@ -321,7 +372,7 @@ async function mergeAllDuplicateGroupsByOldest() {
   if (!response.ok) {
     throw new Error(payload?.details || payload?.message || "Failed to merge duplicate leads.");
   }
-  await refreshState().catch(() => undefined);
+  await loadLeadBrowseData().catch(() => undefined);
   await fetchDuplicateGroups();
   const mergedCount = Number(payload?.mergedGroups) || 0;
   const failedCount = Array.isArray(payload?.failedGroups) ? payload.failedGroups.length : 0;
@@ -842,14 +893,14 @@ claimForm?.addEventListener("submit", async (event) => {
   window.setTimeout(closeClaimModal, 700);
 });
 
-await refreshState().catch(() => undefined);
+await loadLeadBrowseData().catch((error) => showLeadBrowseToast(error.message || "Could not load leads.", true));
 if (isAdminSession()) {
   void fetchDuplicateGroups();
 }
 render();
 window.__dvMarkRouteViewReady?.();
 
-startStatePolling(() => {
+const stopLeadBrowsePolling = startLeadBrowsePolling(() => {
   if (latestLeadKey && !findLeadByKey(latestLeadKey)) {
     closeDetails();
   }
@@ -861,3 +912,4 @@ startStatePolling(() => {
   }
   render();
 }, 15000);
+registerPageCleanup(stopLeadBrowsePolling);

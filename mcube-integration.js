@@ -1,8 +1,8 @@
 import { registerPageCleanup } from "./page-runtime.js";
-import { bootstrapLocalState, getSession, getCounselors } from "./state-sync.js";
+import { bootstrapLocalState, getSession } from "./state-sync.js";
 import { apiUrl } from "./api-client.js";
 
-await bootstrapLocalState();
+await bootstrapLocalState({ skipStateRefresh: true });
 
 const session = getSession();
 if (!session || !["super_admin", "admin", "marketing"].includes(session.role)) {
@@ -56,6 +56,7 @@ const retryQueueWrap = document.getElementById("retryQueueWrap");
 
 let allLogs = [];
 let retryJobs = [];
+let integrationCounselors = [];
 
 function showMessage(el, text, isError = false) {
   if (!el) return;
@@ -242,7 +243,7 @@ function renderIntegrationSectionNav(activeRoute = "mcube-integration.html") {
 }
 
 function renderRotationSnapshot(rrIdx = 0) {
-  const counselors = getCounselors().filter(isCounselorInRotation);
+  const counselors = integrationCounselors.filter(isCounselorInRotation);
   rrCounselorCount.textContent = String(counselors.length);
   if (!counselors.length) {
     rrNextCounselor.textContent = "No counselors";
@@ -250,6 +251,19 @@ function renderRotationSnapshot(rrIdx = 0) {
   }
   const idx = (rrIdx % counselors.length + counselors.length) % counselors.length;
   rrNextCounselor.textContent = counselors[idx]?.name || "-";
+}
+
+async function loadCounselors() {
+  const response = await fetch(apiUrl("/api/counselors"), {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" }
+  });
+  const payload = await response.json().catch(() => []);
+  if (!response.ok) {
+    throw new Error(payload?.message || "Failed to load counselors.");
+  }
+  integrationCounselors = Array.isArray(payload) ? payload : [];
+  return integrationCounselors;
 }
 
 function normalizeLogSummary(summary = {}) {
@@ -618,6 +632,7 @@ if (!isAdminLike) {
 
 webhookUrlInput.value = buildWebhookUrl();
 renderIntegrationSectionNav();
+await loadCounselors().catch((error) => showMessage(rrMessage, error.message, true));
 const config = await loadConfig();
 applyConfig(config);
 renderLogSummary(config?.logSummary);

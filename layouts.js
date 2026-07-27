@@ -23,10 +23,19 @@ const NOTIFICATION_LIST_LIMIT = 30;
 const NOTIFICATION_LIST_CACHE_MS = 15000;
 const ROUTES_WITH_LOCAL_STATE_BOOTSTRAP = new Set([
   "admission-sop.html",
+  "claim-raised.html",
   "dashboard.html",
+  "elementor-integration.html",
+  "lead-creation.html",
+  "lead-browse.html",
+  "lead-flow-control.html",
   "main-admission-leads.html",
+  "mcube-integration.html",
+  "meta-integration.html",
   "performance-logs.html",
-  "registered-candidates.html"
+  "reachout.html",
+  "registered-candidates.html",
+  "task-tracker.html"
 ]);
 let notificationPollTimerId = null;
 let notificationPollTimeoutId = null;

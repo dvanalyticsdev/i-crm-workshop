@@ -1,9 +1,10 @@
 import { registerPageCleanup } from "./page-runtime.js";
-import { bootstrapLocalState, getCounselors, getLeads as getStoredLeads, getSession, startStatePolling } from "./state-sync.js";
-import { deleteTask, formatTaskDueDate, getTaskCategoryLabel, getTasksByCategory, TASK_CATEGORY, toTaskDateTimeValue, toTaskDueDateIso, updateTask } from "./task-service.js";
+import { apiUrl } from "./api-client.js";
+import { bootstrapLocalState, getLeads as getStoredLeads, getSession, refreshState } from "./state-sync.js";
+import { acceptTaskList, deleteTask, formatTaskDueDate, getTaskCategoryLabel, getTasksByCategory, TASK_CATEGORY, toTaskDateTimeValue, toTaskDueDateIso, updateTask } from "./task-service.js";
 import { openActivityHistory } from "./activity-history.js";
 
-await bootstrapLocalState();
+await bootstrapLocalState({ skipStateRefresh: true });
 
 const taskTrackerSectionNav = document.getElementById("taskTrackerSectionNav");
 const taskTrackerSubsectionNav = document.getElementById("taskTrackerSubsectionNav");
@@ -12,6 +13,7 @@ const taskTrackerActiveDescription = document.getElementById("taskTrackerActiveD
 const taskTrackerActiveSection = document.getElementById("taskTrackerActiveSection");
 
 const session = getSession();
+let taskTrackerCounselors = [];
 const TASK_TRACKER_VIEW_STORAGE_KEY = "dv-task-tracker-view";
 const TASK_VIEW_CONFIG = {
   workshop: {
@@ -113,12 +115,68 @@ function getCounselorIdentity() {
 
   const sessionName = String(session?.name || "").trim().toLowerCase();
   const sessionEmail = String(session?.email || "").trim().toLowerCase();
-  const counselors = getCounselors();
+  const counselors = taskTrackerCounselors;
   const match = counselors.find(
     (item) => String(item.email || "").trim().toLowerCase() === sessionEmail
   );
 
   return String(match?.name || session?.name || "").trim().toLowerCase() || sessionName;
+}
+
+async function loadTaskTrackerData() {
+  try {
+    const response = await fetch(apiUrl("/api/tasks"), {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.message || "Failed to load tasks.");
+    }
+    taskTrackerCounselors = Array.isArray(payload?.counselors) ? payload.counselors : [];
+    acceptTaskList(payload?.tasks || []);
+    return true;
+  } catch (error) {
+    console.warn("[task-tracker] Scoped task loading failed, falling back to full state:", error?.message || error);
+    await refreshState();
+    return false;
+  }
+}
+
+function startTaskTrackerPolling(onRefresh, intervalMs = 15000) {
+  let destroyed = false;
+  let activePoll = false;
+
+  async function poll() {
+    if (destroyed || activePoll || document.visibilityState === "hidden") {
+      return;
+    }
+    activePoll = true;
+    try {
+      await loadTaskTrackerData();
+      await onRefresh();
+    } catch (error) {
+      console.warn("[task-tracker] polling failed:", error?.message || error);
+    } finally {
+      activePoll = false;
+    }
+  }
+
+  const timer = window.setInterval(() => {
+    void poll();
+  }, intervalMs);
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === "visible") {
+      void poll();
+    }
+  };
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+
+  return () => {
+    destroyed = true;
+    window.clearInterval(timer);
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+  };
 }
 
 function getScopedTasks(tasks) {
@@ -429,9 +487,10 @@ function renderAll() {
   bindTaskActions();
 }
 
+await loadTaskTrackerData();
 renderAll();
 window.__dvMarkRouteViewReady?.();
-const stopStatePolling = startStatePolling(() => {
+const stopStatePolling = startTaskTrackerPolling(() => {
   renderAll();
 });
 registerPageCleanup(stopStatePolling);

@@ -1,7 +1,7 @@
-import { bootstrapLocalState, getSession, getLeads } from "./state-sync.js";
+import { bootstrapLocalState, getSession } from "./state-sync.js";
 import { apiUrl } from "./api-client.js";
 
-await bootstrapLocalState();
+await bootstrapLocalState({ skipStateRefresh: true });
 
 const session = getSession();
 if (!session || !["super_admin", "admin", "marketing"].includes(session.role)) {
@@ -61,6 +61,7 @@ let config = null;
 let selectedLeadIds = new Set();
 let filteredLeads = [];
 let recentLogs = [];
+let reachoutLeads = [];
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -150,6 +151,23 @@ function closeBatchReport() {
 function uniqueOptions(leads, getter) {
   return [...new Set(leads.map(getter).map((value) => String(value || "").trim()).filter(Boolean))]
     .sort((left, right) => left.localeCompare(right));
+}
+
+function getLeads() {
+  return Array.isArray(reachoutLeads) ? reachoutLeads : [];
+}
+
+async function loadReachoutLeads() {
+  const response = await fetch(apiUrl("/api/leads"), {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" }
+  });
+  const payload = await response.json().catch(() => []);
+  if (!response.ok) {
+    throw new Error(payload?.message || "Failed to load leads.");
+  }
+  reachoutLeads = Array.isArray(payload) ? payload : [];
+  return reachoutLeads;
 }
 
 function getCampaign(lead) {
@@ -752,6 +770,7 @@ searchInput.addEventListener("keydown", (event) => {
 });
 
 await loadConfig();
+await loadReachoutLeads().catch((error) => showMessage(sendMessage, error.message, true));
 renderFilters();
 filterLeadList();
 await loadLogs();
