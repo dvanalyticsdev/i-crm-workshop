@@ -58,6 +58,29 @@
       </header>
 
       <section class="performance-log-grid" id="performanceSummaryCards"></section>
+      <section class="performance-trend-grid">
+        <article class="card performance-chart-card">
+          <div class="card-head">
+            <h3>Page Speed Trend</h3>
+            <p>Daily interactive-ready average.</p>
+          </div>
+          <canvas id="pageSpeedTrendChart" height="220"></canvas>
+        </article>
+        <article class="card performance-chart-card">
+          <div class="card-head">
+            <h3>API Speed Trend</h3>
+            <p>Daily API response average.</p>
+          </div>
+          <canvas id="apiSpeedTrendChart" height="220"></canvas>
+        </article>
+        <article class="card performance-chart-card">
+          <div class="card-head">
+            <h3>Reliability Trend</h3>
+            <p>Daily successful event rate.</p>
+          </div>
+          <canvas id="reliabilityTrendChart" height="220"></canvas>
+        </article>
+      </section>
       <section class="card table-card">
         <div class="card-head">
           <h3>Operation Speed & Reliability</h3>

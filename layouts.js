@@ -22,6 +22,8 @@ const NOTIFICATION_POLL_INTERVAL_MS = 6000;
 const NOTIFICATION_LIST_LIMIT = 30;
 const NOTIFICATION_LIST_CACHE_MS = 15000;
 const ROUTES_WITH_LOCAL_STATE_BOOTSTRAP = new Set([
+  "admission-sop.html",
+  "dashboard.html",
   "main-admission-leads.html",
   "performance-logs.html"
 ]);

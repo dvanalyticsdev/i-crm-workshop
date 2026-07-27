@@ -4,7 +4,7 @@ import { apiUrl } from "./api-client.js";
 import { bootstrapLocalState, getSession, loadLocalPreference, saveLocalPreference, startStatePolling } from "./state-sync.js";
 import { formatKolkataDate, getKolkataDayRange, parseKolkataDate, shiftKolkataDateKey, toKolkataDateKey } from "./date-utils.js";
 
-await bootstrapLocalState();
+await bootstrapLocalState({ skipStateRefresh: true });
 
 const trendRangeText = document.getElementById("trendRangeText");
 const pieRangeText = document.getElementById("pieRangeText");

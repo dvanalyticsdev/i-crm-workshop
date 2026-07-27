@@ -1,4 +1,6 @@
-import { bootstrapLocalState, getCounselors, getLeads, getSession, refreshState, startStatePolling } from "./state-sync.js";
+import { registerPageCleanup } from "./page-runtime.js";
+import { apiUrl } from "./api-client.js";
+import { bootstrapLocalState, getCounselors, getLeads, getSession, refreshState } from "./state-sync.js";
 import { assignLeads, deleteLeads, formatLeadAssignmentResult, trackLeadView } from "./lead-service.js";
 import { openActivityHistory } from "./activity-history.js";
 
@@ -25,6 +27,9 @@ const filter = {
 
 let selectedBlockedLeadKeys = new Set();
 let currentPage = 1;
+let scopedAdmissionSopLeads = null;
+let scopedAdmissionSopCounselors = null;
+let scopedAdmissionSopActive = false;
 
 function showToast(message, isError = false) {
   let container = document.querySelector(".toast-container");
@@ -65,6 +70,79 @@ function getSessionCounselorName() {
 function shouldTreatLeadAsAssigned(counselorName) {
   const normalized = normalize(counselorName);
   return !!normalized && normalized !== "unassigned";
+}
+
+function getAdmissionSopSourceLeads() {
+  return Array.isArray(scopedAdmissionSopLeads) ? scopedAdmissionSopLeads : getLeads();
+}
+
+function getAdmissionSopCounselors() {
+  return Array.isArray(scopedAdmissionSopCounselors) ? scopedAdmissionSopCounselors : getCounselors();
+}
+
+async function loadScopedAdmissionSopData() {
+  try {
+    const response = await fetch(apiUrl("/api/leads/scoped?section=admission-sop"), {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.message || "Admission SOP scoped loading failed.");
+    }
+    scopedAdmissionSopLeads = Array.isArray(payload?.leads) ? payload.leads : [];
+    scopedAdmissionSopCounselors = Array.isArray(payload?.counselors) ? payload.counselors : [];
+    scopedAdmissionSopActive = true;
+    return true;
+  } catch (error) {
+    console.warn("[admission-sop] Scoped loading failed, falling back to full state:", error?.message || error);
+    scopedAdmissionSopLeads = null;
+    scopedAdmissionSopCounselors = null;
+    scopedAdmissionSopActive = false;
+    await refreshState();
+    return false;
+  }
+}
+
+function startAdmissionSopPolling(onRefresh, intervalMs = 15000) {
+  let destroyed = false;
+  let activePoll = false;
+
+  async function poll() {
+    if (destroyed || activePoll || document.visibilityState === "hidden") {
+      return;
+    }
+    activePoll = true;
+    try {
+      if (scopedAdmissionSopActive) {
+        await loadScopedAdmissionSopData();
+      } else {
+        await refreshState();
+      }
+      await onRefresh();
+    } catch (error) {
+      console.warn("[admission-sop] polling failed:", error?.message || error);
+    } finally {
+      activePoll = false;
+    }
+  }
+
+  const timer = window.setInterval(() => {
+    void poll();
+  }, intervalMs);
+
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === "visible") {
+      void poll();
+    }
+  };
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+
+  return () => {
+    destroyed = true;
+    window.clearInterval(timer);
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+  };
 }
 
 function isCourseRegistrationLead(lead) {
@@ -324,7 +402,7 @@ function deriveSopState(lead) {
 }
 
 function getAdmissionLeadsForView() {
-  const all = getLeads().filter((lead) => lead && !lead.isDeleted && isAdmissionScopedLead(lead));
+  const all = getAdmissionSopSourceLeads().filter((lead) => lead && !lead.isDeleted && isAdmissionScopedLead(lead));
   if (isAdminSession()) return all;
   const counselorName = getSessionCounselorName();
   return all.filter((lead) => normalize(lead?.counselor) === counselorName);
@@ -507,7 +585,7 @@ function getActiveCourses() {
 
 function getAssignableCounselors() {
   return [...new Set(
-    getCounselors()
+    getAdmissionSopCounselors()
       .map((item) => String(item?.name || "").trim())
       .filter(Boolean)
   )].sort((left, right) => left.localeCompare(right));
@@ -887,6 +965,7 @@ async function deleteSelectedBlockedLeads() {
   }
 
   selectedBlockedLeadKeys = new Set();
+  await loadScopedAdmissionSopData().catch(() => refreshState().catch(() => undefined));
   render();
   showToast(`Deleted ${selectedRows.length} blocked lead${selectedRows.length === 1 ? "" : "s"}.`);
 }
@@ -918,7 +997,7 @@ async function assignSelectedBlockedLeads(counselorName) {
 
   const assignmentSummary = formatLeadAssignmentResult(assignmentResult, selectedRows.length, targetCounselor);
   selectedBlockedLeadKeys = new Set();
-  await refreshState().catch(() => undefined);
+  await loadScopedAdmissionSopData().catch(() => refreshState().catch(() => undefined));
   render();
   showToast(assignmentSummary.message, assignmentSummary.assignedCount === 0);
 }
@@ -931,14 +1010,15 @@ function render() {
   renderLeadTable();
 }
 
-await bootstrapLocalState();
-await refreshState().catch(() => undefined);
+await bootstrapLocalState({ skipStateRefresh: true });
+await loadScopedAdmissionSopData();
 render();
 window.__dvMarkRouteViewReady?.();
 
-startStatePolling(() => {
+const stopAdmissionSopPolling = startAdmissionSopPolling(() => {
   render();
 }, 15000);
+registerPageCleanup(stopAdmissionSopPolling);
 
 window.setInterval(() => {
   render();

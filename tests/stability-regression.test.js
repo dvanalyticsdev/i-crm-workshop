@@ -1260,12 +1260,14 @@ test("heavy CRM pages schedule polling renders instead of immediate full rerende
 test("main admission page uses scoped loading with full-state fallback", () => {
   const server = read("server.js");
   const mainAdmission = read("main-admission-leads.js");
+  const admissionSop = read("admission-sop.js");
   const stateSync = read("state-sync.js");
   const layouts = read("layouts.js");
 
   assert.match(server, /app\.get\("\/api\/leads\/scoped"/);
-  assert.match(server, /section !== "main-admission"/);
+  assert.match(server, /\["main-admission", "admission-sop"\]\.includes\(section\)/);
   assert.match(server, /leadPipeline: MAIN_ADMISSION_PIPELINE/);
+  assert.match(server, /leadPipeline: \{ \$in: \[MAIN_ADMISSION_PIPELINE, "course-registration"\] \}/);
   assert.match(server, /counts:\s*\{/);
   assert.match(stateSync, /skipStateRefresh/);
   assert.match(mainAdmission, /bootstrapLocalState\(\{ skipStateRefresh: true \}\)/);
@@ -1275,7 +1277,14 @@ test("main admission page uses scoped loading with full-state fallback", () => {
   assert.match(mainAdmission, /await refreshState\(\)/);
   assert.match(mainAdmission, /startMainAdmissionPolling/);
   assert.doesNotMatch(mainAdmission, /startStatePolling/);
-  assert.match(layouts, /\["main-admission-leads\.html", "performance-logs\.html"\]\.includes\(route\)/);
+  assert.match(admissionSop, /bootstrapLocalState\(\{ skipStateRefresh: true \}\)/);
+  assert.match(admissionSop, /async function loadScopedAdmissionSopData/);
+  assert.match(admissionSop, /\/api\/leads\/scoped\?section=admission-sop/);
+  assert.match(admissionSop, /falling back to full state/);
+  assert.match(admissionSop, /startAdmissionSopPolling/);
+  assert.doesNotMatch(admissionSop, /startStatePolling/);
+  assert.match(layouts, /ROUTES_WITH_LOCAL_STATE_BOOTSTRAP/);
+  assert.match(layouts, /"admission-sop\.html"/);
   assert.match(layouts, /bootstrapLocalState\(\{ skipStateRefresh \}\)/);
 });
 
@@ -1356,6 +1365,7 @@ test("performance logs capture user-facing page, role, section, subsection, and 
   const performanceClient = read("performance-client.js");
   const performanceHtml = read("performance-logs.html");
   const performanceJs = read("performance-logs.js");
+  const dashboard = read("dashboard.js");
 
   assert.match(server, /section: String\(event\.section/);
   assert.match(server, /subsection: String\(event\.subsection/);
@@ -1369,7 +1379,12 @@ test("performance logs capture user-facing page, role, section, subsection, and 
   assert.match(server, /sections: sectionRows\.slice/);
   assert.match(server, /phases: phaseRows\.slice/);
   assert.match(server, /apis: apiRows\.slice/);
+  assert.match(server, /function buildPerformanceTrends/);
+  assert.match(server, /pageAvgDurationMs/);
+  assert.match(server, /apiAvgDurationMs/);
+  assert.match(server, /trends: trendRows/);
   assert.match(layouts, /ROUTES_WITH_LOCAL_STATE_BOOTSTRAP/);
+  assert.match(layouts, /"dashboard\.html"/);
   assert.match(layouts, /"main-admission-leads\.html"/);
   assert.match(layouts, /"performance-logs\.html"/);
   assert.match(getNamedFunctionSource(layouts, "navigateToRoute"), /if \(!ROUTES_WITH_LOCAL_STATE_BOOTSTRAP\.has\(route\)\) \{[\s\S]*?await refreshState\(\)/);
@@ -1377,6 +1392,7 @@ test("performance logs capture user-facing page, role, section, subsection, and 
   assert.match(getNamedFunctionSource(layouts, "navigateToRoute"), /recordRouteNavigationPerformance\(route, navigationStartedAt\)/);
   assert.match(performanceClient, /export async function recordClientPerformance/);
   assert.match(performanceClient, /role: session\.role/);
+  assert.match(dashboard, /bootstrapLocalState\(\{ skipStateRefresh: true \}\)/);
   assert.match(mainAdmission, /phase: "interactive-ready"/);
   assert.match(mainAdmission, /phase: "data-fetch"/);
   assert.match(mainAdmission, /phase: "render"/);
@@ -1384,10 +1400,16 @@ test("performance logs capture user-facing page, role, section, subsection, and 
   assert.match(performanceHtml, /performanceRolesTable/);
   assert.match(performanceHtml, /performanceSectionsTable/);
   assert.match(performanceHtml, /performancePhasesTable/);
+  assert.match(performanceHtml, /pageSpeedTrendChart/);
+  assert.match(performanceHtml, /apiSpeedTrendChart/);
+  assert.match(performanceHtml, /reliabilityTrendChart/);
   assert.match(performanceHtml, /Page Experience/);
   assert.match(performanceJs, /User Page Speed/);
   assert.match(performanceJs, /summary\.apis/);
   assert.match(performanceJs, /performance-name-cell/);
   assert.match(performanceJs, /summary\.sections/);
   assert.match(performanceJs, /summary\.phases/);
+  assert.match(performanceJs, /function drawTrendChart/);
+  assert.match(performanceJs, /function getTrendLine/);
+  assert.match(performanceJs, /renderTrendCharts\(summary\)/);
 });

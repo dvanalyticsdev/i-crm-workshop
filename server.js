@@ -793,6 +793,7 @@ function buildPerformanceSummary(logs = []) {
   const avgDurationMs = total
     ? Math.round(safeLogs.reduce((sum, log) => sum + (Number(log.durationMs) || 0), 0) / total)
     : 0;
+  const trendRows = buildPerformanceTrends({ safeLogs, apiLogs, pageInteractiveLogs });
 
   return {
     generatedAt: new Date().toISOString(),
@@ -807,6 +808,7 @@ function buildPerformanceSummary(logs = []) {
     roles: roleRows.slice(0, 20),
     sections: sectionRows.slice(0, 30),
     phases: phaseRows.slice(0, 30),
+    trends: trendRows,
     slowEvents: [...safeLogs]
       .sort((a, b) => (Number(b.durationMs) || 0) - (Number(a.durationMs) || 0))
       .slice(0, 20),
@@ -814,6 +816,59 @@ function buildPerformanceSummary(logs = []) {
       .filter((log) => log.success === false || String(log.status || "").toLowerCase() === "failure")
       .slice(0, 20)
   };
+}
+
+function buildPerformanceTrends({ safeLogs = [], apiLogs = [], pageInteractiveLogs = [] } = {}) {
+  const now = new Date();
+  const dayKeys = [];
+  for (let index = 13; index >= 0; index -= 1) {
+    const date = new Date(now);
+    date.setDate(now.getDate() - index);
+    dayKeys.push(date.toISOString().slice(0, 10));
+  }
+
+  const buckets = new Map(dayKeys.map((day) => [day, {
+    day,
+    total: 0,
+    success: 0,
+    pageDurations: [],
+    apiDurations: []
+  }]));
+
+  const addDuration = (log, field) => {
+    const day = String(log.createdAt || "").slice(0, 10);
+    const bucket = buckets.get(day);
+    if (!bucket) return;
+    const durationMs = Math.max(0, Number(log.durationMs) || 0);
+    bucket[field].push(durationMs);
+  };
+
+  safeLogs.forEach((log) => {
+    const day = String(log.createdAt || "").slice(0, 10);
+    const bucket = buckets.get(day);
+    if (!bucket) return;
+    bucket.total += 1;
+    if (log.success !== false && String(log.status || "").toLowerCase() !== "failure") {
+      bucket.success += 1;
+    }
+  });
+  pageInteractiveLogs.forEach((log) => addDuration(log, "pageDurations"));
+  apiLogs.forEach((log) => addDuration(log, "apiDurations"));
+
+  return Array.from(buckets.values()).map((bucket) => {
+    const avg = (values) => values.length
+      ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)
+      : 0;
+    return {
+      day: bucket.day,
+      pageAvgDurationMs: avg(bucket.pageDurations),
+      apiAvgDurationMs: avg(bucket.apiDurations),
+      successRate: bucket.total ? Math.round((bucket.success / bucket.total) * 1000) / 10 : 100,
+      totalEvents: bucket.total,
+      pageEvents: bucket.pageDurations.length,
+      apiEvents: bucket.apiDurations.length
+    };
+  });
 }
 
 function isDashboardExcludedPipeline(lead) {
@@ -12668,7 +12723,7 @@ app.get("/api/leads/scoped", async (req, res) => {
     }
 
     const section = String(req.query?.section || "").trim().toLowerCase();
-    if (section !== "main-admission") {
+    if (!["main-admission", "admission-sop"].includes(section)) {
       return res.status(400).json({ message: "Unsupported scoped lead section." });
     }
 
@@ -12683,7 +12738,9 @@ app.get("/api/leads/scoped", async (req, res) => {
       )
     ]);
 
-    const query = { leadPipeline: MAIN_ADMISSION_PIPELINE };
+    const query = section === "admission-sop"
+      ? { leadPipeline: { $in: [MAIN_ADMISSION_PIPELINE, "course-registration"] } }
+      : { leadPipeline: MAIN_ADMISSION_PIPELINE };
     if (session.role === "counselor") {
       const sessionEmail = String(session.email || "").trim().toLowerCase();
       const counselorMatch = (Array.isArray(counselors) ? counselors : []).find(

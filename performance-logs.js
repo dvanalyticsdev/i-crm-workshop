@@ -16,8 +16,12 @@ const pagesTable = document.getElementById("performancePagesTable");
 const rolesTable = document.getElementById("performanceRolesTable");
 const sectionsTable = document.getElementById("performanceSectionsTable");
 const phasesTable = document.getElementById("performancePhasesTable");
+const pageSpeedTrendChart = document.getElementById("pageSpeedTrendChart");
+const apiSpeedTrendChart = document.getElementById("apiSpeedTrendChart");
+const reliabilityTrendChart = document.getElementById("reliabilityTrendChart");
 const slowEvents = document.getElementById("performanceSlowEvents");
 const failures = document.getElementById("performanceFailures");
+let latestPerformanceSummary = null;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -53,6 +57,153 @@ function getStatusClass(status) {
   if (normalized === "critical") return "badge-danger";
   if (normalized === "slow") return "badge-warning";
   return "badge-success";
+}
+
+function getCanvasTextColor() {
+  return getComputedStyle(document.documentElement).getPropertyValue("--text-muted").trim() || "#94a3b8";
+}
+
+function getCanvasLineColor(tone) {
+  if (tone === "success") return "#00c46a";
+  if (tone === "warning") return "#f59e0b";
+  return "#f05a28";
+}
+
+function getTrendLine(values) {
+  const points = values
+    .map((value, index) => ({ index, value: Number(value) || 0 }))
+    .filter((point) => point.value > 0);
+  if (points.length < 2) {
+    return values.map(() => null);
+  }
+
+  const n = points.length;
+  const sumX = points.reduce((sum, point) => sum + point.index, 0);
+  const sumY = points.reduce((sum, point) => sum + point.value, 0);
+  const sumXY = points.reduce((sum, point) => sum + point.index * point.value, 0);
+  const sumXX = points.reduce((sum, point) => sum + point.index * point.index, 0);
+  const denominator = n * sumXX - sumX * sumX;
+  const slope = denominator ? (n * sumXY - sumX * sumY) / denominator : 0;
+  const intercept = (sumY - slope * sumX) / n;
+  return values.map((_, index) => Math.max(0, intercept + slope * index));
+}
+
+function drawTrendChart(canvas, rows, { valueKey, label, tone = "accent", formatter = formatMs, fixedMax = null } = {}) {
+  if (!canvas) return;
+  const context = canvas.getContext("2d");
+  if (!context) return;
+
+  const width = canvas.clientWidth || canvas.parentElement?.clientWidth || 520;
+  const height = Number(canvas.getAttribute("height")) || 220;
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = Math.round(width * ratio);
+  canvas.height = Math.round(height * ratio);
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  context.clearRect(0, 0, width, height);
+
+  const values = (Array.isArray(rows) ? rows : []).map((row) => Number(row?.[valueKey]) || 0);
+  const labels = (Array.isArray(rows) ? rows : []).map((row) => String(row?.day || "").slice(5));
+  const pad = { left: 48, right: 16, top: 18, bottom: 34 };
+  const chartWidth = Math.max(1, width - pad.left - pad.right);
+  const chartHeight = Math.max(1, height - pad.top - pad.bottom);
+  const positiveValues = values.filter((value) => value > 0);
+  const maxValue = fixedMax || Math.max(...positiveValues, 1);
+  const yMax = fixedMax || Math.ceil(maxValue * 1.2);
+  const textColor = getCanvasTextColor();
+  const lineColor = getCanvasLineColor(tone);
+  const gridColor = "rgba(148, 163, 184, 0.18)";
+
+  context.font = "12px 'Plus Jakarta Sans', sans-serif";
+  context.strokeStyle = gridColor;
+  context.fillStyle = textColor;
+  context.lineWidth = 1;
+
+  [0, 0.5, 1].forEach((tick) => {
+    const y = pad.top + chartHeight - chartHeight * tick;
+    context.beginPath();
+    context.moveTo(pad.left, y);
+    context.lineTo(width - pad.right, y);
+    context.stroke();
+    context.fillText(formatter(yMax * tick), 8, y + 4);
+  });
+
+  const getX = (index) => pad.left + (values.length <= 1 ? chartWidth : (chartWidth * index) / (values.length - 1));
+  const getY = (value) => pad.top + chartHeight - (Math.min(value, yMax) / yMax) * chartHeight;
+
+  context.strokeStyle = lineColor;
+  context.lineWidth = 2.5;
+  context.beginPath();
+  values.forEach((value, index) => {
+    if (value <= 0) return;
+    const x = getX(index);
+    const y = getY(value);
+    if (index === values.findIndex((item) => item > 0)) {
+      context.moveTo(x, y);
+    } else {
+      context.lineTo(x, y);
+    }
+  });
+  context.stroke();
+
+  context.fillStyle = lineColor;
+  values.forEach((value, index) => {
+    if (value <= 0) return;
+    context.beginPath();
+    context.arc(getX(index), getY(value), 3, 0, Math.PI * 2);
+    context.fill();
+  });
+
+  const trend = getTrendLine(values);
+  context.strokeStyle = "rgba(255, 255, 255, 0.58)";
+  context.setLineDash([5, 5]);
+  context.lineWidth = 1.5;
+  context.beginPath();
+  trend.forEach((value, index) => {
+    if (value === null) return;
+    const x = getX(index);
+    const y = getY(value);
+    if (index === trend.findIndex((item) => item !== null)) {
+      context.moveTo(x, y);
+    } else {
+      context.lineTo(x, y);
+    }
+  });
+  context.stroke();
+  context.setLineDash([]);
+
+  context.fillStyle = textColor;
+  const labelStep = Math.max(1, Math.ceil(labels.length / 5));
+  labels.forEach((day, index) => {
+    if (index % labelStep !== 0 && index !== labels.length - 1) return;
+    context.fillText(day, getX(index) - 12, height - 10);
+  });
+
+  if (!positiveValues.length) {
+    context.fillText(`No ${label || "trend"} data yet`, pad.left, pad.top + 24);
+  }
+}
+
+function renderTrendCharts(summary) {
+  const trends = Array.isArray(summary?.trends) ? summary.trends : [];
+  drawTrendChart(pageSpeedTrendChart, trends, {
+    valueKey: "pageAvgDurationMs",
+    label: "page speed",
+    tone: "accent",
+    formatter: formatMs
+  });
+  drawTrendChart(apiSpeedTrendChart, trends, {
+    valueKey: "apiAvgDurationMs",
+    label: "API speed",
+    tone: "warning",
+    formatter: formatMs
+  });
+  drawTrendChart(reliabilityTrendChart, trends, {
+    valueKey: "successRate",
+    label: "reliability",
+    tone: "success",
+    formatter: (value) => `${Math.round(Number(value) || 0)}%`,
+    fixedMax: 100
+  });
 }
 
 async function loadPerformanceSummary() {
@@ -196,7 +347,9 @@ function renderEventTable(container, rows = [], emptyText) {
 async function renderPerformanceDashboard() {
   try {
     const summary = await loadPerformanceSummary();
+    latestPerformanceSummary = summary;
     renderSummary(summary);
+    renderTrendCharts(summary);
     renderOperations(summary.operations || []);
     renderMetricTable(pagesTable, summary.pages || [], "page", "No page experience events logged yet.");
     renderMetricTable(rolesTable, summary.roles || [], "role", "No role events logged yet.");
@@ -213,6 +366,7 @@ async function renderPerformanceDashboard() {
     phasesTable.innerHTML = "";
     slowEvents.innerHTML = "";
     failures.innerHTML = "";
+    renderTrendCharts({ trends: [] });
   }
 }
 
@@ -221,4 +375,13 @@ window.__dvMarkRouteViewReady?.();
 const refreshTimer = window.setInterval(() => {
   void renderPerformanceDashboard();
 }, 30000);
-registerPageCleanup(() => window.clearInterval(refreshTimer));
+const handleChartResize = () => {
+  if (latestPerformanceSummary) {
+    renderTrendCharts(latestPerformanceSummary);
+  }
+};
+window.addEventListener("resize", handleChartResize);
+registerPageCleanup(() => {
+  window.clearInterval(refreshTimer);
+  window.removeEventListener("resize", handleChartResize);
+});
