@@ -13,8 +13,8 @@ import {
   getLeads as getStoredLeads,
   getSession,
   loadLocalPreference,
+  refreshState,
   saveLocalPreference,
-  startStatePolling
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
@@ -22,7 +22,7 @@ import { addLeadNote, deleteLeadNote, deleteLeads as deleteLeadsOnServer, trackL
 import { formatKolkataDate, getKolkataDayRange, parseKolkataDate as parseTimelineDate, toKolkataDateKey } from "./date-utils.js";
 import { createRenderScheduler, withButtonBusy } from "./ui-feedback.js";
 
-await bootstrapLocalState();
+await bootstrapLocalState({ skipStateRefresh: true });
 
 const session = getSession();
 const isAdmin = session?.role === "admin" || session?.role === "super_admin";
@@ -115,10 +115,122 @@ let notesLeadRef = null;
 let registeredRoutingConfig = { selectedCounselors: [], isConfigured: false };
 let registeredActivityModalMode = "edit";
 let activeSegment = normalizeSegment(window.location.hash.replace(/^#/, "")) || DEFAULT_SEGMENT;
+let scopedRegisteredCandidateLeads = null;
+let scopedRegisteredCandidateCounselors = null;
+let scopedRegisteredCandidateActive = false;
 populateCrmCourseSelect("modalRegisteredCoursePitched", { includeNo: true });
 
 function persistFilters() {
   void saveLocalPreference(FILTER_STORAGE_KEY, filter);
+}
+
+function getRegisteredCandidateSourceLeads() {
+  return Array.isArray(scopedRegisteredCandidateLeads) ? scopedRegisteredCandidateLeads : getStoredLeads();
+}
+
+function getRegisteredCandidateCounselors() {
+  return Array.isArray(scopedRegisteredCandidateCounselors) ? scopedRegisteredCandidateCounselors : getStoredCounselors();
+}
+
+function mergeScopedRegisteredLeadUpdates(leads) {
+  if (!Array.isArray(scopedRegisteredCandidateLeads)) {
+    return;
+  }
+  const updates = (Array.isArray(leads) ? leads : [leads]).filter(Boolean);
+  if (!updates.length) {
+    return;
+  }
+  const byId = new Map(updates.map((lead) => [String(lead.id), lead]));
+  const seen = new Set();
+  scopedRegisteredCandidateLeads = scopedRegisteredCandidateLeads.map((lead) => {
+    const patch = byId.get(String(lead?.id));
+    if (!patch) return lead;
+    seen.add(String(lead.id));
+    return { ...lead, ...patch };
+  });
+  updates.forEach((lead) => {
+    const key = String(lead.id);
+    if (!seen.has(key) && isRegisteredCandidateLead(lead)) {
+      scopedRegisteredCandidateLeads.push(lead);
+    }
+  });
+  normalizeLeadFields(scopedRegisteredCandidateLeads);
+}
+
+function removeScopedRegisteredLeads(leads) {
+  if (!Array.isArray(scopedRegisteredCandidateLeads)) {
+    return;
+  }
+  const ids = new Set((Array.isArray(leads) ? leads : [leads]).filter(Boolean).map((lead) => String(lead.id)));
+  if (!ids.size) {
+    return;
+  }
+  scopedRegisteredCandidateLeads = scopedRegisteredCandidateLeads.filter((lead) => !ids.has(String(lead?.id)));
+}
+
+async function loadScopedRegisteredCandidates() {
+  try {
+    const response = await fetch(apiUrl("/api/leads/scoped?section=registered-candidates"), {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.message || "Registered Candidates scoped loading failed.");
+    }
+    scopedRegisteredCandidateLeads = Array.isArray(payload?.leads) ? payload.leads : [];
+    scopedRegisteredCandidateCounselors = Array.isArray(payload?.counselors) ? payload.counselors : [];
+    scopedRegisteredCandidateActive = true;
+    normalizeLeadFields(scopedRegisteredCandidateLeads);
+    return true;
+  } catch (error) {
+    console.warn("[registered-candidates] Scoped loading failed, falling back to full state:", error?.message || error);
+    scopedRegisteredCandidateLeads = null;
+    scopedRegisteredCandidateCounselors = null;
+    scopedRegisteredCandidateActive = false;
+    await refreshState();
+    return false;
+  }
+}
+
+function startRegisteredCandidatePolling(onRefresh, intervalMs = 15000) {
+  let destroyed = false;
+  let activePoll = false;
+
+  async function poll() {
+    if (destroyed || activePoll || document.visibilityState === "hidden") {
+      return;
+    }
+    activePoll = true;
+    try {
+      if (scopedRegisteredCandidateActive) {
+        await loadScopedRegisteredCandidates();
+      } else {
+        await refreshState();
+      }
+      await onRefresh();
+    } catch (error) {
+      console.warn("[registered-candidates] polling failed:", error?.message || error);
+    } finally {
+      activePoll = false;
+    }
+  }
+
+  const timer = window.setInterval(() => {
+    void poll();
+  }, intervalMs);
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === "visible") {
+      void poll();
+    }
+  };
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+
+  return () => {
+    destroyed = true;
+    window.clearInterval(timer);
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+  };
 }
 
 function escapeHtml(value) {
@@ -278,7 +390,7 @@ function getCounselorIdentity() {
   }
 
   const sessionEmail = String(session?.email || "").trim().toLowerCase();
-  const counselors = getStoredCounselors();
+  const counselors = getRegisteredCandidateCounselors();
   const match = counselors.find((item) => String(item.email || "").trim().toLowerCase() === sessionEmail);
   return String(match?.name || session?.name || "").trim().toLowerCase();
 }
@@ -308,7 +420,7 @@ function getLeadSegment(lead) {
 
 function getActiveCounselorNames() {
   return [...new Set(
-    getStoredCounselors()
+    getRegisteredCandidateCounselors()
       .map((item) => String(item.name || "").trim())
       .filter(Boolean)
   )];
@@ -412,7 +524,7 @@ function renderRepeatEnquiryBadge(lead) {
 }
 
 function getStoredRegisteredCandidateLeads() {
-  const leads = getStoredLeads().filter(isRegisteredCandidateLead);
+  const leads = getRegisteredCandidateSourceLeads().filter(isRegisteredCandidateLead);
   normalizeLeadFields(leads);
   return leads;
 }
@@ -855,6 +967,10 @@ async function clearRegisteredCandidateData() {
     return;
   }
 
+  scopedRegisteredCandidateLeads = null;
+  scopedRegisteredCandidateCounselors = null;
+  scopedRegisteredCandidateActive = false;
+  await refreshState();
   const remainingLeads = getStoredLeads().filter((lead) => {
     if (!isRegisteredCandidateLead(lead)) {
       return true;
@@ -1585,6 +1701,7 @@ async function saveActivity(event) {
     showToast(result?.message || "Failed to save lead activity.", true);
     return;
   }
+  mergeScopedRegisteredLeadUpdates(result.lead || result.leads);
 
   const noteInput = document.getElementById("modalRegisteredActivityNote");
   const noteText = noteInput ? noteInput.value.trim() : "";
@@ -1594,6 +1711,7 @@ async function saveActivity(event) {
       showToast(noteResult?.message || "Activity saved, but the note could not be saved.", true);
       return;
     }
+    mergeScopedRegisteredLeadUpdates(noteResult.lead || noteResult.leads);
   }
 
   closeActivityModal();
@@ -1625,6 +1743,7 @@ async function deleteRegisteredLead(leadKey) {
   }
 
   selectedLeadKeys.delete(leadKey);
+  removeScopedRegisteredLeads(lead);
   setMessage("Registered lead deleted successfully.");
   showToast("Registered lead deleted successfully.");
   renderAll();
@@ -1641,9 +1760,8 @@ async function deleteSelectedLeads(leads) {
     return false;
   }
 
-  const deleteRefs = leads
-    .filter((lead) => selectedLeadKeys.has(buildLeadKey(lead)))
-    .map(buildLeadRef);
+  const leadsToDelete = leads.filter((lead) => selectedLeadKeys.has(buildLeadKey(lead)));
+  const deleteRefs = leadsToDelete.map(buildLeadRef);
   const removedCount = deleteRefs.length;
   if (!removedCount) {
     return false;
@@ -1655,6 +1773,7 @@ async function deleteSelectedLeads(leads) {
     return false;
   }
 
+  removeScopedRegisteredLeads(leadsToDelete);
   selectedLeadKeys = new Set();
   currentPage = 1;
   setMessage(`Deleted ${removedCount} registered lead${removedCount === 1 ? "" : "s"} successfully.`);
@@ -1700,6 +1819,7 @@ function openNotesModal(leadKey) {
         showToast(result?.message || "Failed to delete note.", true);
         return;
       }
+      mergeScopedRegisteredLeadUpdates(result.lead || result.leads);
       openNotesModal(leadKey);
       showToast("Note deleted.");
     };
@@ -1722,6 +1842,7 @@ async function saveNote() {
     showToast(result?.message || "Failed to save note.", true);
     return;
   }
+  mergeScopedRegisteredLeadUpdates(result.lead || result.leads);
 
   openNotesModal(buildLeadKey(lead));
   showToast("Note saved.");
@@ -1857,9 +1978,10 @@ if (registeredTaskModal && registeredTaskForm) {
 
 setupRegisteredRoutingPanel();
 const scheduleRenderAll = createRenderScheduler(renderAll);
+await loadScopedRegisteredCandidates();
 void renderAll();
 window.__dvMarkRouteViewReady?.();
-const stopStatePolling = startStatePolling(() => {
+const stopStatePolling = startRegisteredCandidatePolling(() => {
   void scheduleRenderAll();
 });
 registerPageCleanup(stopStatePolling);

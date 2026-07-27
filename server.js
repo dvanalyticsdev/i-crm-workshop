@@ -12717,14 +12717,14 @@ app.get("/api/leads/scoped", async (req, res) => {
     const session = await requireRole(req, res, ["admin", "counselor"]);
     if (!session) return;
 
-    const permissions = getSessionPagePermissions(session);
-    if (!permissions.mainAdmissionLeads) {
-      return res.status(403).json({ message: "You do not have permission to view Main Admission Leads." });
-    }
-
     const section = String(req.query?.section || "").trim().toLowerCase();
-    if (!["main-admission", "admission-sop"].includes(section)) {
+    if (!["main-admission", "admission-sop", "registered-candidates"].includes(section)) {
       return res.status(400).json({ message: "Unsupported scoped lead section." });
+    }
+    const permissionKey = section === "registered-candidates" ? "registeredCandidates" : section === "admission-sop" ? "admissionSop" : "mainAdmissionLeads";
+    const permissions = getSessionPagePermissions(session);
+    if (!permissions[permissionKey]) {
+      return res.status(403).json({ message: "You do not have permission to view this lead section." });
     }
 
     const [stateMeta, counselors] = await Promise.all([
@@ -12740,7 +12740,9 @@ app.get("/api/leads/scoped", async (req, res) => {
 
     const query = section === "admission-sop"
       ? { leadPipeline: { $in: [MAIN_ADMISSION_PIPELINE, "course-registration"] } }
-      : { leadPipeline: MAIN_ADMISSION_PIPELINE };
+      : section === "registered-candidates"
+        ? { leadPipeline: "course-registration" }
+        : { leadPipeline: MAIN_ADMISSION_PIPELINE };
     if (session.role === "counselor") {
       const sessionEmail = String(session.email || "").trim().toLowerCase();
       const counselorMatch = (Array.isArray(counselors) ? counselors : []).find(
@@ -12751,7 +12753,7 @@ app.get("/api/leads/scoped", async (req, res) => {
 
     const rawLeads = await withMongoRetry(
       () => leadsCollection.find(query).toArray(),
-      { retries: 1, label: "Load scoped main admission leads" }
+      { retries: 1, label: "Load scoped leads" }
     );
     const leads = decorateLeadListForStorage(rawLeads || [])
       .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));

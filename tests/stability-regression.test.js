@@ -1243,9 +1243,9 @@ test("heavy CRM pages schedule polling renders instead of immediate full rerende
   const pages = [
     read("pre-workshop.js"),
     read("post-workshop.js"),
-    read("registered-candidates.js"),
     read("lead-control.js")
   ];
+  const registeredCandidates = read("registered-candidates.js");
 
   assert.match(uiFeedback, /export function createRenderScheduler/);
   assert.match(getNamedFunctionSource(uiFeedback, "createRenderScheduler"), /clearTimeout\(timer\)/);
@@ -1255,19 +1255,25 @@ test("heavy CRM pages schedule polling renders instead of immediate full rerende
     assert.match(source, /const scheduleRenderAll = createRenderScheduler\(renderAll\)/);
     assert.match(source, /startStatePolling\([\s\S]*scheduleRenderAll/);
   });
+  assert.match(registeredCandidates, /createRenderScheduler/);
+  assert.match(registeredCandidates, /const scheduleRenderAll = createRenderScheduler\(renderAll\)/);
+  assert.match(registeredCandidates, /startRegisteredCandidatePolling\([\s\S]*scheduleRenderAll/);
+  assert.doesNotMatch(registeredCandidates, /startStatePolling/);
 });
 
 test("main admission page uses scoped loading with full-state fallback", () => {
   const server = read("server.js");
   const mainAdmission = read("main-admission-leads.js");
   const admissionSop = read("admission-sop.js");
+  const registeredCandidates = read("registered-candidates.js");
   const stateSync = read("state-sync.js");
   const layouts = read("layouts.js");
 
   assert.match(server, /app\.get\("\/api\/leads\/scoped"/);
-  assert.match(server, /\["main-admission", "admission-sop"\]\.includes\(section\)/);
+  assert.match(server, /\["main-admission", "admission-sop", "registered-candidates"\]\.includes\(section\)/);
   assert.match(server, /leadPipeline: MAIN_ADMISSION_PIPELINE/);
   assert.match(server, /leadPipeline: \{ \$in: \[MAIN_ADMISSION_PIPELINE, "course-registration"\] \}/);
+  assert.match(server, /section === "registered-candidates"[\s\S]*?\{ leadPipeline: "course-registration" \}/);
   assert.match(server, /counts:\s*\{/);
   assert.match(stateSync, /skipStateRefresh/);
   assert.match(mainAdmission, /bootstrapLocalState\(\{ skipStateRefresh: true \}\)/);
@@ -1283,8 +1289,15 @@ test("main admission page uses scoped loading with full-state fallback", () => {
   assert.match(admissionSop, /falling back to full state/);
   assert.match(admissionSop, /startAdmissionSopPolling/);
   assert.doesNotMatch(admissionSop, /startStatePolling/);
+  assert.match(registeredCandidates, /bootstrapLocalState\(\{ skipStateRefresh: true \}\)/);
+  assert.match(registeredCandidates, /async function loadScopedRegisteredCandidates/);
+  assert.match(registeredCandidates, /\/api\/leads\/scoped\?section=registered-candidates/);
+  assert.match(registeredCandidates, /falling back to full state/);
+  assert.match(registeredCandidates, /startRegisteredCandidatePolling/);
+  assert.doesNotMatch(registeredCandidates, /startStatePolling/);
   assert.match(layouts, /ROUTES_WITH_LOCAL_STATE_BOOTSTRAP/);
   assert.match(layouts, /"admission-sop\.html"/);
+  assert.match(layouts, /"registered-candidates\.html"/);
   assert.match(layouts, /bootstrapLocalState\(\{ skipStateRefresh \}\)/);
 });
 

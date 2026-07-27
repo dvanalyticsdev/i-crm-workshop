@@ -25,7 +25,8 @@ const ROUTES_WITH_LOCAL_STATE_BOOTSTRAP = new Set([
   "admission-sop.html",
   "dashboard.html",
   "main-admission-leads.html",
-  "performance-logs.html"
+  "performance-logs.html",
+  "registered-candidates.html"
 ]);
 let notificationPollTimerId = null;
 let notificationPollTimeoutId = null;
