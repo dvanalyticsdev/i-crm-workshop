@@ -124,6 +124,7 @@ let detailsLeadRef = null;
 let detailsEditMode = false;
 let mainAdmissionActivityModalMode = "edit";
 let activeSegment = DEFAULT_SEGMENT;
+let locationSortDirection = "";
 populateCrmCourseSelect("modalMainAdmissionCoursePitched", { includeNo: true });
 
 function persistFilters() {
@@ -1172,6 +1173,48 @@ function getCurrentFilteredLeads() {
   return getMainAdmissionExportRows();
 }
 
+function compareLeadLocations(a, b) {
+  const locationA = getLeadLocation(a);
+  const locationB = getLeadLocation(b);
+  const primaryResult = locationA.localeCompare(locationB, undefined, { sensitivity: "base" });
+  if (primaryResult !== 0) {
+    return primaryResult;
+  }
+
+  return String(a?.createdAt || "").localeCompare(String(b?.createdAt || ""), undefined, { sensitivity: "base" });
+}
+
+function applyLeadSorting(leads) {
+  if (locationSortDirection !== "asc" && locationSortDirection !== "desc") {
+    return leads;
+  }
+
+  const sorted = [...leads].sort(compareLeadLocations);
+  return locationSortDirection === "desc" ? sorted.reverse() : sorted;
+}
+
+function getLocationSortLabel() {
+  if (locationSortDirection === "asc") {
+    return "Location ↑";
+  }
+  if (locationSortDirection === "desc") {
+    return "Location ↓";
+  }
+  return "Location ↕";
+}
+
+function toggleLocationSort() {
+  if (locationSortDirection === "") {
+    locationSortDirection = "asc";
+  } else if (locationSortDirection === "asc") {
+    locationSortDirection = "desc";
+  } else {
+    locationSortDirection = "";
+  }
+  currentPage = 1;
+  renderAll();
+}
+
 function exportFilteredLeads() {
   const segmentConfig = getSegmentConfig();
   const filteredLeads = getMainAdmissionExportRows();
@@ -1213,7 +1256,7 @@ function exportFilteredLeads() {
 }
 
 function filterLeads(leads) {
-  return filterLeadsByTimeline(leads).filter((lead) => {
+  const filtered = filterLeadsByTimeline(leads).filter((lead) => {
     const location = getLeadLocation(lead);
     if (filter.search) {
       const haystack = [lead.name, lead.email, lead.phone, lead.courseName, location, lead.country, lead.counselor].join(" ").toLowerCase();
@@ -1235,6 +1278,8 @@ function filterLeads(leads) {
     if (filter.lsqLeads === "hide" && isLsqImportedLead(lead)) return false;
     return true;
   });
+
+  return applyLeadSorting(filtered);
 }
 
 function getLeadExtraFields(lead) {
@@ -1622,7 +1667,16 @@ function renderLeadTable(leads) {
             <th>${isCrashSegment ? "Contact Number" : "Phone Number"}</th>
             <th>${isCrashSegment ? "Mail ID" : "Email"}</th>
             <th>Course Name</th>
-            <th>Location</th>
+            <th>
+              <button
+                type="button"
+                class="table-sort-button"
+                id="mainAdmissionLocationSortBtn"
+                aria-label="Sort by location"
+              >
+                ${getLocationSortLabel()}
+              </button>
+            </th>
             <th>Counselor</th>
             <th>Activity</th>
           </tr>
@@ -1713,6 +1767,11 @@ mainAdmissionLeadTableSection.addEventListener("click", async (event) => {
     if (deleted) {
       renderAll();
     }
+    return;
+  }
+
+  if (event.target.closest("#mainAdmissionLocationSortBtn")) {
+    toggleLocationSort();
     return;
   }
 

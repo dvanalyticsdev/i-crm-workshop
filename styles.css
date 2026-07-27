@@ -1663,6 +1663,33 @@ th {
   font-weight: 700;
 }
 
+.table-sort-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  transition: color var(--ease);
+}
+
+.table-sort-button:hover,
+.table-sort-button:focus-visible {
+  color: var(--heading);
+}
+
+.table-sort-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary) 48%, transparent);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
 .bulk-toolbar {
   display: flex;
   align-items: center;
