@@ -591,6 +591,11 @@ test("monitoring includes a single-view MCube tab with call summary metrics", ()
   const monitoring = read("monitoring.js");
 
   assert.match(monitoring, /mcube:\s*\{/);
+  assert.match(monitoring, /function getCounselorFirstName\(/);
+  assert.match(monitoring, /firstNameToNames/);
+  assert.match(monitoring, /matchedNames\.size === 1/);
+  assert.match(monitoring, /resolveCounselorName\(entry\?\.agentName, true\)/);
+  assert.match(monitoring, /resolveCounselorName\(lead\?\.counselor, true\)/);
   assert.match(monitoring, /"mcube-main"/);
   assert.match(monitoring, /if \(subsections\.length <= 1\) \{/);
   assert.match(monitoring, /function getMcubeCallEntriesInRange\(/);

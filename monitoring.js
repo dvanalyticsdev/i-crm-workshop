@@ -132,6 +132,11 @@ function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function getCounselorFirstName(value) {
+  const parts = String(value || "").trim().split(/\s+/).filter(Boolean);
+  return normalizeText(parts[0] || "");
+}
+
 function getCounselorDirectory() {
   const counselors = getCounselors();
   const cacheKey = JSON.stringify(
@@ -147,6 +152,7 @@ function getCounselorDirectory() {
 
   const aliasToName = new Map();
   const names = [];
+  const firstNameToNames = new Map();
 
   counselors.forEach((item) => {
     const name = String(item?.name || "").trim();
@@ -154,9 +160,21 @@ function getCounselorDirectory() {
     if (name) {
       names.push(name);
       aliasToName.set(normalizeText(name), name);
+      const firstName = getCounselorFirstName(name);
+      if (firstName) {
+        const current = firstNameToNames.get(firstName) || new Set();
+        current.add(name);
+        firstNameToNames.set(firstName, current);
+      }
     }
     if (email && name) {
       aliasToName.set(email, name);
+    }
+  });
+
+  firstNameToNames.forEach((matchedNames, firstName) => {
+    if (matchedNames.size === 1 && !aliasToName.has(firstName)) {
+      aliasToName.set(firstName, [...matchedNames][0]);
     }
   });
 
@@ -168,13 +186,18 @@ function getCounselorDirectory() {
   return counselorDirectoryCache;
 }
 
-function resolveCounselorActivityActor(value) {
-  const normalized = normalizeText(value);
+function resolveCounselorName(value, allowRaw = false) {
+  const rawValue = String(value || "").trim();
+  const normalized = normalizeText(rawValue);
   if (!normalized) {
     return "";
   }
 
-  return getCounselorDirectory().aliasToName.get(normalized) || "";
+  return getCounselorDirectory().aliasToName.get(normalized) || (allowRaw ? rawValue : "");
+}
+
+function resolveCounselorActivityActor(value) {
+  return resolveCounselorName(value);
 }
 
 function toLocalDateKey(date = new Date()) {
@@ -590,7 +613,7 @@ function getMonitoringCounselorNames(leads = []) {
   const { names } = getCounselorDirectory();
   const fallbackNames = [...new Set(
     leads
-      .map((lead) => String(lead?.counselor || "").trim())
+      .map((lead) => resolveCounselorName(lead?.counselor, true))
       .filter((name) => name && normalizeText(name) !== "unassigned")
   )].sort((a, b) => a.localeCompare(b));
 
@@ -615,7 +638,9 @@ function getLeadAssignmentDate(lead) {
 
 function countAssignedLeadsInRange(rawLeads, counselor, range) {
   const normalizedCounselor = normalizeText(counselor);
-  const assignedLeads = rawLeads.filter((lead) => normalizeText(lead?.counselor) === normalizedCounselor);
+  const assignedLeads = rawLeads.filter(
+    (lead) => normalizeText(resolveCounselorName(lead?.counselor, true)) === normalizedCounselor
+  );
 
   if (!range) {
     return assignedLeads.length;
@@ -1376,12 +1401,12 @@ function renderRegisteredView(counselors, leads, rawLeads, range) {
 }
 
 function getMcubeCounselorLabel(entry = {}) {
-  const agentName = String(entry?.agentName || "").trim();
+  const agentName = resolveCounselorName(entry?.agentName, true);
   if (agentName) {
-    return getCounselorDirectory().aliasToName.get(normalizeText(agentName)) || agentName;
+    return agentName;
   }
 
-  const counselor = String(entry?.counselor || "").trim();
+  const counselor = resolveCounselorName(entry?.counselor, true);
   if (counselor) {
     return counselor;
   }
