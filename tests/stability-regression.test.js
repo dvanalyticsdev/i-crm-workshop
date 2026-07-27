@@ -1206,3 +1206,54 @@ test("ReachOut sync stores generic component schema for current and future Whats
   assert.match(server, /template\.componentSchema/);
   assert.doesNotMatch(server, /header_1: "https:\/\/files\.msg91\.com\/514340\/uvtvfscf"/);
 });
+
+test("critical CRM actions show busy button feedback and restore in finally", () => {
+  const uiFeedback = read("ui-feedback.js");
+  const preWorkshop = read("pre-workshop.js");
+  const postWorkshop = read("post-workshop.js");
+  const registeredCandidates = read("registered-candidates.js");
+  const mainAdmission = read("main-admission-leads.js");
+  const leadControl = read("lead-control.js");
+
+  assert.match(uiFeedback, /export async function withButtonBusy/);
+  assert.match(getFunctionBody(uiFeedback, "withButtonBusy"), /finally/);
+  assert.match(getNamedFunctionSource(uiFeedback, "setButtonBusy"), /aria-busy/);
+  assert.match(getNamedFunctionSource(uiFeedback, "setButtonBusy"), /dataset\.originalText/);
+
+  [
+    preWorkshop,
+    postWorkshop,
+    registeredCandidates,
+    mainAdmission
+  ].forEach((source) => {
+    assert.match(source, /withButtonBusy/);
+    assert.match(source, /Saving, please wait\.\.\./);
+  });
+
+  assert.match(preWorkshop, /Assigning, please wait\.\.\./);
+  assert.match(postWorkshop, /Assigning, please wait\.\.\./);
+  assert.match(mainAdmission, /Assigning, please wait\.\.\./);
+  assert.match(leadControl, /Importing leads\.\.\./);
+  assert.match(leadControl, /Preparing backup\.\.\./);
+  assert.match(leadControl, /Restoring backup\.\.\./);
+});
+
+test("heavy CRM pages schedule polling renders instead of immediate full rerenders", () => {
+  const uiFeedback = read("ui-feedback.js");
+  const pages = [
+    read("pre-workshop.js"),
+    read("post-workshop.js"),
+    read("registered-candidates.js"),
+    read("main-admission-leads.js"),
+    read("lead-control.js")
+  ];
+
+  assert.match(uiFeedback, /export function createRenderScheduler/);
+  assert.match(getNamedFunctionSource(uiFeedback, "createRenderScheduler"), /clearTimeout\(timer\)/);
+
+  pages.forEach((source) => {
+    assert.match(source, /createRenderScheduler/);
+    assert.match(source, /const scheduleRenderAll = createRenderScheduler\(renderAll\)/);
+    assert.match(source, /startStatePolling\([\s\S]*scheduleRenderAll/);
+  });
+});

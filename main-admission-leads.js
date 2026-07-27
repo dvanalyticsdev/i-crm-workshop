@@ -29,6 +29,7 @@ import {
   updateMainAdmissionLeadDetails
 } from "./lead-service.js";
 import { formatKolkataDate, getKolkataDayRange, parseKolkataDate as parseTimelineDate, toKolkataDateKey } from "./date-utils.js";
+import { createRenderScheduler, withButtonBusy } from "./ui-feedback.js";
 
 await bootstrapLocalState();
 
@@ -824,7 +825,11 @@ async function clearRegisteredCandidateData() {
     }
     return getLeadSegment(lead) !== activeSegment;
   });
-  const saveResult = await persistLeads(remainingLeads);
+  const saveResult = await withButtonBusy(
+    clearMainAdmissionLeadDataBtn,
+    "Clearing data...",
+    () => persistLeads(remainingLeads)
+  );
   if (!saveResult || saveResult.ok === false) {
     setRoutingMessage(saveResult?.message || "Failed to clear Main Admission Lead data.", true);
     return;
@@ -1962,9 +1967,13 @@ mainAdmissionLeadTableSection.addEventListener("click", async (event) => {
   }
 
   if (event.target.id === "mainAdmissionBulkAssign") {
-    const assigned = await assignSelectedUnassignedLeads(getCurrentFilteredLeads());
+    const assigned = await withButtonBusy(
+      event.target,
+      "Assigning, please wait...",
+      () => assignSelectedUnassignedLeads(getCurrentFilteredLeads())
+    );
     if (assigned) {
-      renderAll();
+      scheduleRenderAll();
     }
     return;
   }
@@ -2171,10 +2180,11 @@ function closeActivityModal() {
 
 async function saveActivity(event) {
   event.preventDefault();
+  const saveButton = event?.submitter || document.getElementById("saveMainAdmissionActivityBtn");
   const lead = findLeadByRef(activeLeadRef);
   if (!lead) return;
 
-  const result = await updateLeadActivityOnServer(lead.id, {
+  const result = await withButtonBusy(saveButton, "Saving, please wait...", () => updateLeadActivityOnServer(lead.id, {
     stage: "main-admission",
     leadEmail: lead.email || "",
     updates: {
@@ -2185,7 +2195,7 @@ async function saveActivity(event) {
       mainAdmissionCallStatus: document.getElementById("modalMainAdmissionCallStatus").value,
       mainAdmissionActivityUpdated: true
     }
-  });
+  }));
 
   if (!result || result.ok === false) {
     showToast(result?.message || "Failed to save lead activity.", true);
@@ -2195,7 +2205,7 @@ async function saveActivity(event) {
   const noteInput = document.getElementById("modalMainAdmissionActivityNote");
   const noteText = noteInput ? noteInput.value.trim() : "";
   if (noteText) {
-    const noteResult = await addLeadNote(lead.id, noteText, lead.email || "");
+    const noteResult = await withButtonBusy(saveButton, "Saving note, please wait...", () => addLeadNote(lead.id, noteText, lead.email || ""));
     if (!noteResult || noteResult.ok === false) {
       showToast(noteResult?.message || "Activity saved, but the note could not be saved.", true);
       return;
@@ -2205,7 +2215,7 @@ async function saveActivity(event) {
   closeActivityModal();
   setMessage("Main admission lead activity saved successfully.");
   showToast("Main admission lead activity saved successfully.");
-  renderAll();
+  scheduleRenderAll();
 }
 
 async function deleteRegisteredLead(leadKey) {
@@ -2336,7 +2346,7 @@ function openNotesModal(leadKey) {
       const noteIndex = Number(button.getAttribute("data-note-index"));
       const currentLead = findLeadByRef(notesLeadRef);
       if (!currentLead) return;
-      const result = await deleteLeadNote(currentLead.id, noteIndex, currentLead.email || "");
+      const result = await withButtonBusy(button, "Deleting...", () => deleteLeadNote(currentLead.id, noteIndex, currentLead.email || ""));
       if (!result || result.ok === false) {
         showToast(result?.message || "Failed to delete note.", true);
         return;
@@ -2496,8 +2506,8 @@ async function renderAll() {
 document.getElementById("mainAdmissionActivityForm").onsubmit = saveActivity;
 document.getElementById("closeMainAdmissionModalBtn").onclick = closeActivityModal;
 document.getElementById("closeMainAdmissionNotesModalBtn").onclick = closeNotesModal;
-document.getElementById("mainAdmissionSaveNoteBtn").onclick = () => {
-  void saveNote();
+document.getElementById("mainAdmissionSaveNoteBtn").onclick = (event) => {
+  void withButtonBusy(event.currentTarget, "Saving note...", () => saveNote());
 };
 if (mainAdmissionDetailsModal) {
   document.getElementById("closeMainAdmissionDetailsModalBtn").onclick = closeDetailsModal;
@@ -2508,8 +2518,8 @@ if (mainAdmissionDetailsModal) {
     cancelMainAdmissionDetailsEditBtn.onclick = () => setDetailsEditMode(false);
   }
   if (saveMainAdmissionDetailsBtn) {
-    saveMainAdmissionDetailsBtn.onclick = () => {
-      void saveDetailsModalEdits();
+    saveMainAdmissionDetailsBtn.onclick = (event) => {
+      void withButtonBusy(event.currentTarget, "Saving details...", () => saveDetailsModalEdits());
     };
   }
 }
@@ -2519,9 +2529,10 @@ if (mainAdmissionTaskModal && mainAdmissionTaskForm) {
 }
 
 setupRegisteredRoutingPanel();
+const scheduleRenderAll = createRenderScheduler(renderAll);
 void renderAll();
 window.__dvMarkRouteViewReady?.();
 const stopStatePolling = startStatePolling(() => {
-  void renderAll();
+  void scheduleRenderAll();
 });
 registerPageCleanup(stopStatePolling);

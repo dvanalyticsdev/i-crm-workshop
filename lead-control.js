@@ -13,6 +13,7 @@ import {
   startStatePolling,
   syncStateFromLocalAndVerify
 } from "./state-sync.js";
+import { createRenderScheduler, withButtonBusy } from "./ui-feedback.js";
 await bootstrapLocalState();
 
 const adminImportPanel = document.getElementById("adminImportPanel");
@@ -859,7 +860,7 @@ function setupAdminPanel() {
     return;
   }
 
-  saveAllocationBtn.onclick = async () => {
+  saveAllocationBtn.onclick = async (event) => {
     const nextAllocation = readAllocationFromForm();
     const validation = validateAllocation(nextAllocation);
 
@@ -868,7 +869,11 @@ function setupAdminPanel() {
       return;
     }
 
-    const allocResult = await saveAllocation(validation.cleaned);
+    const allocResult = await withButtonBusy(
+      event.currentTarget,
+      "Saving allocation...",
+      () => saveAllocation(validation.cleaned)
+    );
     if (!allocResult || allocResult.ok === false) {
       setMessage(allocationMessage, allocResult?.message || "Failed to save allocation. Please check your connection.", true);
       return;
@@ -877,19 +882,19 @@ function setupAdminPanel() {
     setMessage(allocationMessage, "Counselor allocation saved successfully.", false);
   };
 
-  importLeadsBtn.onclick = () => {
-    handleLeadImport();
+  importLeadsBtn.onclick = (event) => {
+    void withButtonBusy(event.currentTarget, "Importing leads...", () => handleLeadImport());
   };
 
   if (exportBackupBtn) {
-    exportBackupBtn.onclick = () => {
-      void downloadManualBackup();
+    exportBackupBtn.onclick = (event) => {
+      void withButtonBusy(event.currentTarget, "Preparing backup...", () => downloadManualBackup());
     };
   }
 
   if (restoreBackupBtn) {
-    restoreBackupBtn.onclick = () => {
-      void restoreManualBackup();
+    restoreBackupBtn.onclick = (event) => {
+      void withButtonBusy(event.currentTarget, "Restoring backup...", () => restoreManualBackup());
     };
   }
 
@@ -906,9 +911,11 @@ function renderAll() {
   normalizeLeadFields(allLeads);
 }
 
+const scheduleRenderAll = createRenderScheduler(renderAll);
+
 renderAll();
 window.__dvMarkRouteViewReady?.();
 const stopStatePolling = startStatePolling(() => {
-  renderAll();
+  scheduleRenderAll();
 });
 registerPageCleanup(stopStatePolling);

@@ -14,6 +14,7 @@ import {
 import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
 import { formatKolkataDate, getKolkataDayRange, parseKolkataDate, toKolkataDateKey } from "./date-utils.js";
+import { createRenderScheduler, withButtonBusy } from "./ui-feedback.js";
 import {
   addLeadNote,
   assignLeads as assignLeadsOnServer,
@@ -1976,7 +1977,12 @@ async function assignSelectedLeads(leads, counselorName) {
     return false;
   }
 
-  const assignmentResult = await assignLeadsOnServer(applicableLeadRefs, targetCounselor);
+  const assignmentButton = document.getElementById("postBulkAssignBtn");
+  const assignmentResult = await withButtonBusy(
+    assignmentButton,
+    "Assigning, please wait...",
+    () => assignLeadsOnServer(applicableLeadRefs, targetCounselor)
+  );
   if (!assignmentResult || assignmentResult.ok === false) {
     showToast(assignmentResult?.message || "Failed to assign selected leads. Please check your connection and try again.", true);
     return false;
@@ -2274,28 +2280,29 @@ function initPostWorkshopPage() {
       return;
     }
 
-    const saved = await updatePostActivity(modalLeadId, {
-      postDialed: document.getElementById("modalPostDialed").value,
-      coursePitched: document.getElementById("modalCoursePitched").value,
-      courseStatus: document.getElementById("modalCourseStatus").value,
-      admissionStatus: document.getElementById("modalAdmissionStatus").value,
-      postCallStatus: document.getElementById("modalPostCallStatus").value,
-      admissionWorkshop: document.getElementById("modalAdmissionWorkshop").value,
-      workshopJoiningStatus: document.getElementById("modalWorkshopJoiningStatus").value,
-      postStatusUpdated: true
-    }, modalLeadEmail);
+    const saveButton = document.getElementById("savePostActivityBtn");
+    const saved = await withButtonBusy(saveButton, "Saving, please wait...", () => updatePostActivity(modalLeadId, {
+        postDialed: document.getElementById("modalPostDialed").value,
+        coursePitched: document.getElementById("modalCoursePitched").value,
+        courseStatus: document.getElementById("modalCourseStatus").value,
+        admissionStatus: document.getElementById("modalAdmissionStatus").value,
+        postCallStatus: document.getElementById("modalPostCallStatus").value,
+        admissionWorkshop: document.getElementById("modalAdmissionWorkshop").value,
+        workshopJoiningStatus: document.getElementById("modalWorkshopJoiningStatus").value,
+        postStatusUpdated: true
+      }, modalLeadEmail));
 
     if (!saved) {
       return;
     }
 
-    const noteSaved = await savePostActivityModalNote(modalLeadId, modalLeadEmail);
+    const noteSaved = await withButtonBusy(saveButton, "Saving note, please wait...", () => savePostActivityModalNote(modalLeadId, modalLeadEmail));
     if (!noteSaved) {
       return;
     }
 
     closePostModal();
-    renderAll();
+    scheduleRenderAll();
   };
 }
 
@@ -2307,8 +2314,8 @@ function initPostWorkshopPage() {
   const notesModal = document.getElementById("notesModal");
   if (notesModal) {
     document.getElementById("closeNotesModalBtn").onclick = closeNotesModal;
-    document.getElementById("saveNoteBtn").onclick = () => {
-      void saveNote();
+    document.getElementById("saveNoteBtn").onclick = (event) => {
+      void withButtonBusy(event.currentTarget, "Saving note...", () => saveNote());
     };
   }
 
@@ -2347,9 +2354,11 @@ async function renderAll() {
   renderLeadTable(filteredLeads);
 }
 
+const scheduleRenderAll = createRenderScheduler(renderAll);
+
 void renderAll();
 window.__dvMarkRouteViewReady?.();
 const stopStatePolling = startStatePolling(() => {
-  void renderAll();
+  void scheduleRenderAll();
 });
 registerPageCleanup(stopStatePolling);

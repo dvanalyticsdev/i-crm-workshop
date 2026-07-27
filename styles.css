@@ -439,6 +439,20 @@ textarea:focus {
   opacity: 0.9;
 }
 
+.btn-primary:disabled,
+.btn-ghost:disabled,
+.btn-update-status:disabled,
+.btn-delete:disabled,
+.btn-primary.is-loading,
+.btn-ghost.is-loading,
+.btn-update-status.is-loading,
+.btn-delete.is-loading {
+  cursor: not-allowed;
+  opacity: 0.72;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 .btn-ghost,
 .btn-update-status,
 .btn-delete {

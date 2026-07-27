@@ -20,6 +20,7 @@ import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
 import { addLeadNote, deleteLeadNote, deleteLeads as deleteLeadsOnServer, trackLeadView, updateLeadActivity as updateLeadActivityOnServer } from "./lead-service.js";
 import { formatKolkataDate, getKolkataDayRange, parseKolkataDate as parseTimelineDate, toKolkataDateKey } from "./date-utils.js";
+import { createRenderScheduler, withButtonBusy } from "./ui-feedback.js";
 
 await bootstrapLocalState();
 
@@ -819,14 +820,14 @@ async function saveRegisteredRoutingConfig() {
   }
 
   try {
-    const response = await fetch(buildRoutingEndpoint(), {
+    const response = await withButtonBusy(saveRegisteredRoutingBtn, "Saving routing...", () => fetch(buildRoutingEndpoint(), {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json"
       },
       body: JSON.stringify({ segment: activeSegment, selectedCounselors, isConfigured: true })
-    });
+    }));
     const json = await response.json().catch(() => ({}));
 
     if (!response.ok) {
@@ -860,7 +861,11 @@ async function clearRegisteredCandidateData() {
     }
     return getLeadSegment(lead) !== activeSegment;
   });
-  const saveResult = await persistLeads(remainingLeads);
+  const saveResult = await withButtonBusy(
+    clearRegisteredCandidateDataBtn,
+    "Clearing data...",
+    () => persistLeads(remainingLeads)
+  );
   if (!saveResult || saveResult.ok === false) {
     setRoutingMessage(saveResult?.message || "Failed to clear Registered Candidate data.", true);
     return;
@@ -1559,10 +1564,11 @@ function closeActivityModal() {
 
 async function saveActivity(event) {
   event.preventDefault();
+  const saveButton = event?.submitter || document.getElementById("saveRegisteredActivityBtn");
   const lead = findLeadByRef(activeLeadRef);
   if (!lead) return;
 
-  const result = await updateLeadActivityOnServer(lead.id, {
+  const result = await withButtonBusy(saveButton, "Saving, please wait...", () => updateLeadActivityOnServer(lead.id, {
     stage: "registered-course",
     leadEmail: lead.email || "",
     updates: {
@@ -1573,7 +1579,7 @@ async function saveActivity(event) {
       registeredCallStatus: document.getElementById("modalRegisteredCallStatus").value,
       registeredActivityUpdated: true
     }
-  });
+  }));
 
   if (!result || result.ok === false) {
     showToast(result?.message || "Failed to save lead activity.", true);
@@ -1583,7 +1589,7 @@ async function saveActivity(event) {
   const noteInput = document.getElementById("modalRegisteredActivityNote");
   const noteText = noteInput ? noteInput.value.trim() : "";
   if (noteText) {
-    const noteResult = await addLeadNote(lead.id, noteText, lead.email || "");
+    const noteResult = await withButtonBusy(saveButton, "Saving note, please wait...", () => addLeadNote(lead.id, noteText, lead.email || ""));
     if (!noteResult || noteResult.ok === false) {
       showToast(noteResult?.message || "Activity saved, but the note could not be saved.", true);
       return;
@@ -1593,7 +1599,7 @@ async function saveActivity(event) {
   closeActivityModal();
   setMessage("Registered candidate activity saved successfully.");
   showToast("Registered candidate activity saved successfully.");
-  renderAll();
+  scheduleRenderAll();
 }
 
 async function deleteRegisteredLead(leadKey) {
@@ -1689,7 +1695,7 @@ function openNotesModal(leadKey) {
       const noteIndex = Number(button.getAttribute("data-note-index"));
       const currentLead = findLeadByRef(notesLeadRef);
       if (!currentLead) return;
-      const result = await deleteLeadNote(currentLead.id, noteIndex, currentLead.email || "");
+      const result = await withButtonBusy(button, "Deleting...", () => deleteLeadNote(currentLead.id, noteIndex, currentLead.email || ""));
       if (!result || result.ok === false) {
         showToast(result?.message || "Failed to delete note.", true);
         return;
@@ -1841,8 +1847,8 @@ async function renderAll() {
 document.getElementById("registeredActivityForm").onsubmit = saveActivity;
 document.getElementById("closeRegisteredModalBtn").onclick = closeActivityModal;
 document.getElementById("closeRegisteredNotesModalBtn").onclick = closeNotesModal;
-document.getElementById("registeredSaveNoteBtn").onclick = () => {
-  void saveNote();
+document.getElementById("registeredSaveNoteBtn").onclick = (event) => {
+  void withButtonBusy(event.currentTarget, "Saving note...", () => saveNote());
 };
 if (registeredTaskModal && registeredTaskForm) {
   document.getElementById("closeRegisteredTaskModalBtn").onclick = closeTaskModal;
@@ -1850,9 +1856,10 @@ if (registeredTaskModal && registeredTaskForm) {
 }
 
 setupRegisteredRoutingPanel();
+const scheduleRenderAll = createRenderScheduler(renderAll);
 void renderAll();
 window.__dvMarkRouteViewReady?.();
 const stopStatePolling = startStatePolling(() => {
-  void renderAll();
+  void scheduleRenderAll();
 });
 registerPageCleanup(stopStatePolling);

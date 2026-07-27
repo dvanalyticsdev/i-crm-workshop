@@ -18,6 +18,7 @@ import {
 import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
 import { getKolkataDayRange, parseKolkataDate as parseLocalDate, toKolkataDateKey } from "./date-utils.js";
+import { createRenderScheduler, withButtonBusy } from "./ui-feedback.js";
 import {
   addLeadNote,
   assignLeads as assignLeadsOnServer,
@@ -280,7 +281,12 @@ async function assignSelectedLeads(leads, counselorName) {
     return false;
   }
 
-  const assignmentResult = await assignLeadsOnServer(applicableLeadRefs, targetCounselor);
+  const assignmentButton = document.getElementById("preBulkAssignBtn");
+  const assignmentResult = await withButtonBusy(
+    assignmentButton,
+    "Assigning, please wait...",
+    () => assignLeadsOnServer(applicableLeadRefs, targetCounselor)
+  );
   if (!assignmentResult || assignmentResult.ok === false) {
     showToast(assignmentResult?.message || "Failed to assign selected leads. Please check your connection and try again.", true);
     return false;
@@ -2491,25 +2497,26 @@ function initPreWorkshopPage() {
         return;
       }
 
-      const saved = await updateLeadActivity(modalLeadId, {
-        dialed: document.getElementById("modalDialed").value,
-        callStatus: document.getElementById("modalCallStatus").value,
-        wsStatus: document.getElementById("modalWsStatus").value,
-        whatsappInvite: document.getElementById("modalWhatsappInvite").value,
-        whatsappGroupStatus: document.getElementById("modalWhatsappGroupStatus").value
-      }, modalLeadEmail);
+      const saveButton = document.getElementById("saveActivityBtn");
+      const saved = await withButtonBusy(saveButton, "Saving, please wait...", () => updateLeadActivity(modalLeadId, {
+          dialed: document.getElementById("modalDialed").value,
+          callStatus: document.getElementById("modalCallStatus").value,
+          wsStatus: document.getElementById("modalWsStatus").value,
+          whatsappInvite: document.getElementById("modalWhatsappInvite").value,
+          whatsappGroupStatus: document.getElementById("modalWhatsappGroupStatus").value
+        }, modalLeadEmail));
 
       if (!saved) {
         return;
       }
 
-      const noteSaved = await saveActivityModalNote(modalLeadId, modalLeadEmail);
+      const noteSaved = await withButtonBusy(saveButton, "Saving note, please wait...", () => saveActivityModalNote(modalLeadId, modalLeadEmail));
       if (!noteSaved) {
         return;
       }
 
       closeActivityStatusModal();
-      renderAll();
+      scheduleRenderAll();
     };
   }
 
@@ -2521,8 +2528,8 @@ function initPreWorkshopPage() {
   const notesModal = document.getElementById("notesModal");
   if (notesModal) {
     document.getElementById("closeNotesModalBtn").onclick = closeNotesModal;
-    document.getElementById("saveNoteBtn").onclick = () => {
-      void saveNote();
+    document.getElementById("saveNoteBtn").onclick = (event) => {
+      void withButtonBusy(event.currentTarget, "Saving note...", () => saveNote());
     };
   }
 
@@ -2564,9 +2571,11 @@ function renderAll() {
   renderLeadTable(filteredLeads);
 }
 
+const scheduleRenderAll = createRenderScheduler(renderAll);
+
 renderAll();
 window.__dvMarkRouteViewReady?.();
 const stopStatePolling = startStatePolling(() => {
-  renderAll();
+  scheduleRenderAll();
 });
 registerPageCleanup(stopStatePolling);
