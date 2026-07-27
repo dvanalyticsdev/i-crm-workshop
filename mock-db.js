@@ -193,6 +193,14 @@ class MockCollection {
   _matches(item, query) {
     if (!query || Object.keys(query).length === 0) return true;
     for (const key in query) {
+      if (key === "$or") {
+        if (!Array.isArray(query[key]) || !query[key].some(part => this._matches(item, part))) return false;
+        continue;
+      }
+      if (key === "$and") {
+        if (!Array.isArray(query[key]) || !query[key].every(part => this._matches(item, part))) return false;
+        continue;
+      }
       const queryVal = query[key];
       
       if (queryVal && typeof queryVal === "object" && "$in" in queryVal) {
@@ -200,6 +208,15 @@ class MockCollection {
         const itemVal = String(item[key]);
         const inMatch = queryVal.$in.some(v => String(v) === itemVal);
         if (!inMatch) return false;
+        continue;
+      }
+      if (queryVal && typeof queryVal === "object" && "$ne" in queryVal) {
+        if (String(item[key]) === String(queryVal.$ne)) return false;
+        continue;
+      }
+      if (queryVal && typeof queryVal === "object" && "$exists" in queryVal) {
+        const exists = item[key] !== undefined;
+        if (exists !== Boolean(queryVal.$exists)) return false;
         continue;
       }
       if (queryVal && typeof queryVal === "object" && "$lte" in queryVal) {

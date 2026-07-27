@@ -1738,6 +1738,114 @@ function getLostSourceLabel(lead = {}) {
   return "Unknown";
 }
 
+function buildLostLeadMongoQuery() {
+  return {
+    $or: [
+      { wsStatus: "Not Interested" },
+      { postStatusUpdated: true, courseStatus: "Not Interested" },
+      { leadPipeline: MAIN_ADMISSION_PIPELINE, mainAdmissionActivityUpdated: true, mainAdmissionCourseStatus: "Not Interested" },
+      { leadPipeline: "course-registration", registeredActivityUpdated: true, registeredCourseStatus: "Not Interested" }
+    ]
+  };
+}
+
+const LOST_LEAD_LIST_PROJECTION = {
+  id: 1,
+  name: 1,
+  email: 1,
+  phone: 1,
+  createdAt: 1,
+  createdAtExact: 1,
+  updatedAt: 1,
+  counselor: 1,
+  courseName: 1,
+  courseCode: 1,
+  courseRawName: 1,
+  workshop: 1,
+  leadPipeline: 1,
+  publicCourseSegment: 1,
+  wsStatus: 1,
+  postStatusUpdated: 1,
+  courseStatus: 1,
+  mainAdmissionActivityUpdated: 1,
+  mainAdmissionCourseStatus: 1,
+  registeredActivityUpdated: 1,
+  registeredCourseStatus: 1
+};
+
+const REACHOUT_LEAD_LIST_PROJECTION = {
+  id: 1,
+  name: 1,
+  email: 1,
+  phone: 1,
+  counselor: 1,
+  workshop: 1,
+  courseName: 1,
+  courseCode: 1,
+  country: 1,
+  leadPipeline: 1,
+  publicCourseSegment: 1,
+  createdAt: 1,
+  createdAtExact: 1,
+  updatedAt: 1,
+  metaCampaignName: 1,
+  metaAdsetName: 1,
+  metaAdName: 1,
+  elementorFormName: 1,
+  importSourceSheet: 1
+};
+
+const DASHBOARD_LEAD_SUMMARY_PROJECTION = {
+  id: 1,
+  createdAt: 1,
+  createdAtExact: 1,
+  workshop: 1,
+  workshopName: 1,
+  admissionWorkshop: 1,
+  courseName: 1,
+  stage: 1,
+  leadPipeline: 1,
+  publicCourseSegment: 1,
+  admissionStatus: 1,
+  registeredAdmissionStatus: 1,
+  mainAdmissionAdmissionStatus: 1,
+  postStatusUpdated: 1,
+  postDialed: 1,
+  courseStatus: 1
+};
+
+function buildMonitoringLeadMongoQuery(subsection = "") {
+  const key = String(subsection || "").trim().toLowerCase();
+  const legacyPipelineQuery = {
+    $or: [
+      { leadPipeline: { $exists: false } },
+      { leadPipeline: "" },
+      { leadPipeline: null }
+    ]
+  };
+  if (key === "main-admission") return { leadPipeline: MAIN_ADMISSION_PIPELINE };
+  if (key === "registered-candidates") {
+    return {
+      leadPipeline: "course-registration",
+      publicCourseSegment: { $ne: "crash-course" },
+      courseId: { $ne: "days7_genai" }
+    };
+  }
+  if (key === "crash-course") {
+    return {
+      leadPipeline: "course-registration",
+      $or: [
+        { publicCourseSegment: "crash-course" },
+        { courseId: "days7_genai" }
+      ]
+    };
+  }
+  if (key === "mcube-main") {
+    return {};
+  }
+  return legacyPipelineQuery;
+}
+
 function restoreLostLeadPatch(lead = {}) {
   const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
   if (pipeline === MAIN_ADMISSION_PIPELINE) {
@@ -10403,9 +10511,10 @@ app.get("/api/lost-leads", async (req, res) => {
       return res.status(403).json({ message: "You do not have permission to view lost leads." });
     }
 
+    const query = buildLostLeadMongoQuery();
     const [rawLeads, counselors] = await Promise.all([
       withMongoRetry(
-        () => leadsCollection.find({}).toArray(),
+        () => leadsCollection.find(query, { projection: LOST_LEAD_LIST_PROJECTION }).toArray(),
         { retries: 1, label: "Load scoped lost leads" }
       ),
       withMongoRetry(
@@ -10420,7 +10529,6 @@ app.get("/api/lost-leads", async (req, res) => {
     const counselorName = String(counselorMatch?.name || session.name || "").trim().toLowerCase();
     const isCounselor = session.role === "counselor";
     const leads = decorateLeadListForStorage(rawLeads || [])
-      .filter((lead) => isServerLostLead(lead))
       .filter((lead) => !isCounselor || String(lead?.counselor || "").trim().toLowerCase() === counselorName)
       .sort((a, b) => String(b.updatedAt || b.createdAtExact || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAtExact || a.createdAt || "")))
       .map((lead) => ({
@@ -13039,8 +13147,20 @@ app.get("/api/dashboard-summary", async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
 
-    const state = await getStateDoc();
-    return res.json(buildDashboardSummary(state));
+    const [stateMeta, rawLeads] = await Promise.all([
+      withMongoRetry(
+        () => stateCollection.findOne({ _id: STATE_DOC_ID }),
+        { retries: 1, label: "Load dashboard state metadata" }
+      ),
+      withMongoRetry(
+        () => leadsCollection.find({}, { projection: DASHBOARD_LEAD_SUMMARY_PROJECTION }).toArray(),
+        { retries: 1, label: "Load dashboard summary leads" }
+      )
+    ]);
+    return res.json(buildDashboardSummary({
+      updatedAt: stateMeta?.updatedAt || null,
+      leads: decorateLeadListForStorage(rawLeads || [])
+    }));
   } catch (error) {
     return res.status(500).json({ message: "Failed to fetch dashboard summary", details: error.message });
   }
@@ -13191,9 +13311,15 @@ app.get("/api/leads", async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
 
+    const scope = String(req.query?.scope || "").trim().toLowerCase();
+    const monitoringSubsection = String(req.query?.monitoringSubsection || "").trim().toLowerCase();
+    const leadQuery = monitoringSubsection ? buildMonitoringLeadMongoQuery(monitoringSubsection) : {};
+    const findOptions = scope === "reachout"
+      ? { projection: REACHOUT_LEAD_LIST_PROJECTION }
+      : undefined;
     const [rawLeads, counselors] = await Promise.all([
       withMongoRetry(
-        () => leadsCollection.find({}).toArray(),
+        () => leadsCollection.find(leadQuery, findOptions).toArray(),
         { retries: 1, label: "Load leads endpoint leads" }
       ),
       session.role === "counselor"
@@ -13213,7 +13339,7 @@ app.get("/api/leads", async (req, res) => {
       (item) => String(item?.email || "").trim().toLowerCase() === sessionEmail
     );
     const counselorName = String(counselorMatch?.name || session.name || "").trim().toLowerCase();
-    const includeTouched = String(req.query?.scope || "").trim().toLowerCase() === "assigned-or-touched";
+    const includeTouched = scope === "assigned-or-touched";
     const historyFields = [
       "workshopActivityHistory",
       "admissionActivityHistory",

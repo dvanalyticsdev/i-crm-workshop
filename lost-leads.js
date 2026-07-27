@@ -885,8 +885,10 @@ if (deleteAllArchivedLeadsBtn) {
 await loadLostLeadData().catch((error) => {
   console.warn("[lost-leads] loading failed:", error?.message || error);
 });
-await refreshArchivedLeads();
 renderAll();
+void refreshArchivedLeads().then(() => {
+  renderAll();
+});
 const stopStatePolling = (() => {
   let destroyed = false;
   let activePoll = false;

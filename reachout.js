@@ -158,7 +158,7 @@ function getLeads() {
 }
 
 async function loadReachoutLeads() {
-  const response = await fetch(apiUrl("/api/leads"), {
+  const response = await fetch(apiUrl("/api/leads?scope=reachout"), {
     credentials: "same-origin",
     headers: { Accept: "application/json" }
   });

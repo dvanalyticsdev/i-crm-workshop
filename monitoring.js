@@ -396,7 +396,7 @@ function getAllLeads() {
 
 async function loadMonitoringData() {
   const [leadResponse, counselorResponse] = await Promise.all([
-    fetch(apiUrl("/api/leads?scope=assigned-or-touched"), {
+    fetch(apiUrl(`/api/leads?scope=assigned-or-touched&monitoringSubsection=${encodeURIComponent(activeView.subsection)}`), {
       credentials: "same-origin",
       headers: { Accept: "application/json" }
     }),
@@ -1350,7 +1350,7 @@ function renderSectionNav() {
         subsection: firstSubsection
       };
       persistActiveView();
-      renderAll();
+      void loadMonitoringData().finally(() => renderAll());
     };
   });
 }
@@ -1402,7 +1402,7 @@ function renderSubsectionNav() {
         subsection: nextSubsection
       };
       persistActiveView();
-      renderAll();
+      void loadMonitoringData().finally(() => renderAll());
     };
   });
 }

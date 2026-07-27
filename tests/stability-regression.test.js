@@ -849,6 +849,8 @@ test("lost leads include not interested statuses across all lead pipelines", () 
 
   assert.match(server, /app\.get\("\/api\/lost-leads"/);
   assert.match(server, /app\.post\("\/api\/lost-leads\/:leadId\/restore"/);
+  assert.match(server, /buildLostLeadMongoQuery/);
+  assert.match(server, /LOST_LEAD_LIST_PROJECTION/);
   assert.match(lostLeads, /bootstrapLocalState\(\{ skipStateRefresh: true \}\)/);
   assert.match(lostLeads, /apiUrl\("\/api\/lost-leads"\)/);
   assert.doesNotMatch(lostLeads, /startStatePolling/);
@@ -1140,6 +1142,7 @@ test("ReachOut is simplified to synced WhatsApp number and template sending", ()
 
   assert.match(server, /app\.post\("\/api\/reachout\/whatsapp\/sync"/);
   assert.match(server, /app\.post\("\/api\/reachout\/whatsapp\/webhook"/);
+  assert.match(server, /REACHOUT_LEAD_LIST_PROJECTION/);
   assert.match(server, /whatsappNumbers/);
   assert.match(server, /ReachOut now supports WhatsApp templates only/);
   assert.match(server, /statusCallbackUrl/);
@@ -1159,6 +1162,7 @@ test("ReachOut is simplified to synced WhatsApp number and template sending", ()
   assert.match(reachoutHtml, /reachout-media-control/);
   assert.doesNotMatch(reachoutHtml, /Add Template|SMS, WhatsApp, and email|MSG91 Template ID|From Email|Email Domain/);
   assert.match(reachout, /syncWhatsapp/);
+  assert.match(reachout, /\/api\/leads\?scope=reachout/);
   assert.match(reachout, /integratedNumber,\s*templateId,\s*leadIds/);
   assert.match(reachout, /needsMediaHeader/);
   assert.match(reachout, /saveTemplateMediaUrl/);
