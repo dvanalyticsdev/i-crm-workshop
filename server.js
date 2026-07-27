@@ -689,9 +689,14 @@ function recordRoutePerformance(req, startedAt, { operation, success = true, sta
 
 function buildPerformanceSummary(logs = []) {
   const safeLogs = Array.isArray(logs) ? logs : [];
-  const summarizeBy = (getKey, getMeta = () => ({})) => {
+  const apiLogs = safeLogs.filter((log) => String(log.kind || "api") === "api");
+  const pageInteractiveLogs = safeLogs.filter((log) => String(log.kind || "") === "page" && String(log.phase || "") === "interactive-ready");
+  const sectionLogs = safeLogs.filter((log) => String(log.kind || "") === "section");
+  const phaseLogs = [...pageInteractiveLogs, ...sectionLogs].filter((log) => String(log.phase || "").trim());
+
+  const summarizeBy = (sourceLogs, getKey, getMeta = () => ({})) => {
     const rows = new Map();
-    safeLogs.forEach((log) => {
+    sourceLogs.forEach((log) => {
       const key = String(getKey(log) || "").trim();
       if (!key) {
         return;
@@ -747,6 +752,7 @@ function buildPerformanceSummary(logs = []) {
   });
 
   const operationRows = summarizeBy(
+    safeLogs,
     (log) => log.operation || log.route || log.page || "unknown",
     (log) => ({
       operation: String(log.operation || log.route || log.page || "unknown"),
@@ -758,15 +764,24 @@ function buildPerformanceSummary(logs = []) {
       role: String(log.role || "")
     })
   );
-  const pageRows = summarizeBy((log) => log.page, (log) => ({ page: String(log.page || ""), role: String(log.role || "") }));
-  const roleRows = summarizeBy((log) => log.role || "unknown", (log) => ({ role: String(log.role || "unknown") }));
-  const sectionRows = summarizeBy((log) => [log.page, log.section, log.subsection].filter(Boolean).join(" / "), (log) => ({
+  const apiRows = summarizeBy(
+    apiLogs,
+    (log) => log.operation || log.route || "unknown",
+    (log) => ({
+      operation: String(log.operation || log.route || "unknown"),
+      kind: "api",
+      route: String(log.route || "")
+    })
+  );
+  const pageRows = summarizeBy(pageInteractiveLogs, (log) => log.page, (log) => ({ page: String(log.page || ""), role: String(log.role || "") }));
+  const roleRows = summarizeBy(pageInteractiveLogs.filter((log) => String(log.role || "").trim()), (log) => log.role, (log) => ({ role: String(log.role || "") }));
+  const sectionRows = summarizeBy(sectionLogs, (log) => [log.page, log.section, log.subsection].filter(Boolean).join(" / "), (log) => ({
     page: String(log.page || ""),
     section: String(log.section || ""),
     subsection: String(log.subsection || ""),
     role: String(log.role || "")
   }));
-  const phaseRows = summarizeBy((log) => [log.page, log.section, log.phase].filter(Boolean).join(" / "), (log) => ({
+  const phaseRows = summarizeBy(phaseLogs, (log) => [log.page, log.section, log.phase].filter(Boolean).join(" / "), (log) => ({
     page: String(log.page || ""),
     section: String(log.section || ""),
     phase: String(log.phase || ""),
@@ -787,6 +802,7 @@ function buildPerformanceSummary(logs = []) {
     avgDurationMs,
     status: getPerformanceStatus(avgDurationMs, successRate),
     operations: operationRows.slice(0, 30),
+    apis: apiRows.slice(0, 30),
     pages: pageRows.slice(0, 30),
     roles: roleRows.slice(0, 20),
     sections: sectionRows.slice(0, 30),

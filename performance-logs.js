@@ -69,7 +69,7 @@ async function loadPerformanceSummary() {
 
 function renderSummary(summary) {
   const pageRows = Array.isArray(summary.pages) ? summary.pages : [];
-  const apiRows = (Array.isArray(summary.operations) ? summary.operations : []).filter((row) => row.kind === "api");
+  const apiRows = Array.isArray(summary.apis) ? summary.apis : [];
   const slowestPage = pageRows[0] || {};
   const slowestApi = apiRows[0] || {};
   const slowestSection = Array.isArray(summary.sections) ? summary.sections[0] || {} : {};
@@ -102,7 +102,7 @@ function renderSummary(summary) {
 
 function renderOperations(rows = []) {
   operationsTable.innerHTML = `
-    <table>
+    <table class="performance-table">
       <thead>
         <tr>
           <th>Operation</th>
@@ -118,7 +118,7 @@ function renderOperations(rows = []) {
       <tbody>
         ${rows.length ? rows.map((row) => `
           <tr>
-            <td>${escapeHtml(row.operation)}</td>
+            <td class="performance-name-cell" title="${escapeHtml(row.operation)}">${escapeHtml(row.operation)}</td>
             <td><span class="badge ${getStatusClass(row.status)}">${escapeHtml(row.status)}</span></td>
             <td>${formatMs(row.avgDurationMs)}</td>
             <td>${formatMs(row.p95DurationMs)}</td>
@@ -135,7 +135,7 @@ function renderOperations(rows = []) {
 
 function renderMetricTable(container, rows = [], labelKey = "name", emptyText = "No performance events logged yet.") {
   container.innerHTML = `
-    <table>
+    <table class="performance-table">
       <thead>
         <tr>
           <th>Name</th>
@@ -150,7 +150,7 @@ function renderMetricTable(container, rows = [], labelKey = "name", emptyText = 
       <tbody>
         ${rows.length ? rows.map((row) => `
           <tr>
-            <td>${escapeHtml(row[labelKey] || row.name || row.operation || row.page || row.role || "-")}</td>
+            <td class="performance-name-cell" title="${escapeHtml(row[labelKey] || row.name || row.operation || row.page || row.role || "-")}">${escapeHtml(row[labelKey] || row.name || row.operation || row.page || row.role || "-")}</td>
             <td><span class="badge ${getStatusClass(row.status)}">${escapeHtml(row.status)}</span></td>
             <td>${formatMs(row.avgDurationMs)}</td>
             <td>${formatMs(row.p95DurationMs)}</td>
@@ -166,7 +166,7 @@ function renderMetricTable(container, rows = [], labelKey = "name", emptyText = 
 
 function renderEventTable(container, rows = [], emptyText) {
   container.innerHTML = `
-    <table>
+    <table class="performance-table">
       <thead>
         <tr>
           <th>Time</th>
@@ -181,8 +181,8 @@ function renderEventTable(container, rows = [], emptyText) {
         ${rows.length ? rows.map((row) => `
           <tr>
             <td>${formatDate(row.createdAt)}</td>
-            <td>${escapeHtml(row.operation || row.route || row.page || "-")}</td>
-            <td>${escapeHtml([row.page, row.section, row.subsection, row.phase].filter(Boolean).join(" / ") || "-")}</td>
+            <td class="performance-name-cell" title="${escapeHtml(row.operation || row.route || row.page || "-")}">${escapeHtml(row.operation || row.route || row.page || "-")}</td>
+            <td class="performance-name-cell" title="${escapeHtml([row.page, row.section, row.subsection, row.phase].filter(Boolean).join(" / ") || "-")}">${escapeHtml([row.page, row.section, row.subsection, row.phase].filter(Boolean).join(" / ") || "-")}</td>
             <td>${escapeHtml(row.role || "-")}</td>
             <td>${escapeHtml(row.status || (row.success === false ? "failure" : "success"))}</td>
             <td>${formatMs(row.durationMs)}</td>

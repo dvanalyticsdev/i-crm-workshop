@@ -21,6 +21,10 @@ const ROUTE_LOADING_STALE_TIMEOUT_MS = 20000;
 const NOTIFICATION_POLL_INTERVAL_MS = 6000;
 const NOTIFICATION_LIST_LIMIT = 30;
 const NOTIFICATION_LIST_CACHE_MS = 15000;
+const ROUTES_WITH_LOCAL_STATE_BOOTSTRAP = new Set([
+  "main-admission-leads.html",
+  "performance-logs.html"
+]);
 let notificationPollTimerId = null;
 let notificationPollTimeoutId = null;
 let notificationListCache = {
@@ -1051,9 +1055,11 @@ async function navigateToRoute(href, options = {}) {
       return;
     }
 
-    await refreshState();
-    if (navigationToken !== activeNavigationToken) {
-      return;
+    if (!ROUTES_WITH_LOCAL_STATE_BOOTSTRAP.has(route)) {
+      await refreshState();
+      if (navigationToken !== activeNavigationToken) {
+        return;
+      }
     }
 
     runPageCleanup();

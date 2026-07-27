@@ -1361,10 +1361,18 @@ test("performance logs capture user-facing page, role, section, subsection, and 
   assert.match(server, /subsection: String\(event\.subsection/);
   assert.match(server, /phase: String\(event\.phase/);
   assert.match(server, /role: String\(event\.role/);
+  assert.match(server, /apiLogs = safeLogs\.filter/);
+  assert.match(server, /pageInteractiveLogs = safeLogs\.filter/);
+  assert.match(server, /sectionLogs = safeLogs\.filter/);
   assert.match(server, /pages: pageRows\.slice/);
   assert.match(server, /roles: roleRows\.slice/);
   assert.match(server, /sections: sectionRows\.slice/);
   assert.match(server, /phases: phaseRows\.slice/);
+  assert.match(server, /apis: apiRows\.slice/);
+  assert.match(layouts, /ROUTES_WITH_LOCAL_STATE_BOOTSTRAP/);
+  assert.match(layouts, /"main-admission-leads\.html"/);
+  assert.match(layouts, /"performance-logs\.html"/);
+  assert.match(getNamedFunctionSource(layouts, "navigateToRoute"), /if \(!ROUTES_WITH_LOCAL_STATE_BOOTSTRAP\.has\(route\)\) \{[\s\S]*?await refreshState\(\)/);
   assert.match(getNamedFunctionSource(layouts, "recordRouteNavigationPerformance"), /soft-navigation/);
   assert.match(getNamedFunctionSource(layouts, "navigateToRoute"), /recordRouteNavigationPerformance\(route, navigationStartedAt\)/);
   assert.match(performanceClient, /export async function recordClientPerformance/);
@@ -1378,6 +1386,8 @@ test("performance logs capture user-facing page, role, section, subsection, and 
   assert.match(performanceHtml, /performancePhasesTable/);
   assert.match(performanceHtml, /Page Experience/);
   assert.match(performanceJs, /User Page Speed/);
+  assert.match(performanceJs, /summary\.apis/);
+  assert.match(performanceJs, /performance-name-cell/);
   assert.match(performanceJs, /summary\.sections/);
   assert.match(performanceJs, /summary\.phases/);
 });

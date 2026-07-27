@@ -495,6 +495,32 @@ textarea:focus {
   margin-top: 1rem;
 }
 
+.performance-table {
+  min-width: 760px;
+  table-layout: fixed;
+}
+
+.performance-table th,
+.performance-table td {
+  white-space: nowrap;
+}
+
+.performance-table th:first-child,
+.performance-table td:first-child {
+  width: 240px;
+}
+
+.performance-table th:not(:first-child),
+.performance-table td:not(:first-child) {
+  width: 104px;
+}
+
+.performance-name-cell {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 @media (max-width: 900px) {
   .performance-log-grid,
   .performance-log-columns {
