@@ -748,13 +748,34 @@ test("Integration exposes lead flow control subsection", () => {
   assert.match(metaJs, /lead-flow-control\.html/);
   assert.match(leadFlowHtml, /Lead Flow Control/);
   assert.match(leadFlowHtml, /Workshop admission rotation/);
-  assert.match(leadFlowHtml, /Main admission lead rotation/);
-  assert.match(leadFlowJs, /function isCounselorInAdmissionRotation/);
-  assert.match(leadFlowJs, /admissionRoundRobinEnabled === true/);
-  assert.match(leadFlowJs, /admissionCoursePermissions/);
-  assert.match(leadFlowJs, /data-rotation-field/);
-  assert.match(leadFlowJs, /isCoursePermissionUpdate/);
+  assert.doesNotMatch(leadFlowHtml, /Main admission lead rotation/);
+  assert.doesNotMatch(leadFlowJs, /function isCounselorInAdmissionRotation/);
+  assert.doesNotMatch(leadFlowJs, /admissionRoundRobinEnabled === true/);
+  assert.doesNotMatch(leadFlowJs, /admissionCoursePermissions/);
+  assert.doesNotMatch(leadFlowJs, /data-rotation-field/);
   assert.match(metaHtml, /lead-flow-control\.html/);
+});
+
+test("calling pages keep filtered leads newest first", () => {
+  const preWorkshop = read("pre-workshop.js");
+  const postWorkshop = read("post-workshop.js");
+  const mainAdmission = read("main-admission-leads.js");
+  const registeredCandidates = read("registered-candidates.js");
+
+  [preWorkshop, postWorkshop, registeredCandidates].forEach((source) => {
+    assert.match(source, /function getLeadImportTimestamp\(lead\)/);
+    assert.match(source, /createdAtExact/);
+    assert.match(source, /function sortLeadsNewestFirst\(leads\)/);
+    assert.match(source, /getLeadImportTimestamp\(b\) - getLeadImportTimestamp\(a\)/);
+    assert.match(source, /return sortLeadsNewestFirst\(filtered\);/);
+  });
+  assert.match(mainAdmission, /function getLeadImportTimestamp\(lead\)/);
+  assert.match(mainAdmission, /createdAtExact/);
+  assert.match(mainAdmission, /function sortLeadsNewestFirst\(leads\)/);
+  assert.match(mainAdmission, /getLeadImportTimestamp\(b\) - getLeadImportTimestamp\(a\)/);
+  assert.match(mainAdmission, /function applyLeadSorting\(leads\) \{\s*return sortLeadsNewestFirst\(leads\);/);
+  assert.match(mainAdmission, /return applyLeadSorting\(filtered\);/);
+  assert.doesNotMatch(mainAdmission, /id="mainAdmissionLocationSortBtn"/);
 });
 
 test("admission course permission matching uses catalog course ids", () => {

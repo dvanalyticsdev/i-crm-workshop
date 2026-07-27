@@ -549,6 +549,30 @@ function getLeadOwnerTimelineValue(lead) {
   return String(lead?.createdAtExact || lead?.createdAt || "").trim();
 }
 
+function getLeadImportTimestamp(lead) {
+  const candidates = [
+    lead?.createdAtExact,
+    lead?.createdAt,
+    lead?.importedAt
+  ];
+  for (const value of candidates) {
+    const raw = String(value || "").trim();
+    if (!raw) continue;
+    const parsed = /^\d{4}-\d{2}-\d{2}$/.test(raw)
+      ? new Date(`${raw}T00:00:00+05:30`).getTime()
+      : new Date(raw).getTime();
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
+function sortLeadsNewestFirst(leads) {
+  return [...(Array.isArray(leads) ? leads : [])].sort((a, b) => (
+    getLeadImportTimestamp(b) - getLeadImportTimestamp(a)
+    || String(b?.id || "").localeCompare(String(a?.id || ""))
+  ));
+}
+
 function filterByLeadOwner(leads) {
   if (filter.leadOwner === "all") {
     return leads;
@@ -1360,7 +1384,7 @@ function filterLeads(leads) {
     filtered = filtered.filter((lead) => filterIncludesValue(filter.workshopJoiningStatus, lead.workshopJoiningStatus));
   }
 
-  return filtered;
+  return sortLeadsNewestFirst(filtered);
 }
 
 function renderActivityPanel(lead) {
