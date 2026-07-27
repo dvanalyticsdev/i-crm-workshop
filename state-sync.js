@@ -142,6 +142,44 @@ export function acceptServerState(snapshot, etag = null) {
   return setCurrentState(snapshot);
 }
 
+export function acceptLeadUpdates(leads, etag = null, updatedAt = null) {
+  const nextLeads = (Array.isArray(leads) ? leads : [leads])
+    .filter((lead) => lead && lead.id !== undefined && lead.id !== null);
+  if (!nextLeads.length) {
+    return getStateSnapshot();
+  }
+
+  if (etag) {
+    lastStateETag = etag;
+  }
+
+  const byId = new Map(nextLeads.map((lead) => [String(lead.id), lead]));
+  const currentLeads = Array.isArray(currentState.leads) ? currentState.leads : [];
+  const seen = new Set();
+  const mergedLeads = currentLeads.map((lead) => {
+    const key = String(lead?.id);
+    const patch = byId.get(key);
+    if (!patch) {
+      return lead;
+    }
+    seen.add(key);
+    return { ...lead, ...patch };
+  });
+
+  nextLeads.forEach((lead) => {
+    const key = String(lead.id);
+    if (!seen.has(key)) {
+      mergedLeads.push(lead);
+    }
+  });
+
+  return setCurrentState({
+    ...currentState,
+    leads: mergedLeads,
+    updatedAt: updatedAt || currentState.updatedAt
+  });
+}
+
 export async function refreshState() {
   const headers = { Accept: "application/json" };
   // Send the ETag from the previous response so the server can return 304 when
@@ -444,10 +482,11 @@ export async function changeOwnPassword({ currentPassword, newPassword }) {
   return { ok: true };
 }
 
-export async function bootstrapLocalState() {
+export async function bootstrapLocalState(options = {}) {
   if (!bootstrapPromise) {
     bootstrapPromise = (async () => {
-      const shouldRefreshState = !lastStateRefreshAt || (Date.now() - lastStateRefreshAt) > 1500;
+      const skipStateRefresh = options?.skipStateRefresh === true;
+      const shouldRefreshState = !skipStateRefresh && (!lastStateRefreshAt || (Date.now() - lastStateRefreshAt) > 1500);
 
       await Promise.all([
         shouldRefreshState ? refreshState().catch(() => getStateSnapshot()) : Promise.resolve(getStateSnapshot()),

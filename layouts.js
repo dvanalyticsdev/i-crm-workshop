@@ -17,6 +17,16 @@ let currentRoute = window.location.pathname.split("/").pop() || "dashboard.html"
 let activeSession = null;
 let activeNavigationToken = 0;
 let pendingRouteReadyState = null;
+const ROUTE_LOADING_STALE_TIMEOUT_MS = 20000;
+const NOTIFICATION_POLL_INTERVAL_MS = 6000;
+const NOTIFICATION_LIST_LIMIT = 30;
+const NOTIFICATION_LIST_CACHE_MS = 15000;
+let notificationPollTimerId = null;
+let notificationPollTimeoutId = null;
+let notificationListCache = {
+  items: null,
+  fetchedAt: 0
+};
 const loadedAssetUrls = new Set(
   Array.from(document.querySelectorAll("script[src]:not([type='module'])"), (script) => script.src)
 );
@@ -34,6 +44,7 @@ const PAGE_PERMISSION_MAP = {
   "task-tracker.html": "taskTracker",
   "lost-leads.html": "lostLeads",
   "monitoring.html": "monitoring",
+  "performance-logs.html": "performanceLogs",
   "counselor-management.html": "counselorManagement",
   "lead-control.html": "leadControl",
   "meta-integration.html": "metaIntegration",
@@ -56,6 +67,7 @@ const DEFAULT_PERMISSIONS = {
   taskTracker: true,
   lostLeads: true,
   monitoring: true,
+  performanceLogs: false,
   counselorManagement: false,
   leadControl: true,
   metaIntegration: true,
@@ -90,7 +102,7 @@ const SIDEBAR_GROUPS = [
   {
     id: "control-center",
     label: "Control Center",
-    routes: ["counselor-management.html", "lead-control.html"]
+    routes: ["counselor-management.html", "lead-control.html", "performance-logs.html"]
   },
   {
     id: "channels",
@@ -112,6 +124,10 @@ function clearRouteLoadingTimer(mainContent) {
   if (mainContent?.__dvRouteLoadingTimer) {
     window.clearInterval(mainContent.__dvRouteLoadingTimer);
     delete mainContent.__dvRouteLoadingTimer;
+  }
+  if (mainContent?.__dvRouteLoadingStaleTimer) {
+    window.clearTimeout(mainContent.__dvRouteLoadingStaleTimer);
+    delete mainContent.__dvRouteLoadingStaleTimer;
   }
 }
 
@@ -193,6 +209,12 @@ function showRouteLoadingOverlay(mainContent) {
       timerElement.textContent = `${((Date.now() - startedAt) / 1000).toFixed(1)}s`;
     }
   }, 100);
+  mainContent.__dvRouteLoadingStaleTimer = window.setTimeout(() => {
+    if (!mainContent.isConnected || pendingRouteReadyState) {
+      return;
+    }
+    hideRouteLoadingOverlay(mainContent);
+  }, ROUTE_LOADING_STALE_TIMEOUT_MS);
 }
 
 function hideRouteLoadingOverlay(mainContent) {
@@ -205,6 +227,18 @@ function hideRouteLoadingOverlay(mainContent) {
   delete mainContent.__dvRouteLoadingStartedAt;
   mainContent.classList.remove("route-loading");
   mainContent.querySelector(":scope > .route-loading-overlay")?.remove();
+}
+
+function recoverStaleRouteLoadingOverlay() {
+  const mainContent = document.querySelector(".main-content.route-loading");
+  if (!mainContent) {
+    return;
+  }
+  if (pendingRouteReadyState) {
+    pendingRouteReadyState.resolve?.();
+    return;
+  }
+  hideRouteLoadingOverlay(mainContent);
 }
 
 function waitForNextPaint(frameCount = 1) {
@@ -407,6 +441,7 @@ function rebuildSidebarSections() {
     "task-tracker.html": "Task Tracker",
     "lost-leads.html": "Lost Leads",
     "monitoring.html": "Monitoring",
+    "performance-logs.html": "Performance Logs",
     "counselor-management.html": "Counselor Management",
     "lead-control.html": "Lead & Data Control",
     "meta-integration.html": "Integration",
@@ -428,6 +463,9 @@ function rebuildSidebarSections() {
     link.className = `sidebar-link${options.bottom ? " sidebar-link-bottom" : ""}${options.adminOnly ? " admin-only" : ""}`;
     if (options.adminOnly) {
       link.setAttribute("data-admin-only", "true");
+    }
+    if (options.superAdminOnly) {
+      link.setAttribute("data-super-admin-only", "true");
     }
     if (options.counselorOnly) {
       link.setAttribute("data-counselor-only", "true");
@@ -460,6 +498,10 @@ function rebuildSidebarSections() {
     "lead-control.html": {
       adminOnly: true,
       bottom: true
+    },
+    "performance-logs.html": {
+      bottom: true,
+      superAdminOnly: true
     },
     "meta-integration.html": {
       adminOnly: true,
@@ -617,6 +659,13 @@ function getSessionPermissions(session) {
     };
   }
 
+  if (session?.role === "admin") {
+    return {
+      ...base,
+      performanceLogs: false
+    };
+  }
+
   if (session?.role === "counselor") {
     const counselors = getCounselors();
     const counselor = counselors.find(
@@ -632,7 +681,8 @@ function getSessionPermissions(session) {
       elementorIntegration: Boolean(counselor?.permissions?.elementorIntegration),
       mcubeIntegration: Boolean(counselor?.permissions?.mcubeIntegration),
       leadFlowControl: Boolean(counselor?.permissions?.leadFlowControl),
-      reachout: Boolean(counselor?.permissions?.reachout)
+      reachout: Boolean(counselor?.permissions?.reachout),
+      performanceLogs: false
     };
   }
 
@@ -640,7 +690,8 @@ function getSessionPermissions(session) {
     return {
       ...base,
       counselorManagement: false,
-      leadControl: false
+      leadControl: false,
+      performanceLogs: false
     };
   }
 
@@ -1076,10 +1127,26 @@ function bindClientRouter() {
 
     void navigateToRoute(route, { pushState: false });
   });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") {
+      return;
+    }
+    recoverStaleRouteLoadingOverlay();
+    if (activeSession) {
+      void refreshNotificationSummary();
+      const dropdown = document.getElementById('notification-dropdown');
+      if (dropdown && !dropdown.classList.contains('hidden')) {
+        void refreshDropdownList({ preferCache: true });
+      }
+    }
+  });
 }
 
 async function guardProtectedPages() {
-  await bootstrapLocalState();
+  const route = window.location.pathname.split("/").pop() || "dashboard.html";
+  const skipStateRefresh = ["main-admission-leads.html", "performance-logs.html"].includes(route);
+  await bootstrapLocalState({ skipStateRefresh });
   initThemeSystem();
   ensureMainContentStructure(document.querySelector(".main-content"));
   const session = getSession() || await refreshSession().catch(() => null);
@@ -1317,10 +1384,19 @@ function dismissToast(toast) {
 function startNotificationPolling(session) {
   if (!session || !session.role) return;
 
-  const pollInterval = 6000; // poll every 6s
-  let timerId = null;
+  if (notificationPollTimerId) {
+    clearInterval(notificationPollTimerId);
+    notificationPollTimerId = null;
+  }
+  if (notificationPollTimeoutId) {
+    clearTimeout(notificationPollTimeoutId);
+    notificationPollTimeoutId = null;
+  }
 
   async function poll() {
+    if (document.visibilityState === "hidden") {
+      return;
+    }
     try {
       // 1. Poll popups (undelivered notifications)
       const popupResp = await fetch('/api/notifications?popup=true', {
@@ -1329,7 +1405,8 @@ function startNotificationPolling(session) {
         headers: { 'Accept': 'application/json' }
       });
       if (popupResp.status === 401) {
-        clearInterval(timerId);
+        clearInterval(notificationPollTimerId);
+        notificationPollTimerId = null;
         return;
       }
       if (popupResp.ok) {
@@ -1339,24 +1416,28 @@ function startNotificationPolling(session) {
         }
       }
 
-      // 2. Poll full unread list to update bell badge and dropdown items
-      const listResp = await fetch('/api/notifications', {
-        cache: 'no-store',
-        credentials: 'same-origin',
-        headers: { 'Accept': 'application/json' }
-      });
-      if (listResp.ok) {
-        const unreadList = await listResp.json();
-        updateBellBadge(unreadList);
-      }
+      // 2. Poll cheap unread count for the bell badge. The full list loads on demand.
+      await refreshNotificationSummary();
     } catch (err) {
       console.warn("Failed to poll notifications:", err);
     }
   }
 
-  timerId = setInterval(poll, pollInterval);
+  notificationPollTimerId = setInterval(poll, NOTIFICATION_POLL_INTERVAL_MS);
   // Do an initial poll after a short delay
-  setTimeout(poll, 1500);
+  notificationPollTimeoutId = setTimeout(poll, 500);
+}
+
+async function refreshNotificationSummary() {
+  const summaryResp = await fetch('/api/notifications/summary', {
+    cache: 'no-store',
+    credentials: 'same-origin',
+    headers: { 'Accept': 'application/json' }
+  });
+  if (summaryResp.ok) {
+    const summary = await summaryResp.json();
+    updateBellBadge(Number(summary?.unreadCount) || 0);
+  }
 }
 
 function injectNotificationBell() {
@@ -1410,7 +1491,7 @@ function injectNotificationBell() {
     if (!isOpen) {
       dropdown.classList.remove('hidden');
       bellBtn.setAttribute('aria-expanded', 'true');
-      refreshDropdownList();
+      refreshDropdownList({ preferCache: true });
     }
   });
 
@@ -1425,6 +1506,7 @@ function injectNotificationBell() {
       });
       document.getElementById('bell-badge-count').textContent = '0';
       document.getElementById('bell-badge-count').classList.add('hidden');
+      notificationListCache = { items: [], fetchedAt: Date.now() };
       document.getElementById('dropdown-notifications-list').innerHTML = `
         <div class="empty-dropdown">No new notifications</div>
       `;
@@ -1454,20 +1536,37 @@ function closeAllDropdowns() {
   if (headerMenuBtn) headerMenuBtn.setAttribute("aria-expanded", "false");
 }
 
-async function refreshDropdownList() {
+async function refreshDropdownList(options = {}) {
+  const listContainer = document.getElementById('dropdown-notifications-list');
+  const now = Date.now();
+  if (options.preferCache && Array.isArray(notificationListCache.items) && now - notificationListCache.fetchedAt < NOTIFICATION_LIST_CACHE_MS) {
+    renderNotificationsList(notificationListCache.items);
+    return;
+  }
+
   try {
-    const resp = await fetch('/api/notifications', {
+    if (listContainer) {
+      listContainer.innerHTML = `<div class="empty-dropdown">Loading notifications...</div>`;
+    }
+    const resp = await fetch(`/api/notifications?limit=${NOTIFICATION_LIST_LIMIT}`, {
       cache: 'no-store',
       credentials: 'same-origin',
       headers: { 'Accept': 'application/json' }
     });
     if (resp.ok) {
       const unreadList = await resp.json();
+      notificationListCache = {
+        items: Array.isArray(unreadList) ? unreadList : [],
+        fetchedAt: Date.now()
+      };
       renderNotificationsList(unreadList);
-      updateBellBadge(unreadList);
+      updateBellBadge(Array.isArray(unreadList) ? unreadList.length : 0);
     }
   } catch (err) {
     console.warn("Failed to refresh notifications list", err);
+    if (listContainer) {
+      listContainer.innerHTML = `<div class="empty-dropdown">Unable to load notifications</div>`;
+    }
   }
 }
 
@@ -1506,6 +1605,10 @@ function renderNotificationsList(unreadList) {
           body: JSON.stringify({ ids: [id] })
         });
         item.remove();
+        notificationListCache.items = Array.isArray(notificationListCache.items)
+          ? notificationListCache.items.filter((notification) => notification.id !== id)
+          : null;
+        notificationListCache.fetchedAt = Date.now();
         
         const badge = document.getElementById('bell-badge-count');
         if (badge) {
@@ -1530,7 +1633,7 @@ function updateBellBadge(unreadList) {
   const badge = document.getElementById('bell-badge-count');
   if (!badge) return;
 
-  const count = unreadList.length;
+  const count = Array.isArray(unreadList) ? unreadList.length : Number(unreadList) || 0;
   if (count > 0) {
     badge.textContent = count > 99 ? '99+' : count;
     badge.classList.remove('hidden');
@@ -1540,7 +1643,7 @@ function updateBellBadge(unreadList) {
   }
 
   const dropdown = document.getElementById('notification-dropdown');
-  if (dropdown && !dropdown.classList.contains('hidden')) {
+  if (Array.isArray(unreadList) && dropdown && !dropdown.classList.contains('hidden')) {
     renderNotificationsList(unreadList);
   }
 }

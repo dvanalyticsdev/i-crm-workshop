@@ -27,6 +27,7 @@ const MONGODB_MCUBE_RETRY_COLLECTION = process.env.MONGODB_MCUBE_RETRY_COLLECTIO
 const MONGODB_REACHOUT_CONFIG_COLLECTION = process.env.MONGODB_REACHOUT_CONFIG_COLLECTION || "reachout_config";
 const MONGODB_REACHOUT_LOGS_COLLECTION = process.env.MONGODB_REACHOUT_LOGS_COLLECTION || "reachout_logs";
 const MONGODB_REACHOUT_MEDIA_COLLECTION = process.env.MONGODB_REACHOUT_MEDIA_COLLECTION || "reachout_media";
+const MONGODB_PERFORMANCE_LOGS_COLLECTION = process.env.MONGODB_PERFORMANCE_LOGS_COLLECTION || "performance_logs";
 const MONGODB_LSQ_ARCHIVE_COLLECTION = process.env.MONGODB_LSQ_ARCHIVE_COLLECTION || "lsq_archive_leads";
 const META_WEBHOOK_FORWARD_URL = String(process.env.META_WEBHOOK_FORWARD_URL || "").trim();
 const ADMIN_LOGIN_ID = String(process.env.ADMIN_LOGIN_ID || "").trim();
@@ -121,7 +122,8 @@ const PAGE_ACCESS_KEYS = [
   "elementorIntegration",
   "mcubeIntegration",
   "leadFlowControl",
-  "reachout"
+  "reachout",
+  "performanceLogs"
 ];
 const FULL_PAGE_ACCESS = Object.freeze(Object.fromEntries(PAGE_ACCESS_KEYS.map((key) => [key, true])));
 const COUNSELOR_DEFAULT_PAGE_ACCESS = Object.freeze({
@@ -143,16 +145,19 @@ const COUNSELOR_DEFAULT_PAGE_ACCESS = Object.freeze({
   mcubeIntegration: true,
   leadFlowControl: true,
   reachout: true,
+  performanceLogs: false,
   postWorkshop: true
 });
 const MARKETING_DEFAULT_PAGE_ACCESS = Object.freeze({
   ...FULL_PAGE_ACCESS,
   counselorManagement: false,
-  leadControl: false
+  leadControl: false,
+  performanceLogs: false
 });
 const ADMIN_DEFAULT_PAGE_ACCESS = Object.freeze({
   ...FULL_PAGE_ACCESS,
-  counselorManagement: true
+  counselorManagement: true,
+  performanceLogs: false
 });
 
 function toKolkataDateKey(date = new Date()) {
@@ -280,6 +285,26 @@ app.use(express.json({
   }
 }));
 app.use(express.static(ROOT_DIR));
+app.use((req, res, next) => {
+  if (!String(req.path || "").startsWith("/api/")) {
+    return next();
+  }
+
+  const startedAt = Date.now();
+  res.on("finish", () => {
+    recordPerformanceEvent({
+      kind: "api",
+      operation: getRequestPath(req),
+      route: getRequestPath(req),
+      durationMs: Date.now() - startedAt,
+      success: res.statusCode < 400,
+      status: res.statusCode < 400 ? "success" : "failure",
+      message: res.statusCode >= 400 ? `HTTP ${res.statusCode}` : ""
+    });
+  });
+
+  return next();
+});
 
 let stateCollection;
 let sessionCollection;
@@ -296,6 +321,7 @@ let mcubeRetryCollection;
 let reachoutConfigCollection;
 let reachoutLogsCollection;
 let reachoutMediaCollection;
+let performanceLogsCollection;
 let leadsCollection;
 let counselorsCollection;
 let tasksCollection;
@@ -364,6 +390,7 @@ async function resetMongoConnection() {
   reachoutConfigCollection = null;
   reachoutLogsCollection = null;
   reachoutMediaCollection = null;
+  performanceLogsCollection = null;
   leadsCollection = null;
   counselorsCollection = null;
   tasksCollection = null;
@@ -601,6 +628,133 @@ function buildStateVersionResponse(state) {
       tasks: Array.isArray(normalized.tasks) ? normalized.tasks.length : 0,
       allocation: Array.isArray(normalized.allocation) ? normalized.allocation.length : 0
     }
+  };
+}
+
+function getRequestPath(req) {
+  return String(req?.originalUrl || req?.url || "").split("?")[0] || "unknown";
+}
+
+function getPerformanceStatus(avgMs, successRate) {
+  if (successRate < 95 || avgMs > 10000) return "Critical";
+  if (successRate < 98 || avgMs > 5000) return "Slow";
+  return "Good";
+}
+
+function recordPerformanceEvent(event = {}) {
+  if (!performanceLogsCollection) {
+    return;
+  }
+
+  const durationMs = Math.max(0, Math.round(Number(event.durationMs) || 0));
+  const createdAt = new Date().toISOString();
+  const doc = {
+    kind: String(event.kind || "api"),
+    operation: String(event.operation || "unknown"),
+    route: String(event.route || ""),
+    page: String(event.page || ""),
+    status: String(event.status || "success"),
+    durationMs,
+    success: event.success !== false,
+    count: Number(event.count || 0),
+    message: String(event.message || ""),
+    createdAt,
+    createdAtDate: new Date(createdAt)
+  };
+
+  void withMongoRetry(
+    () => performanceLogsCollection.insertOne(doc),
+    { retries: 0, label: "Write performance log" }
+  ).catch((error) => {
+    console.warn("[performance] log write failed:", error?.message || error);
+  });
+}
+
+function recordRoutePerformance(req, startedAt, { operation, success = true, status = "success", count = 0, message = "" } = {}) {
+  recordPerformanceEvent({
+    kind: "api",
+    operation: operation || getRequestPath(req),
+    route: getRequestPath(req),
+    durationMs: Date.now() - startedAt,
+    success,
+    status,
+    count,
+    message
+  });
+}
+
+function buildPerformanceSummary(logs = []) {
+  const safeLogs = Array.isArray(logs) ? logs : [];
+  const byOperation = new Map();
+  let totalSuccess = 0;
+
+  safeLogs.forEach((log) => {
+    const operation = String(log.operation || log.route || log.page || "unknown");
+    if (!byOperation.has(operation)) {
+      byOperation.set(operation, {
+        operation,
+        kind: String(log.kind || "api"),
+        total: 0,
+        success: 0,
+        failure: 0,
+        totalDuration: 0,
+        maxDurationMs: 0,
+        durations: []
+      });
+    }
+    const row = byOperation.get(operation);
+    const durationMs = Math.max(0, Number(log.durationMs) || 0);
+    row.total += 1;
+    row.totalDuration += durationMs;
+    row.maxDurationMs = Math.max(row.maxDurationMs, durationMs);
+    row.durations.push(durationMs);
+    if (log.success !== false && String(log.status || "").toLowerCase() !== "failure") {
+      row.success += 1;
+      totalSuccess += 1;
+    } else {
+      row.failure += 1;
+    }
+  });
+
+  const operationRows = Array.from(byOperation.values()).map((row) => {
+    const sorted = row.durations.sort((a, b) => a - b);
+    const p95Index = sorted.length ? Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1) : 0;
+    const avgDurationMs = row.total ? Math.round(row.totalDuration / row.total) : 0;
+    const successRate = row.total ? Math.round((row.success / row.total) * 1000) / 10 : 100;
+    return {
+      operation: row.operation,
+      kind: row.kind,
+      total: row.total,
+      success: row.success,
+      failure: row.failure,
+      avgDurationMs,
+      p95DurationMs: sorted[p95Index] || 0,
+      maxDurationMs: row.maxDurationMs,
+      successRate,
+      status: getPerformanceStatus(avgDurationMs, successRate)
+    };
+  }).sort((a, b) => b.avgDurationMs - a.avgDurationMs || b.total - a.total);
+
+  const total = safeLogs.length;
+  const successRate = total ? Math.round((totalSuccess / total) * 1000) / 10 : 100;
+  const avgDurationMs = total
+    ? Math.round(safeLogs.reduce((sum, log) => sum + (Number(log.durationMs) || 0), 0) / total)
+    : 0;
+
+  return {
+    generatedAt: new Date().toISOString(),
+    windowLabel: "Last 14 days",
+    totalEvents: total,
+    successRate,
+    avgDurationMs,
+    status: getPerformanceStatus(avgDurationMs, successRate),
+    operations: operationRows.slice(0, 30),
+    slowEvents: [...safeLogs]
+      .sort((a, b) => (Number(b.durationMs) || 0) - (Number(a.durationMs) || 0))
+      .slice(0, 20),
+    recentFailures: safeLogs
+      .filter((log) => log.success === false || String(log.status || "").toLowerCase() === "failure")
+      .slice(0, 20)
   };
 }
 
@@ -1592,6 +1746,7 @@ async function initMongo() {
         reachoutConfigCollection = db.collection(MONGODB_REACHOUT_CONFIG_COLLECTION);
         reachoutLogsCollection = db.collection(MONGODB_REACHOUT_LOGS_COLLECTION);
         reachoutMediaCollection = db.collection(MONGODB_REACHOUT_MEDIA_COLLECTION);
+        performanceLogsCollection = db.collection(MONGODB_PERFORMANCE_LOGS_COLLECTION);
 
         leadsCollection      = db.collection("leads");
         counselorsCollection = db.collection("counselors");
@@ -1649,6 +1804,18 @@ async function initMongo() {
         await reachoutMediaCollection.createIndex(
           { createdAt: -1 },
           { background: true }
+        ).catch(() => undefined);
+        await performanceLogsCollection.createIndex(
+          { createdAt: -1 },
+          { background: true }
+        ).catch(() => undefined);
+        await performanceLogsCollection.createIndex(
+          { kind: 1, operation: 1, createdAt: -1 },
+          { background: true }
+        ).catch(() => undefined);
+        await performanceLogsCollection.createIndex(
+          { createdAt: 1 },
+          { expireAfterSeconds: 14 * 24 * 60 * 60, background: true }
         ).catch(() => undefined);
         await metaRetryCollection.createIndex(
           { leadgenId: 1 },
@@ -1727,6 +1894,7 @@ async function initMongo() {
         await tasksCollection.createIndex({ counselor: 1, dueDate: 1 }, { background: true }).catch(() => undefined);
         await counselorsCollection.createIndex({ email: 1 }, { unique: true, background: true }).catch(() => undefined);
         await notificationsCollection.createIndex({ userId: 1, read: 1 }, { background: true }).catch(() => undefined);
+        await notificationsCollection.createIndex({ userId: 1, read: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
 
         // One-time automatic schema migration
         try {
@@ -1801,6 +1969,7 @@ async function initMongo() {
         reachoutConfigCollection = new MockCollection("reachoutConfig");
         reachoutLogsCollection = new MockCollection("reachoutLogs");
         reachoutMediaCollection = new MockCollection("reachoutMedia");
+        performanceLogsCollection = new MockCollection("performanceLogs");
         leadsCollection      = new MockCollection("leads");
         counselorsCollection = new MockCollection("counselors");
         tasksCollection      = new MockCollection("tasks");
@@ -9171,7 +9340,8 @@ function getLeadAssignmentResetPatch(lead, counselor, assignedAt) {
     workshopActivityTouchedByAssignee: false,
     admissionActivityTouchedByAssignee: false,
     registeredActivityTouchedByAssignee: false,
-    mainAdmissionActivityTouchedByAssignee: false
+    mainAdmissionActivityTouchedByAssignee: false,
+    updatedAt: assignedAt
   };
 
   if (!isAdmissionSopScopedLead(lead)) {
@@ -10899,12 +11069,14 @@ app.get("/api/notifications", async (req, res) => {
     const session = activeSession.session;
     const userId = getNotificationInboxUserId(session);
     const isPopupOnly = req.query.popup === "true";
-    const state = await getStateDoc();
+    const requestedLimit = Number.parseInt(String(req.query.limit || "30"), 10);
+    const listLimit = Math.min(50, Math.max(1, Number.isFinite(requestedLimit) ? requestedLimit : 30));
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
     res.setHeader("Pragma", "no-cache");
     res.setHeader("Expires", "0");
 
     if (isPopupOnly) {
+      const state = await getStateDoc();
       await createDueTaskNotificationsForSession(session, state);
     }
 
@@ -10926,12 +11098,32 @@ app.get("/api/notifications", async (req, res) => {
       const notifications = await notificationsCollection
         .find({ userId, read: false })
         .sort({ createdAt: -1 })
-        .limit(30)
+        .limit(listLimit)
         .toArray();
       return res.json(notifications);
     }
   } catch (error) {
     return res.status(500).json({ message: "Failed to fetch notifications", details: error.message });
+  }
+});
+
+app.get("/api/notifications/summary", async (req, res) => {
+  try {
+    await initMongo();
+    const activeSession = await getSessionFromRequest(req);
+    if (!activeSession) {
+      return res.status(401).json({ message: "No active session." });
+    }
+
+    const userId = getNotificationInboxUserId(activeSession.session);
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+
+    const unreadCount = await notificationsCollection.countDocuments({ userId, read: false });
+    return res.json({ unreadCount, updatedAt: new Date().toISOString() });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch notification summary", details: error.message });
   }
 });
 
@@ -11162,8 +11354,9 @@ app.post("/api/leads/:leadId/activity", async (req, res) => {
 
     const history = Array.isArray(lead[config.historyField]) ? lead[config.historyField] : [];
     const nextCount = history.length + 1;
+    const now = new Date().toISOString();
     const event = {
-      at: new Date().toISOString(),
+      at: now,
       source: config.source,
       updates: patch,
       by: session.name || session.email || session.role
@@ -11176,7 +11369,8 @@ app.post("/api/leads/:leadId/activity", async (req, res) => {
       $set: {
         ...patch,
         ...getLeadActivityAssigneePatch(stage, session),
-        [config.countField]: nextCount
+        [config.countField]: nextCount,
+        updatedAt: now
       },
       $push: {
         [config.historyField]: event
@@ -11257,19 +11451,21 @@ app.post("/api/leads/:leadId/activity", async (req, res) => {
       }
       await stateCollection.updateOne(
         { _id: STATE_DOC_ID },
-        { $set: { updatedAt: new Date().toISOString() } },
+        { $set: { updatedAt: now } },
         { upsert: true }
       );
+      cachedStateDoc = null;
+      cachedStateDocAt = 0;
     }
 
     if (!result.modifiedCount) {
       return res.status(409).json({ message: "Lead changed before the activity could be saved. Please reload and retry." });
     }
 
-    const nextState = await refreshStateAfterAtomicUpdate();
-    const updatedLead = findLeadByIdentity(nextState, leadId, leadEmail);
-    res.setHeader("ETag", buildStateEtag(nextState));
-    return res.json({ ok: true, lead: updatedLead, state: buildStateResponse(nextState) });
+    const updatedLead = decorateLeadForStorage(await leadsCollection.findOne(query));
+    const updatedAt = updatedLead?.updatedAt || new Date().toISOString();
+    res.setHeader("ETag", buildStateEtag({ updatedAt }));
+    return res.json({ ok: true, lead: updatedLead, updatedAt });
   } catch (error) {
     return res.status(500).json({ message: "Failed to update lead activity", details: error.message });
   }
@@ -11306,9 +11502,10 @@ app.post("/api/leads/:leadId/notes", async (req, res) => {
     if (leadEmail) {
       query.email = String(leadEmail).trim().toLowerCase();
     }
+    const noteUpdatedAt = new Date().toISOString();
     const result = await leadsCollection.updateOne(
       query,
-      { $push: { leadNotes: note } }
+      { $push: { leadNotes: note }, $set: { updatedAt: noteUpdatedAt } }
     );
     if (result.modifiedCount) {
       await recordActivity({
@@ -11322,19 +11519,21 @@ app.post("/api/leads/:leadId/notes", async (req, res) => {
       });
       await stateCollection.updateOne(
         { _id: STATE_DOC_ID },
-        { $set: { updatedAt: new Date().toISOString() } },
+        { $set: { updatedAt: noteUpdatedAt } },
         { upsert: true }
       );
+      cachedStateDoc = null;
+      cachedStateDocAt = 0;
     }
 
     if (!result.modifiedCount) {
       return res.status(409).json({ message: "Lead changed before the note could be saved. Please reload and retry." });
     }
 
-    const nextState = await refreshStateAfterAtomicUpdate();
-    const updatedLead = findLeadByIdentity(nextState, leadId, leadEmail);
-    res.setHeader("ETag", buildStateEtag(nextState));
-    return res.json({ ok: true, lead: updatedLead, state: buildStateResponse(nextState) });
+    const updatedLead = decorateLeadForStorage(await leadsCollection.findOne(query));
+    const updatedAt = updatedLead?.updatedAt || new Date().toISOString();
+    res.setHeader("ETag", buildStateEtag({ updatedAt }));
+    return res.json({ ok: true, lead: updatedLead, updatedAt });
   } catch (error) {
     return res.status(500).json({ message: "Failed to save note", details: error.message });
   }
@@ -11368,9 +11567,10 @@ app.delete("/api/leads/:leadId/notes/:noteIndex", async (req, res) => {
     if (leadEmail) {
       query.email = String(leadEmail).trim().toLowerCase();
     }
+    const deleteNoteUpdatedAt = new Date().toISOString();
     const result = await leadsCollection.updateOne(
       query,
-      { $set: { leadNotes: nextNotes } }
+      { $set: { leadNotes: nextNotes, updatedAt: deleteNoteUpdatedAt } }
     );
     if (result.modifiedCount) {
       const deletedNoteText = notes[noteIndex]?.text || "";
@@ -11385,18 +11585,19 @@ app.delete("/api/leads/:leadId/notes/:noteIndex", async (req, res) => {
       });
       await stateCollection.updateOne(
         { _id: STATE_DOC_ID },
-        { $set: { updatedAt: new Date().toISOString() } },
+        { $set: { updatedAt: deleteNoteUpdatedAt } },
         { upsert: true }
       );
+      cachedStateDoc = null;
+      cachedStateDocAt = 0;
     }
     if (!result.modifiedCount) {
       return res.status(409).json({ message: "Lead changed before the note could be deleted. Please reload and retry." });
     }
 
-    const nextState = await refreshStateAfterAtomicUpdate();
-    const updatedLead = findLeadByIdentity(nextState, leadId, leadEmail);
-    res.setHeader("ETag", buildStateEtag(nextState));
-    return res.json({ ok: true, lead: updatedLead, state: buildStateResponse(nextState) });
+    const updatedLead = decorateLeadForStorage(await leadsCollection.findOne(query));
+    res.setHeader("ETag", buildStateEtag({ updatedAt: deleteNoteUpdatedAt }));
+    return res.json({ ok: true, lead: updatedLead, updatedAt: deleteNoteUpdatedAt });
   } catch (error) {
     return res.status(500).json({ message: "Failed to delete note", details: error.message });
   }
@@ -11537,9 +11738,10 @@ async function assignLeadsHandler(req, res) {
         { $set: { updatedAt: now } },
         { upsert: true }
       );
+      cachedStateDoc = null;
+      cachedStateDocAt = 0;
 
-      const nextState = await refreshStateAfterAtomicUpdate();
-      res.setHeader("ETag", buildStateEtag(nextState));
+      res.setHeader("ETag", buildStateEtag({ updatedAt: now }));
       return res.json({
         ok: true,
         updatedCount: 0,
@@ -11548,7 +11750,8 @@ async function assignLeadsHandler(req, res) {
         skippedProtectedCount,
         skippedInterestedCount,
         skippedBlockedSameCounselorCount,
-        state: buildStateResponse(nextState)
+        leads: [],
+        updatedAt: now
       });
     }
 
@@ -11560,7 +11763,7 @@ async function assignLeadsHandler(req, res) {
     const now = new Date().toISOString();
     const result = await leadsCollection.updateMany(
       { id: { $in: assignableLeadIds } },
-      { $set: { counselor } }
+      { $set: { counselor, updatedAt: now } }
     );
 
     const matchedCount = Number.isFinite(Number(result.matchedCount))
@@ -11649,9 +11852,13 @@ async function assignLeadsHandler(req, res) {
       { $set: { updatedAt: now } },
       { upsert: true }
     );
+    cachedStateDoc = null;
+    cachedStateDocAt = 0;
 
-    const nextState = await refreshStateAfterAtomicUpdate();
-    res.setHeader("ETag", buildStateEtag(nextState));
+    const updatedLeads = decorateLeadListForStorage(
+      await leadsCollection.find({ id: { $in: assignableLeadIds } }).toArray()
+    );
+    res.setHeader("ETag", buildStateEtag({ updatedAt: now }));
     return res.json({
       ok: true,
       updatedCount: result.modifiedCount,
@@ -11660,7 +11867,8 @@ async function assignLeadsHandler(req, res) {
       skippedProtectedCount,
       skippedInterestedCount,
       skippedBlockedSameCounselorCount,
-      state: buildStateResponse(nextState)
+      leads: updatedLeads,
+      updatedAt: now
     });
   } catch (error) {
     return res.status(500).json({ message: "Failed to assign leads", details: error.message });
@@ -12388,6 +12596,109 @@ app.get("/api/state/version", async (req, res) => {
     return res.json(version);
   } catch (error) {
     return res.status(500).json({ message: "Failed to fetch state version", details: error.message });
+  }
+});
+
+app.get("/api/leads/scoped", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "counselor"]);
+    if (!session) return;
+
+    const permissions = getSessionPagePermissions(session);
+    if (!permissions.mainAdmissionLeads) {
+      return res.status(403).json({ message: "You do not have permission to view Main Admission Leads." });
+    }
+
+    const section = String(req.query?.section || "").trim().toLowerCase();
+    if (section !== "main-admission") {
+      return res.status(400).json({ message: "Unsupported scoped lead section." });
+    }
+
+    const [stateMeta, counselors] = await Promise.all([
+      withMongoRetry(
+        () => stateCollection.findOne({ _id: STATE_DOC_ID }),
+        { retries: 1, label: "Load scoped state metadata" }
+      ),
+      withMongoRetry(
+        () => counselorsCollection.find({}).toArray(),
+        { retries: 1, label: "Load scoped counselors" }
+      )
+    ]);
+
+    const query = { leadPipeline: MAIN_ADMISSION_PIPELINE };
+    if (session.role === "counselor") {
+      const sessionEmail = String(session.email || "").trim().toLowerCase();
+      const counselorMatch = (Array.isArray(counselors) ? counselors : []).find(
+        (item) => String(item.email || "").trim().toLowerCase() === sessionEmail
+      );
+      query.counselor = String(counselorMatch?.name || session.name || "").trim();
+    }
+
+    const rawLeads = await withMongoRetry(
+      () => leadsCollection.find(query).toArray(),
+      { retries: 1, label: "Load scoped main admission leads" }
+    );
+    const leads = decorateLeadListForStorage(rawLeads || [])
+      .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+    const updatedAt = stateMeta?.updatedAt || new Date().toISOString();
+    const response = {
+      section,
+      leads,
+      counselors: Array.isArray(counselors) ? counselors : [],
+      counts: {
+        total: leads.length,
+        assigned: leads.filter((lead) => String(lead?.counselor || "").trim().toLowerCase() !== "unassigned").length,
+        unassigned: leads.filter((lead) => String(lead?.counselor || "").trim().toLowerCase() === "unassigned").length,
+        interested: leads.filter((lead) => String(lead?.mainAdmissionCourseStatus || "").trim() === "Interested").length,
+        enrolled: leads.filter((lead) => String(lead?.mainAdmissionAdmissionStatus || "").trim() === "Enrolled").length,
+        won: leads.filter((lead) => String(lead?.mainAdmissionAdmissionStatus || "").trim() === "Won").length
+      },
+      updatedAt,
+      clearedAt: stateMeta?.clearedAt || null
+    };
+
+    res.setHeader("ETag", buildStateEtag(response));
+    return res.json(response);
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch scoped leads", details: error.message });
+  }
+});
+
+app.get("/api/performance-logs/summary", async (req, res) => {
+  try {
+    const session = await requireSuperAdmin(req, res);
+    if (!session) return;
+
+    const logs = await withMongoRetry(
+      () => performanceLogsCollection.find({}).sort({ createdAt: -1 }).limit(1000).toArray(),
+      { retries: 1, label: "Load performance logs" }
+    );
+    return res.json(buildPerformanceSummary(logs));
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch performance summary", details: error.message });
+  }
+});
+
+app.post("/api/performance-logs/client", async (req, res) => {
+  try {
+    const session = await requireSession(req, res);
+    if (!session) return;
+
+    const durationMs = Math.max(0, Number(req.body?.durationMs) || 0);
+    recordPerformanceEvent({
+      kind: "page",
+      operation: String(req.body?.page || "page-load"),
+      page: String(req.body?.page || ""),
+      durationMs,
+      success: req.body?.success !== false,
+      status: req.body?.success === false ? "failure" : "success",
+      message: String(req.body?.message || ""),
+      count: Number(req.body?.count || 0)
+    });
+
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to record performance log", details: error.message });
   }
 });
 

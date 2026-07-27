@@ -1,4 +1,5 @@
 import { registerPageCleanup } from "./page-runtime.js";
+import { apiUrl } from "./api-client.js";
 import { openActivityHistory } from "./activity-history.js";
 import { exportLeadRowsToExcel } from "./lead-export.js";
 import {
@@ -13,8 +14,8 @@ import {
   getLeads as getStoredLeads,
   getSession,
   loadLocalPreference,
-  saveLocalPreference,
-  startStatePolling
+  refreshState,
+  saveLocalPreference
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
@@ -31,7 +32,8 @@ import {
 import { formatKolkataDate, getKolkataDayRange, parseKolkataDate as parseTimelineDate, toKolkataDateKey } from "./date-utils.js";
 import { createRenderScheduler, withButtonBusy } from "./ui-feedback.js";
 
-await bootstrapLocalState();
+const pageLoadStartedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+await bootstrapLocalState({ skipStateRefresh: true });
 
 const session = getSession();
 const isAdmin = session?.role === "admin" || session?.role === "super_admin";
@@ -131,7 +133,137 @@ let mainAdmissionActivityModalMode = "edit";
 let activeSegment = DEFAULT_SEGMENT;
 let locationSortDirection = "";
 let isCourseFilterOpen = false;
+let scopedMainAdmissionLeads = null;
+let scopedCounselors = null;
+let scopedLoadActive = false;
+let mainAdmissionAssignmentBusy = false;
 populateCrmCourseSelect("modalMainAdmissionCoursePitched", { includeNo: true });
+
+function getScopedCounselors() {
+  return Array.isArray(scopedCounselors) ? scopedCounselors : getStoredCounselors();
+}
+
+function mergeScopedLeadUpdates(leads) {
+  if (!Array.isArray(scopedMainAdmissionLeads)) {
+    return;
+  }
+
+  const updates = (Array.isArray(leads) ? leads : [leads]).filter(Boolean);
+  if (!updates.length) {
+    return;
+  }
+
+  const byId = new Map(updates.map((lead) => [String(lead.id), lead]));
+  const seen = new Set();
+  scopedMainAdmissionLeads = scopedMainAdmissionLeads.map((lead) => {
+    const patch = byId.get(String(lead?.id));
+    if (!patch) {
+      return lead;
+    }
+    seen.add(String(lead.id));
+    return { ...lead, ...patch };
+  });
+
+  updates.forEach((lead) => {
+    const key = String(lead.id);
+    if (!seen.has(key)) {
+      scopedMainAdmissionLeads.push(lead);
+    }
+  });
+
+  normalizeLeadFields(scopedMainAdmissionLeads);
+}
+
+async function recordMainAdmissionPageLoad(success = true, message = "") {
+  const nowValue = typeof performance !== "undefined" ? performance.now() : Date.now();
+  const durationMs = Math.max(0, Math.round(nowValue - pageLoadStartedAt));
+  try {
+    await fetch(apiUrl("/api/performance-logs/client"), {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
+      body: JSON.stringify({
+        page: "main-admission-leads.html",
+        durationMs,
+        success,
+        message,
+        count: Array.isArray(scopedMainAdmissionLeads) ? scopedMainAdmissionLeads.length : getAllLeads().length
+      })
+    });
+  } catch {
+    // Performance logging should never block CRM usage.
+  }
+}
+
+async function loadScopedMainAdmissionLeads() {
+  try {
+    const response = await fetch(apiUrl("/api/leads/scoped?section=main-admission"), {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.message || "Scoped loading failed.");
+    }
+
+    scopedMainAdmissionLeads = Array.isArray(payload?.leads) ? payload.leads : [];
+    scopedCounselors = Array.isArray(payload?.counselors) ? payload.counselors : [];
+    scopedLoadActive = true;
+    normalizeLeadFields(scopedMainAdmissionLeads);
+    return true;
+  } catch (error) {
+    console.warn("[main-admission] Scoped loading failed, falling back to full state:", error?.message || error);
+    scopedLoadActive = false;
+    scopedMainAdmissionLeads = null;
+    scopedCounselors = null;
+    await refreshState();
+    return false;
+  }
+}
+
+function startMainAdmissionPolling(onRefresh, intervalMs = 15000) {
+  let destroyed = false;
+  let activePoll = false;
+
+  async function poll() {
+    if (destroyed || activePoll || document.visibilityState === "hidden") {
+      return;
+    }
+    activePoll = true;
+    try {
+      if (scopedLoadActive) {
+        await loadScopedMainAdmissionLeads();
+      } else {
+        await refreshState();
+      }
+      await onRefresh();
+    } catch (error) {
+      console.warn("[main-admission] polling failed:", error?.message || error);
+    } finally {
+      activePoll = false;
+    }
+  }
+
+  const timer = window.setInterval(() => {
+    void poll();
+  }, intervalMs);
+
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === "visible") {
+      void poll();
+    }
+  };
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+
+  return () => {
+    destroyed = true;
+    window.clearInterval(timer);
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+  };
+}
 
 function persistFilters() {
   void saveLocalPreference(FILTER_STORAGE_KEY, filter);
@@ -325,7 +457,7 @@ function getCounselorIdentity() {
   }
 
   const sessionEmail = String(session?.email || "").trim().toLowerCase();
-  const counselors = getStoredCounselors();
+  const counselors = getScopedCounselors();
   const match = counselors.find((item) => String(item.email || "").trim().toLowerCase() === sessionEmail);
   return String(match?.name || session?.name || "").trim().toLowerCase();
 }
@@ -348,7 +480,7 @@ function getLeadSegment(lead) {
 
 function getActiveCounselorNames() {
   return [...new Set(
-    getStoredCounselors()
+    getScopedCounselors()
       .filter((item) => !item?.disabled)
       .map((item) => String(item.name || "").trim())
       .filter(Boolean)
@@ -455,7 +587,9 @@ function renderRepeatEnquiryBadge(lead) {
 }
 
 function getStoredRegisteredCandidateLeads() {
-  const leads = getStoredLeads().filter(isRegisteredCandidateLead);
+  const leads = Array.isArray(scopedMainAdmissionLeads)
+    ? [...scopedMainAdmissionLeads]
+    : getStoredLeads().filter(isRegisteredCandidateLead);
   normalizeLeadFields(leads);
   return leads;
 }
@@ -817,6 +951,13 @@ async function clearRegisteredCandidateData() {
   const confirmed = window.confirm(`Clear only ${segmentConfig.label} data?`);
   if (!confirmed) {
     return;
+  }
+
+  if (scopedLoadActive) {
+    await refreshState();
+    scopedLoadActive = false;
+    scopedMainAdmissionLeads = null;
+    scopedCounselors = null;
   }
 
   const remainingLeads = getStoredLeads().filter((lead) => {
@@ -1823,7 +1964,7 @@ function renderLeadTable(leads) {
             <option value="">Assign to</option>
             ${assignCounselorOptions.map((item) => `<option value="${escapeHtml(item)}" ${bulkAssignCounselor === item ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
           </select>
-          <button id="mainAdmissionBulkAssign" type="button" class="btn-ghost bulk-action-btn" ${(selectedUnassignedCount && bulkAssignCounselor) ? "" : "disabled"}>Assign Selected</button>
+          <button id="mainAdmissionBulkAssign" type="button" class="btn-ghost bulk-action-btn ${mainAdmissionAssignmentBusy ? "is-loading" : ""}" ${(selectedUnassignedCount && bulkAssignCounselor && !mainAdmissionAssignmentBusy) ? "" : "disabled"} aria-busy="${mainAdmissionAssignmentBusy ? "true" : "false"}">${mainAdmissionAssignmentBusy ? "Assigning, please wait..." : "Assign Selected"}</button>
         </div>
       </div>
       <div class="bulk-toolbar-summary" aria-live="polite">
@@ -1967,13 +2108,19 @@ mainAdmissionLeadTableSection.addEventListener("click", async (event) => {
   }
 
   if (event.target.id === "mainAdmissionBulkAssign") {
+    mainAdmissionAssignmentBusy = true;
+    renderLeadTable(getCurrentFilteredLeads());
     const assigned = await withButtonBusy(
       event.target,
       "Assigning, please wait...",
       () => assignSelectedUnassignedLeads(getCurrentFilteredLeads())
-    );
+    ).finally(() => {
+      mainAdmissionAssignmentBusy = false;
+    });
     if (assigned) {
       scheduleRenderAll();
+    } else {
+      renderLeadTable(getCurrentFilteredLeads());
     }
     return;
   }
@@ -2122,6 +2269,7 @@ async function saveDetailsModalEdits() {
   detailsEditMode = false;
   setDetailsEditMessage("Lead details saved.", false);
   const updatedLead = result.lead || findLeadByRef(detailsLeadRef);
+  mergeScopedLeadUpdates(updatedLead);
   if (updatedLead) {
     detailsLeadRef = buildLeadRef(updatedLead);
   }
@@ -2210,8 +2358,10 @@ async function saveActivity(event) {
       showToast(noteResult?.message || "Activity saved, but the note could not be saved.", true);
       return;
     }
+    mergeScopedLeadUpdates(noteResult.lead);
   }
 
+  mergeScopedLeadUpdates(result.lead);
   closeActivityModal();
   setMessage("Main admission lead activity saved successfully.");
   showToast("Main admission lead activity saved successfully.");
@@ -2298,6 +2448,7 @@ async function assignSelectedUnassignedLeads(leads) {
     showToast(assignResult?.message || "Failed to assign selected leads.", true);
     return false;
   }
+  mergeScopedLeadUpdates(assignResult.leads);
 
   const summary = formatLeadAssignmentResult(assignResult, assignedLeadRefs.length, counselor);
   const skippedAssignedCount = selectedLeads.length - selectedUnassignedLeads.length;
@@ -2351,6 +2502,7 @@ function openNotesModal(leadKey) {
         showToast(result?.message || "Failed to delete note.", true);
         return;
       }
+      mergeScopedLeadUpdates(result.lead);
       openNotesModal(leadKey);
       showToast("Note deleted.");
     };
@@ -2374,6 +2526,7 @@ async function saveNote() {
     return;
   }
 
+  mergeScopedLeadUpdates(result.lead);
   openNotesModal(buildLeadKey(lead));
   showToast("Note saved.");
 }
@@ -2530,9 +2683,11 @@ if (mainAdmissionTaskModal && mainAdmissionTaskForm) {
 
 setupRegisteredRoutingPanel();
 const scheduleRenderAll = createRenderScheduler(renderAll);
+const scopedLoadSucceeded = await loadScopedMainAdmissionLeads();
 void renderAll();
 window.__dvMarkRouteViewReady?.();
-const stopStatePolling = startStatePolling(() => {
+void recordMainAdmissionPageLoad(scopedLoadSucceeded, scopedLoadSucceeded ? "scoped" : "full-state-fallback");
+const stopStatePolling = startMainAdmissionPolling(() => {
   void scheduleRenderAll();
 });
 registerPageCleanup(stopStatePolling);

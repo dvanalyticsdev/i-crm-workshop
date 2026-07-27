@@ -1244,7 +1244,6 @@ test("heavy CRM pages schedule polling renders instead of immediate full rerende
     read("pre-workshop.js"),
     read("post-workshop.js"),
     read("registered-candidates.js"),
-    read("main-admission-leads.js"),
     read("lead-control.js")
   ];
 
@@ -1256,4 +1255,96 @@ test("heavy CRM pages schedule polling renders instead of immediate full rerende
     assert.match(source, /const scheduleRenderAll = createRenderScheduler\(renderAll\)/);
     assert.match(source, /startStatePolling\([\s\S]*scheduleRenderAll/);
   });
+});
+
+test("main admission page uses scoped loading with full-state fallback", () => {
+  const server = read("server.js");
+  const mainAdmission = read("main-admission-leads.js");
+  const stateSync = read("state-sync.js");
+  const layouts = read("layouts.js");
+
+  assert.match(server, /app\.get\("\/api\/leads\/scoped"/);
+  assert.match(server, /section !== "main-admission"/);
+  assert.match(server, /leadPipeline: MAIN_ADMISSION_PIPELINE/);
+  assert.match(server, /counts:\s*\{/);
+  assert.match(stateSync, /skipStateRefresh/);
+  assert.match(mainAdmission, /bootstrapLocalState\(\{ skipStateRefresh: true \}\)/);
+  assert.match(mainAdmission, /async function loadScopedMainAdmissionLeads/);
+  assert.match(mainAdmission, /\/api\/leads\/scoped\?section=main-admission/);
+  assert.match(mainAdmission, /falling back to full state/);
+  assert.match(mainAdmission, /await refreshState\(\)/);
+  assert.match(mainAdmission, /startMainAdmissionPolling/);
+  assert.doesNotMatch(mainAdmission, /startStatePolling/);
+  assert.match(layouts, /\["main-admission-leads\.html", "performance-logs\.html"\]\.includes\(route\)/);
+  assert.match(layouts, /bootstrapLocalState\(\{ skipStateRefresh \}\)/);
+});
+
+test("lead activity and assignment avoid full-state response after atomic writes", () => {
+  const server = read("server.js");
+  const leadService = read("lead-service.js");
+  const activityRoute = server.slice(
+    server.indexOf('app.post("/api/leads/:leadId/activity"'),
+    server.indexOf('app.post("/api/leads/:leadId/notes"')
+  );
+  const assignmentRoute = getFunctionBody(server, "assignLeadsHandler");
+  const assignmentRouteCore = server.slice(
+    server.indexOf("async function assignLeadsHandler"),
+    server.indexOf('app.patch("/api/leads/assignment"')
+  );
+
+  assert.match(activityRoute, /return res\.json\(\{ ok: true, lead: updatedLead, updatedAt \}\)/);
+  assert.doesNotMatch(activityRoute, /state: buildStateResponse/);
+  assert.match(assignmentRoute, /leads: updatedLeads/);
+  assert.doesNotMatch(assignmentRouteCore, /state: buildStateResponse/);
+  assert.match(leadService, /acceptLeadUpdates/);
+});
+
+test("performance logs dashboard is super admin only", () => {
+  const server = read("server.js");
+  const layouts = read("layouts.js");
+  const performanceHtml = read("performance-logs.html");
+  const performanceJs = read("performance-logs.js");
+
+  assert.match(server, /performanceLogsCollection/);
+  assert.match(server, /app\.get\("\/api\/performance-logs\/summary"/);
+  assert.match(server, /requireSuperAdmin\(req, res\)/);
+  assert.match(server, /app\.post\("\/api\/performance-logs\/client"/);
+  assert.match(layouts, /"performance-logs\.html": "performanceLogs"/);
+  assert.match(layouts, /superAdminOnly: true/);
+  assert.match(layouts, /performanceLogs: false/);
+  assert.match(performanceHtml, /Performance Logs/);
+  assert.match(performanceJs, /session\?\.role !== "super_admin"/);
+  assert.match(performanceJs, /\/api\/performance-logs\/summary/);
+});
+
+test("route loading overlay recovers when the browser tab becomes visible again", () => {
+  const layouts = read("layouts.js");
+  const recoverSource = getNamedFunctionSource(layouts, "recoverStaleRouteLoadingOverlay");
+  const bindClientRouterSource = getNamedFunctionSource(layouts, "bindClientRouter");
+
+  assert.match(layouts, /ROUTE_LOADING_STALE_TIMEOUT_MS/);
+  assert.match(getNamedFunctionSource(layouts, "showRouteLoadingOverlay"), /__dvRouteLoadingStaleTimer/);
+  assert.match(recoverSource, /document\.querySelector\("\.main-content\.route-loading"\)/);
+  assert.match(recoverSource, /pendingRouteReadyState\.resolve/);
+  assert.match(recoverSource, /hideRouteLoadingOverlay\(mainContent\)/);
+  assert.match(bindClientRouterSource, /visibilitychange/);
+  assert.match(bindClientRouterSource, /recoverStaleRouteLoadingOverlay\(\)/);
+});
+
+test("notification badge uses a cheap summary endpoint and lazy dropdown loading", () => {
+  const layouts = read("layouts.js");
+  const server = read("server.js");
+  const pollSource = getNamedFunctionSource(layouts, "startNotificationPolling");
+  const refreshSummarySource = getNamedFunctionSource(layouts, "refreshNotificationSummary");
+  const refreshDropdownSource = getFunctionBody(layouts, "refreshDropdownList");
+
+  assert.match(server, /app\.get\("\/api\/notifications\/summary"/);
+  assert.match(server, /countDocuments\(\{ userId, read: false \}\)/);
+  assert.match(server, /createIndex\(\{ userId: 1, read: 1, createdAt: -1 \}/);
+  assert.doesNotMatch(pollSource, /fetch\('\/api\/notifications'/);
+  assert.match(pollSource, /refreshNotificationSummary\(\)/);
+  assert.match(refreshSummarySource, /\/api\/notifications\/summary/);
+  assert.match(refreshDropdownSource, /NOTIFICATION_LIST_CACHE_MS/);
+  assert.match(refreshDropdownSource, /Loading notifications/);
+  assert.match(refreshDropdownSource, /\/api\/notifications\?limit=\$\{NOTIFICATION_LIST_LIMIT\}/);
 });

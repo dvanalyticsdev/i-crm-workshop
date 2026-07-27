@@ -461,6 +461,47 @@ textarea:focus {
   color: var(--text);
 }
 
+.performance-log-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.performance-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.performance-card__label,
+.performance-card span {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.performance-card strong {
+  color: var(--text);
+  font-size: 1.25rem;
+}
+
+.performance-log-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+@media (max-width: 900px) {
+  .performance-log-grid,
+  .performance-log-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
 .btn-ghost:hover,
 .btn-update-status:hover {
   background: var(--surface-muted);
