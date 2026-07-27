@@ -545,9 +545,11 @@ test("monitoring keeps activity totals separate from fresh and old lead touch co
   const monitoring = read("monitoring.js");
 
   assert.match(monitoring, /function splitFreshAndOldActivities\(/);
+  assert.match(monitoring, /function getLeadOwnershipDate\(/);
   assert.match(monitoring, /freshLeadTouches: activityLeads\.length/);
   assert.match(monitoring, /freshLeadTouches: freshActivityLeads\.length/);
   assert.match(monitoring, /oldLeadTouches: oldActivityLeads\.length/);
+  assert.match(monitoring, /const ownershipDate = getLeadOwnershipDate\(lead\)/);
   assert.match(monitoring, /Fresh Leads Touched/);
   assert.match(monitoring, /Old Leads Touched/);
   assert.doesNotMatch(monitoring, /Fresh Lead Activities/);
@@ -568,12 +570,23 @@ test("monitoring attributes activity to real counselors instead of current lead 
 test("monitoring uses assignment-based lead counts and consistent labels across tabs", () => {
   const monitoring = read("monitoring.js");
 
-  assert.match(monitoring, /function getLeadAssignmentDate\(/);
-  assert.match(monitoring, /function countAssignedLeadsInRange\(/);
-  assert.equal(countMatches(monitoring, /assignedLeads: countAssignedLeadsInRange\(rawLeads, counselor, range\)/g), 4);
+  assert.match(monitoring, /function countAssignedLeads\(/);
+  assert.equal(countMatches(monitoring, /assignedLeads: countAssignedLeads\(rawLeads, counselor\)/g), 4);
   assert.match(monitoring, /label: "Leads Assigned"/);
   assert.doesNotMatch(monitoring, /New Leads Received/);
   assert.doesNotMatch(monitoring, /Fresh Leads Received/);
+});
+
+test("monitoring counts conversion buckets from in-range history updates instead of current lead status", () => {
+  const monitoring = read("monitoring.js");
+
+  assert.match(monitoring, /function getLatestHistoryUpdateValue\(/);
+  assert.match(monitoring, /function countLeadsByLatestHistoryUpdate\(/);
+  assert.match(monitoring, /Object\.prototype\.hasOwnProperty\.call\(entry\.updates, field\)/);
+  assert.match(monitoring, /countLeadsByLatestHistoryUpdate\(counselorLeads, "wsStatus", "Interested"\)/);
+  assert.match(monitoring, /countLeadsByLatestHistoryUpdate\(counselorLeads, "courseStatus", "Interested"\)/);
+  assert.match(monitoring, /countLeadsByLatestHistoryUpdate\(counselorLeads, "mainAdmissionCourseStatus", "Interested"\)/);
+  assert.match(monitoring, /countLeadsByLatestHistoryUpdate\(counselorLeads, "registeredCourseStatus", "Interested"\)/);
 });
 
 test("monitoring counselor scope includes touched leads and admins hide zero rows", () => {
@@ -592,6 +605,8 @@ test("monitoring includes a single-view MCube tab with call summary metrics", ()
 
   assert.match(monitoring, /mcube:\s*\{/);
   assert.match(monitoring, /function getCounselorFirstName\(/);
+  assert.match(monitoring, /function getCounselorAliasKeys\(/);
+  assert.match(monitoring, /COUNSELOR_ALIAS_STOP_WORDS/);
   assert.match(monitoring, /firstNameToNames/);
   assert.match(monitoring, /matchedNames\.size === 1/);
   assert.match(monitoring, /resolveCounselorName\(entry\?\.agentName, true\)/);

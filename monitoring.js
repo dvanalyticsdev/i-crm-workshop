@@ -108,6 +108,19 @@ let counselorDirectoryCache = {
 };
 const mcubeRecordingDurationCache = new Map();
 const mcubeRecordingDurationInflight = new Map();
+const COUNSELOR_ALIAS_STOP_WORDS = new Set([
+  "mr",
+  "mrs",
+  "ms",
+  "miss",
+  "dr",
+  "md",
+  "mohd",
+  "mohammed",
+  "mohammad",
+  "muhammad",
+  "ur"
+]);
 
 timelineFilter = {
   ...timelineFilter,
@@ -132,6 +145,42 @@ function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function normalizeCounselorAliasKey(value) {
+  return normalizeText(value)
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getCounselorAliasTokens(value) {
+  return normalizeCounselorAliasKey(value).split(" ").filter(Boolean);
+}
+
+function getCounselorAliasKeys(value) {
+  const normalized = normalizeCounselorAliasKey(value);
+  if (!normalized) {
+    return [];
+  }
+
+  const tokens = getCounselorAliasTokens(value);
+  const filteredTokens = tokens.filter((token) => !COUNSELOR_ALIAS_STOP_WORDS.has(token));
+  const keys = new Set([normalized]);
+
+  if (filteredTokens.length) {
+    keys.add(filteredTokens.join(" "));
+  }
+
+  if (tokens.length >= 2) {
+    keys.add(`${tokens[0]} ${tokens[tokens.length - 1]}`);
+  }
+
+  if (filteredTokens.length >= 2) {
+    keys.add(`${filteredTokens[0]} ${filteredTokens[filteredTokens.length - 1]}`);
+  }
+
+  return [...keys].filter(Boolean);
+}
+
 function getCounselorFirstName(value) {
   const parts = String(value || "").trim().split(/\s+/).filter(Boolean);
   return normalizeText(parts[0] || "");
@@ -151,15 +200,33 @@ function getCounselorDirectory() {
   }
 
   const aliasToName = new Map();
+  const aliasCandidates = new Map();
   const names = [];
   const firstNameToNames = new Map();
+
+  const registerAliasCandidate = (alias, name) => {
+    const key = normalizeCounselorAliasKey(alias);
+    if (!key || !name) {
+      return;
+    }
+
+    const candidates = aliasCandidates.get(key) || new Set();
+    candidates.add(name);
+    aliasCandidates.set(key, candidates);
+  };
 
   counselors.forEach((item) => {
     const name = String(item?.name || "").trim();
     const email = String(item?.email || "").trim().toLowerCase();
+    const explicitAliases = [
+      ...(Array.isArray(item?.aliases) ? item.aliases : []),
+      ...(String(item?.alias || "").split(","))
+    ]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
     if (name) {
       names.push(name);
-      aliasToName.set(normalizeText(name), name);
+      getCounselorAliasKeys(name).forEach((alias) => registerAliasCandidate(alias, name));
       const firstName = getCounselorFirstName(name);
       if (firstName) {
         const current = firstNameToNames.get(firstName) || new Set();
@@ -168,7 +235,16 @@ function getCounselorDirectory() {
       }
     }
     if (email && name) {
-      aliasToName.set(email, name);
+      registerAliasCandidate(email, name);
+    }
+    explicitAliases.forEach((alias) => {
+      getCounselorAliasKeys(alias).forEach((key) => registerAliasCandidate(key, name));
+    });
+  });
+
+  aliasCandidates.forEach((matchedNames, alias) => {
+    if (matchedNames.size === 1) {
+      aliasToName.set(alias, [...matchedNames][0]);
     }
   });
 
@@ -188,12 +264,20 @@ function getCounselorDirectory() {
 
 function resolveCounselorName(value, allowRaw = false) {
   const rawValue = String(value || "").trim();
-  const normalized = normalizeText(rawValue);
-  if (!normalized) {
+  if (!rawValue) {
     return "";
   }
 
-  return getCounselorDirectory().aliasToName.get(normalized) || (allowRaw ? rawValue : "");
+  const { aliasToName } = getCounselorDirectory();
+  const aliasMatch = getCounselorAliasKeys(rawValue)
+    .map((alias) => aliasToName.get(alias))
+    .find(Boolean);
+  if (aliasMatch) {
+    return aliasMatch;
+  }
+
+  const emailMatch = aliasToName.get(normalizeText(rawValue));
+  return emailMatch || (allowRaw ? rawValue : "");
 }
 
 function resolveCounselorActivityActor(value) {
@@ -240,7 +324,7 @@ function getCounselorIdentity() {
     (item) => String(item.email || "").trim().toLowerCase() === sessionEmail
   );
 
-  return String(match?.name || session?.name || "").trim().toLowerCase() || sessionName;
+  return normalizeText(resolveCounselorName(match?.name || session?.name || sessionEmail, true)) || sessionName;
 }
 
 function persistTimelineFilter() {
@@ -612,8 +696,19 @@ function sortRowsByPriority(rows) {
 function getMonitoringCounselorNames(leads = []) {
   const { names } = getCounselorDirectory();
   const fallbackNames = [...new Set(
-    leads
-      .map((lead) => resolveCounselorName(lead?.counselor, true))
+    leads.flatMap((lead) => [
+      resolveCounselorName(lead?.counselor),
+      ...MONITORING_ACTIVITY_HISTORY_FIELDS.map((historyField) =>
+        Array.isArray(lead?.[historyField])
+          ? lead[historyField].map((entry) => resolveCounselorActivityActor(entry?.by))
+          : []
+      ).flat(),
+      ...getHistoryEntriesInRange(lead?.mcubeCallHistory, null).flatMap((entry) => [
+        resolveCounselorName(entry?.agentName),
+        resolveCounselorName(entry?.counselor)
+      ])
+    ])
+      .flat()
       .filter((name) => name && normalizeText(name) !== "unassigned")
   )].sort((a, b) => a.localeCompare(b));
 
@@ -627,7 +722,7 @@ function getMonitoringCounselorNames(leads = []) {
   return merged;
 }
 
-function getLeadAssignmentDate(lead) {
+function getLeadOwnershipDate(lead) {
   return parseLocalDate(
     lead?.leadOwnerTimelineAt
     || lead?.counselorAssignedAt
@@ -636,21 +731,11 @@ function getLeadAssignmentDate(lead) {
   );
 }
 
-function countAssignedLeadsInRange(rawLeads, counselor, range) {
+function countAssignedLeads(rawLeads, counselor) {
   const normalizedCounselor = normalizeText(counselor);
-  const assignedLeads = rawLeads.filter(
+  return rawLeads.filter(
     (lead) => normalizeText(resolveCounselorName(lead?.counselor, true)) === normalizedCounselor
-  );
-
-  if (!range) {
-    return assignedLeads.length;
-  }
-
-  const { start, end } = range;
-  return assignedLeads.filter((lead) => {
-    const assignedAt = getLeadAssignmentDate(lead);
-    return assignedAt && assignedAt >= start && assignedAt <= end;
-  }).length;
+  ).length;
 }
 
 function splitFreshAndOldActivities(activityLeads, countField, range) {
@@ -666,12 +751,12 @@ function splitFreshAndOldActivities(activityLeads, countField, range) {
 
   const { start } = range;
   const freshActivityLeads = activityLeads.filter((lead) => {
-    const created = parseLocalDate(lead.createdAt);
-    return created && created >= start;
+    const ownershipDate = getLeadOwnershipDate(lead);
+    return ownershipDate && ownershipDate >= start;
   });
   const oldActivityLeads = activityLeads.filter((lead) => {
-    const created = parseLocalDate(lead.createdAt);
-    return created && created < start;
+    const ownershipDate = getLeadOwnershipDate(lead);
+    return ownershipDate && ownershipDate < start;
   });
 
   return {
@@ -916,12 +1001,32 @@ function getCounselorActivityLeadRecords(leads, historyField, counselorName, ran
     if (matchingEntries.length) {
       records.push({
         lead,
-        activityCount: matchingEntries.length
+        activityCount: matchingEntries.length,
+        matchingEntries
       });
     }
 
     return records;
   }, []);
+}
+
+function getLatestHistoryUpdateValue(entries, field) {
+  const latestEntry = [...(Array.isArray(entries) ? entries : [])]
+    .filter((entry) => entry?.updates && Object.prototype.hasOwnProperty.call(entry.updates, field))
+    .sort((left, right) => {
+      const leftTime = parseLocalDate(left?.at)?.getTime() || 0;
+      const rightTime = parseLocalDate(right?.at)?.getTime() || 0;
+      return rightTime - leftTime;
+    })[0];
+
+  return String(latestEntry?.updates?.[field] || "").trim();
+}
+
+function countLeadsByLatestHistoryUpdate(records, field, expectedValue) {
+  const normalizedExpected = normalizeText(expectedValue);
+  return records.filter((record) =>
+    normalizeText(getLatestHistoryUpdateValue(record.matchingEntries, field)) === normalizedExpected
+  ).length;
 }
 
 function formatPercent(count, total) {
@@ -973,7 +1078,7 @@ function filterVisibleMonitoringRows(rows) {
 
 function buildWorkshopRows(counselors, leads, rawLeads, range) {
   return filterVisibleMonitoringRows(sortRowsByPriority(counselors.map((counselor) => {
-    const counselorLeads = getCounselorActivityLeadRecords(rawLeads, "workshopActivityHistory", counselor, range);
+    const counselorLeads = getCounselorActivityLeadRecords(leads, "workshopActivityHistory", counselor, range);
     const activityLeads = counselorLeads.map((record) => ({
       ...record.lead,
       preActivityUpdates: record.activityCount
@@ -984,17 +1089,17 @@ function buildWorkshopRows(counselors, leads, rawLeads, range) {
       counselor,
       ...activitySummary,
       workshopEntries: formatBreakdownEntries(activityLeads, "workshop", "preActivityUpdates"),
-      interested: activityLeads.filter((lead) => lead.wsStatus === "Interested").length,
-      notInterested: activityLeads.filter((lead) => lead.wsStatus === "Not Interested").length,
-      whatsappJoined: activityLeads.filter((lead) => lead.whatsappGroupStatus === "Joined").length,
-      assignedLeads: countAssignedLeadsInRange(rawLeads, counselor, range)
+      interested: countLeadsByLatestHistoryUpdate(counselorLeads, "wsStatus", "Interested"),
+      notInterested: countLeadsByLatestHistoryUpdate(counselorLeads, "wsStatus", "Not Interested"),
+      whatsappJoined: countLeadsByLatestHistoryUpdate(counselorLeads, "whatsappGroupStatus", "Joined"),
+      assignedLeads: countAssignedLeads(rawLeads, counselor)
     };
   })));
 }
 
 function buildPostWorkshopRows(counselors, leads, rawLeads, range) {
   return filterVisibleMonitoringRows(sortRowsByPriority(counselors.map((counselor) => {
-    const counselorLeads = getCounselorActivityLeadRecords(rawLeads, "admissionActivityHistory", counselor, range);
+    const counselorLeads = getCounselorActivityLeadRecords(leads, "admissionActivityHistory", counselor, range);
     const activityLeads = counselorLeads.map((record) => ({
       ...record.lead,
       postActivityUpdates: record.activityCount
@@ -1005,18 +1110,18 @@ function buildPostWorkshopRows(counselors, leads, rawLeads, range) {
       counselor,
       ...activitySummary,
       workshopEntries: formatAdmissionWorkshopBreakdownEntries(activityLeads, "postActivityUpdates"),
-      interested: activityLeads.filter((lead) => lead.courseStatus === "Interested").length,
-      notInterested: activityLeads.filter((lead) => lead.courseStatus === "Not Interested").length,
-      enrolled: activityLeads.filter((lead) => lead.admissionStatus === "Enrolled").length,
-      won: activityLeads.filter((lead) => lead.admissionStatus === "Won").length,
-      assignedLeads: countAssignedLeadsInRange(rawLeads, counselor, range)
+      interested: countLeadsByLatestHistoryUpdate(counselorLeads, "courseStatus", "Interested"),
+      notInterested: countLeadsByLatestHistoryUpdate(counselorLeads, "courseStatus", "Not Interested"),
+      enrolled: countLeadsByLatestHistoryUpdate(counselorLeads, "admissionStatus", "Enrolled"),
+      won: countLeadsByLatestHistoryUpdate(counselorLeads, "admissionStatus", "Won"),
+      assignedLeads: countAssignedLeads(rawLeads, counselor)
     };
   })));
 }
 
 function buildMainAdmissionRows(counselors, leads, rawLeads, range) {
   return filterVisibleMonitoringRows(sortRowsByPriority(counselors.map((counselor) => {
-    const counselorLeads = getCounselorActivityLeadRecords(rawLeads, "mainAdmissionActivityHistory", counselor, range);
+    const counselorLeads = getCounselorActivityLeadRecords(leads, "mainAdmissionActivityHistory", counselor, range);
     const activityLeads = counselorLeads.map((record) => ({
       ...record.lead,
       mainAdmissionActivityUpdates: record.activityCount
@@ -1032,18 +1137,18 @@ function buildMainAdmissionRows(counselors, leads, rawLeads, range) {
         "mainAdmissionActivityUpdates",
         "Unspecified"
       ),
-      interested: activityLeads.filter((lead) => lead.mainAdmissionCourseStatus === "Interested").length,
-      notInterested: activityLeads.filter((lead) => lead.mainAdmissionCourseStatus === "Not Interested").length,
-      enrolled: activityLeads.filter((lead) => lead.mainAdmissionAdmissionStatus === "Enrolled").length,
-      won: activityLeads.filter((lead) => lead.mainAdmissionAdmissionStatus === "Won").length,
-      assignedLeads: countAssignedLeadsInRange(rawLeads, counselor, range)
+      interested: countLeadsByLatestHistoryUpdate(counselorLeads, "mainAdmissionCourseStatus", "Interested"),
+      notInterested: countLeadsByLatestHistoryUpdate(counselorLeads, "mainAdmissionCourseStatus", "Not Interested"),
+      enrolled: countLeadsByLatestHistoryUpdate(counselorLeads, "mainAdmissionAdmissionStatus", "Enrolled"),
+      won: countLeadsByLatestHistoryUpdate(counselorLeads, "mainAdmissionAdmissionStatus", "Won"),
+      assignedLeads: countAssignedLeads(rawLeads, counselor)
     };
   })));
 }
 
 function buildRegisteredRows(counselors, leads, rawLeads, range) {
   return filterVisibleMonitoringRows(sortRowsByPriority(counselors.map((counselor) => {
-    const counselorLeads = getCounselorActivityLeadRecords(rawLeads, "registeredCourseActivityHistory", counselor, range);
+    const counselorLeads = getCounselorActivityLeadRecords(leads, "registeredCourseActivityHistory", counselor, range);
     const activityLeads = counselorLeads.map((record) => ({
       ...record.lead,
       registeredCourseActivityUpdates: record.activityCount
@@ -1054,10 +1159,10 @@ function buildRegisteredRows(counselors, leads, rawLeads, range) {
       counselor,
       ...activitySummary,
       courseEntries: formatBreakdownEntries(activityLeads, "courseName", "registeredCourseActivityUpdates"),
-      assignedLeads: countAssignedLeadsInRange(rawLeads, counselor, range),
-      dialed: activityLeads.filter((lead) => lead.registeredDialed === "Yes").length,
-      interested: activityLeads.filter((lead) => lead.registeredCourseStatus === "Interested").length,
-      notInterested: activityLeads.filter((lead) => lead.registeredCourseStatus === "Not Interested").length
+      assignedLeads: countAssignedLeads(rawLeads, counselor),
+      dialed: countLeadsByLatestHistoryUpdate(counselorLeads, "registeredDialed", "Yes"),
+      interested: countLeadsByLatestHistoryUpdate(counselorLeads, "registeredCourseStatus", "Interested"),
+      notInterested: countLeadsByLatestHistoryUpdate(counselorLeads, "registeredCourseStatus", "Not Interested")
     };
   })));
 }
