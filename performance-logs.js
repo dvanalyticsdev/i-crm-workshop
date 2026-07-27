@@ -19,6 +19,11 @@ const phasesTable = document.getElementById("performancePhasesTable");
 const pageSpeedTrendChart = document.getElementById("pageSpeedTrendChart");
 const apiSpeedTrendChart = document.getElementById("apiSpeedTrendChart");
 const reliabilityTrendChart = document.getElementById("reliabilityTrendChart");
+const rangePreset = document.getElementById("performanceRangePreset");
+const customRange = document.getElementById("performanceCustomRange");
+const startDateInput = document.getElementById("performanceStartDate");
+const endDateInput = document.getElementById("performanceEndDate");
+const refreshButton = document.getElementById("refreshPerformanceLogsBtn");
 const slowEvents = document.getElementById("performanceSlowEvents");
 const failures = document.getElementById("performanceFailures");
 let latestPerformanceSummary = null;
@@ -88,11 +93,23 @@ function getTrendLine(values) {
   return values.map((_, index) => Math.max(0, intercept + slope * index));
 }
 
+function getTrendRowsForChart(rows, valueKey) {
+  const sourceRows = Array.isArray(rows) ? rows : [];
+  const dataRows = sourceRows.filter((row) => {
+    if (valueKey === "successRate") {
+      return Number(row?.totalEvents) > 0;
+    }
+    return Number(row?.[valueKey]) > 0;
+  });
+  return dataRows.length ? dataRows : sourceRows;
+}
+
 function drawTrendChart(canvas, rows, { valueKey, label, tone = "accent", formatter = formatMs, fixedMax = null } = {}) {
   if (!canvas) return;
   const context = canvas.getContext("2d");
   if (!context) return;
 
+  const chartRows = getTrendRowsForChart(rows, valueKey);
   const width = canvas.clientWidth || canvas.parentElement?.clientWidth || 520;
   const height = Number(canvas.getAttribute("height")) || 220;
   const ratio = window.devicePixelRatio || 1;
@@ -101,8 +118,8 @@ function drawTrendChart(canvas, rows, { valueKey, label, tone = "accent", format
   context.setTransform(ratio, 0, 0, ratio, 0, 0);
   context.clearRect(0, 0, width, height);
 
-  const values = (Array.isArray(rows) ? rows : []).map((row) => Number(row?.[valueKey]) || 0);
-  const labels = (Array.isArray(rows) ? rows : []).map((row) => String(row?.day || "").slice(5));
+  const values = chartRows.map((row) => Number(row?.[valueKey]) || 0);
+  const labels = chartRows.map((row) => String(row?.day || "").slice(5));
   const pad = { left: 48, right: 16, top: 18, bottom: 34 };
   const chartWidth = Math.max(1, width - pad.left - pad.right);
   const chartHeight = Math.max(1, height - pad.top - pad.bottom);
@@ -127,7 +144,12 @@ function drawTrendChart(canvas, rows, { valueKey, label, tone = "accent", format
     context.fillText(formatter(yMax * tick), 8, y + 4);
   });
 
-  const getX = (index) => pad.left + (values.length <= 1 ? chartWidth : (chartWidth * index) / (values.length - 1));
+  const getX = (index) => {
+    if (values.length <= 1) {
+      return pad.left + chartWidth / 2;
+    }
+    return pad.left + (chartWidth * index) / (values.length - 1);
+  };
   const getY = (value) => pad.top + chartHeight - (Math.min(value, yMax) / yMax) * chartHeight;
 
   context.strokeStyle = lineColor;
@@ -172,11 +194,13 @@ function drawTrendChart(canvas, rows, { valueKey, label, tone = "accent", format
   context.setLineDash([]);
 
   context.fillStyle = textColor;
+  context.textAlign = "center";
   const labelStep = Math.max(1, Math.ceil(labels.length / 5));
   labels.forEach((day, index) => {
     if (index % labelStep !== 0 && index !== labels.length - 1) return;
-    context.fillText(day, getX(index) - 12, height - 10);
+    context.fillText(day, getX(index), height - 10);
   });
+  context.textAlign = "left";
 
   if (!positiveValues.length) {
     context.fillText(`No ${label || "trend"} data yet`, pad.left, pad.top + 24);
@@ -206,8 +230,27 @@ function renderTrendCharts(summary) {
   });
 }
 
+function getPerformanceQueryString() {
+  const params = new URLSearchParams();
+  const preset = String(rangePreset?.value || "14").trim();
+  if (preset === "custom") {
+    const start = String(startDateInput?.value || "").trim();
+    const end = String(endDateInput?.value || "").trim();
+    if (start && end) {
+      params.set("start", start);
+      params.set("end", end);
+    } else {
+      params.set("days", "14");
+    }
+  } else {
+    params.set("days", preset);
+  }
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
 async function loadPerformanceSummary() {
-  const response = await fetch(apiUrl("/api/performance-logs/summary"), {
+  const response = await fetch(apiUrl(`/api/performance-logs/summary${getPerformanceQueryString()}`), {
     credentials: "same-origin",
     headers: { Accept: "application/json" }
   });
@@ -375,6 +418,20 @@ window.__dvMarkRouteViewReady?.();
 const refreshTimer = window.setInterval(() => {
   void renderPerformanceDashboard();
 }, 30000);
+const handleRangeChange = () => {
+  customRange?.classList.toggle("hidden", rangePreset?.value !== "custom");
+  void renderPerformanceDashboard();
+};
+rangePreset?.addEventListener("change", handleRangeChange);
+startDateInput?.addEventListener("change", () => {
+  if (rangePreset?.value === "custom") void renderPerformanceDashboard();
+});
+endDateInput?.addEventListener("change", () => {
+  if (rangePreset?.value === "custom") void renderPerformanceDashboard();
+});
+refreshButton?.addEventListener("click", () => {
+  void renderPerformanceDashboard();
+});
 const handleChartResize = () => {
   if (latestPerformanceSummary) {
     renderTrendCharts(latestPerformanceSummary);
@@ -383,5 +440,6 @@ const handleChartResize = () => {
 window.addEventListener("resize", handleChartResize);
 registerPageCleanup(() => {
   window.clearInterval(refreshTimer);
+  rangePreset?.removeEventListener("change", handleRangeChange);
   window.removeEventListener("resize", handleChartResize);
 });

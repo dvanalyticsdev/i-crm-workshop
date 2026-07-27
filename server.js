@@ -687,7 +687,46 @@ function recordRoutePerformance(req, startedAt, { operation, success = true, sta
   });
 }
 
-function buildPerformanceSummary(logs = []) {
+function parsePerformanceDateInput(value) {
+  const raw = String(value || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return null;
+  }
+  const date = new Date(`${raw}T00:00:00.000Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getPerformanceWindowFromQuery(query = {}) {
+  const now = new Date();
+  const requestedDays = String(query.days || "14").trim().toLowerCase();
+  const customStart = parsePerformanceDateInput(query.start);
+  const customEnd = parsePerformanceDateInput(query.end);
+
+  if (customStart && customEnd) {
+    const start = customStart <= customEnd ? customStart : customEnd;
+    const end = customStart <= customEnd ? customEnd : customStart;
+    end.setUTCHours(23, 59, 59, 999);
+    return {
+      start,
+      end,
+      label: `${start.toISOString().slice(0, 10)} to ${end.toISOString().slice(0, 10)}`
+    };
+  }
+
+  const days = requestedDays === "today"
+    ? 1
+    : Math.min(Math.max(Number.parseInt(requestedDays, 10) || 14, 1), 30);
+  const start = new Date(now);
+  start.setUTCHours(0, 0, 0, 0);
+  start.setUTCDate(start.getUTCDate() - (days - 1));
+  return {
+    start,
+    end: now,
+    label: days === 1 ? "Today" : `Last ${days} days`
+  };
+}
+
+function buildPerformanceSummary(logs = [], window = getPerformanceWindowFromQuery()) {
   const safeLogs = Array.isArray(logs) ? logs : [];
   const apiLogs = safeLogs.filter((log) => String(log.kind || "api") === "api");
   const pageInteractiveLogs = safeLogs.filter((log) => String(log.kind || "") === "page" && String(log.phase || "") === "interactive-ready");
@@ -793,11 +832,11 @@ function buildPerformanceSummary(logs = []) {
   const avgDurationMs = total
     ? Math.round(safeLogs.reduce((sum, log) => sum + (Number(log.durationMs) || 0), 0) / total)
     : 0;
-  const trendRows = buildPerformanceTrends({ safeLogs, apiLogs, pageInteractiveLogs });
+  const trendRows = buildPerformanceTrends({ safeLogs, apiLogs, pageInteractiveLogs, window });
 
   return {
     generatedAt: new Date().toISOString(),
-    windowLabel: "Last 14 days",
+    windowLabel: window.label || "Last 14 days",
     totalEvents: total,
     successRate,
     avgDurationMs,
@@ -818,12 +857,13 @@ function buildPerformanceSummary(logs = []) {
   };
 }
 
-function buildPerformanceTrends({ safeLogs = [], apiLogs = [], pageInteractiveLogs = [] } = {}) {
-  const now = new Date();
+function buildPerformanceTrends({ safeLogs = [], apiLogs = [], pageInteractiveLogs = [], window = getPerformanceWindowFromQuery() } = {}) {
+  const start = new Date(window.start || Date.now());
+  const end = new Date(window.end || Date.now());
+  start.setUTCHours(0, 0, 0, 0);
+  end.setUTCHours(0, 0, 0, 0);
   const dayKeys = [];
-  for (let index = 13; index >= 0; index -= 1) {
-    const date = new Date(now);
-    date.setDate(now.getDate() - index);
+  for (const date = new Date(start); date <= end; date.setUTCDate(date.getUTCDate() + 1)) {
     dayKeys.push(date.toISOString().slice(0, 10));
   }
 
@@ -1927,8 +1967,8 @@ async function initMongo() {
           { background: true }
         ).catch(() => undefined);
         await performanceLogsCollection.createIndex(
-          { createdAt: 1 },
-          { expireAfterSeconds: 14 * 24 * 60 * 60, background: true }
+          { createdAtDate: 1 },
+          { expireAfterSeconds: 30 * 24 * 60 * 60, background: true }
         ).catch(() => undefined);
         await metaRetryCollection.createIndex(
           { leadgenId: 1 },
@@ -12786,11 +12826,17 @@ app.get("/api/performance-logs/summary", async (req, res) => {
     const session = await requireSuperAdmin(req, res);
     if (!session) return;
 
+    const window = getPerformanceWindowFromQuery(req.query);
     const logs = await withMongoRetry(
-      () => performanceLogsCollection.find({}).sort({ createdAt: -1 }).limit(1000).toArray(),
+      () => performanceLogsCollection.find({
+        createdAtDate: {
+          $gte: window.start,
+          $lte: window.end
+        }
+      }).sort({ createdAt: -1 }).limit(3000).toArray(),
       { retries: 1, label: "Load performance logs" }
     );
-    return res.json(buildPerformanceSummary(logs));
+    return res.json(buildPerformanceSummary(logs, window));
   } catch (error) {
     return res.status(500).json({ message: "Failed to fetch performance summary", details: error.message });
   }

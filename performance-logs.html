@@ -57,6 +57,27 @@
         </div>
       </header>
 
+      <section class="card performance-filter-card">
+        <div class="performance-filter-card__copy">
+          <h3>Timeline</h3>
+          <p id="performanceFilterHint">Choose the reporting window for cards, charts, tables, slow events, and failures.</p>
+        </div>
+        <div class="performance-filter-controls" aria-describedby="performanceFilterHint">
+          <select id="performanceRangePreset" class="input">
+            <option value="today">Today</option>
+            <option value="7">Last 7 days</option>
+            <option value="14" selected>Last 14 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="custom">Custom</option>
+          </select>
+          <div class="performance-custom-range hidden" id="performanceCustomRange">
+            <input type="date" id="performanceStartDate" class="input" aria-label="Performance start date" />
+            <input type="date" id="performanceEndDate" class="input" aria-label="Performance end date" />
+          </div>
+          <button type="button" class="btn-secondary" id="refreshPerformanceLogsBtn">Refresh</button>
+        </div>
+      </section>
+
       <section class="performance-log-grid" id="performanceSummaryCards"></section>
       <section class="performance-trend-grid">
         <article class="card performance-chart-card">
