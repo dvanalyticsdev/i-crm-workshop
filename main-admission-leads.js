@@ -18,7 +18,16 @@ import {
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
-import { addLeadNote, deleteLeadNote, deleteLeads as deleteLeadsOnServer, trackLeadView, updateLeadActivity as updateLeadActivityOnServer, updateMainAdmissionLeadDetails } from "./lead-service.js";
+import {
+  addLeadNote,
+  assignLeads as assignLeadsOnServer,
+  deleteLeadNote,
+  deleteLeads as deleteLeadsOnServer,
+  formatLeadAssignmentResult,
+  trackLeadView,
+  updateLeadActivity as updateLeadActivityOnServer,
+  updateMainAdmissionLeadDetails
+} from "./lead-service.js";
 
 await bootstrapLocalState();
 
@@ -108,6 +117,7 @@ if (isCounselorSession() && (!persistedFilter.timeline || persistedFilter.timeli
 let currentPage = 1;
 const pageSize = 50;
 let selectedLeadKeys = new Set();
+let bulkAssignCounselor = "";
 let activeLeadRef = null;
 let notesLeadRef = null;
 let detailsLeadRef = null;
@@ -312,6 +322,7 @@ function getLeadSegment(lead) {
 function getActiveCounselorNames() {
   return [...new Set(
     getStoredCounselors()
+      .filter((item) => !item?.disabled)
       .map((item) => String(item.name || "").trim())
       .filter(Boolean)
   )];
@@ -491,6 +502,18 @@ function buildLeadKey(lead) {
 
 function getSelectableLeadKeys(leads) {
   return leads.map((lead) => buildLeadKey(lead));
+}
+
+function isUnassignedCounselor(value) {
+  return String(value || "").trim().toLowerCase() === "unassigned";
+}
+
+function getSelectedLeads(leads) {
+  return leads.filter((lead) => selectedLeadKeys.has(buildLeadKey(lead)));
+}
+
+function getSelectedUnassignedLeads(leads) {
+  return getSelectedLeads(leads).filter((lead) => isUnassignedCounselor(lead?.counselor));
 }
 
 function getSelectedLeadCount(leads) {
@@ -1558,7 +1581,9 @@ function renderLeadTable(leads) {
   const pageLeads = leads.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   syncSelectedLeadIds(leads);
   const selectedCount = isAdmin ? getSelectedLeadCount(leads) : 0;
+  const selectedUnassignedCount = isAdmin ? getSelectedUnassignedLeads(leads).length : 0;
   const allSelected = isAdmin && pageLeads.length > 0 && pageLeads.every(isLeadSelected);
+  const assignCounselorOptions = getActiveCounselorNames();
   const bulkToolbar = isAdmin ? `
     <div class="bulk-toolbar">
       <label class="bulk-select-control">
@@ -1573,6 +1598,13 @@ function renderLeadTable(leads) {
         <div class="bulk-inline-group">
           <input id="mainAdmissionBulkCountInput" class="bulk-count-input" type="number" min="1" max="${leads.length || 1}" placeholder="Count" />
           <button id="mainAdmissionBulkCountApply" type="button" class="btn-ghost bulk-action-btn" ${leads.length ? "" : "disabled"}>Select Count</button>
+        </div>
+        <div class="bulk-inline-group">
+          <select id="mainAdmissionBulkAssignCounselor" class="bulk-assign-select">
+            <option value="">Assign to</option>
+            ${assignCounselorOptions.map((item) => `<option value="${escapeHtml(item)}" ${bulkAssignCounselor === item ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
+          </select>
+          <button id="mainAdmissionBulkAssign" type="button" class="btn-ghost bulk-action-btn" ${(selectedUnassignedCount && bulkAssignCounselor) ? "" : "disabled"}>Assign Selected</button>
         </div>
       </div>
     </div>
@@ -1697,6 +1729,14 @@ mainAdmissionLeadTableSection.addEventListener("click", async (event) => {
     return;
   }
 
+  if (event.target.id === "mainAdmissionBulkAssign") {
+    const assigned = await assignSelectedUnassignedLeads(getCurrentFilteredLeads());
+    if (assigned) {
+      renderAll();
+    }
+    return;
+  }
+
 });
 
 mainAdmissionLeadTableSection.addEventListener("change", (event) => {
@@ -1711,6 +1751,12 @@ mainAdmissionLeadTableSection.addEventListener("change", (event) => {
 
   if (target.id === "mainAdmissionBulkSelect") {
     toggleAllLeadsSelection(getCurrentFilteredLeads(), target.checked);
+    renderAll();
+    return;
+  }
+
+  if (target.id === "mainAdmissionBulkAssignCounselor") {
+    bulkAssignCounselor = target.value;
     renderAll();
   }
 });
@@ -1987,6 +2033,41 @@ async function deleteSelectedLeads(leads) {
   currentPage = 1;
   setMessage(`Deleted ${removedCount} main admission lead${removedCount === 1 ? "" : "s"} successfully.`);
   showToast(`Deleted ${removedCount} main admission lead${removedCount === 1 ? "" : "s"} successfully.`);
+  return true;
+}
+
+async function assignSelectedUnassignedLeads(leads) {
+  const counselor = String(bulkAssignCounselor || "").trim();
+  if (!counselor) {
+    showToast("Choose a counselor before assigning leads.", true);
+    return false;
+  }
+
+  const selectedLeads = getSelectedLeads(leads);
+  const selectedUnassignedLeads = selectedLeads.filter((lead) => isUnassignedCounselor(lead?.counselor));
+  if (!selectedUnassignedLeads.length) {
+    showToast("Select at least one unassigned lead to use this panel.", true);
+    return false;
+  }
+
+  const assignedLeadRefs = selectedUnassignedLeads.map(buildLeadRef);
+  const assignResult = await assignLeadsOnServer(assignedLeadRefs, counselor);
+  if (!assignResult || assignResult.ok === false) {
+    showToast(assignResult?.message || "Failed to assign selected leads.", true);
+    return false;
+  }
+
+  const summary = formatLeadAssignmentResult(assignResult, assignedLeadRefs.length, counselor);
+  const skippedAssignedCount = selectedLeads.length - selectedUnassignedLeads.length;
+  const skippedAssignedText = skippedAssignedCount
+    ? ` Skipped ${skippedAssignedCount} selected lead${skippedAssignedCount === 1 ? "" : "s"} that were already assigned.`
+    : "";
+
+  selectedLeadKeys = new Set();
+  bulkAssignCounselor = "";
+  currentPage = 1;
+  setMessage(`${summary.message}${skippedAssignedText}`);
+  showToast(`${summary.message}${skippedAssignedText}`);
   return true;
 }
 

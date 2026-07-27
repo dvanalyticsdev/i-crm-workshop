@@ -678,6 +678,9 @@ test("incoming Meta leads route admission traffic into Main Admission Leads", ()
   assert.match(mainAdmission, /stage: "main-admission"/);
   assert.match(mainAdmission, /TASK_CATEGORY\.mainAdmission/);
   assert.match(mainAdmission, /New main admission leads stay with the system until an admin assigns them manually/);
+  assert.match(mainAdmission, /mainAdmissionBulkAssignCounselor/);
+  assert.match(mainAdmission, /Assign Selected/);
+  assert.match(mainAdmission, /Select at least one unassigned lead to use this panel/);
   assert.match(taskService, /mainAdmission: "main-admission"/);
   assert.match(taskTracker, /mainAdmissionTaskSection/);
 });
