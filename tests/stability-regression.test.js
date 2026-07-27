@@ -260,12 +260,22 @@ test("forwarded Meta webhooks carry an internal signature and do not rely only o
 test("task service uses atomic task endpoints", () => {
   const server = read("server.js");
   const taskService = read("task-service.js");
+  const postTaskRoute = server.slice(
+    server.indexOf('app.post("/api/tasks"'),
+    server.indexOf('app.patch("/api/tasks/:taskId"')
+  );
+  const patchTaskRoute = server.slice(
+    server.indexOf('app.patch("/api/tasks/:taskId"'),
+    server.indexOf('app.delete("/api/tasks/:taskId"')
+  );
 
   assert.match(server, /app\.post\("\/api\/tasks"/);
   assert.match(server, /app\.patch\("\/api\/tasks\/:taskId"/);
   assert.match(server, /app\.delete\("\/api\/tasks\/:taskId"/);
   assert.doesNotMatch(taskService, /saveStoredTasks|saveTasks as saveStoredTasks/);
   assert.match(taskService, /requestJson\("\/api\/tasks"/);
+  assert.doesNotMatch(postTaskRoute, /buildStateResponse/);
+  assert.doesNotMatch(patchTaskRoute, /buildStateResponse/);
 });
 
 test("system update notice is a non-blocking header pill until clicked", () => {
@@ -834,8 +844,15 @@ test("main admission leads stay out of legacy workshop and registered sections",
 });
 
 test("lost leads include not interested statuses across all lead pipelines", () => {
+  const server = read("server.js");
   const lostLeads = read("lost-leads.js");
 
+  assert.match(server, /app\.get\("\/api\/lost-leads"/);
+  assert.match(server, /app\.post\("\/api\/lost-leads\/:leadId\/restore"/);
+  assert.match(lostLeads, /bootstrapLocalState\(\{ skipStateRefresh: true \}\)/);
+  assert.match(lostLeads, /apiUrl\("\/api\/lost-leads"\)/);
+  assert.doesNotMatch(lostLeads, /startStatePolling/);
+  assert.doesNotMatch(lostLeads, /saveLeads as persistLeads/);
   assert.match(lostLeads, /lead\.mainAdmissionActivityUpdated && lead\.mainAdmissionCourseStatus === "Not Interested"/);
   assert.match(lostLeads, /lead\.registeredActivityUpdated && lead\.registeredCourseStatus === "Not Interested"/);
   assert.match(lostLeads, /lead\.wsStatus === "Not Interested"/);

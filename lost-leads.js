@@ -1,9 +1,9 @@
 import { registerPageCleanup } from "./page-runtime.js";
 import { apiUrl } from "./api-client.js";
-import { acceptServerState, bootstrapLocalState, getCounselors, getLeads as getStoredLeads, getSession, loadLocalPreference, saveLeads as persistLeads, saveLocalPreference, startStatePolling } from "./state-sync.js";
+import { acceptServerState, bootstrapLocalState, getSession, loadLocalPreference, saveLocalPreference } from "./state-sync.js";
 import { openActivityHistory } from "./activity-history.js";
 
-await bootstrapLocalState();
+await bootstrapLocalState({ skipStateRefresh: true });
 
 const lostKpiSection = document.getElementById("lostKpiSection");
 const lostSubsectionButtons = document.getElementById("lostSubsectionButtons");
@@ -31,6 +31,8 @@ let lostPage = 1;
 let archivedPage = 1;
 let selectedCourseFilter = "all";
 let bulkDeleteInFlight = false;
+let lostLeadRows = [];
+let lostLeadCounselors = [];
 
 if (lostSearchInput) {
   lostSearchInput.value = searchQuery;
@@ -55,7 +57,7 @@ function getCounselorIdentity() {
 
   const sessionName = String(session?.name || "").trim().toLowerCase();
   const sessionEmail = String(session?.email || "").trim().toLowerCase();
-  const counselors = getCounselors();
+  const counselors = lostLeadCounselors;
   const match = counselors.find(
     (item) => String(item.email || "").trim().toLowerCase() === sessionEmail
   );
@@ -141,13 +143,24 @@ function normalizeLeadFields(leads) {
 }
 
 function getAllLeads() {
-  const leads = getStoredLeads();
+  const leads = Array.isArray(lostLeadRows) ? lostLeadRows : [];
   normalizeLeadFields(leads);
   return leads;
 }
 
-function saveAllLeads(leads) {
-  return persistLeads(leads);
+async function loadLostLeadData() {
+  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/lost-leads"), {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    credentials: "same-origin"
+  }, 15000);
+  if (!response.ok || !json?.ok) {
+    throw new Error(json?.message || "Failed to load lost leads.");
+  }
+  lostLeadRows = Array.isArray(json?.leads) ? json.leads : [];
+  lostLeadCounselors = Array.isArray(json?.counselors) ? json.counselors : [];
+  normalizeLeadFields(lostLeadRows);
+  return lostLeadRows;
 }
 
 function normalizeCourseFilterValue(value) {
@@ -231,51 +244,27 @@ function setBulkDeleteButtonState(isBusy) {
 }
 
 async function restoreLead(leadId) {
-  const allLeads = getAllLeads();
-  const index = allLeads.findIndex((lead) => String(lead.id) === String(leadId));
-  if (index === -1) {
+  const lead = getAllLeads().find((item) => String(item.id) === String(leadId));
+  if (!lead) {
     return;
   }
 
-  const restoreTarget = getLostSource(allLeads[index]);
+  const restoreTarget = getLostSource(lead);
   const confirmed = window.confirm(`Restore this lead back to ${restoreTarget}?`);
   if (!confirmed) {
     return;
   }
 
-  const lead = allLeads[index];
-  const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
-
-  if (pipeline === "main-admission") {
-    allLeads[index] = {
-      ...lead,
-      mainAdmissionCourseStatus: "",
-      mainAdmissionActivityUpdated: false
-    };
-  } else if (pipeline === "course-registration") {
-    allLeads[index] = {
-      ...lead,
-      registeredCourseStatus: "",
-      registeredActivityUpdated: false
-    };
-  } else if (lead.wsStatus === "Not Interested") {
-    allLeads[index] = {
-      ...lead,
-      wsStatus: ""
-    };
-  } else {
-    allLeads[index] = {
-      ...lead,
-      courseStatus: "",
-      postStatusUpdated: false
-    };
-  }
-
-  const restoreResult = await saveAllLeads(allLeads);
-  if (!restoreResult || restoreResult.ok === false) {
+  const { response, json } = await fetchJsonWithTimeout(apiUrl(`/api/lost-leads/${encodeURIComponent(String(leadId || "").trim())}/restore`), {
+    method: "POST",
+    headers: { Accept: "application/json" },
+    credentials: "same-origin"
+  }, 15000);
+  if (!response.ok || !json?.ok) {
     window.alert("Failed to restore lead. Please check your connection and try again.");
     return;
   }
+  lostLeadRows = lostLeadRows.filter((item) => String(item?.id || "") !== String(leadId));
   renderAll();
 }
 
@@ -304,6 +293,7 @@ async function deleteLostLead(leadId, leadName = "") {
     if (json?.state) {
       acceptServerState(json.state, response.headers.get("etag"));
     }
+    lostLeadRows = lostLeadRows.filter((lead) => String(lead?.id || "") !== String(leadId));
 
     await refreshArchivedLeads();
     renderAll();
@@ -383,6 +373,10 @@ async function deleteAllLostLeads() {
     if (json?.state) {
       acceptServerState(json.state, response.headers.get("etag"));
     }
+    const deletedCourseName = normalizeCourseFilterValue(courseName);
+    lostLeadRows = deletedCourseName === "all"
+      ? []
+      : lostLeadRows.filter((lead) => getLostProgramName(lead) !== deletedCourseName);
 
     await refreshArchivedLeads();
     lostPage = 1;
@@ -888,11 +882,38 @@ if (deleteAllArchivedLeadsBtn) {
   };
 }
 
+await loadLostLeadData().catch((error) => {
+  console.warn("[lost-leads] loading failed:", error?.message || error);
+});
 await refreshArchivedLeads();
 renderAll();
-const stopStatePolling = startStatePolling(() => {
-  void refreshArchivedLeads().then(() => {
-    renderAll();
-  });
-});
+const stopStatePolling = (() => {
+  let destroyed = false;
+  let activePoll = false;
+  async function poll() {
+    if (destroyed || activePoll || document.visibilityState === "hidden") return;
+    activePoll = true;
+    try {
+      await loadLostLeadData();
+      await refreshArchivedLeads();
+      renderAll();
+    } catch (error) {
+      console.warn("[lost-leads] polling failed:", error?.message || error);
+    } finally {
+      activePoll = false;
+    }
+  }
+  const timer = window.setInterval(() => {
+    void poll();
+  }, 15000);
+  const onVisible = () => {
+    if (document.visibilityState === "visible") void poll();
+  };
+  document.addEventListener("visibilitychange", onVisible);
+  return () => {
+    destroyed = true;
+    window.clearInterval(timer);
+    document.removeEventListener("visibilitychange", onVisible);
+  };
+})();
 registerPageCleanup(stopStatePolling);

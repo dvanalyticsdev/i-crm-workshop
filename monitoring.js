@@ -1,16 +1,14 @@
 import { registerPageCleanup } from "./page-runtime.js";
 import {
   bootstrapLocalState,
-  getCounselors,
-  getLeads as getStoredLeads,
   getSession,
   loadLocalPreference,
-  saveLocalPreference,
-  startStatePolling
+  saveLocalPreference
 } from "./state-sync.js";
+import { apiUrl } from "./api-client.js";
 import { formatKolkataDate, getKolkataDayRange, parseKolkataDate as parseLocalDate, toKolkataDateKey } from "./date-utils.js";
 
-await bootstrapLocalState();
+await bootstrapLocalState({ skipStateRefresh: true });
 
 const monitoringSectionNav = document.getElementById("monitoringSectionNav");
 const monitoringSubsectionNav = document.getElementById("monitoringSubsectionNav");
@@ -30,6 +28,8 @@ const monitoringExportMessage = document.getElementById("monitoringExportMessage
 
 const session = getSession();
 let monitoringKpiRenderToken = 0;
+let monitoringLeads = [];
+let monitoringCounselors = [];
 
 const TIMELINE_STORAGE_KEY = "dvWorkshopMonitoringTimeline";
 const VIEW_STORAGE_KEY = "dvMonitoringActiveView";
@@ -189,7 +189,7 @@ function getCounselorFirstName(value) {
 }
 
 function getCounselorDirectory() {
-  const counselors = getCounselors();
+  const counselors = monitoringCounselors;
   const cacheKey = JSON.stringify(
     counselors.map((item) => ({
       name: String(item?.name || "").trim(),
@@ -297,7 +297,7 @@ function getCounselorIdentity() {
 
   const sessionName = String(session?.name || "").trim().toLowerCase();
   const sessionEmail = String(session?.email || "").trim().toLowerCase();
-  const counselors = getCounselors();
+  const counselors = monitoringCounselors;
   const match = counselors.find(
     (item) => String(item.email || "").trim().toLowerCase() === sessionEmail
   );
@@ -389,9 +389,65 @@ function normalizeLeadFields(leads) {
 }
 
 function getAllLeads() {
-  const leads = getStoredLeads();
+  const leads = Array.isArray(monitoringLeads) ? monitoringLeads : [];
   normalizeLeadFields(leads);
   return leads;
+}
+
+async function loadMonitoringData() {
+  const [leadResponse, counselorResponse] = await Promise.all([
+    fetch(apiUrl("/api/leads?scope=assigned-or-touched"), {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" }
+    }),
+    fetch(apiUrl("/api/counselors"), {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" }
+    })
+  ]);
+  const [leadPayload, counselorPayload] = await Promise.all([
+    leadResponse.json().catch(() => []),
+    counselorResponse.json().catch(() => [])
+  ]);
+  if (!leadResponse.ok) {
+    throw new Error(leadPayload?.message || "Failed to load monitoring leads.");
+  }
+  if (!counselorResponse.ok) {
+    throw new Error(counselorPayload?.message || "Failed to load monitoring counselors.");
+  }
+  monitoringLeads = Array.isArray(leadPayload) ? leadPayload : [];
+  monitoringCounselors = Array.isArray(counselorPayload) ? counselorPayload : [];
+  counselorDirectoryCacheKey = "";
+  normalizeLeadFields(monitoringLeads);
+}
+
+function startMonitoringPolling(onRefresh, intervalMs = 15000) {
+  let destroyed = false;
+  let activePoll = false;
+  async function poll() {
+    if (destroyed || activePoll || document.visibilityState === "hidden") return;
+    activePoll = true;
+    try {
+      await loadMonitoringData();
+      await onRefresh();
+    } catch (error) {
+      console.warn("[monitoring] polling failed:", error?.message || error);
+    } finally {
+      activePoll = false;
+    }
+  }
+  const timer = window.setInterval(() => {
+    void poll();
+  }, intervalMs);
+  const onVisible = () => {
+    if (document.visibilityState === "visible") void poll();
+  };
+  document.addEventListener("visibilitychange", onVisible);
+  return () => {
+    destroyed = true;
+    window.clearInterval(timer);
+    document.removeEventListener("visibilitychange", onVisible);
+  };
 }
 
 function isCourseRegistrationLead(lead) {
@@ -1676,8 +1732,11 @@ function renderAll() {
 }
 
 bindTimelineControls();
+await loadMonitoringData().catch((error) => {
+  console.warn("[monitoring] initial loading failed:", error?.message || error);
+});
 renderAll();
-const stopStatePolling = startStatePolling(() => {
+const stopStatePolling = startMonitoringPolling(() => {
   renderAll();
 });
 registerPageCleanup(stopStatePolling);

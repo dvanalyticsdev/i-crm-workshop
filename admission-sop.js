@@ -733,7 +733,7 @@ function renderAdminSummary(rows = getAllRowModels()) {
     byCounselor.set(model.counselor, entry);
   });
 
-  const rows = [...byCounselor.values()].sort((left, right) => {
+  const counselorRows = [...byCounselor.values()].sort((left, right) => {
     if (right.blocked !== left.blocked) return right.blocked - left.blocked;
     if (right.risk !== left.risk) return right.risk - left.risk;
     return left.counselor.localeCompare(right.counselor);
@@ -758,7 +758,7 @@ function renderAdminSummary(rows = getAllRowModels()) {
           </tr>
         </thead>
         <tbody>
-          ${rows.map((row) => `
+          ${counselorRows.map((row) => `
             <tr>
               <td>${escapeHtml(row.counselor)}</td>
               <td>${row.total}</td>

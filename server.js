@@ -1725,6 +1725,48 @@ function getLostLeadProgramName(lead = {}) {
   return String(lead?.courseName || lead?.workshop || lead?.courseRawName || "").trim();
 }
 
+function getLostSourceLabel(lead = {}) {
+  const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
+  if (pipeline === MAIN_ADMISSION_PIPELINE) return "Main Admission Leads";
+  if (pipeline === "course-registration") {
+    return String(lead?.publicCourseSegment || "").trim().toLowerCase() === "crash-course"
+      ? "7-Day Crash Course"
+      : "Registered Candidates";
+  }
+  if (String(lead?.wsStatus || "").trim() === "Not Interested") return "Workshop Calling";
+  if (Boolean(lead?.postStatusUpdated) && String(lead?.courseStatus || "").trim() === "Not Interested") return "Admission Calling";
+  return "Unknown";
+}
+
+function restoreLostLeadPatch(lead = {}) {
+  const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
+  if (pipeline === MAIN_ADMISSION_PIPELINE) {
+    return {
+      mainAdmissionCourseStatus: "",
+      mainAdmissionActivityUpdated: false,
+      updatedAt: new Date().toISOString()
+    };
+  }
+  if (pipeline === "course-registration") {
+    return {
+      registeredCourseStatus: "",
+      registeredActivityUpdated: false,
+      updatedAt: new Date().toISOString()
+    };
+  }
+  if (String(lead?.wsStatus || "").trim() === "Not Interested") {
+    return {
+      wsStatus: "",
+      updatedAt: new Date().toISOString()
+    };
+  }
+  return {
+    courseStatus: "",
+    postStatusUpdated: false,
+    updatedAt: new Date().toISOString()
+  };
+}
+
 function getHistoryEntries(history = []) {
   return Array.isArray(history) ? history : [];
 }
@@ -10352,6 +10394,83 @@ app.delete("/api/lost-leads/archive/:archiveId", async (req, res) => {
   }
 });
 
+app.get("/api/lost-leads", async (req, res) => {
+  try {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    const permissions = getSessionPagePermissions(session);
+    if (!permissions.lostLeads) {
+      return res.status(403).json({ message: "You do not have permission to view lost leads." });
+    }
+
+    const [rawLeads, counselors] = await Promise.all([
+      withMongoRetry(
+        () => leadsCollection.find({}).toArray(),
+        { retries: 1, label: "Load scoped lost leads" }
+      ),
+      withMongoRetry(
+        () => counselorsCollection.find({}).toArray(),
+        { retries: 1, label: "Load lost lead counselors" }
+      )
+    ]);
+    const sessionEmail = String(session.email || "").trim().toLowerCase();
+    const counselorMatch = (Array.isArray(counselors) ? counselors : []).find(
+      (item) => String(item?.email || "").trim().toLowerCase() === sessionEmail
+    );
+    const counselorName = String(counselorMatch?.name || session.name || "").trim().toLowerCase();
+    const isCounselor = session.role === "counselor";
+    const leads = decorateLeadListForStorage(rawLeads || [])
+      .filter((lead) => isServerLostLead(lead))
+      .filter((lead) => !isCounselor || String(lead?.counselor || "").trim().toLowerCase() === counselorName)
+      .sort((a, b) => String(b.updatedAt || b.createdAtExact || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAtExact || a.createdAt || "")))
+      .map((lead) => ({
+        ...lead,
+        lostSource: getLostSourceLabel(lead),
+        lostProgramName: getLostLeadProgramName(lead) || "-"
+      }));
+
+    return res.json({
+      ok: true,
+      leads,
+      counselors: Array.isArray(counselors) ? counselors : [],
+      updatedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch lost leads", details: error.message });
+  }
+});
+
+app.post("/api/lost-leads/:leadId/restore", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "super_admin"]);
+    if (!session) return;
+
+    const leadId = String(req.params.leadId || "").trim();
+    if (!leadId) {
+      return res.status(400).json({ message: "Lead id is required." });
+    }
+
+    const lead = await withMongoRetry(
+      () => leadsCollection.findOne({ id: leadId }),
+      { retries: 1, label: "Load lost lead for restore" }
+    );
+    if (!lead || !isServerLostLead(lead)) {
+      return res.status(404).json({ message: "Lost lead not found." });
+    }
+
+    const patch = restoreLostLeadPatch(lead);
+    await leadsCollection.updateOne({ id: leadId }, { $set: patch });
+    await touchStateUpdatedAt(patch.updatedAt);
+    const updatedLead = await withMongoRetry(
+      () => leadsCollection.findOne({ id: leadId }),
+      { retries: 1, label: "Load restored lead" }
+    );
+    return res.json({ ok: true, lead: decorateLeadListForStorage([updatedLead]).at(0) || null });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to restore lost lead", details: error.message });
+  }
+});
+
 app.delete("/api/lost-leads", async (req, res) => {
   try {
     const session = await requireSuperAdmin(req, res);
@@ -12651,9 +12770,8 @@ app.post("/api/tasks", async (req, res) => {
       { upsert: true }
     );
 
-    const nextState = await refreshStateAfterAtomicUpdate();
-    res.setHeader("ETag", buildStateEtag(nextState));
-    return res.json({ ok: true, task, state: buildStateResponse(nextState) });
+    res.setHeader("ETag", buildStateEtag({ updatedAt: now, task }));
+    return res.json({ ok: true, task, updatedAt: now });
   } catch (error) {
     return res.status(500).json({ message: "Failed to create task", details: error.message });
   }
@@ -12701,10 +12819,9 @@ app.patch("/api/tasks/:taskId", async (req, res) => {
       { upsert: true }
     );
 
-    const nextState = await refreshStateAfterAtomicUpdate();
-    const task = findTaskById(nextState, taskId);
-    res.setHeader("ETag", buildStateEtag(nextState));
-    return res.json({ ok: true, task, state: buildStateResponse(nextState) });
+    const task = normalizeTaskDoc({ ...existingTask, ...updates });
+    res.setHeader("ETag", buildStateEtag({ updatedAt: updates.updatedAt, task }));
+    return res.json({ ok: true, task, updatedAt: updates.updatedAt });
   } catch (error) {
     return res.status(500).json({ message: "Failed to update task", details: error.message });
   }
@@ -12754,9 +12871,8 @@ app.delete("/api/tasks/:taskId", async (req, res) => {
       { upsert: true }
     );
 
-    const nextState = await refreshStateAfterAtomicUpdate();
-    res.setHeader("ETag", buildStateEtag(nextState));
-    return res.json({ ok: true, state: buildStateResponse(nextState) });
+    res.setHeader("ETag", buildStateEtag({ updatedAt: now, deletedTaskId: taskId }));
+    return res.json({ ok: true, deletedTaskId: taskId, updatedAt: now });
   } catch (error) {
     return res.status(500).json({ message: "Failed to remove task", details: error.message });
   }
@@ -13075,8 +13191,42 @@ app.get("/api/leads", async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
 
-    const state = await getStateDoc();
-    res.json(Array.isArray(state.leads) ? state.leads : []);
+    const [rawLeads, counselors] = await Promise.all([
+      withMongoRetry(
+        () => leadsCollection.find({}).toArray(),
+        { retries: 1, label: "Load leads endpoint leads" }
+      ),
+      session.role === "counselor"
+        ? withMongoRetry(
+            () => counselorsCollection.find({}).toArray(),
+            { retries: 1, label: "Load leads endpoint counselors" }
+          )
+        : Promise.resolve([])
+    ]);
+    const leads = decorateLeadListForStorage(rawLeads || []);
+    if (session.role !== "counselor") {
+      return res.json(leads);
+    }
+
+    const sessionEmail = String(session.email || "").trim().toLowerCase();
+    const counselorMatch = (Array.isArray(counselors) ? counselors : []).find(
+      (item) => String(item?.email || "").trim().toLowerCase() === sessionEmail
+    );
+    const counselorName = String(counselorMatch?.name || session.name || "").trim().toLowerCase();
+    const includeTouched = String(req.query?.scope || "").trim().toLowerCase() === "assigned-or-touched";
+    const historyFields = [
+      "workshopActivityHistory",
+      "admissionActivityHistory",
+      "registeredCourseActivityHistory",
+      "mainAdmissionActivityHistory"
+    ];
+    return res.json(leads.filter((lead) => (
+      String(lead?.counselor || "").trim().toLowerCase() === counselorName
+      || (includeTouched && historyFields.some((field) => (
+        Array.isArray(lead?.[field])
+        && lead[field].some((entry) => String(entry?.by || "").trim().toLowerCase() === counselorName)
+      )))
+    )));
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch leads", details: error.message });
   }
