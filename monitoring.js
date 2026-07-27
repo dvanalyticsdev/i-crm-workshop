@@ -779,7 +779,7 @@ function getMcubeCallEntriesInRange(leads, range) {
       const duration = Math.max(Number(entry?.duration) || 0, Number(previous?.duration) || 0);
       const nextEntry = {
         leadId,
-        counselor: String(lead?.counselor || "").trim(),
+        counselor: String(entry?.counselor || lead?.counselor || "").trim(),
         at: timestamp,
         callId,
         direction,
@@ -1483,14 +1483,14 @@ function renderRegisteredView(counselors, leads, rawLeads, range) {
 }
 
 function getMcubeCounselorLabel(entry = {}) {
-  const agentName = resolveCounselorName(entry?.agentName);
-  if (agentName) {
-    return agentName;
-  }
-
   const counselor = resolveCounselorName(entry?.counselor);
   if (counselor) {
     return counselor;
+  }
+
+  const agentName = resolveCounselorName(entry?.agentName);
+  if (agentName) {
+    return agentName;
   }
 
   return resolveCounselorName(entry?.agentName, true) || resolveCounselorName(entry?.counselor, true) || "Unassigned";

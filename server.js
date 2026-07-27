@@ -3497,7 +3497,9 @@ function buildMcubeActivityMetadata(event = {}, extra = {}) {
     callStatus: String(event?.disposition || extra.callStatus || "").trim(),
     normalizedCallStatus: String(extra.normalizedStatus || "").trim(),
     recordingUrl: String(event?.recordingUrl || extra.recordingUrl || "").trim(),
+    counselorName: String(extra.counselorName || "").trim(),
     agentName: String(event?.counselorName || extra.agentName || "").trim(),
+    actualAgentName: String(extra.actualAgentName || event?.counselorName || "").trim(),
     agentPhone: String(event?.agentPhone || extra.agentPhone || "").trim(),
     customerPhone: String(event?.phone || extra.customerPhone || "").trim(),
     duration: Number(event?.duration || extra.duration || 0) || 0,
@@ -4819,10 +4821,14 @@ async function processMcubeWebhookPayload(req, body, options = {}) {
   const assignment = getMcubeLeadAssignment(event, state.counselors);
   const shouldAssignFromPickedCall = !shouldTreatLeadAsAssigned(lead.counselor)
     && shouldTreatLeadAsAssigned(assignment.counselorName);
+  const effectiveCounselorName = String(
+    shouldAssignFromPickedCall ? assignment.counselorName : lead.counselor
+  ).trim() || "Unassigned";
   const history = Array.isArray(lead.mcubeCallHistory) ? lead.mcubeCallHistory : [];
   const nextHistory = [
     {
       at: new Date().toISOString(),
+      counselor: effectiveCounselorName,
       callId: event.callId,
       eventType: event.eventType,
       direction: event.direction,
@@ -4845,7 +4851,7 @@ async function processMcubeWebhookPayload(req, body, options = {}) {
 
   const nextLead = decorateLeadForStorage({
     ...lead,
-    counselor: shouldAssignFromPickedCall ? assignment.counselorName : lead.counselor,
+    counselor: effectiveCounselorName,
     updatedAt: new Date().toISOString(),
     mcubeCallHistory: nextHistory,
     mcubePickedBy: assignment.pickedBy || lead.mcubePickedBy || "",
@@ -4896,6 +4902,9 @@ async function processMcubeWebhookPayload(req, body, options = {}) {
     ].filter(Boolean).join(", "),
     callMetadata: buildMcubeActivityMetadata(event, {
       normalizedStatus,
+      counselorName: effectiveCounselorName,
+      agentName: effectiveCounselorName,
+      actualAgentName: event.counselorName,
       recordingUrl: config.enableRecordingLinks ? event.recordingUrl : ""
     })
   });

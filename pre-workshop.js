@@ -787,6 +787,7 @@ const DEFAULT_FILTER = {
   dialed: EMPTY_FILTER_VALUE,
   callStatus: EMPTY_FILTER_VALUE,
   wsStatus: EMPTY_FILTER_VALUE,
+  latestActivity: EMPTY_FILTER_VALUE,
   whatsappInvite: EMPTY_FILTER_VALUE,
   whatsappGroupStatus: EMPTY_FILTER_VALUE
 };
@@ -862,6 +863,65 @@ function filterByLeadOwner(leads) {
       ? ownerType === "reassigned"
       : ownerType === "direct";
   });
+}
+
+function getActivityLabel(activity = {}) {
+  return String(
+    activity?.activityType
+    || activity?.type
+    || activity?.eventType
+    || activity?.actionType
+    || activity?.label
+    || ""
+  ).trim();
+}
+
+function getEntryTimestamp(value) {
+  const candidate = String(
+    value?.at
+    || value?.timestamp
+    || value?.createdAt
+    || value?.updatedAt
+    || value?.migratedAt
+    || value
+    || ""
+  ).trim();
+  if (!candidate) {
+    return Number.NaN;
+  }
+  return new Date(candidate).getTime();
+}
+
+function getLatestHistoryEntry(history) {
+  if (!Array.isArray(history) || !history.length) {
+    return null;
+  }
+
+  return history.reduce((latest, entry) => {
+    if (!latest) {
+      return entry;
+    }
+    return getEntryTimestamp(entry) >= getEntryTimestamp(latest) ? entry : latest;
+  }, null);
+}
+
+function isLatestInboundReceivedActivity(history) {
+  const latestEntry = getLatestHistoryEntry(history);
+  if (!latestEntry || getActivityLabel(latestEntry) !== "Call Made") {
+    return false;
+  }
+
+  const callDirection = String(
+    latestEntry?.callMetadata?.callDirection
+    || latestEntry?.callMetadata?.direction
+    || latestEntry?.direction
+    || ""
+  ).trim().toLowerCase();
+  if (callDirection === "inbound") {
+    return true;
+  }
+
+  return String(latestEntry?.actionDescription || "").trim().toLowerCase().includes("mcube inbound");
 }
 
 function getLeadOwnerFilterLabel() {
@@ -967,6 +1027,7 @@ function normalizeFilterState(leads) {
     dialed: normalizeSelectedFilterValue(filter.dialed, withSelectFilterOption(dialedOptions)),
     callStatus: normalizeSelectedFilterValue(filter.callStatus, withSelectFilterOption(callStatusOptions)),
     wsStatus: normalizeSelectedFilterValue(filter.wsStatus, withSelectFilterOption(wsStatusOptions)),
+    latestActivity: normalizeSelectedFilterValue(filter.latestActivity, ["Inbound Received"]),
     whatsappInvite: normalizeSelectedFilterValue(filter.whatsappInvite, withSelectFilterOption(whatsappInviteOptions)),
     whatsappGroupStatus: normalizeSelectedFilterValue(filter.whatsappGroupStatus, withSelectFilterOption(["Joined", "Not Joined"]))
   };
@@ -1369,6 +1430,10 @@ function filterLeads(leads) {
     filtered = filtered.filter((lead) => filterIncludesValue(filter.wsStatus, lead.wsStatus));
   }
 
+  if (isSelectedFilterValue(filter.latestActivity)) {
+    filtered = filtered.filter((lead) => isLatestInboundReceivedActivity(lead?.workshopActivityHistory));
+  }
+
   if (isSelectedFilterValue(filter.whatsappInvite)) {
     filtered = filtered.filter((lead) => filterIncludesValue(filter.whatsappInvite, lead.whatsappInvite));
   }
@@ -1563,6 +1628,12 @@ function renderFilters(leads) {
           value: filter.wsStatus
         })}
         ${renderMultiSelectControl({
+          id: "latestActivitySelect",
+          label: "Latest Activity",
+          options: ["Inbound Received"],
+          value: filter.latestActivity
+        })}
+        ${renderMultiSelectControl({
           id: "whatsappInviteSelect",
           label: "WhatsApp Invitation Sent",
           options: withSelectFilterOption(whatsappInviteOptions),
@@ -1604,6 +1675,7 @@ function renderFilters(leads) {
   bindMultiFilter("dialedSelect", "dialed");
   bindMultiFilter("callStatusSelect", "callStatus");
   bindMultiFilter("wsStatusSelect", "wsStatus");
+  bindMultiFilter("latestActivitySelect", "latestActivity");
   bindMultiFilter("whatsappInviteSelect", "whatsappInvite");
   bindMultiFilter("whatsappGroupStatusSelect", "whatsappGroupStatus");
 

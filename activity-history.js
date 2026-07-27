@@ -140,11 +140,14 @@ function renderCallMetadata(log) {
   const duration = isNonConnectedCallStatus(callStatus) ? 0 : parseDurationSeconds(metadata.duration || metadata.talkTimeDuration || "");
   const shouldShowTalkTime = !isNonConnectedCallStatus(callStatus) && (duration || isAnsweredCallStatus(callStatus));
   const recordingId = `recording-${String(log.id || log._id || metadata.callId || Math.random()).replace(/[^a-z0-9_-]/gi, "-")}`;
+  const counselorName = String(metadata.counselorName || metadata.agentName || "").trim();
+  const actualAgentName = String(metadata.actualAgentName || "").trim();
   const details = [
     metadata.callStatus ? `Status: ${metadata.callStatus}` : "",
     metadata.callDirection ? `Direction: ${metadata.callDirection}` : "",
     metadata.callId ? `Call ID: ${metadata.callId}` : "",
-    metadata.agentName ? `Agent: ${metadata.agentName}` : "",
+    counselorName ? `Counselor: ${counselorName}` : "",
+    actualAgentName && actualAgentName !== counselorName ? `MCUBE agent: ${actualAgentName}` : "",
     metadata.agentPhone ? `Agent phone: ${metadata.agentPhone}` : "",
     shouldShowTalkTime && duration ? `Talk time: ${formatDuration(duration)}` : ""
   ].filter(Boolean);

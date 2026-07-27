@@ -98,6 +98,7 @@ const DEFAULT_FILTER = {
   mainAdmissionAdmissionStatus: "",
   mainAdmissionCallStatus: "",
   activityStatus: "",
+  latestActivity: "",
   repeatEnquiryStatus: "",
   whatsappActivity: "",
   lsqLeads: ""
@@ -227,6 +228,25 @@ function getLatestHistoryEntry(history) {
     }
     return getEntryTimestamp(entry) >= getEntryTimestamp(latest) ? entry : latest;
   }, null);
+}
+
+function isLatestInboundReceivedActivity(history) {
+  const latestEntry = getLatestHistoryEntry(history);
+  if (!latestEntry || getActivityLabel(latestEntry) !== "Call Made") {
+    return false;
+  }
+
+  const callDirection = String(
+    latestEntry?.callMetadata?.callDirection
+    || latestEntry?.callMetadata?.direction
+    || latestEntry?.direction
+    || ""
+  ).trim().toLowerCase();
+  if (callDirection === "inbound") {
+    return true;
+  }
+
+  return String(latestEntry?.actionDescription || "").trim().toLowerCase().includes("mcube inbound");
 }
 
 function getLatestLeadActivityTimestamp(lead) {
@@ -1027,6 +1047,13 @@ function renderFilters(leads) {
           </select>
         </div>
         <div class="filter-item">
+          <label for="mainAdmissionLatestActivitySelect">Latest Activity</label>
+          <select id="mainAdmissionLatestActivitySelect">
+            <option value="">Use Filter</option>
+            <option value="Inbound Received" ${filter.latestActivity === "Inbound Received" ? "selected" : ""}>Inbound Received</option>
+          </select>
+        </div>
+        <div class="filter-item">
           <label for="mainAdmissionRepeatEnquirySelect">Repeat Enquiry</label>
           <select id="mainAdmissionRepeatEnquirySelect">
             <option value="">All</option>
@@ -1188,6 +1215,12 @@ function renderFilters(leads) {
   };
   document.getElementById("mainAdmissionActivityStatusSelect").onchange = (event) => {
     filter.activityStatus = event.target.value;
+    persistFilters();
+    currentPage = 1;
+    renderAll();
+  };
+  document.getElementById("mainAdmissionLatestActivitySelect").onchange = (event) => {
+    filter.latestActivity = event.target.value;
     persistFilters();
     currentPage = 1;
     renderAll();
@@ -1364,6 +1397,7 @@ function filterLeads(leads) {
     if (filter.mainAdmissionCallStatus && filter.mainAdmissionCallStatus !== lead.mainAdmissionCallStatus) return false;
     if (filter.activityStatus === "Untouched" && getLeadActivityUpdateCount(lead) > 0) return false;
     if (filter.activityStatus === "Updated" && getLeadActivityUpdateCount(lead) === 0) return false;
+    if (filter.latestActivity === "Inbound Received" && !isLatestInboundReceivedActivity(lead?.mainAdmissionActivityHistory)) return false;
     if (filter.repeatEnquiryStatus === "Repeat Enquiry" && !isRepeatEnquiryLead(lead)) return false;
     if (filter.repeatEnquiryStatus === "First Time" && isRepeatEnquiryLead(lead)) return false;
     if (filter.whatsappActivity && !leadMatchesWhatsappActivityFilter(lead)) return false;

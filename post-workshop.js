@@ -294,6 +294,25 @@ function getLatestHistoryEntry(history) {
   }, null);
 }
 
+function isLatestInboundReceivedActivity(history) {
+  const latestEntry = getLatestHistoryEntry(history);
+  if (!latestEntry || getActivityLabel(latestEntry) !== "Call Made") {
+    return false;
+  }
+
+  const callDirection = String(
+    latestEntry?.callMetadata?.callDirection
+    || latestEntry?.callMetadata?.direction
+    || latestEntry?.direction
+    || ""
+  ).trim().toLowerCase();
+  if (callDirection === "inbound") {
+    return true;
+  }
+
+  return String(latestEntry?.actionDescription || "").trim().toLowerCase().includes("mcube inbound");
+}
+
 function getLatestLeadActivityTimestamp(lead) {
   return getEntryTimestamp(getLatestHistoryEntry(lead?.admissionActivityHistory));
 }
@@ -433,6 +452,7 @@ const DEFAULT_FILTER = {
   admissionStatus: EMPTY_FILTER_VALUE,
   courseStatus: EMPTY_FILTER_VALUE,
   postCallStatus: EMPTY_FILTER_VALUE,
+  latestActivity: EMPTY_FILTER_VALUE,
   workshopJoiningStatus: EMPTY_FILTER_VALUE,
   repeatEnquiryStatus: EMPTY_FILTER_VALUE,
   workshopCallingDialed: EMPTY_FILTER_VALUE,
@@ -963,6 +983,12 @@ function renderFilters(leads) {
           options: ["Untouched", "Updated"],
           value: filter.activityStatus
         })}
+        ${renderMultiSelectControl({
+          id: "postLatestActivitySelect",
+          label: "Latest Activity",
+          options: ["Inbound Received"],
+          value: filter.latestActivity
+        })}
       </div>
     </div>
 
@@ -1098,6 +1124,7 @@ function renderFilters(leads) {
   document.getElementById("postLeadOwnerSelect").value = filter.leadOwner;
   bindMultiFilter("postCounselorSelect", "counselor");
   bindMultiFilter("postActivityStatusSelect", "activityStatus");
+  bindMultiFilter("postLatestActivitySelect", "latestActivity");
   bindMultiFilter("postRepeatEnquirySelect", "repeatEnquiryStatus");
   bindMultiFilter("postWhatsappActivitySelect", "whatsappActivity");
   bindMultiFilter("postWorkshopNameSelect", "workshopName");
@@ -1282,6 +1309,10 @@ function filterLeads(leads) {
 
   if (isSelectedFilterValue(filter.whatsappActivity)) {
     filtered = filtered.filter((lead) => leadMatchesWhatsappActivityFilter(lead));
+  }
+
+  if (isSelectedFilterValue(filter.latestActivity)) {
+    filtered = filtered.filter((lead) => isLatestInboundReceivedActivity(lead?.admissionActivityHistory));
   }
 
   if (isSelectedFilterValue(filter.workshopCallingDialed)) {

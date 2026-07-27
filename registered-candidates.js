@@ -89,6 +89,7 @@ const DEFAULT_FILTER = {
   registeredAdmissionStatus: "",
   registeredCallStatus: "",
   activityStatus: "",
+  latestActivity: "",
   repeatEnquiryStatus: "",
   whatsappActivity: ""
 };
@@ -180,6 +181,25 @@ function getLatestHistoryEntry(history) {
     }
     return getEntryTimestamp(entry) >= getEntryTimestamp(latest) ? entry : latest;
   }, null);
+}
+
+function isLatestInboundReceivedActivity(history) {
+  const latestEntry = getLatestHistoryEntry(history);
+  if (!latestEntry || getActivityLabel(latestEntry) !== "Call Made") {
+    return false;
+  }
+
+  const callDirection = String(
+    latestEntry?.callMetadata?.callDirection
+    || latestEntry?.callMetadata?.direction
+    || latestEntry?.direction
+    || ""
+  ).trim().toLowerCase();
+  if (callDirection === "inbound") {
+    return true;
+  }
+
+  return String(latestEntry?.actionDescription || "").trim().toLowerCase().includes("mcube inbound");
 }
 
 function getLatestLeadActivityTimestamp(lead) {
@@ -1035,6 +1055,13 @@ function renderFilters(leads) {
           </select>
         </div>
         <div class="filter-item">
+          <label for="registeredLatestActivitySelect">Latest Activity</label>
+          <select id="registeredLatestActivitySelect">
+            <option value="">Use Filter</option>
+            <option value="Inbound Received" ${filter.latestActivity === "Inbound Received" ? "selected" : ""}>Inbound Received</option>
+          </select>
+        </div>
+        <div class="filter-item">
           <label for="registeredWhatsappActivitySelect">WhatsApp Activity</label>
           <select id="registeredWhatsappActivitySelect">
             <option value="">All</option>
@@ -1163,6 +1190,12 @@ function renderFilters(leads) {
     currentPage = 1;
     renderAll();
   };
+  document.getElementById("registeredLatestActivitySelect").onchange = (event) => {
+    filter.latestActivity = event.target.value;
+    persistFilters();
+    currentPage = 1;
+    renderAll();
+  };
   document.getElementById("registeredWhatsappActivitySelect").onchange = (event) => {
     filter.whatsappActivity = event.target.value;
     persistFilters();
@@ -1246,6 +1279,7 @@ function filterLeads(leads) {
     if (filter.registeredCallStatus && filter.registeredCallStatus !== lead.registeredCallStatus) return false;
     if (filter.activityStatus === "Untouched" && getLeadActivityUpdateCount(lead) > 0) return false;
     if (filter.activityStatus === "Updated" && getLeadActivityUpdateCount(lead) === 0) return false;
+    if (filter.latestActivity === "Inbound Received" && !isLatestInboundReceivedActivity(lead?.registeredCourseActivityHistory)) return false;
     if (filter.whatsappActivity && !leadMatchesWhatsappActivityFilter(lead)) return false;
     if (filter.repeatEnquiryStatus === "Repeat Enquiry" && !isRepeatEnquiryLead(lead)) return false;
     if (filter.repeatEnquiryStatus === "First Time" && isRepeatEnquiryLead(lead)) return false;
