@@ -90,6 +90,7 @@ const DEFAULT_FILTER = {
   leadOwner: isCounselorSession() ? "direct" : "all",
   counselor: "",
   courseName: [],
+  leadSource: "",
   location: "",
   mainAdmissionDialed: "",
   mainAdmissionCourseStatus: "",
@@ -997,6 +998,15 @@ function renderFilters(leads) {
           </select>
         </div>
         <div class="filter-item">
+          <label for="mainAdmissionLeadSourceSelect">Lead Source</label>
+          <select id="mainAdmissionLeadSourceSelect">
+            <option value="">All</option>
+            <option value="meta" ${filter.leadSource === "meta" ? "selected" : ""}>Meta</option>
+            <option value="elementor" ${filter.leadSource === "elementor" ? "selected" : ""}>Elementor</option>
+            <option value="mcube" ${filter.leadSource === "mcube" ? "selected" : ""}>Mcube</option>
+          </select>
+        </div>
+        <div class="filter-item">
           <label for="mainAdmissionDialedSelect">Dialed</label>
           <select id="mainAdmissionDialedSelect">
             <option value="">All</option>
@@ -1173,6 +1183,12 @@ function renderFilters(leads) {
   }
   document.getElementById("mainAdmissionLocationSelect").onchange = (event) => {
     filter.location = event.target.value;
+    persistFilters();
+    currentPage = 1;
+    renderAll();
+  };
+  document.getElementById("mainAdmissionLeadSourceSelect").onchange = (event) => {
+    filter.leadSource = event.target.value;
     persistFilters();
     currentPage = 1;
     renderAll();
@@ -1372,6 +1388,7 @@ function filterLeads(leads) {
       if (selectedCourses.length && !selectedCourses.includes(lead.courseName)) return false;
     }
     if (filter.location && filter.location !== location) return false;
+    if (filter.leadSource && getLeadSourceFilterValue(lead) !== filter.leadSource) return false;
     if (filter.mainAdmissionDialed && filter.mainAdmissionDialed !== lead.mainAdmissionDialed) return false;
     if (filter.mainAdmissionCourseStatus && filter.mainAdmissionCourseStatus !== lead.mainAdmissionCourseStatus) return false;
     if (filter.mainAdmissionAdmissionStatus && filter.mainAdmissionAdmissionStatus !== lead.mainAdmissionAdmissionStatus) return false;
@@ -1562,6 +1579,47 @@ function getDisplayLeadSource(lead) {
   }
 
   return String(lead.source || "").trim() || "Unknown";
+}
+
+function getLeadSourceFilterValue(lead) {
+  const extraFields = getLeadExtraFields(lead);
+  const sourceSignals = [
+    extraFields.source_type,
+    extraFields.platform,
+    extraFields.utm_source,
+    extraFields.referrer,
+    extraFields.lead_source,
+    extraFields.source,
+    lead.metaAdName,
+    lead.metaAdsetName,
+    lead.metaCampaignName,
+    lead.elementorPageUrl,
+    lead.elementorFormName,
+    lead.source,
+    lead.name,
+    lead.email
+  ]
+    .map((value) => normalizeText(value))
+    .filter(Boolean)
+    .join(" ");
+
+  if (
+    /\b(mcube)\b/.test(sourceSignals)
+    || /^mcube\s+(caller|lead)(\s+\S+)?$/i.test(String(lead?.name || "").trim())
+    || /^mcube-[^@\s]+@noemail\.lead$/i.test(String(lead?.email || "").trim().toLowerCase())
+  ) {
+    return "mcube";
+  }
+
+  if (normalizeText(lead.elementorPageUrl) || /\b(elementor|website|web|landing page|site|public course)\b/.test(sourceSignals)) {
+    return "elementor";
+  }
+
+  if (/\b(meta|facebook|fb|instagram|insta|ig)\b/.test(sourceSignals)) {
+    return "meta";
+  }
+
+  return "";
 }
 
 function buildLeadDetailSections(lead) {
