@@ -612,7 +612,12 @@ test("monitoring counselor scope includes touched leads and admins hide zero row
 
 test("monitoring includes a single-view MCube tab with call summary metrics", () => {
   const monitoring = read("monitoring.js");
+  const server = read("server.js");
 
+  assert.match(server, /app\.get\("\/api\/monitoring-report"/);
+  assert.match(server, /buildMonitoringReport/);
+  assert.match(monitoring, /\/api\/monitoring-report/);
+  assert.match(monitoring, /renderServerMonitoringReport/);
   assert.match(monitoring, /mcube:\s*\{/);
   assert.match(monitoring, /function getCounselorFirstName\(/);
   assert.match(monitoring, /function getCounselorAliasKeys\(/);

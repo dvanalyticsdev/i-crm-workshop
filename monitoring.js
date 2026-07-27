@@ -30,6 +30,7 @@ const session = getSession();
 let monitoringKpiRenderToken = 0;
 let monitoringLeads = [];
 let monitoringCounselors = [];
+let monitoringReport = null;
 
 const TIMELINE_STORAGE_KEY = "dvWorkshopMonitoringTimeline";
 const VIEW_STORAGE_KEY = "dvMonitoringActiveView";
@@ -395,6 +396,29 @@ function getAllLeads() {
 }
 
 async function loadMonitoringData() {
+  const reportUrl = new URL(apiUrl("/api/monitoring-report"), window.location.origin);
+  reportUrl.searchParams.set("subsection", activeView.subsection);
+  reportUrl.searchParams.set("timelineType", timelineFilter.type || "week");
+  if (timelineFilter.startDate) reportUrl.searchParams.set("startDate", timelineFilter.startDate);
+  if (timelineFilter.endDate) reportUrl.searchParams.set("endDate", timelineFilter.endDate);
+  try {
+    const response = await fetch(reportUrl.toString(), {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload?.ok === false) {
+      throw new Error(payload?.message || "Failed to load monitoring report.");
+    }
+    monitoringReport = payload;
+    monitoringLeads = [];
+    monitoringCounselors = [];
+    return;
+  } catch (error) {
+    console.warn("[monitoring] server report failed, falling back to client calculations:", error?.message || error);
+    monitoringReport = null;
+  }
+
   const [leadResponse, counselorResponse] = await Promise.all([
     fetch(apiUrl(`/api/leads?scope=assigned-or-touched&monitoringSubsection=${encodeURIComponent(activeView.subsection)}`), {
       credentials: "same-origin",
@@ -573,19 +597,19 @@ function bindTimelineControls() {
     persistTimelineFilter();
     monitoringStartDateWrap.classList.toggle("hidden", timelineFilter.type !== "custom");
     monitoringEndDateWrap.classList.toggle("hidden", timelineFilter.type !== "custom");
-    renderAll();
+    void loadMonitoringData().finally(() => renderAll());
   };
 
   monitoringStartDate.onchange = (event) => {
     timelineFilter.startDate = event.target.value;
     persistTimelineFilter();
-    renderAll();
+    void loadMonitoringData().finally(() => renderAll());
   };
 
   monitoringEndDate.onchange = (event) => {
     timelineFilter.endDate = event.target.value;
     persistTimelineFilter();
-    renderAll();
+    void loadMonitoringData().finally(() => renderAll());
   };
 
   resetMonitoringTimeline.onclick = () => {
@@ -596,7 +620,7 @@ function bindTimelineControls() {
     };
     persistTimelineFilter();
     bindTimelineControls();
-    renderAll();
+    void loadMonitoringData().finally(() => renderAll());
   };
 }
 
@@ -1277,6 +1301,75 @@ function getTimelineLabel() {
   return "Monitoring Report";
 }
 
+function renderServerBreakdownCell(entries = [], emptyLabel = "No activity") {
+  if (!Array.isArray(entries) || !entries.length) {
+    return `<span class="monitoring-breakdown monitoring-breakdown--empty">${escapeHtml(emptyLabel)}</span>`;
+  }
+  const preview = entries.slice(0, 2);
+  const hiddenCount = Math.max(entries.length - preview.length, 0);
+  return `
+    <div class="monitoring-breakdown">
+      <div class="monitoring-breakdown__preview">
+        ${preview.map((entry) => `<span class="monitoring-breakdown__pill">${escapeHtml(entry.name)} (${Number(entry.count) || 0})</span>`).join("")}
+      </div>
+      ${hiddenCount ? `
+        <details class="monitoring-breakdown__details">
+          <summary>View ${hiddenCount} more</summary>
+          <ul>${entries.map((entry) => `<li>${escapeHtml(entry.name)} <strong>${Number(entry.count) || 0}</strong></li>`).join("")}</ul>
+        </details>
+      ` : ""}
+    </div>
+  `;
+}
+
+function getServerReportCell(row, label) {
+  const keyByLabel = {
+    "Counselor Name": "counselor",
+    "Total Activities Completed": "activities",
+    "Overall Activity": "activities",
+    "Workshop-wise Activity Breakdown": "entries",
+    "Course-wise Activity Breakdown": "entries",
+    "Interested Leads": "interested",
+    "Not Interested Leads": "notInterested",
+    "WhatsApp Group Joined": "whatsappJoined",
+    "Enrolled": "enrolled",
+    "Won": "won",
+    "Leads Assigned": "assignedLeads",
+    "Fresh Leads Touched": "freshLeadTouches",
+    "Old Leads Touched": "oldLeadTouches",
+    "Dialed Leads": "dialed",
+    "Total Calls": "totalCalls",
+    "Outbound Calls": "outboundCalls",
+    "Inbound Calls": "inboundCalls",
+    "Call Picked": "callPicked",
+    "Call Not Picked / Not Connected": "callNotPicked",
+    "Talk Time": "talkTimeLabel"
+  };
+  const key = keyByLabel[label] || label;
+  if (key === "entries") {
+    return renderServerBreakdownCell(row.entries, label.startsWith("Course") ? "No course activity" : "No workshop activity");
+  }
+  return escapeHtml(row?.[key] ?? "");
+}
+
+function renderServerMonitoringReport() {
+  if (!monitoringReport) return false;
+  const subsectionConfig = getActiveSubsectionConfig();
+  monitoringActiveTitle.textContent = subsectionConfig.title;
+  monitoringActiveDescription.textContent = subsectionConfig.description;
+  buildMetricCards((Array.isArray(monitoringReport.metrics) ? monitoringReport.metrics : []).map((metric) => ({
+    label: metric.label,
+    value: metric.value
+  })));
+  const columns = Array.isArray(monitoringReport.columns) ? monitoringReport.columns : [];
+  const rows = Array.isArray(monitoringReport.rows) ? monitoringReport.rows : [];
+  renderTable(columns.map((label) => ({
+    label,
+    render: (row) => getServerReportCell(row, label)
+  })), rows, Math.max(columns.length, 1));
+  return true;
+}
+
 function exportMonitoringExcel() {
   if (typeof XLSX === "undefined") {
     setExportMessage("Excel export is unavailable because the spreadsheet library did not load.", true);
@@ -1654,6 +1747,10 @@ function renderMcubeView(rawLeads, range) {
 }
 
 function renderActiveMonitoringView() {
+  if (renderServerMonitoringReport()) {
+    return;
+  }
+
   const range = getTimelineRange();
   const rawAllLeads = getScopedLeads(getAllLeads());
   const timelineLeads = getScopedLeads(applyTimelineFilter(getAllLeads()));

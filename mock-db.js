@@ -34,9 +34,32 @@ class MockCollection {
   find(query) {
     const data = this._read();
     const filtered = data.filter(item => this._matches(item, query));
+    const applyProjection = (items, projection) => {
+      if (!projection || typeof projection !== "object") return items;
+      const includedKeys = Object.entries(projection)
+        .filter(([, value]) => Boolean(value))
+        .map(([key]) => key);
+      if (!includedKeys.length) return items;
+      return items.map((item) => includedKeys.reduce((next, key) => {
+        if (Object.prototype.hasOwnProperty.call(item, key)) next[key] = item[key];
+        return next;
+      }, {}));
+    };
     
     return {
       toArray: async () => filtered,
+      project: (projection) => ({
+        toArray: async () => applyProjection(filtered, projection),
+        sort: () => ({
+          toArray: async () => applyProjection(filtered, projection),
+          limit: (n) => ({
+            toArray: async () => applyProjection(filtered.slice(0, n), projection)
+          })
+        }),
+        limit: (n) => ({
+          toArray: async () => applyProjection(filtered.slice(0, n), projection)
+        })
+      }),
       sort: (sortSpec) => {
         return {
           limit: (n) => {

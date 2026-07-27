@@ -1725,6 +1725,375 @@ function getLostLeadProgramName(lead = {}) {
   return String(lead?.courseName || lead?.workshop || lead?.courseRawName || "").trim();
 }
 
+function normalizeMonitoringText(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+const MONITORING_ALIAS_STOP_WORDS = new Set([
+  "mr",
+  "mrs",
+  "ms",
+  "miss",
+  "dr",
+  "md",
+  "mohd",
+  "mohammed",
+  "mohammad",
+  "muhammad",
+  "ur"
+]);
+
+function normalizeMonitoringAliasKey(value) {
+  return normalizeMonitoringText(value)
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getMonitoringAliasTokens(value) {
+  return normalizeMonitoringAliasKey(value).split(" ").filter(Boolean);
+}
+
+function getMonitoringAliasKeys(value) {
+  const normalized = normalizeMonitoringAliasKey(value);
+  if (!normalized) return [];
+  const tokens = getMonitoringAliasTokens(value);
+  const filteredTokens = tokens.filter((token) => !MONITORING_ALIAS_STOP_WORDS.has(token));
+  const keys = new Set([normalized]);
+  if (filteredTokens.length) keys.add(filteredTokens.join(" "));
+  if (tokens.length >= 2) keys.add(`${tokens[0]} ${tokens[tokens.length - 1]}`);
+  if (filteredTokens.length >= 2) keys.add(`${filteredTokens[0]} ${filteredTokens[filteredTokens.length - 1]}`);
+  return [...keys].filter(Boolean);
+}
+
+function getMonitoringFirstName(value) {
+  return normalizeMonitoringText(String(value || "").trim().split(/\s+/).filter(Boolean)[0] || "");
+}
+
+function buildMonitoringCounselorDirectory(counselors = []) {
+  const aliasToName = new Map();
+  const aliasCandidates = new Map();
+  const firstNameToNames = new Map();
+  const names = [];
+
+  const registerAliasCandidate = (alias, name) => {
+    const key = normalizeMonitoringAliasKey(alias);
+    if (!key || !name) return;
+    const candidates = aliasCandidates.get(key) || new Set();
+    candidates.add(name);
+    aliasCandidates.set(key, candidates);
+  };
+
+  (Array.isArray(counselors) ? counselors : []).forEach((item) => {
+    const name = String(item?.name || "").trim();
+    const email = String(item?.email || "").trim().toLowerCase();
+    const explicitAliases = [
+      ...(Array.isArray(item?.aliases) ? item.aliases : []),
+      ...String(item?.alias || "").split(",")
+    ].map((value) => String(value || "").trim()).filter(Boolean);
+
+    if (name) {
+      names.push(name);
+      getMonitoringAliasKeys(name).forEach((alias) => registerAliasCandidate(alias, name));
+      const firstName = getMonitoringFirstName(name);
+      if (firstName) {
+        const current = firstNameToNames.get(firstName) || new Set();
+        current.add(name);
+        firstNameToNames.set(firstName, current);
+      }
+    }
+    if (email && name) registerAliasCandidate(email, name);
+    explicitAliases.forEach((alias) => {
+      getMonitoringAliasKeys(alias).forEach((key) => registerAliasCandidate(key, name));
+    });
+  });
+
+  aliasCandidates.forEach((matchedNames, alias) => {
+    if (matchedNames.size === 1) {
+      aliasToName.set(alias, [...matchedNames][0]);
+    }
+  });
+  firstNameToNames.forEach((matchedNames, firstName) => {
+    if (matchedNames.size === 1 && !aliasToName.has(firstName)) {
+      aliasToName.set(firstName, [...matchedNames][0]);
+    }
+  });
+
+  return {
+    aliasToName,
+    names: [...new Set(names)].sort((left, right) => left.localeCompare(right))
+  };
+}
+
+function resolveMonitoringCounselorName(value, directory, allowRaw = false) {
+  const rawValue = String(value || "").trim();
+  if (!rawValue) return "";
+  const aliasMatch = getMonitoringAliasKeys(rawValue)
+    .map((alias) => directory?.aliasToName?.get(alias))
+    .find(Boolean);
+  if (aliasMatch) return aliasMatch;
+  const emailMatch = directory?.aliasToName?.get(normalizeMonitoringText(rawValue));
+  return emailMatch || (allowRaw ? rawValue : "");
+}
+
+function getMonitoringSessionIdentity(session = {}, directory) {
+  if (session.role !== "counselor") return "";
+  return normalizeMonitoringText(
+    resolveMonitoringCounselorName(session.name || session.email, directory, true)
+  );
+}
+
+function parseMonitoringDate(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const parsed = /^\d{4}-\d{2}-\d{2}$/.test(raw)
+    ? new Date(`${raw}T00:00:00+05:30`)
+    : new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getMonitoringDayRange(offsetDays = 0) {
+  const now = new Date();
+  const dateKey = toKolkataDateKey(new Date(now.getTime() + (offsetDays * 86400000)));
+  return {
+    start: new Date(`${dateKey}T00:00:00+05:30`),
+    end: new Date(`${dateKey}T23:59:59.999+05:30`)
+  };
+}
+
+function getMonitoringTimelineRange(query = {}) {
+  const type = String(query.type || "week").trim().toLowerCase();
+  if (type === "overall") return null;
+  if (type === "today") return getMonitoringDayRange(0);
+  if (type === "recent") {
+    return { start: getMonitoringDayRange(-29).start, end: getMonitoringDayRange(0).end };
+  }
+  if (type === "custom") {
+    const start = parseMonitoringDate(query.startDate);
+    const endBase = parseMonitoringDate(query.endDate);
+    if (!start || !endBase) return null;
+    return { start, end: new Date(`${toKolkataDateKey(endBase)}T23:59:59.999+05:30`) };
+  }
+  return { start: getMonitoringDayRange(-6).start, end: getMonitoringDayRange(0).end };
+}
+
+function normalizeMonitoringLeadFields(leads = []) {
+  return (Array.isArray(leads) ? leads : []).map((lead) => ({
+    ...lead,
+    counselor: lead?.counselor || "Unassigned",
+    workshop: lead?.workshop || "",
+    courseName: lead?.courseName || "",
+    createdAt: lead?.createdAt || toKolkataDateKey(),
+    workshopActivityHistory: Array.isArray(lead?.workshopActivityHistory) ? lead.workshopActivityHistory : [],
+    admissionActivityHistory: Array.isArray(lead?.admissionActivityHistory) ? lead.admissionActivityHistory : [],
+    registeredCourseActivityHistory: Array.isArray(lead?.registeredCourseActivityHistory) ? lead.registeredCourseActivityHistory : [],
+    mainAdmissionActivityHistory: Array.isArray(lead?.mainAdmissionActivityHistory) ? lead.mainAdmissionActivityHistory : [],
+    mcubeCallHistory: Array.isArray(lead?.mcubeCallHistory) ? lead.mcubeCallHistory : []
+  }));
+}
+
+function getMonitoringCounselorNamesFromData(leads = [], counselors = [], session = {}, directory) {
+  const names = new Set(directory?.names || (Array.isArray(counselors) ? counselors : [])
+    .map((counselor) => String(counselor?.name || "").trim())
+    .filter(Boolean));
+  leads.forEach((lead) => {
+    const assigned = resolveMonitoringCounselorName(lead?.counselor, directory, true);
+    if (assigned && normalizeMonitoringText(assigned) !== "unassigned") names.add(assigned);
+    ["workshopActivityHistory", "admissionActivityHistory", "registeredCourseActivityHistory", "mainAdmissionActivityHistory"].forEach((field) => {
+      (Array.isArray(lead?.[field]) ? lead[field] : []).forEach((entry) => {
+        const actor = resolveMonitoringCounselorName(entry?.by, directory, false);
+        if (actor && normalizeMonitoringText(actor) !== "system") names.add(actor);
+      });
+    });
+    (Array.isArray(lead?.mcubeCallHistory) ? lead.mcubeCallHistory : []).forEach((entry) => {
+      const actor = resolveMonitoringCounselorName(entry?.agentName || entry?.counselor, directory, false);
+      if (actor) names.add(actor);
+    });
+  });
+  if (session.role === "counselor") {
+    const own = getMonitoringSessionIdentity(session, directory);
+    return [...names].filter((name) => normalizeMonitoringText(name) === own);
+  }
+  return [...names].sort((a, b) => a.localeCompare(b));
+}
+
+function getMonitoringHistoryInRange(history = [], range = null) {
+  const entries = Array.isArray(history) ? history : [];
+  if (!range) return entries;
+  return entries.filter((entry) => {
+    const date = parseMonitoringDate(entry?.at);
+    return date && date >= range.start && date <= range.end;
+  });
+}
+
+function getMonitoringActivityRecords(leads, field, counselor, range, directory) {
+  const target = normalizeMonitoringText(counselor);
+  return leads.reduce((records, lead) => {
+    const matchingEntries = getMonitoringHistoryInRange(lead?.[field], range)
+      .filter((entry) => normalizeMonitoringText(resolveMonitoringCounselorName(entry?.by, directory, false)) === target);
+    if (matchingEntries.length) records.push({ lead, activityCount: matchingEntries.length, matchingEntries });
+    return records;
+  }, []);
+}
+
+function getMonitoringLatestUpdate(entries, field) {
+  const latest = [...(Array.isArray(entries) ? entries : [])]
+    .filter((entry) => entry?.updates && Object.prototype.hasOwnProperty.call(entry.updates, field))
+    .sort((left, right) => (parseMonitoringDate(right?.at)?.getTime() || 0) - (parseMonitoringDate(left?.at)?.getTime() || 0))[0];
+  return String(latest?.updates?.[field] || "").trim();
+}
+
+function countMonitoringLatest(records, field, expected) {
+  const target = normalizeMonitoringText(expected);
+  return records.filter((record) => normalizeMonitoringText(getMonitoringLatestUpdate(record.matchingEntries, field)) === target).length;
+}
+
+function getMonitoringOwnershipDate(lead) {
+  return parseMonitoringDate(lead?.leadOwnerTimelineAt || lead?.counselorAssignedAt || lead?.createdAtExact || lead?.createdAt);
+}
+
+function countMonitoringAssigned(rawLeads, counselor, range, directory) {
+  const target = normalizeMonitoringText(counselor);
+  const assigned = rawLeads.filter((lead) => normalizeMonitoringText(resolveMonitoringCounselorName(lead?.counselor, directory, true)) === target);
+  if (!range) return assigned.length;
+  return assigned.filter((lead) => {
+    const date = getMonitoringOwnershipDate(lead);
+    return date && date >= range.start && date <= range.end;
+  }).length;
+}
+
+function splitMonitoringFreshOld(activityLeads, countField, range) {
+  const activities = activityLeads.reduce((sum, lead) => sum + (Number(lead[countField]) || 0), 0);
+  if (!range) return { activities, freshLeadTouches: activityLeads.length, oldLeadTouches: 0 };
+  const freshLeadTouches = activityLeads.filter((lead) => {
+    const date = getMonitoringOwnershipDate(lead);
+    return date && date >= range.start;
+  }).length;
+  return { activities, freshLeadTouches, oldLeadTouches: activityLeads.length - freshLeadTouches };
+}
+
+function monitoringBreakdown(items, getLabel, countField) {
+  const counts = new Map();
+  items.forEach((item) => {
+    const label = String(typeof getLabel === "function" ? getLabel(item) : item?.[getLabel] || "").trim() || "Unspecified";
+    counts.set(label, (counts.get(label) || 0) + (countField ? Number(item[countField]) || 0 : 1));
+  });
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count }));
+}
+
+function rowHasMonitoringData(row) {
+  return Object.entries(row).some(([key, value]) => key !== "counselor" && key !== "talkTimeLabel" && typeof value === "number" && value > 0);
+}
+
+function filterMonitoringRows(rows, session) {
+  return session.role === "counselor" ? rows : rows.filter(rowHasMonitoringData);
+}
+
+function sortMonitoringRows(rows) {
+  return [...rows].sort((a, b) => (b.activities || b.totalCalls || 0) - (a.activities || a.totalCalls || 0) || String(a.counselor).localeCompare(String(b.counselor)));
+}
+
+function buildMonitoringRowsForSubsection(subsection, counselors, timelineLeads, rawLeads, range, session, directory) {
+  const config = {
+    "workshop-calling": ["workshopActivityHistory", "preActivityUpdates", "workshop", { interested: ["wsStatus", "Interested"], notInterested: ["wsStatus", "Not Interested"], whatsappJoined: ["whatsappGroupStatus", "Joined"] }],
+    "admission-calling": ["admissionActivityHistory", "postActivityUpdates", (lead) => lead.admissionWorkshop || lead.workshop, { interested: ["courseStatus", "Interested"], notInterested: ["courseStatus", "Not Interested"], enrolled: ["admissionStatus", "Enrolled"], won: ["admissionStatus", "Won"] }],
+    "main-admission": ["mainAdmissionActivityHistory", "mainAdmissionActivityUpdates", (lead) => lead.mainAdmissionCoursePitched || lead.courseName, { interested: ["mainAdmissionCourseStatus", "Interested"], notInterested: ["mainAdmissionCourseStatus", "Not Interested"], enrolled: ["mainAdmissionAdmissionStatus", "Enrolled"], won: ["mainAdmissionAdmissionStatus", "Won"] }],
+    "registered-candidates": ["registeredCourseActivityHistory", "registeredCourseActivityUpdates", "courseName", { dialed: ["registeredDialed", "Yes"], interested: ["registeredCourseStatus", "Interested"], notInterested: ["registeredCourseStatus", "Not Interested"] }],
+    "crash-course": ["registeredCourseActivityHistory", "registeredCourseActivityUpdates", "courseName", { dialed: ["registeredDialed", "Yes"], interested: ["registeredCourseStatus", "Interested"], notInterested: ["registeredCourseStatus", "Not Interested"] }]
+  }[subsection] || null;
+  if (!config) return [];
+  const [historyField, countField, breakdownLabel, counters] = config;
+  return filterMonitoringRows(sortMonitoringRows(counselors.map((counselor) => {
+    const records = getMonitoringActivityRecords(timelineLeads, historyField, counselor, range, directory);
+    const activityLeads = records.map((record) => ({ ...record.lead, [countField]: record.activityCount }));
+    const row = {
+      counselor,
+      ...splitMonitoringFreshOld(activityLeads, countField, range),
+      entries: monitoringBreakdown(activityLeads, breakdownLabel, countField),
+      assignedLeads: countMonitoringAssigned(rawLeads, counselor, range, directory)
+    };
+    Object.entries(counters).forEach(([key, [field, expected]]) => {
+      row[key] = countMonitoringLatest(records, field, expected);
+    });
+    return row;
+  })), session);
+}
+
+function formatMonitoringTalkTime(secondsValue) {
+  const seconds = Math.max(0, Math.round(Number(secondsValue) || 0));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remaining = seconds % 60;
+  if (hours) return `${hours}h ${String(minutes).padStart(2, "0")}m ${String(remaining).padStart(2, "0")}s`;
+  if (minutes) return `${minutes}m ${String(remaining).padStart(2, "0")}s`;
+  return `${remaining}s`;
+}
+
+function buildMonitoringMcubeReport(rawLeads, range, session, directory) {
+  const calls = [];
+  const sessionIdentity = getMonitoringSessionIdentity(session, directory);
+  rawLeads.forEach((lead) => {
+    getMonitoringHistoryInRange(lead?.mcubeCallHistory, range).forEach((entry) => {
+      const counselor = resolveMonitoringCounselorName(entry?.agentName || entry?.counselor || lead?.counselor, directory, true) || "Unassigned";
+      if (session.role === "counselor" && normalizeMonitoringText(counselor) !== sessionIdentity) return;
+      const status = String(entry?.normalizedStatus || entry?.disposition || entry?.rawStatus || entry?.eventType || "").trim();
+      const picked = /(answer|answered|connected|completed|success)/i.test(status);
+      calls.push({ counselor, direction: normalizeMonitoringText(entry?.direction), picked, duration: Math.max(0, Number(entry?.duration) || 0) });
+    });
+  });
+  const grouped = new Map();
+  calls.forEach((call) => {
+    const row = grouped.get(call.counselor) || { counselor: call.counselor, totalCalls: 0, outboundCalls: 0, inboundCalls: 0, callPicked: 0, callNotPicked: 0, talkTimeSeconds: 0 };
+    row.totalCalls += 1;
+    if (call.direction === "outbound") row.outboundCalls += 1;
+    if (call.direction === "inbound") row.inboundCalls += 1;
+    if (call.picked) row.callPicked += 1; else row.callNotPicked += 1;
+    row.talkTimeSeconds += call.duration;
+    row.talkTimeLabel = formatMonitoringTalkTime(row.talkTimeSeconds);
+    grouped.set(call.counselor, row);
+  });
+  const rows = filterMonitoringRows([...grouped.values()].sort((a, b) => b.totalCalls - a.totalCalls || a.counselor.localeCompare(b.counselor)), session);
+  return {
+    rows,
+    metrics: [
+      { label: "Total Calls", value: calls.length },
+      { label: "Outbound Calls", value: calls.filter((call) => call.direction === "outbound").length },
+      { label: "Inbound Calls", value: calls.filter((call) => call.direction === "inbound").length },
+      { label: "Call Picked", value: calls.filter((call) => call.picked).length },
+      { label: "Call Not Picked / Not Connected", value: calls.filter((call) => !call.picked).length },
+      { label: "Total Talk Time", value: formatMonitoringTalkTime(calls.reduce((sum, call) => sum + call.duration, 0)) }
+    ],
+    columns: ["Counselor Name", "Total Calls", "Outbound Calls", "Inbound Calls", "Call Picked", "Call Not Picked / Not Connected", "Talk Time"]
+  };
+}
+
+function buildMonitoringReport({ subsection, leads, counselors, range, session }) {
+  const directory = buildMonitoringCounselorDirectory(counselors);
+  const rawLeads = normalizeMonitoringLeadFields(leads);
+  const timelineLeads = range
+    ? rawLeads.filter((lead) => ["workshopActivityHistory", "admissionActivityHistory", "registeredCourseActivityHistory", "mainAdmissionActivityHistory", "mcubeCallHistory"].some((field) => getMonitoringHistoryInRange(lead?.[field], range).length))
+    : rawLeads;
+  const counselorNames = getMonitoringCounselorNamesFromData(rawLeads, counselors, session, directory);
+  if (subsection === "mcube-main") {
+    return buildMonitoringMcubeReport(rawLeads, range, session, directory);
+  }
+  const rows = buildMonitoringRowsForSubsection(subsection, counselorNames, timelineLeads, rawLeads, range, session, directory);
+  const metricMap = {
+    "workshop-calling": [["Overall Activity", "activities"], ["Leads Assigned", "assignedLeads"], ["Interested Leads", "interested"], ["Not Interested Leads", "notInterested"], ["WhatsApp Group Joined", "whatsappJoined"], ["Fresh Leads Touched", "freshLeadTouches"], ["Old Leads Touched", "oldLeadTouches"]],
+    "admission-calling": [["Overall Activity", "activities"], ["Leads Assigned", "assignedLeads"], ["Interested Leads", "interested"], ["Not Interested Leads", "notInterested"], ["Enrolled", "enrolled"], ["Won", "won"], ["Fresh Leads Touched", "freshLeadTouches"], ["Old Leads Touched", "oldLeadTouches"]],
+    "main-admission": [["Overall Activity", "activities"], ["Leads Assigned", "assignedLeads"], ["Interested Leads", "interested"], ["Not Interested Leads", "notInterested"], ["Enrolled", "enrolled"], ["Won", "won"], ["Fresh Leads Touched", "freshLeadTouches"], ["Old Leads Touched", "oldLeadTouches"]],
+    "registered-candidates": [["Overall Activity", "activities"], ["Leads Assigned", "assignedLeads"], ["Dialed Leads", "dialed"], ["Interested Leads", "interested"], ["Not Interested Leads", "notInterested"], ["Fresh Leads Touched", "freshLeadTouches"], ["Old Leads Touched", "oldLeadTouches"]],
+    "crash-course": [["Overall Activity", "activities"], ["Leads Assigned", "assignedLeads"], ["Dialed Leads", "dialed"], ["Interested Leads", "interested"], ["Not Interested Leads", "notInterested"], ["Fresh Leads Touched", "freshLeadTouches"], ["Old Leads Touched", "oldLeadTouches"]]
+  };
+  const metrics = (metricMap[subsection] || []).map(([label, key]) => ({ label, value: rows.reduce((sum, row) => sum + (Number(row[key]) || 0), 0) }));
+  const columns = subsection === "workshop-calling"
+    ? ["Counselor Name", "Total Activities Completed", "Workshop-wise Activity Breakdown", "Interested Leads", "Not Interested Leads", "WhatsApp Group Joined", "Leads Assigned", "Fresh Leads Touched", "Old Leads Touched"]
+    : subsection === "registered-candidates" || subsection === "crash-course"
+      ? ["Counselor Name", "Overall Activity", "Course-wise Activity Breakdown", "Leads Assigned", "Fresh Leads Touched", "Old Leads Touched", "Dialed Leads", "Interested Leads", "Not Interested Leads"]
+      : ["Counselor Name", "Total Activities Completed", subsection === "main-admission" ? "Course-wise Activity Breakdown" : "Workshop-wise Activity Breakdown", "Interested Leads", "Not Interested Leads", "Enrolled", "Won", "Leads Assigned", "Fresh Leads Touched", "Old Leads Touched"];
+  return { metrics, columns, rows };
+}
+
 function getLostSourceLabel(lead = {}) {
   const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
   if (pipeline === MAIN_ADMISSION_PIPELINE) return "Main Admission Leads";
@@ -1844,6 +2213,48 @@ function buildMonitoringLeadMongoQuery(subsection = "") {
     return {};
   }
   return legacyPipelineQuery;
+}
+
+function buildMonitoringLeadProjection(subsection = "") {
+  const key = String(subsection || "").trim().toLowerCase();
+  const projection = {
+    id: 1,
+    counselor: 1,
+    createdAt: 1,
+    createdAtExact: 1,
+    leadOwnerTimelineAt: 1,
+    counselorAssignedAt: 1,
+    workshop: 1,
+    admissionWorkshop: 1,
+    courseName: 1,
+    courseId: 1,
+    courseCode: 1,
+    leadPipeline: 1,
+    publicCourseSegment: 1
+  };
+  if (key === "workshop-calling") {
+    return { ...projection, workshopActivityHistory: 1 };
+  }
+  if (key === "admission-calling") {
+    return { ...projection, admissionActivityHistory: 1, admissionStatus: 1 };
+  }
+  if (key === "main-admission") {
+    return { ...projection, mainAdmissionActivityHistory: 1, mainAdmissionCoursePitched: 1 };
+  }
+  if (key === "registered-candidates" || key === "crash-course") {
+    return { ...projection, registeredCourseActivityHistory: 1 };
+  }
+  if (key === "mcube-main") {
+    return { ...projection, mcubeCallHistory: 1 };
+  }
+  return {
+    ...projection,
+    workshopActivityHistory: 1,
+    admissionActivityHistory: 1,
+    registeredCourseActivityHistory: 1,
+    mainAdmissionActivityHistory: 1,
+    mcubeCallHistory: 1
+  };
 }
 
 function restoreLostLeadPatch(lead = {}) {
@@ -13175,6 +13586,53 @@ app.get("/api/monitoring-summary", async (req, res) => {
     return res.json(buildMonitoringSummary(state));
   } catch (error) {
     return res.status(500).json({ message: "Failed to fetch monitoring summary", details: error.message });
+  }
+});
+
+app.get("/api/monitoring-report", async (req, res) => {
+  try {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    const permissions = getSessionPagePermissions(session);
+    if (!permissions.monitoring) {
+      return res.status(403).json({ message: "You do not have permission to view monitoring." });
+    }
+
+    const subsection = String(req.query?.subsection || "workshop-calling").trim().toLowerCase();
+    const range = getMonitoringTimelineRange({
+      type: req.query?.timelineType,
+      startDate: req.query?.startDate,
+      endDate: req.query?.endDate
+    });
+    const leadQuery = buildMonitoringLeadMongoQuery(subsection);
+    const leadProjection = buildMonitoringLeadProjection(subsection);
+    const [rawLeads, counselors] = await Promise.all([
+      withMongoRetry(
+        () => leadsCollection.find(leadQuery).project(leadProjection).toArray(),
+        { retries: 1, label: "Load monitoring report leads" }
+      ),
+      withMongoRetry(
+        () => counselorsCollection.find({}).project({ name: 1, email: 1, alias: 1, aliases: 1 }).toArray(),
+        { retries: 1, label: "Load monitoring report counselors" }
+      )
+    ]);
+    const leads = decorateLeadListForStorage(rawLeads || []);
+    const report = buildMonitoringReport({
+      subsection,
+      leads,
+      counselors,
+      range,
+      session
+    });
+    return res.json({
+      ok: true,
+      subsection,
+      timelineType: String(req.query?.timelineType || "week"),
+      generatedAt: new Date().toISOString(),
+      ...report
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch monitoring report", details: error.message });
   }
 });
 
