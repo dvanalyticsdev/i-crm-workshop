@@ -932,6 +932,11 @@ function deriveMonitoringMcubeTalkTimeSeconds(entry = {}) {
     return storedDuration;
   }
 
+  const answeredDuration = normalizeMcubeTalkTimeSeconds(entry?.answeredTime);
+  if (answeredDuration > 0) {
+    return answeredDuration;
+  }
+
   const startMs = Date.parse(String(entry?.startedAt || "").trim());
   const endMs = Date.parse(String(entry?.endedAt || "").trim());
   if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs) {

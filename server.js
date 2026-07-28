@@ -4328,6 +4328,9 @@ function deriveMcubeTalkTimeDuration(payload = {}, startedAt = "", endedAt = "",
   );
   if (explicitDuration) return explicitDuration;
 
+  const answeredDuration = parseMcubeDurationSeconds(answeredTime);
+  if (answeredDuration) return answeredDuration;
+
   const endMs = parseMcubeTimestampMs(endedAt);
   const answerMs = parseMcubeTimestampMs(answeredTime);
   if (endMs && answerMs && endMs > answerMs) {
@@ -4335,7 +4338,7 @@ function deriveMcubeTalkTimeDuration(payload = {}, startedAt = "", endedAt = "",
   }
 
   const startMs = parseMcubeTimestampMs(startedAt);
-  const answerOffsetSeconds = parseMcubeDurationSeconds(answeredTime);
+  const answerOffsetSeconds = answeredDuration;
   if (endMs && startMs && endMs > startMs && answerOffsetSeconds) {
     return Math.max(0, Math.round((endMs - startMs) / 1000) - answerOffsetSeconds);
   }
