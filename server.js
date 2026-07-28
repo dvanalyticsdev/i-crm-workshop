@@ -2170,6 +2170,42 @@ function formatMonitoringTalkTime(secondsValue) {
   return `${remaining}s`;
 }
 
+function normalizeMonitoringMcubeTalkTimeSeconds(value) {
+  if (value === null || value === undefined || value === "") {
+    return 0;
+  }
+
+  const numeric = Number(value);
+  const seconds = Math.max(0, Number.isFinite(numeric) ? numeric : 0);
+  if (!seconds) {
+    const text = String(value).trim().toLowerCase();
+    const hhmmssMatch = text.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if (hhmmssMatch) {
+      const first = Number(hhmmssMatch[1]);
+      const second = Number(hhmmssMatch[2]);
+      const third = Number(hhmmssMatch[3] || 0);
+      const parsed = hhmmssMatch[3] ? (first * 3600) + (second * 60) + third : (first * 60) + second;
+      return parsed > 8 * 60 * 60 ? 0 : parsed;
+    }
+
+    const compactMatch = text.match(/^(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?$/);
+    if (compactMatch) {
+      const hours = Number(compactMatch[1] || 0);
+      const minutes = Number(compactMatch[2] || 0);
+      const remainingSeconds = Number(compactMatch[3] || 0);
+      const parsed = (hours * 3600) + (minutes * 60) + remainingSeconds;
+      return parsed > 8 * 60 * 60 ? 0 : parsed;
+    }
+    return 0;
+  }
+
+  if (seconds > 8 * 60 * 60) {
+    return 0;
+  }
+
+  return Math.round(seconds);
+}
+
 function buildMonitoringMcubeReport(rawLeads, range, session, directory) {
   const calls = [];
   const sessionIdentity = getMonitoringSessionIdentity(session, directory);
@@ -2179,7 +2215,12 @@ function buildMonitoringMcubeReport(rawLeads, range, session, directory) {
       if (session.role === "counselor" && normalizeMonitoringText(counselor) !== sessionIdentity) return;
       const status = String(entry?.normalizedStatus || entry?.disposition || entry?.rawStatus || entry?.eventType || "").trim();
       const picked = /(answer|answered|connected|completed|success)/i.test(status);
-      calls.push({ counselor, direction: normalizeMonitoringText(entry?.direction), picked, duration: Math.max(0, Number(entry?.duration) || 0) });
+      calls.push({
+        counselor,
+        direction: normalizeMonitoringText(entry?.direction),
+        picked,
+        duration: normalizeMonitoringMcubeTalkTimeSeconds(entry?.duration)
+      });
     });
   });
   const grouped = new Map();
@@ -4193,7 +4234,9 @@ function normalizeMcubeDirection(value) {
 function parseMcubeDurationSeconds(value) {
   if (value === null || value === undefined || value === "") return 0;
   const numeric = Number(value);
-  if (Number.isFinite(numeric) && numeric > 0) return Math.round(numeric);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return numeric > 8 * 60 * 60 ? 0 : Math.round(numeric);
+  }
 
   const text = String(value).trim();
   const timeMatch = text.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
@@ -4201,7 +4244,8 @@ function parseMcubeDurationSeconds(value) {
   const first = Number(timeMatch[1]);
   const second = Number(timeMatch[2]);
   const third = Number(timeMatch[3] || 0);
-  return timeMatch[3] ? (first * 3600) + (second * 60) + third : (first * 60) + second;
+  const parsed = timeMatch[3] ? (first * 3600) + (second * 60) + third : (first * 60) + second;
+  return parsed > 8 * 60 * 60 ? 0 : parsed;
 }
 
 function parseMcubeTimestampMs(value) {
