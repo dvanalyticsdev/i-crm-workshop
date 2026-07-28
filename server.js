@@ -2206,6 +2206,22 @@ function normalizeMonitoringMcubeTalkTimeSeconds(value) {
   return Math.round(seconds);
 }
 
+function getMonitoringMcubeEntryTalkTimeSeconds(entry = {}) {
+  const storedDuration = normalizeMonitoringMcubeTalkTimeSeconds(entry?.duration);
+  if (storedDuration > 0) {
+    return storedDuration;
+  }
+
+  return normalizeMonitoringMcubeTalkTimeSeconds(
+    deriveMcubeTalkTimeDuration(
+      entry,
+      entry?.startedAt || entry?.at || "",
+      entry?.endedAt || "",
+      entry?.answeredTime || ""
+    )
+  );
+}
+
 function buildMonitoringMcubeReport(rawLeads, range, session, directory) {
   const calls = [];
   const sessionIdentity = getMonitoringSessionIdentity(session, directory);
@@ -2219,7 +2235,7 @@ function buildMonitoringMcubeReport(rawLeads, range, session, directory) {
         counselor,
         direction: normalizeMonitoringText(entry?.direction),
         picked,
-        duration: normalizeMonitoringMcubeTalkTimeSeconds(entry?.duration)
+        duration: getMonitoringMcubeEntryTalkTimeSeconds(entry)
       });
     });
   });
