@@ -1850,10 +1850,11 @@ function renderActivityStatusPanel(lead) {
   const leadId = escapeHtml(lead.id);
   const leadEmail = escapeHtml(lead.email || "");
   const leadTabUrl = escapeHtml(buildLeadTabUrl(lead));
+  const isTouched = getLeadActivityUpdateCount(lead) > 0;
   return `
     <div class="activity-panel">
       <div class="activity-panel__secondary">
-        <button class="btn-primary activity-panel__open-tab" type="button" data-lead-id="${leadId}" data-lead-email="${leadEmail}" data-lead-tab-url="${leadTabUrl}">Open Tab</button>
+        <button class="${isTouched ? "btn-update-status btn-update-status--active" : "btn-primary"} activity-panel__open-tab" type="button" data-lead-id="${leadId}" data-lead-email="${leadEmail}" data-lead-tab-url="${leadTabUrl}">Open Tab</button>
       </div>
     </div>
   `;
