@@ -137,6 +137,8 @@ let scopedMainAdmissionLeads = null;
 let scopedCounselors = null;
 let scopedLoadActive = false;
 let mainAdmissionAssignmentBusy = false;
+let initialMainAdmissionLoadPending = true;
+let initialMainAdmissionLoadFailed = false;
 populateCrmCourseSelect("modalMainAdmissionCoursePitched", { includeNo: true });
 
 function getScopedCounselors() {
@@ -2047,7 +2049,15 @@ function renderLeadTable(leads) {
               <td>${escapeHtml(lead.counselor || "Unassigned")}</td>
               <td>${renderActivityPanel(lead)}</td>
             </tr>
-          `).join("") : `<tr><td colspan="${isAdmin ? 9 : 8}">No main admission leads available for current filters.</td></tr>`}
+          `).join("") : `<tr><td colspan="${isAdmin ? 9 : 8}">${
+            escapeHtml(
+              initialMainAdmissionLoadPending
+                ? "Loading main admission leads..."
+                : initialMainAdmissionLoadFailed
+                  ? "Could not load the latest main admission leads. Showing fallback state."
+                  : "No main admission leads available for current filters."
+            )
+          }</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -2736,17 +2746,34 @@ if (mainAdmissionTaskModal && mainAdmissionTaskForm) {
 
 setupRegisteredRoutingPanel();
 const scheduleRenderAll = createRenderScheduler(renderAll);
-const scopedLoadSucceeded = await loadScopedMainAdmissionLeads();
 await renderAll();
-await waitForPaint(2);
 window.__dvMarkRouteViewReady?.();
-recordMainAdmissionPerformance({
-  phase: "interactive-ready",
-  subsection: scopedLoadSucceeded ? "scoped-leads" : "full-state-fallback",
-  durationMs: getPerformanceDuration(),
-  success: true,
-  message: scopedLoadSucceeded ? "scoped" : "full-state-fallback"
-});
+setMessage("Loading main admission leads...");
+
+void (async () => {
+  let scopedLoadSucceeded = false;
+  try {
+    scopedLoadSucceeded = await loadScopedMainAdmissionLeads();
+    initialMainAdmissionLoadFailed = false;
+    setMessage("");
+  } catch (error) {
+    initialMainAdmissionLoadFailed = true;
+    setMessage(error?.message || "Could not load main admission leads.", true);
+  } finally {
+    initialMainAdmissionLoadPending = false;
+  }
+
+  await renderAll();
+  await waitForPaint(2);
+  recordMainAdmissionPerformance({
+    phase: "interactive-ready",
+    subsection: scopedLoadSucceeded ? "scoped-leads" : "full-state-fallback",
+    durationMs: getPerformanceDuration(),
+    success: !initialMainAdmissionLoadFailed,
+    message: scopedLoadSucceeded ? "scoped" : "full-state-fallback"
+  });
+})();
+
 const stopStatePolling = startMainAdmissionPolling(() => {
   void scheduleRenderAll();
 });

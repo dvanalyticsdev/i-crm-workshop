@@ -39,6 +39,8 @@ let duplicateGroups = [];
 let duplicateGroupsLoading = false;
 let duplicateGroupsLoaded = false;
 let leadBrowseLeads = [];
+let initialLeadBrowseLoadPending = true;
+let initialLeadBrowseLoadFailed = false;
 const selectedDuplicateKeeperByGroup = new Map();
 const duplicateMergeOptions = {
   preferWorkshopKeeper: true,
@@ -91,6 +93,10 @@ function isMainAdmissionLead(lead) {
 
 function isWorkshopLead(lead) {
   return !isRegisteredAdmissionLead(lead) && !isMainAdmissionLead(lead);
+}
+
+function isPreWorkshopLead(lead) {
+  return isWorkshopLead(lead) && !hasAdmissionActivity(lead);
 }
 
 function isSidebarAdmissionLead(lead) {
@@ -604,10 +610,20 @@ function renderTable() {
   const pageLeads = leads.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   if (!pageLeads.length) {
+    const emptyStateTitle = initialLeadBrowseLoadPending
+      ? "Loading leads"
+      : initialLeadBrowseLoadFailed
+        ? "Could not load leads"
+        : "No leads found";
+    const emptyStateText = initialLeadBrowseLoadPending
+      ? "Fetching the latest lead data now."
+      : initialLeadBrowseLoadFailed
+        ? "Please refresh once the connection or server is stable."
+        : "Adjust the current filters to browse a wider set of leads.";
     tableSection.innerHTML = `
       <div class="empty-state">
-        <h3>No leads found</h3>
-        <p>Adjust the current filters to browse a wider set of leads.</p>
+        <h3>${escapeHtml(emptyStateTitle)}</h3>
+        <p>${escapeHtml(emptyStateText)}</p>
       </div>
     `;
     pagination.innerHTML = "";
@@ -947,12 +963,25 @@ claimForm?.addEventListener("submit", async (event) => {
   window.setTimeout(closeClaimModal, 700);
 });
 
-await loadLeadBrowseData().catch((error) => showLeadBrowseToast(error.message || "Could not load leads.", true));
-if (isAdminSession()) {
-  void fetchDuplicateGroups();
-}
 render();
 window.__dvMarkRouteViewReady?.();
+
+void (async () => {
+  try {
+    await loadLeadBrowseData();
+    initialLeadBrowseLoadFailed = false;
+  } catch (error) {
+    initialLeadBrowseLoadFailed = true;
+    showLeadBrowseToast(error.message || "Could not load leads.", true);
+  } finally {
+    initialLeadBrowseLoadPending = false;
+  }
+
+  if (isAdminSession()) {
+    void fetchDuplicateGroups();
+  }
+  render();
+})();
 
 const stopLeadBrowsePolling = startLeadBrowsePolling(() => {
   if (latestLeadKey && !findLeadByKey(latestLeadKey)) {
