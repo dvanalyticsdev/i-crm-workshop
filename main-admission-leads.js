@@ -1519,16 +1519,6 @@ function applyLeadSorting(leads) {
   return newestFirst;
 }
 
-function getLocationSortLabel() {
-  if (locationSortDirection === "asc") {
-    return "Location ↑";
-  }
-  if (locationSortDirection === "desc") {
-    return "Location ↓";
-  }
-  return "Location ↕";
-}
-
 function toggleLocationSort() {
   if (locationSortDirection === "") {
     locationSortDirection = "asc";
