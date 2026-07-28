@@ -2824,6 +2824,7 @@ async function initMongo() {
         await tasksCollection.createIndex({ leadId: 1, dueDate: 1 }, { background: true }).catch(() => undefined);
         await tasksCollection.createIndex({ counselor: 1, dueDate: 1 }, { background: true }).catch(() => undefined);
         await counselorsCollection.createIndex({ email: 1 }, { unique: true, background: true }).catch(() => undefined);
+        await counselorsCollection.createIndex({ name: 1 }, { background: true }).catch(() => undefined);
         await notificationsCollection.createIndex({ userId: 1, read: 1 }, { background: true }).catch(() => undefined);
         await notificationsCollection.createIndex({ userId: 1, read: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
 
@@ -4504,6 +4505,70 @@ function findCounselorForMcubeRouting(state = {}, counselorName = "") {
   return (Array.isArray(state?.counselors) ? state.counselors : []).find(
     (item) => String(item?.name || "").trim().toLowerCase() === normalizedName
   ) || null;
+}
+
+async function findLeadByPhoneForMcubeRouting(phone) {
+  const normalizedPhone = normalizeLeadPhone(phone);
+  if (!normalizedPhone) {
+    return null;
+  }
+
+  const projection = {
+    _id: 0,
+    id: 1,
+    name: 1,
+    phone: 1,
+    counselor: 1,
+    leadPipeline: 1,
+    updatedAt: 1,
+    createdAtExact: 1,
+    createdAt: 1
+  };
+  const matches = await withMongoRetry(
+    () => leadsCollection.find(
+      { normalizedPhone },
+      { projection }
+    ).limit(8).toArray(),
+    { retries: 1, label: "Find MCUBE routing lead by normalized phone" }
+  );
+
+  if (!Array.isArray(matches) || !matches.length) {
+    return null;
+  }
+
+  return [...matches].sort((left, right) => {
+    const leftAssigned = shouldTreatLeadAsAssigned(left?.counselor) ? 1 : 0;
+    const rightAssigned = shouldTreatLeadAsAssigned(right?.counselor) ? 1 : 0;
+    if (leftAssigned !== rightAssigned) {
+      return rightAssigned - leftAssigned;
+    }
+
+    const leftUpdatedAt = Date.parse(String(left?.updatedAt || left?.createdAtExact || left?.createdAt || ""));
+    const rightUpdatedAt = Date.parse(String(right?.updatedAt || right?.createdAtExact || right?.createdAt || ""));
+    const safeLeftUpdatedAt = Number.isFinite(leftUpdatedAt) ? leftUpdatedAt : 0;
+    const safeRightUpdatedAt = Number.isFinite(rightUpdatedAt) ? rightUpdatedAt : 0;
+    return safeRightUpdatedAt - safeLeftUpdatedAt;
+  })[0] || null;
+}
+
+async function findCounselorByNameForMcubeRouting(counselorName) {
+  const normalizedName = String(counselorName || "").trim();
+  if (!normalizedName || normalizedName.toLowerCase() === "unassigned") {
+    return null;
+  }
+
+  return withMongoRetry(
+    () => counselorsCollection.findOne({
+      name: { $regex: new RegExp(`^${escapeRegExp(normalizedName)}$`, "i") }
+    }),
+    { retries: 1, label: "Find MCUBE routing counselor" }
+  );
+}
+
+function saveMcubeCallRoutingLogAfterResponse(entry) {
+  setImmediate(() => {
+    saveMcubeLog(entry).catch(() => undefined);
+  });
 }
 
 function getMcubeRoutingCustomerNumber(req) {
@@ -7057,14 +7122,13 @@ app.all("/api/mcube/call-routing", async (req, res) => {
       return res.status(400).type("text/plain").send("");
     }
 
-    const state = await getStateDoc();
-    const lead = findLeadByPhone(state, normalizedCustomerNumber);
+    const lead = await findLeadByPhoneForMcubeRouting(normalizedCustomerNumber);
     const counselorName = String(lead?.counselor || "").trim();
-    const counselorDoc = findCounselorForMcubeRouting(state, counselorName);
+    const counselorDoc = await findCounselorByNameForMcubeRouting(counselorName);
     const agentNumber = normalizeMcubeDialNumber(getMcubeExecutiveNumber(counselorDoc, {}, config));
     const matched = !!lead && !!agentNumber;
 
-    await saveMcubeLog({
+    saveMcubeCallRoutingLogAfterResponse({
       type: matched ? "success" : "ignored",
       message: matched
         ? `Inbound callback routed to ${counselorName}.`

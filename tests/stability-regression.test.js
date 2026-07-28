@@ -1136,11 +1136,15 @@ test("MCUBE call routing returns the assigned counselor agent number", () => {
   assert.match(server, /app\.use\("\/api\/mcube\/call-routing", express\.urlencoded/);
   assert.match(server, /function getMcubeRoutingCustomerNumber\(req\)/);
   assert.match(server, /function findCounselorForMcubeRouting\(state = \{\}, counselorName = ""\)/);
+  assert.match(server, /async function findLeadByPhoneForMcubeRouting\(phone\)/);
+  assert.match(server, /async function findCounselorByNameForMcubeRouting\(counselorName\)/);
+  assert.match(server, /function saveMcubeCallRoutingLogAfterResponse\(entry\)/);
   assert.match(server, /function isMcubeCallRoutingRequestAuthorized\(req, config = \{\}\)/);
   assert.match(server, /app\.all\("\/api\/mcube\/call-routing"/);
-  assert.match(server, /const lead = findLeadByPhone\(state, normalizedCustomerNumber\)/);
-  assert.match(server, /const counselorDoc = findCounselorForMcubeRouting\(state, counselorName\)/);
+  assert.match(server, /const lead = await findLeadByPhoneForMcubeRouting\(normalizedCustomerNumber\)/);
+  assert.match(server, /const counselorDoc = await findCounselorByNameForMcubeRouting\(counselorName\)/);
   assert.match(server, /const agentNumber = normalizeMcubeDialNumber\(getMcubeExecutiveNumber\(counselorDoc, \{\}, config\)\)/);
+  assert.match(server, /saveMcubeCallRoutingLogAfterResponse\(\{/);
   assert.match(server, /eventType: "call-routing"/);
   assert.match(server, /type\("text\/plain"\)\.send\(matched \? agentNumber : ""\)/);
 });
