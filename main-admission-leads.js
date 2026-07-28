@@ -1507,7 +1507,14 @@ function compareLeadLocations(a, b) {
 }
 
 function applyLeadSorting(leads) {
-  return sortLeadsNewestFirst(leads);
+  const newestFirst = sortLeadsNewestFirst(leads);
+  if (locationSortDirection === "asc") {
+    return [...newestFirst].sort(compareLeadLocations);
+  }
+  if (locationSortDirection === "desc") {
+    return [...newestFirst].sort((a, b) => compareLeadLocations(b, a));
+  }
+  return newestFirst;
 }
 
 function getLocationSortLabel() {
@@ -1530,6 +1537,16 @@ function toggleLocationSort() {
   }
   currentPage = 1;
   renderAll();
+}
+
+function getLocationSortLabel() {
+  if (locationSortDirection === "asc") {
+    return "Location A-Z";
+  }
+  if (locationSortDirection === "desc") {
+    return "Location Z-A";
+  }
+  return "Location Sort";
 }
 
 function exportFilteredLeads() {
@@ -2008,7 +2025,11 @@ function renderLeadTable(leads) {
             <th>${isCrashSegment ? "Contact Number" : "Phone Number"}</th>
             <th>${isCrashSegment ? "Mail ID" : "Email"}</th>
             <th>Course Name</th>
-            <th>${isCrashSegment ? "Location" : "Country"}</th>
+            <th>
+              <button type="button" class="table-sort-button" data-main-admission-action="toggle-location-sort" aria-label="Sort by location">
+                ${escapeHtml(getLocationSortLabel())}
+              </button>
+            </th>
             <th>Counselor</th>
             <th>Open Tab</th>
           </tr>
@@ -2054,6 +2075,11 @@ mainAdmissionLeadTableSection.addEventListener("click", async (event) => {
   if (actionButton) {
     const action = actionButton.getAttribute("data-main-admission-action");
     const leadKey = actionButton.getAttribute("data-lead-key");
+
+    if (action === "toggle-location-sort") {
+      toggleLocationSort();
+      return;
+    }
 
     if (action === "open-tab") {
       const targetUrl = actionButton.getAttribute("data-lead-tab-url");
