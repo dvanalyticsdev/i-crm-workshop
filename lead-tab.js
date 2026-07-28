@@ -75,6 +75,61 @@ function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function getCoreWorkshopName(workshopName) {
+  if (!workshopName) return "";
+  const normalizedWorkshopName = String(workshopName)
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/([A-Za-z])(\d)/g, "$1 $2")
+    .replace(/(\d)([A-Za-z])/g, "$1 $2")
+    .replace(/\b(\d{1,2})\s+(st|nd|rd|th)\b/gi, "$1$2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[_\s]+(imp|od|ind)$/i, "")
+    .trim();
+  const name = normalizedWorkshopName.toLowerCase();
+
+  if (name.includes("gen") && name.includes("11")) {
+    return "Gen AI Workshop 11th June";
+  }
+  if (name.includes("python") && name.includes("20")) {
+    return "Python Workshop 20th June";
+  }
+  if (name.includes("powe") && name.includes("27")) {
+    return "Power BI Workshop 27th June";
+  }
+  if (name.includes("cyber") && name.includes("21")) {
+    return "Cyber Security Workshop 21st June";
+  }
+  if (name.includes("sql") && name.includes("13")) {
+    return "SQL Workshop 13th June";
+  }
+
+  return normalizedWorkshopName;
+}
+
+function shortenWorkshopLabel(workshopName) {
+  const coreName = getCoreWorkshopName(workshopName);
+  const cleaned = coreName.replace(/\bworkshop\b/gi, "").replace(/\s{2,}/g, " ").trim();
+  return cleaned || coreName;
+}
+
+function getLeadWorkshopName(lead) {
+  const sourceName = String(lead?.workshop || lead?.workshopName || "").trim();
+  const shortened = shortenWorkshopLabel(sourceName);
+  return shortened.replace(/\s+\d{1,2}(?:st|nd|rd|th)\s+[A-Za-z]+$/i, "").trim();
+}
+
+function getLeadWorkshopDisplay(lead) {
+  const normalizedAdmissionWorkshop = getLeadWorkshopName({ workshop: lead?.admissionWorkshop || "" });
+  if (normalizedAdmissionWorkshop) return normalizedAdmissionWorkshop;
+  return String(lead?.workshopName || getLeadWorkshopName(lead) || lead?.workshop || "").trim();
+}
+
+function getLeadProgramLabel(lead, fallback = "Lead workspace") {
+  return String(lead?.courseName || getLeadWorkshopDisplay(lead) || fallback).trim();
+}
+
 function formatDateTime(value) {
   const raw = String(value || "").trim();
   if (!raw) return "-";
@@ -235,6 +290,9 @@ function normalizeLeadFields(leads) {
     ]);
     lead.courseRawName = String(lead.courseRawName || lead.courseName || "").trim();
     lead.courseName = canonicalCourse.label || String(lead.courseName || "").trim();
+    lead.workshop = String(lead.workshop || "").trim();
+    lead.workshopName = String(lead.workshopName || getLeadWorkshopName(lead)).trim();
+    lead.admissionWorkshop = String(lead.admissionWorkshop || "").trim();
     lead.coursePitched = normalizeCrmCourseValue(lead.coursePitched, { allowNo: true, preserveUnknown: true });
     lead.mainAdmissionCoursePitched = normalizeCrmCourseValue(lead.mainAdmissionCoursePitched, { allowNo: true, preserveUnknown: true });
     lead.registeredCoursePitched = normalizeCrmCourseValue(lead.registeredCoursePitched, { allowNo: true, preserveUnknown: true });
@@ -477,7 +535,7 @@ function buildLeadDetailSections(lead) {
         { label: "Course Name", value: lead.courseName, scope: "lead", field: "courseName" },
         { label: "Location", value: getLeadLocation(lead) },
         { label: "Counselor", value: lead.counselor || "Unassigned" },
-        { label: "Workshop", value: lead.admissionWorkshop || lead.workshop || "-" },
+        { label: "Workshop", value: getLeadWorkshopDisplay(lead) || "-" },
         { label: "City", value: city, scope: "extra", field: "city" },
         { label: "State", value: state, scope: "extra", field: "state" }
       ]
@@ -512,7 +570,7 @@ function renderSidebar() {
       <div class="lead-tab-summary__hero">
         <span class="lead-tab-summary__eyebrow">${escapeHtml(stageConfig?.label || "Lead")}</span>
         <h2>${escapeHtml(activeLead.name || "Lead")}</h2>
-        <p>${escapeHtml(activeLead.courseName || activeLead.workshop || "Lead workspace")}</p>
+        <p>${escapeHtml(getLeadProgramLabel(activeLead))}</p>
       </div>
       <div class="lead-tab-summary__meta">
         <div><strong>Phone</strong><span>${formatDetailValue(activeLead.phone)}</span></div>
@@ -638,7 +696,7 @@ function renderWorkspace() {
   const stageConfig = getStageConfig(activeStage);
   document.title = activeLead.name ? `${activeLead.name} | ${stageConfig?.label || "Lead Tab"}` : "Lead Tab";
   pageTitle.textContent = activeLead.name || "Lead Tab";
-  pageSubtitle.textContent = `${stageConfig?.label || "Lead"} | ${activeLead.counselor || "Unassigned"} | ${activeLead.courseName || activeLead.workshop || "Lead"}`;
+  pageSubtitle.textContent = `${stageConfig?.label || "Lead"} | ${activeLead.counselor || "Unassigned"} | ${getLeadProgramLabel(activeLead, "Lead")}`;
   renderSidebar();
   renderActions();
   renderTabs();
