@@ -1388,31 +1388,13 @@ function filterLeads(leads) {
 }
 
 function renderActivityPanel(lead) {
-  const hasActivity = !isUntouchedLead(lead);
-  const noteCount = Array.isArray(lead.leadNotes) ? lead.leadNotes.length : 0;
   const leadId = escapeHtml(lead.id);
   const leadEmail = escapeHtml(lead.email || "");
-  const leadAttrs = `data-lead-id="${leadId}" data-lead-email="${leadEmail}"`;
-  const primaryActions = canUseLeadRowActions
-    ? `
-        <button class="btn-ghost btn-mcube-call activity-panel__icon-btn" type="button" aria-label="Call" title="Call" ${leadAttrs} ${lead.phone ? "" : "disabled"}><span aria-hidden="true">&#9742;</span></button>
-        <button class="btn-update-status${hasActivity ? " btn-update-status--active" : ""} activity-panel__icon-btn" type="button" aria-label="Update" title="Update" ${leadAttrs}><span aria-hidden="true">&#9998;</span></button>
-      `
-    : "";
-  const notesAction = canUseLeadRowActions
-    ? `<button class="btn-ghost btn-notes activity-panel__link" type="button" ${leadAttrs}>Notes${noteCount ? ` (${noteCount})` : ""}</button>`
-    : "";
+  const leadTabUrl = escapeHtml(buildLeadTabUrl(lead));
   return `
     <div class="activity-panel">
-      <div class="activity-panel__primary">
-        ${primaryActions}
-      </div>
       <div class="activity-panel__secondary">
-        <button class="btn-ghost btn-view-details activity-panel__link" type="button" ${leadAttrs}>View Details</button>
-        ${canCreateTasks ? `<button class="btn-ghost btn-task activity-panel__link" type="button" ${leadAttrs}>Task</button>` : ""}
-        ${notesAction}
-        <button class="btn-ghost btn-activity-history activity-panel__link" type="button" ${leadAttrs}>Activity</button>
-        ${isAdmin ? `<button class="btn-delete activity-panel__link" type="button" ${leadAttrs}>Delete</button>` : ""}
+        <button class="btn-primary activity-panel__open-tab" type="button" data-lead-id="${leadId}" data-lead-email="${leadEmail}" data-lead-tab-url="${leadTabUrl}">Open Tab</button>
       </div>
     </div>
   `;
@@ -1477,7 +1459,7 @@ function renderLeadTable(leads) {
             <th>Email</th>
             <th>Workshop Name</th>
             <th>Counselor</th>
-            <th>Admission Calling Activity</th>
+            <th>Open Tab</th>
           </tr>
         </thead>
         <tbody>
@@ -1512,69 +1494,18 @@ function renderLeadTable(leads) {
   postLeadTableSection.innerHTML = html;
 
 
-  document.querySelectorAll(".btn-update-status").forEach((button) => {
+  document.querySelectorAll(".activity-panel__open-tab").forEach((button) => {
     button.onclick = () => {
       const leadId = button.getAttribute("data-lead-id");
       const leadEmail = button.getAttribute("data-lead-email");
-      openPostActivityModal(leadId, leadEmail);
-    };
-  });
-
-  document.querySelectorAll(".btn-mcube-call").forEach((button) => {
-    button.onclick = () => {
-      const leadId = button.getAttribute("data-lead-id");
-      const leadEmail = button.getAttribute("data-lead-email");
+      const targetUrl = button.getAttribute("data-lead-tab-url");
       const lead = findLeadByActionIdentity(getAllLeads(), leadId, leadEmail);
-      if (!lead) {
-        showToast("Could not find this lead. Please refresh and try again.", true);
+      if (!targetUrl || !lead) {
+        showToast("Could not open this lead tab. Please refresh and try again.", true);
         return;
       }
-      void triggerMcubeClickToCall(lead, button, showToast);
-    };
-  });
-
-  document.querySelectorAll(".btn-notes").forEach((button) => {
-    button.onclick = () => {
-      const leadId = button.getAttribute("data-lead-id");
-      const leadEmail = button.getAttribute("data-lead-email");
-      openNotesModal(leadId, leadEmail);
-    };
-  });
-
-  document.querySelectorAll(".btn-task").forEach((button) => {
-    button.onclick = () => {
-      const leadId = button.getAttribute("data-lead-id");
-      openTaskModal(leadId);
-    };
-  });
-
-  document.querySelectorAll(".btn-view-details").forEach((button) => {
-    button.onclick = () => {
-      const leadId = button.getAttribute("data-lead-id");
-      const leadEmail = button.getAttribute("data-lead-email");
-      openPostActivityDetailsModal(leadId, leadEmail);
-    };
-  });
-
-  document.querySelectorAll(".btn-activity-history").forEach((button) => {
-    button.onclick = () => {
-      const leadId = button.getAttribute("data-lead-id");
-      const leadEmail = button.getAttribute("data-lead-email");
-      const allLeads = getAllLeads();
-      const lead = findLeadByActionIdentity(allLeads, leadId, leadEmail);
-      if (lead) {
-        openActivityHistory(lead.id, lead.name, lead.email);
-      }
-    };
-  });
-
-  document.querySelectorAll(".btn-delete").forEach((button) => {
-    button.onclick = async () => {
-      const leadId = button.getAttribute("data-lead-id");
-      if (leadId && await deleteLead(leadId)) {
-        clearSelectedLeadIds();
-        renderAll();
-      }
+      window.open(targetUrl, "_blank", "noopener");
+      void trackLeadView(lead.id, lead.email || leadEmail || "");
     };
   });
 
@@ -1906,6 +1837,15 @@ function buildLeadSelectionRef(lead) {
 function buildLeadSelectionKey(lead) {
   const ref = buildLeadSelectionRef(lead);
   return [ref.id, ref.email, ref.phone, ref.workshop, ref.createdAt].join("::");
+}
+
+function buildLeadTabUrl(lead) {
+  const params = new URLSearchParams({
+    leadId: String(lead?.id || "").trim(),
+    leadEmail: String(lead?.email || "").trim().toLowerCase(),
+    stage: "admission"
+  });
+  return `lead-tab.html?${params.toString()}`;
 }
 
 function getSelectableLeadKeys(leads) {

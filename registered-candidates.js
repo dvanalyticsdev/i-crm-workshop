@@ -620,6 +620,15 @@ function buildLeadKey(lead) {
   return [ref.id, ref.email, ref.phone, ref.workshop, ref.createdAt].join("::");
 }
 
+function buildLeadTabUrl(lead) {
+  const params = new URLSearchParams({
+    leadId: String(lead?.id || "").trim(),
+    leadEmail: String(lead?.email || "").trim().toLowerCase(),
+    stage: "registered-course"
+  });
+  return `lead-tab.html?${params.toString()}`;
+}
+
 function getSelectableLeadKeys(leads) {
   return leads.map((lead) => buildLeadKey(lead));
 }
@@ -1435,29 +1444,12 @@ function filterLeads(leads) {
 }
 
 function renderActivityPanel(lead) {
-  const hasActivity = getLeadActivityUpdateCount(lead) > 0;
   const leadKey = escapeHtml(buildLeadKey(lead));
-  const noteCount = lead.leadNotes.length;
-  const primaryActions = canUseLeadRowActions
-    ? `
-        <button type="button" class="btn-ghost btn-mcube-call activity-panel__icon-btn" data-registered-action="call" data-lead-key="${leadKey}" aria-label="Call" title="Call" ${lead.phone ? "" : "disabled"}><span aria-hidden="true">&#9742;</span></button>
-        <button type="button" class="btn-update-status${hasActivity ? " btn-update-status--active" : ""} activity-panel__icon-btn" data-registered-action="update" data-lead-key="${leadKey}" aria-label="Update" title="Update"><span aria-hidden="true">&#9998;</span></button>
-      `
-    : "";
-  const notesAction = canUseLeadRowActions
-    ? `<button type="button" class="btn-ghost btn-notes activity-panel__link" data-registered-action="notes" data-lead-key="${leadKey}">Notes${noteCount ? ` (${noteCount})` : ""}</button>`
-    : "";
+  const leadTabUrl = escapeHtml(buildLeadTabUrl(lead));
   return `
     <div class="activity-panel">
-      <div class="activity-panel__primary">
-        ${primaryActions}
-      </div>
       <div class="activity-panel__secondary">
-        <button type="button" class="btn-ghost activity-panel__link" data-registered-action="details" data-lead-key="${leadKey}">View Details</button>
-        ${canCreateTasks ? `<button type="button" class="btn-ghost btn-task activity-panel__link" data-registered-action="task" data-lead-key="${leadKey}">Task</button>` : ""}
-        ${notesAction}
-        <button type="button" class="btn-ghost btn-activity-history activity-panel__link" data-registered-action="activity-history" data-lead-key="${leadKey}">Activity</button>
-        ${isAdmin ? `<button type="button" class="btn-delete activity-panel__link" data-registered-action="delete" data-lead-key="${leadKey}">Delete</button>` : ""}
+        <button type="button" class="btn-primary activity-panel__open-tab" data-registered-action="open-tab" data-lead-key="${leadKey}" data-lead-tab-url="${leadTabUrl}">Open Tab</button>
       </div>
     </div>
   `;
@@ -1505,7 +1497,7 @@ function renderLeadTable(leads) {
             <th>Course Name</th>
             <th>${isCrashSegment ? "Location" : "Country"}</th>
             <th>Counselor</th>
-            <th>Activity</th>
+            <th>Open Tab</th>
           </tr>
         </thead>
         <tbody>
@@ -1527,41 +1519,17 @@ function renderLeadTable(leads) {
     </div>
   `;
 
-  document.querySelectorAll("[data-registered-action='update']").forEach((button) => {
-    button.onclick = () => openActivityModal(button.getAttribute("data-lead-key"));
-  });
-  document.querySelectorAll("[data-registered-action='details']").forEach((button) => {
-    button.onclick = () => openActivityDetailsModal(button.getAttribute("data-lead-key"));
-  });
-  document.querySelectorAll("[data-registered-action='call']").forEach((button) => {
+  document.querySelectorAll("[data-registered-action='open-tab']").forEach((button) => {
     button.onclick = () => {
+      const targetUrl = button.getAttribute("data-lead-tab-url");
       const leadKey = button.getAttribute("data-lead-key");
       const lead = getAllLeads().find((item) => buildLeadKey(item) === leadKey);
-      if (!lead) {
-        showToast("Could not find this lead. Please refresh and try again.", true);
+      if (!targetUrl || !lead) {
+        showToast("Could not open this lead tab. Please refresh and try again.", true);
         return;
       }
-      void triggerMcubeClickToCall(lead, button, showToast);
-    };
-  });
-  document.querySelectorAll("[data-registered-action='notes']").forEach((button) => {
-    button.onclick = () => openNotesModal(button.getAttribute("data-lead-key"));
-  });
-  document.querySelectorAll("[data-registered-action='task']").forEach((button) => {
-    button.onclick = () => openTaskModal(button.getAttribute("data-lead-key"));
-  });
-  document.querySelectorAll("[data-registered-action='activity-history']").forEach((button) => {
-    button.onclick = () => {
-      const leadKey = button.getAttribute("data-lead-key");
-      const lead = getAllLeads().find((item) => buildLeadKey(item) === leadKey);
-      if (lead) {
-        openActivityHistory(lead.id, lead.name, lead.email);
-      }
-    };
-  });
-  document.querySelectorAll("[data-registered-action='delete']").forEach((button) => {
-    button.onclick = () => {
-      void deleteRegisteredLead(button.getAttribute("data-lead-key"));
+      window.open(targetUrl, "_blank", "noopener");
+      void trackLeadView(lead.id, lead.email || "");
     };
   });
   document.querySelectorAll(".registered-lead-checkbox").forEach((checkbox) => {

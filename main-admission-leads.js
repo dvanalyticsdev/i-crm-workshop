@@ -692,6 +692,15 @@ function buildLeadKey(lead) {
   return [ref.id, ref.email, ref.phone, ref.workshop, ref.createdAt].join("::");
 }
 
+function buildLeadTabUrl(lead) {
+  const params = new URLSearchParams({
+    leadId: String(lead?.id || "").trim(),
+    leadEmail: String(lead?.email || "").trim().toLowerCase(),
+    stage: "main-admission"
+  });
+  return `lead-tab.html?${params.toString()}`;
+}
+
 function getSelectableLeadKeys(leads) {
   return leads.map((lead) => buildLeadKey(lead));
 }
@@ -1912,48 +1921,20 @@ function renderLeadDetailsModal(lead) {
 }
 
 function renderActivityPanel(lead) {
-  const hasActivity = getLeadActivityUpdateCount(lead) > 0;
   const leadKey = escapeHtml(buildLeadKey(lead));
-  const noteCount = lead.leadNotes.length;
-  const primaryActions = canUseLeadRowActions
-    ? `
-        <button
-          type="button"
-          class="btn-ghost btn-mcube-call activity-panel__icon-btn"
-          data-main-admission-action="call"
-          data-lead-key="${leadKey}"
-          aria-label="Call"
-          title="Call"
-          ${lead.phone ? "" : "disabled"}
-        >
-          <span aria-hidden="true">&#9742;</span>
-        </button>
-        <button
-          type="button"
-          class="btn-update-status${hasActivity ? " btn-update-status--active" : ""} activity-panel__icon-btn"
-          data-main-admission-action="update"
-          data-lead-key="${leadKey}"
-          aria-label="Update"
-          title="Update"
-        >
-          <span aria-hidden="true">&#9998;</span>
-        </button>
-      `
-    : "";
-  const notesAction = canUseLeadRowActions
-    ? `<button type="button" class="btn-ghost btn-notes activity-panel__link" data-main-admission-action="notes" data-lead-key="${leadKey}">Notes${noteCount ? ` (${noteCount})` : ""}</button>`
-    : "";
+  const leadTabUrl = escapeHtml(buildLeadTabUrl(lead));
   return `
     <div class="activity-panel">
-      <div class="activity-panel__primary">
-        ${primaryActions}
-      </div>
       <div class="activity-panel__secondary">
-        <button type="button" class="btn-ghost activity-panel__link" data-main-admission-action="details" data-lead-key="${leadKey}">View Details</button>
-        ${canCreateTasks ? `<button type="button" class="btn-ghost btn-task activity-panel__link" data-main-admission-action="task" data-lead-key="${leadKey}">Task</button>` : ""}
-        ${notesAction}
-        <button type="button" class="btn-ghost btn-activity-history activity-panel__link" data-main-admission-action="activity-history" data-lead-key="${leadKey}">Activity</button>
-        ${isAdmin ? `<button type="button" class="btn-delete activity-panel__link" data-main-admission-action="delete" data-lead-key="${leadKey}">Delete</button>` : ""}
+        <button
+          type="button"
+          class="btn-primary activity-panel__open-tab"
+          data-main-admission-action="open-tab"
+          data-lead-key="${leadKey}"
+          data-lead-tab-url="${leadTabUrl}"
+        >
+          Open Tab
+        </button>
       </div>
     </div>
   `;
@@ -2014,7 +1995,7 @@ function renderLeadTable(leads) {
             <th>Course Name</th>
             <th>${isCrashSegment ? "Location" : "Country"}</th>
             <th>Counselor</th>
-            <th>Activity</th>
+            <th>Open Tab</th>
           </tr>
         </thead>
         <tbody>
@@ -2059,6 +2040,17 @@ mainAdmissionLeadTableSection.addEventListener("click", async (event) => {
     const action = actionButton.getAttribute("data-main-admission-action");
     const leadKey = actionButton.getAttribute("data-lead-key");
 
+    if (action === "open-tab") {
+      const targetUrl = actionButton.getAttribute("data-lead-tab-url");
+      const lead = getAllLeads().find((item) => buildLeadKey(item) === leadKey);
+      if (!targetUrl || !lead) {
+        showToast("Could not open this lead tab. Please refresh and try again.", true);
+        return;
+      }
+      window.open(targetUrl, "_blank", "noopener");
+      void trackLeadView(lead.id, lead.email || "");
+      return;
+    }
     if (action === "details") {
       openDetailsModal(leadKey);
       return;
