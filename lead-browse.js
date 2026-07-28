@@ -135,8 +135,62 @@ function getStatusLabel(lead) {
     "No status";
 }
 
+function getCoreWorkshopName(workshopName) {
+  if (!workshopName) return "";
+  const normalizedWorkshopName = String(workshopName)
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/([A-Za-z])(\d)/g, "$1 $2")
+    .replace(/(\d)([A-Za-z])/g, "$1 $2")
+    .replace(/\b(\d{1,2})\s+(st|nd|rd|th)\b/gi, "$1$2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[_\s]+(imp|od|ind)$/i, "")
+    .trim();
+  const name = normalizedWorkshopName.toLowerCase();
+
+  if (name.includes("gen") && name.includes("11")) {
+    return "Gen AI Workshop 11th June";
+  }
+  if (name.includes("python") && name.includes("20")) {
+    return "Python Workshop 20th June";
+  }
+  if (name.includes("powe") && name.includes("27")) {
+    return "Power BI Workshop 27th June";
+  }
+  if (name.includes("cyber") && name.includes("21")) {
+    return "Cyber Security Workshop 21st June";
+  }
+  if (name.includes("sql") && name.includes("13")) {
+    return "SQL Workshop 13th June";
+  }
+
+  return normalizedWorkshopName;
+}
+
+function shortenWorkshopLabel(workshopName) {
+  const coreName = getCoreWorkshopName(workshopName);
+  const cleaned = coreName.replace(/\bworkshop\b/gi, "").replace(/\s{2,}/g, " ").trim();
+  return cleaned || coreName;
+}
+
+function getLeadWorkshopName(lead) {
+  const sourceName = String(lead?.workshop || lead?.workshopName || "").trim();
+  const shortened = shortenWorkshopLabel(sourceName);
+  return shortened.replace(/\s+\d{1,2}(?:st|nd|rd|th)\s+[A-Za-z]+$/i, "").trim();
+}
+
+function getLeadWorkshopDisplay(lead) {
+  const normalizedAdmissionWorkshop = getLeadWorkshopName({ workshop: lead?.admissionWorkshop || "" });
+  if (normalizedAdmissionWorkshop) return normalizedAdmissionWorkshop;
+  return String(lead?.workshopName || getLeadWorkshopName(lead) || lead?.workshop || "").trim();
+}
+
 function getCourseLabel(lead) {
-  return lead?.courseName || lead?.coursePitched || lead?.mainAdmissionCoursePitched || lead?.registeredCoursePitched || lead?.workshop || "Not specified";
+  if (isPreWorkshopLead(lead)) {
+    return getLeadWorkshopDisplay(lead) || lead?.courseName || "Not specified";
+  }
+  return lead?.courseName || lead?.coursePitched || lead?.mainAdmissionCoursePitched || lead?.registeredCoursePitched || getLeadWorkshopDisplay(lead) || "Not specified";
 }
 
 function getCreatedAt(lead) {

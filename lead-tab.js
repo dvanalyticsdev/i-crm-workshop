@@ -126,7 +126,11 @@ function getLeadWorkshopDisplay(lead) {
   return String(lead?.workshopName || getLeadWorkshopName(lead) || lead?.workshop || "").trim();
 }
 
-function getLeadProgramLabel(lead, fallback = "Lead workspace") {
+function getLeadProgramLabel(lead, fallback = "Lead workspace", stage = activeStage) {
+  const safeStage = String(stage || "").trim().toLowerCase();
+  if (safeStage === "workshop") {
+    return String(getLeadWorkshopDisplay(lead) || lead?.courseName || fallback).trim();
+  }
   return String(lead?.courseName || getLeadWorkshopDisplay(lead) || fallback).trim();
 }
 
