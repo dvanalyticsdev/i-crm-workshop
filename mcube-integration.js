@@ -14,6 +14,8 @@ const isAdminLike = session.role === "admin" || session.role === "super_admin";
 const integrationSectionNav = document.getElementById("integrationSectionNav");
 const webhookUrlInput = document.getElementById("webhookUrl");
 const copyWebhookUrlBtn = document.getElementById("copyWebhookUrlBtn");
+const callRoutingUrlInput = document.getElementById("callRoutingUrl");
+const copyCallRoutingUrlBtn = document.getElementById("copyCallRoutingUrlBtn");
 const apiBaseUrlInput = document.getElementById("apiBaseUrlInput");
 const clickToCallPathInput = document.getElementById("clickToCallPathInput");
 const clickToCallMethodSelect = document.getElementById("clickToCallMethodSelect");
@@ -167,6 +169,10 @@ function renderCallHandling(log) {
 
 function buildWebhookUrl() {
   return apiUrl("/api/mcube/webhook");
+}
+
+function buildCallRoutingUrl() {
+  return apiUrl("/api/mcube/call-routing");
 }
 
 function isCounselorInRotation(counselor) {
@@ -333,6 +339,7 @@ function applyConfig(config) {
   if (!config) return;
 
   webhookUrlInput.value = buildWebhookUrl();
+  callRoutingUrlInput.value = buildCallRoutingUrl();
   apiBaseUrlInput.value = config.apiBaseUrl || "";
   clickToCallPathInput.value = config.clickToCallPath || "";
   clickToCallMethodSelect.value = config.clickToCallMethod || "POST";
@@ -618,6 +625,18 @@ copyWebhookUrlBtn.addEventListener("click", async () => {
   }
 });
 
+copyCallRoutingUrlBtn.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(callRoutingUrlInput.value);
+    copyCallRoutingUrlBtn.textContent = "Copied!";
+    setTimeout(() => {
+      copyCallRoutingUrlBtn.textContent = "Copy";
+    }, 2000);
+  } catch {
+    callRoutingUrlInput.select();
+  }
+});
+
 saveConfigBtn.addEventListener("click", saveConfig);
 validateConfigBtn.addEventListener("click", validateConfig);
 refreshLogsBtn.addEventListener("click", loadLogs);
@@ -631,6 +650,7 @@ if (!isAdminLike) {
 }
 
 webhookUrlInput.value = buildWebhookUrl();
+callRoutingUrlInput.value = buildCallRoutingUrl();
 renderIntegrationSectionNav();
 await loadCounselors().catch((error) => showMessage(rrMessage, error.message, true));
 const config = await loadConfig();

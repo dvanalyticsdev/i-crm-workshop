@@ -1130,6 +1130,21 @@ test("MCUBE click-to-call dispatch logs are marked outbound", () => {
   assert.match(server, /configured \$\{activeRequest\.offering\} endpoint/);
 });
 
+test("MCUBE call routing returns the assigned counselor agent number", () => {
+  const server = read("server.js");
+
+  assert.match(server, /app\.use\("\/api\/mcube\/call-routing", express\.urlencoded/);
+  assert.match(server, /function getMcubeRoutingCustomerNumber\(req\)/);
+  assert.match(server, /function findCounselorForMcubeRouting\(state = \{\}, counselorName = ""\)/);
+  assert.match(server, /function isMcubeCallRoutingRequestAuthorized\(req, config = \{\}\)/);
+  assert.match(server, /app\.all\("\/api\/mcube\/call-routing"/);
+  assert.match(server, /const lead = findLeadByPhone\(state, normalizedCustomerNumber\)/);
+  assert.match(server, /const counselorDoc = findCounselorForMcubeRouting\(state, counselorName\)/);
+  assert.match(server, /const agentNumber = normalizeMcubeDialNumber\(getMcubeExecutiveNumber\(counselorDoc, \{\}, config\)\)/);
+  assert.match(server, /eventType: "call-routing"/);
+  assert.match(server, /type\("text\/plain"\)\.send\(matched \? agentNumber : ""\)/);
+});
+
 test("counselor lead list rows expose MCUBE click-to-call buttons", () => {
   const service = read("mcube-call-service.js");
   const pages = [

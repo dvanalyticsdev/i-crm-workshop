@@ -271,6 +271,10 @@ app.use("/api/mcube/webhook", express.raw({
     req.rawBody = buf;
   }
 }));
+app.use("/api/mcube/call-routing", express.urlencoded({
+  extended: false,
+  limit: "32kb"
+}));
 app.use("/api/webhook/elementor-lead", express.urlencoded({
   extended: false,
   limit: "1mb"
@@ -4492,6 +4496,66 @@ function getMcubeExecutiveNumber(counselor = {}, session = {}, config = {}) {
   return String(candidates.find((value) => String(value || "").trim()) || "").trim();
 }
 
+function findCounselorForMcubeRouting(state = {}, counselorName = "") {
+  const normalizedName = String(counselorName || "").trim().toLowerCase();
+  if (!normalizedName || normalizedName === "unassigned") {
+    return null;
+  }
+  return (Array.isArray(state?.counselors) ? state.counselors : []).find(
+    (item) => String(item?.name || "").trim().toLowerCase() === normalizedName
+  ) || null;
+}
+
+function getMcubeRoutingCustomerNumber(req) {
+  const sources = [req.query || {}, req.body || {}];
+  const fields = [
+    "customer_number",
+    "customerNumber",
+    "custnumber",
+    "custNumber",
+    "phone",
+    "mobile",
+    "caller",
+    "callerid",
+    "callfrom",
+    "from"
+  ];
+
+  for (const source of sources) {
+    for (const field of fields) {
+      const value = String(source?.[field] || "").trim();
+      if (value) return value;
+    }
+  }
+
+  return "";
+}
+
+function isMcubeCallRoutingRequestAuthorized(req, config = {}) {
+  const secret = String(config.webhookSecret || "").trim();
+  if (!secret) {
+    return true;
+  }
+
+  const candidates = [
+    req.headers?.["x-mcube-secret"],
+    req.headers?.["x-api-key"],
+    req.headers?.authorization,
+    req.query?.secret,
+    req.query?.token,
+    req.body?.secret,
+    req.body?.token
+  ].map((value) => String(value || "").replace(/^Bearer\s+/i, "").trim()).filter(Boolean);
+
+  return candidates.some((value) => value === secret);
+}
+
+function wantsJsonMcubeRoutingResponse(req) {
+  const format = String(req.query?.format || req.body?.format || "").trim().toLowerCase();
+  const accept = String(req.headers?.accept || "").trim().toLowerCase();
+  return format === "json" || accept.includes("application/json");
+}
+
 function isMcubeVmcEndpoint(endpointUrl) {
   const host = String(endpointUrl?.hostname || "").toLowerCase();
   const pathname = String(endpointUrl?.pathname || "").toLowerCase();
@@ -6973,6 +7037,65 @@ app.get("/api/mcube/lookup", async (req, res) => {
     });
   } catch (err) {
     return res.status(500).json({ message: "Failed to lookup lead.", details: err.message });
+  }
+});
+
+app.all("/api/mcube/call-routing", async (req, res) => {
+  try {
+    await initMongo();
+    const config = await getMcubeConfig();
+    if (!config.enabled) {
+      return res.status(503).type("text/plain").send("");
+    }
+    if (!isMcubeCallRoutingRequestAuthorized(req, config)) {
+      return res.status(403).type("text/plain").send("");
+    }
+
+    const customerNumber = getMcubeRoutingCustomerNumber(req);
+    const normalizedCustomerNumber = normalizeLeadPhone(customerNumber);
+    if (!normalizedCustomerNumber) {
+      return res.status(400).type("text/plain").send("");
+    }
+
+    const state = await getStateDoc();
+    const lead = findLeadByPhone(state, normalizedCustomerNumber);
+    const counselorName = String(lead?.counselor || "").trim();
+    const counselorDoc = findCounselorForMcubeRouting(state, counselorName);
+    const agentNumber = normalizeMcubeDialNumber(getMcubeExecutiveNumber(counselorDoc, {}, config));
+    const matched = !!lead && !!agentNumber;
+
+    await saveMcubeLog({
+      type: matched ? "success" : "ignored",
+      message: matched
+        ? `Inbound callback routed to ${counselorName}.`
+        : "Inbound callback routing did not find an assigned counselor number.",
+      leadId: String(lead?.id || "").trim(),
+      leadName: String(lead?.name || "").trim(),
+      counselor: counselorName || "Unassigned",
+      leadPipeline: lead?.leadPipeline || "",
+      assignmentStatus: shouldTreatLeadAsAssigned(counselorName) ? "Assigned" : "Unassigned",
+      direction: "inbound",
+      eventType: "call-routing",
+      phone: normalizedCustomerNumber,
+      agentNumber: agentNumber || "",
+      found: !!lead
+    });
+
+    if (wantsJsonMcubeRoutingResponse(req)) {
+      return res.status(matched ? 200 : 404).json({
+        ok: matched,
+        agentNumber: matched ? agentNumber : "",
+        leadId: String(lead?.id || "").trim(),
+        counselor: counselorName || ""
+      });
+    }
+
+    return res.status(matched ? 200 : 404).type("text/plain").send(matched ? agentNumber : "");
+  } catch (err) {
+    try {
+      await saveMcubeLog({ type: "error", message: `MCUBE call routing error: ${err.message || "unknown error"}` });
+    } catch {}
+    return res.status(500).type("text/plain").send("");
   }
 });
 
