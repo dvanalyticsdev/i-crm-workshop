@@ -490,28 +490,18 @@ function buildLeadDetailSections(lead) {
   ].filter(Boolean);
 }
 
-function isReplaceableLeadContactValue(field, value) {
-  const normalized = String(value ?? "").trim().toLowerCase();
-  if (!normalized) return true;
-  if (field === "name") return /^mcube\s+(caller|lead)(\s+\S+)?$/i.test(String(value ?? "").trim());
-  if (field === "email") return /^mcube-[^@\s]+@noemail\.lead$/i.test(normalized);
-  return false;
-}
-
 function renderEditableDetailValue(lead, item) {
   const value = String(item.scope === "lead" ? (lead?.[item.field] ?? "") : (getLeadExtraFields(lead)[item.field] ?? ""));
-  const protectedField = ["name", "email", "phone"].includes(item.field);
-  const canEditValue = !protectedField || isReplaceableLeadContactValue(item.field, value);
   if (item.scope === "lead" && item.field === "courseName") {
     const normalizedCourseValue = normalizeCrmCourseValue(value, { preserveUnknown: true });
     return `
-      <select class="main-admission-details-input" data-detail-scope="${escapeHtml(item.scope)}" data-detail-field="${escapeHtml(item.field)}" ${canEditValue ? "" : "disabled"}>
+      <select class="main-admission-details-input" data-detail-scope="${escapeHtml(item.scope)}" data-detail-field="${escapeHtml(item.field)}">
         <option value="">Select</option>
         ${CRM_FIXED_COURSE_OPTIONS.map((course) => `<option value="${escapeHtml(course.label)}" ${normalizedCourseValue === course.label ? "selected" : ""}>${escapeHtml(course.label)}</option>`).join("")}
       </select>
     `;
   }
-  return `<input class="main-admission-details-input" type="${item.field === "email" ? "email" : "text"}" value="${escapeHtml(value)}" data-detail-scope="${escapeHtml(item.scope)}" data-detail-field="${escapeHtml(item.field)}" ${canEditValue ? "" : "disabled"} />`;
+  return `<input class="main-admission-details-input" type="${item.field === "email" ? "email" : "text"}" value="${escapeHtml(value)}" data-detail-scope="${escapeHtml(item.scope)}" data-detail-field="${escapeHtml(item.field)}" />`;
 }
 
 function renderSidebar() {
