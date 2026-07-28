@@ -2212,12 +2212,27 @@ function getMonitoringMcubeEntryTalkTimeSeconds(entry = {}) {
     return storedDuration;
   }
 
+  const rawFields = entry?.mcubeFields && typeof entry.mcubeFields === "object" ? entry.mcubeFields : {};
   return normalizeMonitoringMcubeTalkTimeSeconds(
     deriveMcubeTalkTimeDuration(
-      entry,
-      entry?.startedAt || entry?.at || "",
-      entry?.endedAt || "",
-      entry?.answeredTime || ""
+      {
+        ...rawFields,
+        duration: entry?.duration ?? rawFields.duration,
+        call_duration: rawFields.call_duration,
+        callDuration: rawFields.callDuration,
+        talktime: rawFields.talktime,
+        talk_time: rawFields.talk_time,
+        talkTime: rawFields.talkTime,
+        recording_duration: rawFields.recording_duration,
+        recordingDuration: rawFields.recordingDuration,
+        dialstatus: entry?.disposition || entry?.rawStatus || rawFields.dialstatus || rawFields.disposition || rawFields.call_status,
+        disposition: entry?.disposition || entry?.rawStatus || rawFields.disposition || rawFields.dialstatus || rawFields.call_status,
+        call_status: rawFields.call_status || rawFields.callStatus,
+        callStatus: rawFields.callStatus || rawFields.call_status
+      },
+      entry?.startedAt || rawFields.starttime || rawFields.started_at || rawFields.start_time || rawFields.startTime || entry?.at || "",
+      entry?.endedAt || rawFields.endtime || rawFields.ended_at || rawFields.end_time || rawFields.endTime || "",
+      entry?.answeredTime || rawFields.answeredtime || rawFields.answered_time || rawFields.answerTime || ""
     )
   );
 }

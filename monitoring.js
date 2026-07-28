@@ -857,7 +857,19 @@ function getMcubeCallEntriesInRange(leads, range) {
       ].join("|");
       const entryKey = callId ? `${leadId}|${callId}` : fallbackKey;
       const previous = byKey.get(entryKey);
-      const duration = Math.max(Number(entry?.duration) || 0, Number(previous?.duration) || 0);
+      const rawFields = entry?.mcubeFields && typeof entry.mcubeFields === "object" ? entry.mcubeFields : {};
+      const duration = Math.max(
+        normalizeMcubeTalkTimeSeconds(entry?.duration),
+        normalizeMcubeTalkTimeSeconds(previous?.duration),
+        normalizeMcubeTalkTimeSeconds(rawFields.duration),
+        normalizeMcubeTalkTimeSeconds(rawFields.call_duration),
+        normalizeMcubeTalkTimeSeconds(rawFields.callDuration),
+        normalizeMcubeTalkTimeSeconds(rawFields.talktime),
+        normalizeMcubeTalkTimeSeconds(rawFields.talk_time),
+        normalizeMcubeTalkTimeSeconds(rawFields.talkTime),
+        normalizeMcubeTalkTimeSeconds(rawFields.recording_duration),
+        normalizeMcubeTalkTimeSeconds(rawFields.recordingDuration)
+      );
       const nextEntry = {
         leadId,
         counselor: String(entry?.counselor || lead?.counselor || "").trim(),
@@ -871,7 +883,11 @@ function getMcubeCallEntriesInRange(leads, range) {
         agentName: String(entry?.agentName || "").trim(),
         agentPhone: String(entry?.agentPhone || "").trim(),
         recordingUrl: String(entry?.recordingUrl || "").trim(),
-        duration
+        duration,
+        answeredTime: String(entry?.answeredTime || rawFields.answeredtime || rawFields.answered_time || rawFields.answerTime || "").trim(),
+        startedAt: String(entry?.startedAt || rawFields.starttime || rawFields.started_at || rawFields.start_time || rawFields.startTime || "").trim(),
+        endedAt: String(entry?.endedAt || rawFields.endtime || rawFields.ended_at || rawFields.end_time || rawFields.endTime || "").trim(),
+        mcubeFields: rawFields
       };
 
       if (!previous) {
@@ -894,7 +910,11 @@ function getMcubeCallEntriesInRange(leads, range) {
         agentName: nextEntry.agentName || previous.agentName,
         agentPhone: nextEntry.agentPhone || previous.agentPhone,
         recordingUrl: nextEntry.recordingUrl || previous.recordingUrl,
-        duration
+        duration,
+        answeredTime: nextEntry.answeredTime || previous.answeredTime,
+        startedAt: nextEntry.startedAt || previous.startedAt,
+        endedAt: nextEntry.endedAt || previous.endedAt,
+        mcubeFields: nextEntry.mcubeFields || previous.mcubeFields
       };
       byKey.set(
         entryKey,
@@ -904,6 +924,36 @@ function getMcubeCallEntriesInRange(leads, range) {
   });
 
   return Array.from(byKey.values());
+}
+
+function deriveMonitoringMcubeTalkTimeSeconds(entry = {}) {
+  const storedDuration = normalizeMcubeTalkTimeSeconds(entry?.duration);
+  if (storedDuration > 0) {
+    return storedDuration;
+  }
+
+  const startMs = Date.parse(String(entry?.startedAt || "").trim());
+  const endMs = Date.parse(String(entry?.endedAt || "").trim());
+  if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs) {
+    const answeredText = String(entry?.answeredTime || "").trim();
+    const offsetMatch = answeredText.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if (offsetMatch) {
+      const first = Number(offsetMatch[1]);
+      const second = Number(offsetMatch[2]);
+      const third = Number(offsetMatch[3] || 0);
+      const answerOffsetSeconds = offsetMatch[3] ? (first * 3600) + (second * 60) + third : (first * 60) + second;
+      return normalizeMcubeTalkTimeSeconds(Math.max(0, Math.round((endMs - startMs) / 1000) - answerOffsetSeconds));
+    }
+
+    const answeredMs = Date.parse(answeredText);
+    if (Number.isFinite(answeredMs) && endMs > answeredMs) {
+      return normalizeMcubeTalkTimeSeconds(Math.round((endMs - answeredMs) / 1000));
+    }
+
+    return normalizeMcubeTalkTimeSeconds(Math.round((endMs - startMs) / 1000));
+  }
+
+  return 0;
 }
 
 function getUsableRecordingUrl(value) {
@@ -970,10 +1020,11 @@ function getMcubeEntryTalkTimeSeconds(entry = {}) {
 
   const cacheKey = getMcubeRecordingDurationKey(entry);
   if (!cacheKey) {
-    return 0;
+    return deriveMonitoringMcubeTalkTimeSeconds(entry);
   }
 
-  return normalizeMcubeTalkTimeSeconds(mcubeRecordingDurationCache.get(cacheKey));
+  const cachedDuration = normalizeMcubeTalkTimeSeconds(mcubeRecordingDurationCache.get(cacheKey));
+  return cachedDuration || deriveMonitoringMcubeTalkTimeSeconds(entry);
 }
 
 function primeMcubeRecordingDuration(entry = {}) {
