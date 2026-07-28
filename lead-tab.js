@@ -1,3 +1,4 @@
+import { apiUrl } from "./api-client.js";
 import {
   CRM_FIXED_COURSE_OPTIONS,
   getCanonicalPublicCourseIdentity,
@@ -14,7 +15,7 @@ import {
 } from "./lead-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
 import { registerPageCleanup } from "./page-runtime.js";
-import { bootstrapLocalState, getCounselors, getLeads, getSession, refreshState } from "./state-sync.js";
+import { bootstrapLocalState, getSession } from "./state-sync.js";
 import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
 
 await bootstrapLocalState({ skipStateRefresh: true });
@@ -46,6 +47,7 @@ let activeStage = requestedStage;
 let counselors = [];
 let activeTab = "details";
 let detailsEditMode = false;
+const leadCacheKey = `dvLeadTabCache:${requestedLeadId}:${requestedLeadEmail || "no-email"}:${requestedStage || "auto"}`;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -131,6 +133,36 @@ function getCounselorIdentity() {
   const email = String(session?.email || "").trim().toLowerCase();
   const counselor = counselors.find((item) => String(item.email || "").trim().toLowerCase() === email);
   return String(counselor?.name || session?.name || "").trim().toLowerCase();
+}
+
+function readLeadTabCache() {
+  try {
+    const raw = localStorage.getItem(leadCacheKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    if (Date.now() - Number(parsed.cachedAt || 0) > 2 * 60 * 1000) {
+      localStorage.removeItem(leadCacheKey);
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeLeadTabCache({ lead, stage, counselors: cachedCounselors = [] } = {}) {
+  if (!lead) return;
+  try {
+    localStorage.setItem(leadCacheKey, JSON.stringify({
+      cachedAt: Date.now(),
+      lead,
+      stage,
+      counselors: Array.isArray(cachedCounselors) ? cachedCounselors : []
+    }));
+  } catch {
+    // Ignore cache write errors.
+  }
 }
 
 function canUseCounselorActions(lead) {
@@ -386,20 +418,27 @@ function renderNotFound(message) {
   panelEl.innerHTML = "";
 }
 
-async function loadLead() {
-  await refreshState().catch(() => undefined);
-  const leads = getLeads();
-  counselors = getCounselors();
-  normalizeLeadFields(leads);
-  const lead = leads.find((item) => (
-    String(item.id || "").trim() === requestedLeadId
-    && (!requestedLeadEmail || String(item.email || "").trim().toLowerCase() === requestedLeadEmail)
-  ));
-  if (!lead) {
-    return null;
+async function fetchLeadTabPayload() {
+  const query = requestedLeadEmail ? `?leadEmail=${encodeURIComponent(requestedLeadEmail)}` : "";
+  const response = await fetch(apiUrl(`/api/leads/${encodeURIComponent(requestedLeadId)}/tab${query}`), {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.message || "Failed to load lead.");
   }
-  activeStage = requestedStage || inferStage(lead);
-  return lead;
+  return payload;
+}
+
+function applyLeadPayload({ lead, stage, counselors: payloadCounselors = [] } = {}) {
+  if (!lead) return false;
+  counselors = Array.isArray(payloadCounselors) && payloadCounselors.length ? payloadCounselors : counselors;
+  normalizeLeadFields([lead]);
+  activeLead = lead;
+  activeStage = stage || requestedStage || inferStage(lead);
+  writeLeadTabCache({ lead, stage: activeStage, counselors });
+  return true;
 }
 
 function canEditLeadDetails() {
@@ -883,11 +922,25 @@ registerPageCleanup(() => {
   closeTaskModal();
 });
 
-const lead = await loadLead();
-if (!lead) {
-  renderNotFound("This lead was not found.");
-} else {
-  activeLead = lead;
-  void trackLeadView(activeLead.id, activeLead.email || "");
+const cachedLeadPayload = readLeadTabCache();
+if (cachedLeadPayload?.lead) {
+  counselors = Array.isArray(cachedLeadPayload.counselors) ? cachedLeadPayload.counselors : [];
+  applyLeadPayload(cachedLeadPayload);
   renderWorkspace();
+}
+
+try {
+  const payload = await fetchLeadTabPayload();
+  if (!applyLeadPayload(payload)) {
+    renderNotFound("This lead was not found.");
+  } else {
+    renderWorkspace();
+    void trackLeadView(activeLead.id, activeLead.email || "");
+  }
+} catch (error) {
+  if (activeLead) {
+    setMessage("Showing cached lead data. Live refresh failed.", true);
+  } else {
+    renderNotFound(error?.message || "This lead was not found.");
+  }
 }

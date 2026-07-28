@@ -204,6 +204,20 @@ function buildLeadTabUrl(lead) {
   return `lead-tab.html?${params.toString()}`;
 }
 
+function cacheLeadTabSnapshot(lead, stage) {
+  if (!lead) return;
+  const cacheKey = `dvLeadTabCache:${String(lead?.id || "").trim()}:${String(lead?.email || "").trim().toLowerCase() || "no-email"}:${stage || "auto"}`;
+  try {
+    localStorage.setItem(cacheKey, JSON.stringify({
+      cachedAt: Date.now(),
+      stage,
+      lead
+    }));
+  } catch {
+    // Ignore cache write failures.
+  }
+}
+
 function getSelectableLeadKeys(leads) {
   return leads.map((lead) => buildLeadSelectionKey(lead));
 }
@@ -1949,6 +1963,7 @@ function renderLeadTable(leads) {
         showToast("Could not open this lead tab. Please refresh and try again.", true);
         return;
       }
+      cacheLeadTabSnapshot(lead, "workshop");
       window.open(targetUrl, "_blank", "noopener");
       void trackLeadView(lead.id, lead.email || leadEmail || "");
     };

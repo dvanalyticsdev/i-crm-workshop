@@ -13646,6 +13646,92 @@ app.get("/api/leads/scoped", async (req, res) => {
   }
 });
 
+app.get("/api/leads/:leadId/tab", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "counselor"]);
+    if (!session) return;
+
+    const leadId = String(req.params?.leadId || "").trim();
+    const leadEmail = String(req.query?.leadEmail || "").trim().toLowerCase();
+    if (!leadId) {
+      return res.status(400).json({ message: "Lead id is required." });
+    }
+
+    const query = {
+      id: { $in: getLeadIdCandidates(leadId) }
+    };
+    if (leadEmail) {
+      query.email = leadEmail;
+    }
+
+    const rawLead = await withMongoRetry(
+      () => leadsCollection.findOne(query),
+      { retries: 1, label: "Load lead tab record" }
+    );
+
+    if (!rawLead) {
+      return res.status(404).json({ message: "Lead not found." });
+    }
+
+    const [lead] = decorateLeadListForStorage([rawLead]);
+    if (!lead) {
+      return res.status(404).json({ message: "Lead not found." });
+    }
+
+    const permissions = getSessionPagePermissions(session);
+    const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
+    const inferredStage = pipeline === MAIN_ADMISSION_PIPELINE
+      ? "main-admission"
+      : pipeline === "course-registration"
+        ? "registered-course"
+        : (
+          String(lead?.postDialed || "").trim()
+          || String(lead?.courseStatus || "").trim()
+          || String(lead?.admissionStatus || "").trim()
+          || String(lead?.postCallStatus || "").trim()
+          || Boolean(lead?.postStatusUpdated)
+        )
+          ? "admission"
+          : "workshop";
+
+    const permissionKey = inferredStage === "main-admission"
+      ? "mainAdmissionLeads"
+      : inferredStage === "registered-course"
+        ? "registeredCandidates"
+        : inferredStage === "admission"
+          ? "postWorkshop"
+          : "preWorkshop";
+
+    if (!permissions[permissionKey]) {
+      return res.status(403).json({ message: "You do not have permission to view this lead." });
+    }
+
+    if (session.role === "counselor") {
+      const sessionEmail = String(session.email || "").trim().toLowerCase();
+      const counselors = await withMongoRetry(
+        () => counselorsCollection.find({}, { projection: { name: 1, email: 1 } }).toArray(),
+        { retries: 1, label: "Load counselors for lead tab access" }
+      );
+      const counselorMatch = (Array.isArray(counselors) ? counselors : []).find(
+        (item) => String(item.email || "").trim().toLowerCase() === sessionEmail
+      );
+      const counselorName = String(counselorMatch?.name || session.name || "").trim().toLowerCase();
+      const owner = String(lead?.counselor || "").trim().toLowerCase();
+      if (!counselorName || owner !== counselorName) {
+        return res.status(403).json({ message: "You do not have access to this lead." });
+      }
+    }
+
+    return res.json({
+      ok: true,
+      stage: inferredStage,
+      lead
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load lead tab.", details: error.message });
+  }
+});
+
 app.get("/api/performance-logs/summary", async (req, res) => {
   try {
     const session = await requireSuperAdmin(req, res);
