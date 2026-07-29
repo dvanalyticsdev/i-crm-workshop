@@ -779,10 +779,22 @@ function getLeadOwnershipDate(lead) {
   );
 }
 
+function wasLeadCreatedByCounselor(lead, counselor) {
+  if (!lead?.leadCreationRequestId && !lead?.requestedBy && !lead?.requestedByEmail) {
+    return false;
+  }
+
+  const normalizedCounselor = normalizeText(counselor);
+  return [lead?.requestedBy, lead?.requestedByEmail]
+    .some((value) => normalizeText(resolveCounselorName(value, true)) === normalizedCounselor);
+}
+
 function countAssignedLeads(rawLeads, counselor, range = null) {
   const normalizedCounselor = normalizeText(counselor);
   const assignedLeads = rawLeads.filter(
-    (lead) => normalizeText(resolveCounselorName(lead?.counselor, true)) === normalizedCounselor
+    (lead) =>
+      normalizeText(resolveCounselorName(lead?.counselor, true)) === normalizedCounselor &&
+      !wasLeadCreatedByCounselor(lead, counselor)
   );
 
   if (!range) {

@@ -588,9 +588,16 @@ test("monitoring attributes activity to real counselors instead of current lead 
 
 test("monitoring uses assignment-based lead counts and consistent labels across tabs", () => {
   const monitoring = read("monitoring.js");
+  const server = read("server.js");
 
   assert.match(monitoring, /function countAssignedLeads\(/);
-  assert.equal(countMatches(monitoring, /assignedLeads: countAssignedLeads\(rawLeads, counselor\)/g), 4);
+  assert.match(monitoring, /function wasLeadCreatedByCounselor\(/);
+  assert.match(monitoring, /lead\?\.leadCreationRequestId/);
+  assert.match(monitoring, /lead\?\.requestedByEmail/);
+  assert.match(monitoring, /!wasLeadCreatedByCounselor\(lead, counselor\)/);
+  assert.match(server, /function wasMonitoringLeadCreatedByCounselor\(/);
+  assert.match(server, /!wasMonitoringLeadCreatedByCounselor\(lead, counselor, directory\)/);
+  assert.equal(countMatches(monitoring, /assignedLeads: countAssignedLeads\(rawLeads, counselor, range\)/g), 4);
   assert.match(monitoring, /label: "Leads Assigned"/);
   assert.doesNotMatch(monitoring, /New Leads Received/);
   assert.doesNotMatch(monitoring, /Fresh Leads Received/);

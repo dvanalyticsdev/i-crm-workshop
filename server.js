@@ -2097,9 +2097,19 @@ function getMonitoringOwnershipDate(lead) {
   return parseMonitoringDate(lead?.leadOwnerTimelineAt || lead?.counselorAssignedAt || lead?.createdAtExact || lead?.createdAt);
 }
 
+function wasMonitoringLeadCreatedByCounselor(lead, counselor, directory) {
+  if (!lead?.leadCreationRequestId && !lead?.requestedBy && !lead?.requestedByEmail) return false;
+  const target = normalizeMonitoringText(counselor);
+  return [lead?.requestedBy, lead?.requestedByEmail]
+    .some((value) => normalizeMonitoringText(resolveMonitoringCounselorName(value, directory, true)) === target);
+}
+
 function countMonitoringAssigned(rawLeads, counselor, range, directory) {
   const target = normalizeMonitoringText(counselor);
-  const assigned = rawLeads.filter((lead) => normalizeMonitoringText(resolveMonitoringCounselorName(lead?.counselor, directory, true)) === target);
+  const assigned = rawLeads.filter((lead) =>
+    normalizeMonitoringText(resolveMonitoringCounselorName(lead?.counselor, directory, true)) === target &&
+    !wasMonitoringLeadCreatedByCounselor(lead, counselor, directory)
+  );
   if (!range) return assigned.length;
   return assigned.filter((lead) => {
     const date = getMonitoringOwnershipDate(lead);
