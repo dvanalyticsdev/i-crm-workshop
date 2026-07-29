@@ -1102,6 +1102,18 @@ test("MCUBE auto-created lead contact placeholders are replaceable only when syn
   assert.match(replaceableValue, /@noemail\\\.lead/);
 });
 
+test("main admission detail saves persist edited contact and location fields", () => {
+  const server = read("server.js");
+  const leadTab = read("lead-tab.js");
+  const detailsPatch = getNamedFunctionSource(server, "sanitizeMainAdmissionDetailsPatch");
+  const editableValue = getNamedFunctionSource(leadTab, "renderEditableDetailValue");
+
+  assert.doesNotMatch(detailsPatch, /sanitizeFillMissingContactPatch/);
+  assert.match(detailsPatch, /setPatch\[field\] = field === "email" \? nextValue\.toLowerCase\(\) : nextValue/);
+  assert.match(leadTab, /label: "Location", value: getLeadLocation\(lead\), scope: "extra", field: "city"/);
+  assert.match(editableValue, /if \(!item\?\.scope \|\| !item\?\.field\)/);
+});
+
 test("MCUBE logs show exact call status before picked interpretation", () => {
   const mcubeIntegration = read("mcube-integration.js");
   const mcubeHtml = read("mcube-integration.html");

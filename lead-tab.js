@@ -537,10 +537,9 @@ function buildLeadDetailSections(lead) {
         { label: "WhatsApp Phone Number", value: whatsappPhone, scope: "extra", field: "whatsapp_phone_number" },
         { label: "Email", value: lead.email, scope: "lead", field: "email" },
         { label: "Course Name", value: lead.courseName, scope: "lead", field: "courseName" },
-        { label: "Location", value: getLeadLocation(lead) },
+        { label: "Location", value: getLeadLocation(lead), scope: "extra", field: "city" },
         { label: "Counselor", value: lead.counselor || "Unassigned" },
         { label: "Workshop", value: getLeadWorkshopDisplay(lead) || "-" },
-        { label: "City", value: city, scope: "extra", field: "city" },
         { label: "State", value: state, scope: "extra", field: "state" }
       ]
     },
@@ -553,6 +552,9 @@ function buildLeadDetailSections(lead) {
 }
 
 function renderEditableDetailValue(lead, item) {
+  if (!item?.scope || !item?.field) {
+    return formatDetailValue(item?.value);
+  }
   const value = String(item.scope === "lead" ? (lead?.[item.field] ?? "") : (getLeadExtraFields(lead)[item.field] ?? ""));
   if (item.scope === "lead" && item.field === "courseName") {
     const normalizedCourseValue = normalizeCrmCourseValue(value, { preserveUnknown: true });

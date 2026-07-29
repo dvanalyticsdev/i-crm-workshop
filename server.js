@@ -10799,22 +10799,19 @@ function sanitizeMainAdmissionDetailsPatch(lead = {}, body = {}) {
   const fields = body?.fields && typeof body.fields === "object" ? body.fields : {};
   const extraFields = body?.extraFields && typeof body.extraFields === "object" ? body.extraFields : {};
   const setPatch = {};
-  const contactPatch = sanitizeFillMissingContactPatch(lead, fields);
 
   Object.entries(fields).forEach(([field, value]) => {
     if (!MAIN_ADMISSION_DETAIL_FIELDS.has(field)) {
       return;
     }
 
-    if (["name", "email", "phone"].includes(field)) {
+    const nextValue = String(value ?? "").trim();
+    if (["name", "email", "phone"].includes(field) && !nextValue) {
       return;
     }
 
-    const nextValue = String(value ?? "").trim();
     setPatch[field] = field === "email" ? nextValue.toLowerCase() : nextValue;
   });
-
-  Object.assign(setPatch, contactPatch);
 
   const extraBucket = getLeadExtraFieldBucketName(lead);
   Object.entries(extraFields).forEach(([field, value]) => {
