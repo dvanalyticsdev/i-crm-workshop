@@ -50,6 +50,27 @@ let activeTab = "details";
 let detailsEditMode = false;
 const leadCacheKey = `dvLeadTabCache:${requestedLeadId}:${requestedLeadEmail || "no-email"}:${requestedStage || "auto"}`;
 
+function renderIcon(name) {
+  const icons = {
+    phone: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.2a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7A2 2 0 0 1 22 16.9Z"/></svg>`,
+    activity: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>`,
+    task: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11l2 2 4-4"/><path d="M20 6v14H4V6"/><path d="M8 6V4h8v2"/></svg>`,
+    notes: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/></svg>`,
+    history: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>`,
+    edit: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`,
+    save: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>`,
+    close: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`,
+    delete: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>`
+  };
+  return icons[name] || "";
+}
+
+function renderActionButton({ action, icon, label, variant = "ghost", disabled = false, text = "" }) {
+  const labelText = escapeHtml(label);
+  const visibleText = text ? `<span class="lead-tab-action-label">${escapeHtml(text)}</span>` : "";
+  return `<button type="button" class="lead-tab-icon-btn lead-tab-icon-btn--${escapeHtml(variant)}" data-lead-tab-action="${escapeHtml(action)}" title="${labelText}" aria-label="${labelText}"${disabled ? " disabled" : ""}>${renderIcon(icon)}${visibleText}</button>`;
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -520,19 +541,29 @@ function buildLeadDetailSections(lead) {
       ]
     },
     {
-      title: "Lead Details",
+      title: "Contact Details",
       editable: activeStage === "main-admission",
       items: [
         { label: "Name", value: lead.name, scope: "lead", field: "name" },
         { label: "Phone Number", value: lead.phone, scope: "lead", field: "phone" },
         { label: "WhatsApp Phone Number", value: whatsappPhone, scope: "extra", field: "whatsapp_phone_number" },
         { label: "Email", value: lead.email, scope: "lead", field: "email" },
-        { label: "Course Name", value: lead.courseName, scope: "lead", field: "courseName" },
         { label: "Location", value: getLeadLocation(lead), scope: "extra", field: "city" },
-        { label: "Counselor", value: lead.counselor || "Unassigned" },
-        { label: "Workshop", value: getLeadWorkshopDisplay(lead) || "-" },
         { label: "State", value: state, scope: "extra", field: "state" }
       ]
+    },
+    {
+      title: "Course & Assignment",
+      editable: activeStage === "main-admission",
+      items: [
+        { label: "Course Name", value: lead.courseName, scope: "lead", field: "courseName" },
+        { label: "Counselor", value: lead.counselor || "Unassigned" },
+        { label: "Workshop", value: getLeadWorkshopDisplay(lead) || "-" }
+      ]
+    },
+    {
+      title: "Latest Status",
+      items: getLatestStatusItems(lead)
     },
     extraFieldEntries.length ? {
       title: "Lead Qualification Details",
@@ -540,6 +571,44 @@ function buildLeadDetailSections(lead) {
       items: extraFieldEntries.map(([key, value]) => ({ label: formatFieldLabel(key), value, scope: "extra", field: key }))
     } : null
   ].filter(Boolean);
+}
+
+function getLatestStatusItems(lead) {
+  const statusItems = [];
+  if (activeStage === "main-admission") {
+    statusItems.push(
+      { label: "Dialed", value: lead.mainAdmissionDialed },
+      { label: "Course Pitched", value: lead.mainAdmissionCoursePitched },
+      { label: "Course Status", value: lead.mainAdmissionCourseStatus },
+      { label: "Admission", value: lead.mainAdmissionAdmissionStatus },
+      { label: "Call Status", value: lead.mainAdmissionCallStatus }
+    );
+  } else if (activeStage === "registered-course") {
+    statusItems.push(
+      { label: "Dialed", value: lead.registeredDialed },
+      { label: "Course Pitched", value: lead.registeredCoursePitched },
+      { label: "Course Status", value: lead.registeredCourseStatus },
+      { label: "Admission", value: lead.registeredAdmissionStatus },
+      { label: "Call Status", value: lead.registeredCallStatus }
+    );
+  } else if (activeStage === "admission") {
+    statusItems.push(
+      { label: "Dialed", value: lead.postDialed },
+      { label: "Course Pitched", value: lead.coursePitched },
+      { label: "Course Status", value: lead.courseStatus },
+      { label: "Admission", value: lead.admissionStatus },
+      { label: "Call Status", value: lead.postCallStatus }
+    );
+  } else {
+    statusItems.push(
+      { label: "Dialed", value: lead.dialed },
+      { label: "Workshop Status", value: lead.wsStatus },
+      { label: "Call Status", value: lead.callStatus },
+      { label: "WhatsApp Invite", value: lead.whatsappInvite },
+      { label: "WhatsApp Group", value: lead.whatsappGroupStatus }
+    );
+  }
+  return statusItems.filter((item) => String(item.value ?? "").trim());
 }
 
 function renderEditableDetailValue(lead, item) {
@@ -587,13 +656,16 @@ function renderSidebar() {
 function renderActions() {
   const buttons = [];
   if (canUseCounselorActions(activeLead)) {
-    buttons.push(`<button type="button" class="btn-primary" data-lead-tab-action="call"${activeLead.phone ? "" : " disabled"}>Call Lead</button>`);
-    buttons.push(`<button type="button" class="btn-update-status" data-lead-tab-action="update">Update Activity</button>`);
-    buttons.push(`<button type="button" class="btn-ghost btn-task" data-lead-tab-action="task">Create Task</button>`);
+    buttons.push(renderActionButton({ action: "call", icon: "phone", label: "Call Lead", variant: "primary", disabled: !activeLead.phone }));
+    buttons.push(renderActionButton({ action: "update", icon: "activity", label: "Update Activity", variant: "ghost" }));
+    buttons.push(renderActionButton({ action: "task", icon: "task", label: "Create Task", variant: "ghost" }));
   }
-  buttons.push(`<button type="button" class="btn-ghost" data-lead-tab-action="history">Open Full Activity History</button>`);
+  if (!isAdmin) {
+    buttons.push(renderActionButton({ action: "notes", icon: "notes", label: "Notes", variant: activeTab === "notes" ? "primary" : "ghost" }));
+  }
+  buttons.push(renderActionButton({ action: "history", icon: "history", label: "Open Full Activity History", variant: "ghost", text: "Full History" }));
   if (isAdmin) {
-    buttons.push(`<button type="button" class="btn-ghost btn-delete" data-lead-tab-action="delete">Delete Lead</button>`);
+    buttons.push(renderActionButton({ action: "delete", icon: "delete", label: "Delete Lead", variant: "danger" }));
   }
   actionsEl.innerHTML = `
     <div class="lead-tab-action-row">${buttons.join("")}</div>
@@ -602,14 +674,12 @@ function renderActions() {
 }
 
 function getTabs() {
-  return isAdmin
-    ? [{ key: "details", label: "Lead Details" }, { key: "history", label: "Activity History" }]
-    : [{ key: "details", label: "Lead Details" }, { key: "notes", label: "Notes" }, { key: "history", label: "Activity History" }];
+  return [{ key: "details", label: "Lead Details" }, { key: "history", label: "Activity History" }];
 }
 
 function renderTabs() {
   const tabs = getTabs();
-  if (!tabs.some((tab) => tab.key === activeTab)) {
+  if (!tabs.some((tab) => tab.key === activeTab) && activeTab !== "notes") {
     activeTab = tabs[0].key;
   }
   tabsEl.innerHTML = tabs.map((tab) => `<button type="button" class="lead-tab-tab ${activeTab === tab.key ? "lead-tab-tab--active" : ""}" data-lead-tab-switch="${escapeHtml(tab.key)}">${escapeHtml(tab.label)}</button>`).join("");
@@ -624,7 +694,7 @@ function renderDetailsPanel() {
         <h3>${escapeHtml(activeLead.name || "Lead")} Details</h3>
         <p class="block-help">${escapeHtml(getStageConfig(activeStage)?.label || "Lead")} | CRM ${escapeHtml(activeLead.id || "-")}</p>
       </div>
-      ${canEdit ? `<div class="main-admission-details-modal__actions">${detailsEditMode ? `<button type="button" class="btn-primary" data-lead-tab-action="save-details">Save</button><button type="button" class="btn-ghost" data-lead-tab-action="cancel-details">Cancel</button>` : `<button type="button" class="btn-ghost" data-lead-tab-action="edit-details">Edit</button>`}</div>` : ""}
+      ${canEdit ? `<div class="main-admission-details-modal__actions">${detailsEditMode ? `${renderActionButton({ action: "save-details", icon: "save", label: "Save details", variant: "primary", text: "Save" })}${renderActionButton({ action: "cancel-details", icon: "close", label: "Cancel editing", variant: "ghost", text: "Cancel" })}` : `${renderActionButton({ action: "edit-details", icon: "edit", label: "Edit details", variant: "ghost", text: "Edit" })}`}</div>` : ""}
     </div>
     <div class="main-admission-details-grid">
       ${sections.map((section) => `
@@ -664,15 +734,73 @@ function renderHistoryPanel() {
   return `
     <div class="lead-tab-section-head">
       <div><h3>Activity History</h3><p class="block-help">Recent actions for this lead.</p></div>
-      <button type="button" class="btn-ghost" data-lead-tab-action="history">Open Full Activity History</button>
+      ${renderActionButton({ action: "history", icon: "history", label: "Open Full Activity History", variant: "ghost", text: "Full History" })}
     </div>
-    <div class="lead-tab-history">
-      ${history.length ? history.map((entry) => `
-        <article class="lead-tab-history-item">
-          <div class="lead-tab-history-item__head"><strong>${escapeHtml(entry?.activityType || entry?.type || entry?.eventType || "Activity")}</strong><span>${escapeHtml(formatDateTime(entry?.at || entry?.timestamp || entry?.createdAt || ""))}</span></div>
-          <p>${escapeHtml(entry?.actionDescription || entry?.description || entry?.note || "Activity recorded")}</p>
-        </article>
-      `).join("") : `<div class="lead-tab-empty-state"><p>No activity history found yet.</p></div>`}
+    <div class="lead-tab-history lead-tab-timeline">
+      ${history.length ? renderEmbeddedTimeline(history) : `<div class="lead-tab-empty-state"><p>No activity history found yet.</p></div>`}
+    </div>
+  `;
+}
+
+function getActivityType(entry = {}) {
+  return String(entry?.activityType || entry?.type || entry?.eventType || "Activity").trim() || "Activity";
+}
+
+function getActivityDescription(entry = {}) {
+  return String(entry?.actionDescription || entry?.description || entry?.note || "Activity recorded").trim() || "Activity recorded";
+}
+
+function getTimelineIcon(type) {
+  if (type.includes("Call")) return renderIcon("phone");
+  if (type.includes("Note")) return renderIcon("notes");
+  if (type.includes("Follow-Up")) return renderIcon("task");
+  if (type.includes("WhatsApp") || type.includes("ReachOut")) return renderIcon("activity");
+  if (type.includes("Assigned") || type.includes("Reassigned") || type.includes("Counselor")) return renderIcon("edit");
+  return renderIcon("history");
+}
+
+function getTimelineTypeClass(type) {
+  if (["Lead Converted", "Lead Closed", "Notes Deleted", "WhatsApp Failed"].includes(type)) return type.includes("Closed") || type.includes("Deleted") || type.includes("Failed") ? "timeline-type-danger" : "timeline-type-success";
+  if (type.includes("Call") || type.includes("WhatsApp") || type.includes("ReachOut")) return "timeline-type-comm";
+  if (type.includes("Follow-Up")) return "timeline-type-task";
+  if (type.includes("Note")) return "timeline-type-note";
+  if (type.includes("Created")) return "timeline-type-create";
+  if (type.includes("Assigned") || type.includes("Counselor")) return "timeline-type-assign";
+  return "timeline-type-default";
+}
+
+function renderEmbeddedTimeline(history) {
+  return `
+    <div class="timeline-track lead-tab-timeline-track">
+      ${history.map((entry) => {
+        const type = getActivityType(entry);
+        const at = entry?.at || entry?.timestamp || entry?.createdAt || "";
+        const by = String(entry?.by || entry?.performedBy || entry?.user || "").trim();
+        const role = String(entry?.role || entry?.userRole || "").trim();
+        const previousValue = String(entry?.previousValue || "").trim();
+        const newValue = String(entry?.newValue || "").trim();
+        return `
+          <div class="timeline-item lead-tab-timeline-item">
+            <div class="timeline-badge ${getTimelineTypeClass(type)}" title="${escapeHtml(type)}">${getTimelineIcon(type)}</div>
+            <div class="timeline-card lead-tab-timeline-card">
+              <div class="timeline-card-header">
+                <span class="timeline-card-title">${escapeHtml(getActivityDescription(entry))}</span>
+                <span class="lead-tab-activity-type">${escapeHtml(type)}</span>
+              </div>
+              <div class="timeline-metadata">
+                ${by ? `<span>By: <strong>${escapeHtml(by)}</strong>${role ? ` (${escapeHtml(role)})` : ""}</span><span>&bull;</span>` : ""}
+                <span>${escapeHtml(formatDateTime(at))}</span>
+              </div>
+              ${previousValue || newValue ? `
+                <div class="timeline-diff-block">
+                  ${previousValue ? `<div><span class="diff-label">Previous:</span> <span class="diff-val">${escapeHtml(previousValue)}</span></div>` : ""}
+                  ${newValue ? `<div><span class="diff-label">New:</span> <span class="diff-val">${escapeHtml(newValue)}</span></div>` : ""}
+                </div>
+              ` : ""}
+            </div>
+          </div>
+        `;
+      }).join("")}
     </div>
   `;
 }
@@ -838,6 +966,12 @@ actionsEl.addEventListener("click", async (event) => {
   }
   if (action === "task") {
     openTaskModal();
+    return;
+  }
+  if (action === "notes") {
+    activeTab = "notes";
+    detailsEditMode = false;
+    renderWorkspace();
     return;
   }
   if (action === "history") {

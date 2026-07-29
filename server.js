@@ -7154,7 +7154,7 @@ app.all("/api/mcube/call-routing", async (req, res) => {
       });
     }
 
-    return res.status(matched ? 200 : 404).type("text/plain").send(matched ? agentNumber : "");
+    return res.status(200).type("text/plain").send(matched ? agentNumber : "");
   } catch (err) {
     try {
       await saveMcubeLog({ type: "error", message: `MCUBE call routing error: ${err.message || "unknown error"}` });

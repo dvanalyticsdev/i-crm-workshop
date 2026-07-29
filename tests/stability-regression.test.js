@@ -1158,6 +1158,31 @@ test("CRM timestamp displays are formatted in Kolkata time", () => {
   assert.match(read("lost-leads.js"), /formatKolkataDisplay\(lead\.createdAt, "-"\)/);
 });
 
+test("lead tab uses compact icon actions and embedded activity timeline", () => {
+  const leadTab = read("lead-tab.js");
+  const styles = read("styles.css");
+  const getTabs = getNamedFunctionSource(leadTab, "getTabs");
+  const renderActions = getNamedFunctionSource(leadTab, "renderActions");
+  const renderHistoryPanel = getNamedFunctionSource(leadTab, "renderHistoryPanel");
+
+  assert.match(leadTab, /function renderActionButton/);
+  assert.match(renderActions, /action: "call", icon: "phone"/);
+  assert.match(renderActions, /action: "update", icon: "activity"/);
+  assert.match(renderActions, /action: "task", icon: "task"/);
+  assert.match(renderActions, /action: "notes", icon: "notes"/);
+  assert.match(renderActions, /text: "Full History"/);
+  assert.doesNotMatch(getTabs, /key: "notes"/);
+  assert.match(leadTab, /activeTab = "notes"/);
+  assert.match(leadTab, /title: "Contact Details"/);
+  assert.match(leadTab, /title: "Course & Assignment"/);
+  assert.match(leadTab, /title: "Latest Status"/);
+  assert.match(renderHistoryPanel, /renderEmbeddedTimeline\(history\)/);
+  assert.doesNotMatch(renderHistoryPanel, /lead-tab-history-item/);
+  assert.match(styles, /\.lead-tab-icon-btn/);
+  assert.match(styles, /\.lead-tab-panel \.main-admission-details-item/);
+  assert.match(styles, /\.lead-tab-timeline-card/);
+});
+
 test("MCUBE logs show exact call status before picked interpretation", () => {
   const mcubeIntegration = read("mcube-integration.js");
   const mcubeHtml = read("mcube-integration.html");
@@ -1202,7 +1227,7 @@ test("MCUBE call routing returns the assigned counselor agent number", () => {
   assert.match(server, /const agentNumber = normalizeMcubeDialNumber\(getMcubeExecutiveNumber\(counselorDoc, \{\}, config\)\)/);
   assert.match(server, /saveMcubeCallRoutingLogAfterResponse\(\{/);
   assert.match(server, /eventType: "call-routing"/);
-  assert.match(server, /type\("text\/plain"\)\.send\(matched \? agentNumber : ""\)/);
+  assert.match(server, /return res\.status\(200\)\.type\("text\/plain"\)\.send\(matched \? agentNumber : ""\)/);
 });
 
 test("counselor lead list rows expose MCUBE click-to-call buttons", () => {
