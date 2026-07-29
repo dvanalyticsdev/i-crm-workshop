@@ -597,6 +597,9 @@ test("monitoring uses assignment-based lead counts and consistent labels across 
   assert.match(monitoring, /!wasLeadCreatedByCounselor\(lead, counselor\)/);
   assert.match(server, /function wasMonitoringLeadCreatedByCounselor\(/);
   assert.match(server, /!wasMonitoringLeadCreatedByCounselor\(lead, counselor, directory\)/);
+  assert.match(server, /leadCreationRequestId: 1/);
+  assert.match(server, /requestedBy: 1/);
+  assert.match(server, /requestedByEmail: 1/);
   assert.equal(countMatches(monitoring, /assignedLeads: countAssignedLeads\(rawLeads, counselor, range\)/g), 4);
   assert.match(monitoring, /label: "Leads Assigned"/);
   assert.doesNotMatch(monitoring, /New Leads Received/);
