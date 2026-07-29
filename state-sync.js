@@ -676,7 +676,31 @@ export async function saveMarketingUsers(marketingUsers) {
 }
 
 export async function saveAllocation(allocation) {
-  return updateStateFields({ allocation });
+  const nextAllocation = Array.isArray(allocation) ? allocation : [];
+  setCurrentState({ ...currentState, allocation: nextAllocation });
+
+  try {
+    const { response, payload } = await fetchJson("/api/allocation", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
+      body: JSON.stringify(nextAllocation)
+    }, PUT_TIMEOUT_MS);
+
+    if (!response.ok) {
+      void refreshState().catch(() => undefined);
+      return { ok: false, message: payload?.message || "Failed to save allocation." };
+    }
+
+    lastSuccessfulMutationAt = Date.now();
+    await refreshState().catch(() => undefined);
+    return { ok: true, payload: getStateSnapshot() };
+  } catch (error) {
+    void refreshState().catch(() => undefined);
+    return { ok: false, message: error?.message || "Failed to save allocation." };
+  }
 }
 
 export async function saveTasks(tasks) {

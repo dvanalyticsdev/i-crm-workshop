@@ -318,6 +318,15 @@ test("screen filters are browser-local and not shared through server preferences
   });
 });
 
+test("allocation saves use the dedicated allocation endpoint", () => {
+  const stateSync = read("state-sync.js");
+  const saveAllocation = getFunctionBody(stateSync, "saveAllocation");
+
+  assert.match(saveAllocation, /fetchJson\("\/api\/allocation"/);
+  assert.doesNotMatch(saveAllocation, /updateStateFields\(\{ allocation \}\)/);
+  assert.match(saveAllocation, /setCurrentState\(\{ \.\.\.currentState, allocation: nextAllocation \}\)/);
+});
+
 test("workshop and admission filters support multiple selected values", () => {
   const preWorkshop = read("pre-workshop.js");
   const postWorkshop = read("post-workshop.js");
