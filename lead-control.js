@@ -66,6 +66,7 @@ function formatDateTime(value) {
   }
 
   return parsed.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
     dateStyle: "medium",
     timeStyle: "short"
   });

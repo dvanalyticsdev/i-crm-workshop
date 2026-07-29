@@ -1,5 +1,6 @@
 import { getSession, refreshSession } from "./state-sync.js";
 import { clearLeadClaims, decideLeadClaim, fetchLeadClaims } from "./lead-claim-service.js";
+import { formatKolkataDateTime } from "./date-utils.js";
 
 const kpiSection = document.getElementById("claimRaisedKpis");
 const heading = document.getElementById("claimRaisedHeading");
@@ -26,9 +27,7 @@ function normalize(value) {
 }
 
 function formatDate(value) {
-  const date = new Date(value || "");
-  if (Number.isNaN(date.getTime())) return "Not available";
-  return date.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+  return formatKolkataDateTime(value, "Not available");
 }
 
 function statusLabel(value) {

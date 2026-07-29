@@ -17,6 +17,7 @@ import { triggerMcubeClickToCall } from "./mcube-call-service.js";
 import { registerPageCleanup } from "./page-runtime.js";
 import { bootstrapLocalState, getSession } from "./state-sync.js";
 import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
+import { formatKolkataDisplay, formatKolkataDateTime } from "./date-utils.js";
 
 await bootstrapLocalState({ skipStateRefresh: true });
 
@@ -135,17 +136,7 @@ function getLeadProgramLabel(lead, fallback = "Lead workspace", stage = activeSt
 }
 
 function formatDateTime(value) {
-  const raw = String(value || "").trim();
-  if (!raw) return "-";
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return raw;
-  return parsed.toLocaleString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
+  return formatKolkataDateTime(value, "-");
 }
 
 function setMessage(message, isError = false) {
@@ -523,7 +514,7 @@ function buildLeadDetailSections(lead) {
       title: "CRM Details",
       items: [
         { label: "CRM ID", value: lead.id },
-        { label: "Lead Created Date", value: lead.createdAt },
+        { label: "Lead Created Date", value: formatKolkataDisplay(lead.createdAt, "-") },
         { label: "Lead Source", value: getLeadSource(lead) },
         { label: "Stage", value: getStageConfig(activeStage)?.label || activeStage }
       ]
@@ -656,7 +647,7 @@ function renderNotesPanel() {
       ${activeLead.leadNotes.length ? activeLead.leadNotes.map((note, index) => `
         <article class="lead-tab-note-item">
           <p>${escapeHtml(note.text || "")}</p>
-          <div class="lead-tab-note-meta"><span>${escapeHtml(note.by || "Unknown")}</span><span>${escapeHtml(note.at || "")}</span></div>
+          <div class="lead-tab-note-meta"><span>${escapeHtml(note.by || "Unknown")}</span><span>${escapeHtml(formatKolkataDateTime(note.at || "", ""))}</span></div>
           ${canEdit ? `<button type="button" class="btn-ghost lead-tab-note-delete" data-note-index="${index}">Delete</button>` : ""}
         </article>
       `).join("") : `<div class="lead-tab-empty-state"><p>No notes yet.</p></div>`}

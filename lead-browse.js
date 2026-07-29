@@ -4,6 +4,7 @@ import { trackLeadView } from "./lead-service.js";
 import { raiseLeadClaim } from "./lead-claim-service.js";
 import { openActivityHistory } from "./activity-history.js";
 import { apiUrl } from "./api-client.js";
+import { formatKolkataDateTime } from "./date-utils.js";
 
 const PAGE_SIZE = 25;
 const controls = document.getElementById("leadBrowseControls");
@@ -201,9 +202,7 @@ function getCourseLabel(lead) {
 
 function getCreatedAt(lead) {
   const raw = lead?.createdAt || lead?.updatedAt || "";
-  const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) return String(raw || "Not available");
-  return date.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+  return formatKolkataDateTime(raw, "Not available");
 }
 
 function getAllLeads() {

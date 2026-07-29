@@ -2,6 +2,7 @@ import { registerPageCleanup } from "./page-runtime.js";
 import { acceptServerState, bootstrapLocalState, getSession, refreshState } from "./state-sync.js";
 import { apiUrl } from "./api-client.js";
 import { PUBLIC_COURSES } from "./course-catalog.js";
+import { formatKolkataDateTime } from "./date-utils.js";
 
 await bootstrapLocalState({ skipStateRefresh: true });
 
@@ -83,7 +84,7 @@ function escapeHtml(str) {
 function formatTime(iso) {
   if (!iso) return "—";
   try {
-    return new Date(iso).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "medium" });
+    return formatKolkataDateTime(iso, iso);
   } catch {
     return iso;
   }

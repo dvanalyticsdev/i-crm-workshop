@@ -1,4 +1,5 @@
 import { apiUrl } from "./api-client.js";
+import { formatKolkataDateTime } from "./date-utils.js";
 
 let currentLeadId = "";
 let currentLeadName = "";
@@ -413,7 +414,7 @@ async function fetchActivityLogs() {
               <div class="timeline-metadata">
                 <span>By: <strong>${escapeHtml(log.performedBy)}</strong> (${escapeHtml(log.userRole)})</span>
                 <span>&bull;</span>
-                <span title="${escapeHtml(new Date(log.timestamp).toLocaleString())}">${escapeHtml(log.time)} | ${escapeHtml(relativeTime)}</span>
+                <span title="${escapeHtml(formatKolkataDateTime(log.timestamp, ""))}">${escapeHtml(log.time)} | ${escapeHtml(relativeTime)}</span>
               </div>
               
               ${log.previousValue || log.newValue ? `

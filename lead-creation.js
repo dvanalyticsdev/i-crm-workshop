@@ -1,5 +1,6 @@
 import { getSession, refreshSession } from "./state-sync.js";
 import { normalizeCrmCourseValue, populateCrmCourseSelect } from "./course-catalog.js";
+import { formatKolkataDateTime } from "./date-utils.js";
 import {
   clearLeadCreationRequests,
   decideLeadCreationRequest,
@@ -44,9 +45,7 @@ function isAdmin() {
 }
 
 function formatDate(value) {
-  const date = new Date(value || "");
-  if (Number.isNaN(date.getTime())) return "Not available";
-  return date.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+  return formatKolkataDateTime(value, "Not available");
 }
 
 function statusLabel(value) {

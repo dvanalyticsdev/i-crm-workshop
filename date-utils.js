@@ -59,3 +59,43 @@ export function formatKolkataDate(date) {
     year: "numeric"
   });
 }
+
+export function formatKolkataDateTime(value, fallback = "") {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return fallback;
+  }
+
+  const parsed = parseKolkataDate(raw);
+  if (!parsed) {
+    return fallback || raw;
+  }
+
+  return `${parsed.toLocaleString("en-IN", {
+    timeZone: KOLKATA_TIME_ZONE,
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true
+  })} IST`;
+}
+
+export function formatKolkataDisplay(value, fallback = "") {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return fallback;
+  }
+
+  const parsed = parseKolkataDate(raw);
+  if (!parsed) {
+    return fallback || raw;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return formatKolkataDate(parsed);
+  }
+
+  return formatKolkataDateTime(raw, fallback);
+}

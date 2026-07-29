@@ -1,5 +1,6 @@
 import { apiUrl } from "./api-client.js";
 import { acceptServerState, getTasks as getStoredTasks } from "./state-sync.js";
+import { formatKolkataDateTime } from "./date-utils.js";
 
 export const TASK_CATEGORY = {
   workshop: "workshop",
@@ -53,13 +54,7 @@ export function formatTaskDueDate(value) {
     return value || "-";
   }
 
-  return parsed.toLocaleString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
+  return formatKolkataDateTime(parsed.toISOString(), value || "-");
 }
 
 function createTaskId() {

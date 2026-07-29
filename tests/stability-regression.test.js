@@ -1114,6 +1114,50 @@ test("main admission detail saves persist edited contact and location fields", (
   assert.match(editableValue, /if \(!item\?\.scope \|\| !item\?\.field\)/);
 });
 
+test("latest inbound activity filter requires not-picked calls across calling sections", () => {
+  [
+    ["pre-workshop.js", "workshopActivityHistory"],
+    ["post-workshop.js", "admissionActivityHistory"],
+    ["registered-candidates.js", "registeredCourseActivityHistory"],
+    ["main-admission-leads.js", "mainAdmissionActivityHistory"]
+  ].forEach(([file, historyField]) => {
+    const source = read(file);
+    const latestInboundFilter = getNamedFunctionSource(source, "isLatestInboundNotPickedActivity");
+    const notPickedFilter = getNamedFunctionSource(source, "isNotPickedCallActivity");
+
+    assert.match(source, new RegExp(`isLatestInboundNotPickedActivity\\(lead\\?\\.${historyField}\\)`));
+    assert.match(latestInboundFilter, /getActivityLabel\(latestEntry\) !== "Call Made"/);
+    assert.match(latestInboundFilter, /isInboundCallActivity\(latestEntry\) && isNotPickedCallActivity\(latestEntry\)/);
+    assert.match(notPickedFilter, /cancel\|missed\|no\\s\*answer/);
+    assert.match(notPickedFilter, /\\bdnp\\b\|\\bcnc\\b/);
+    assert.doesNotMatch(source, /isLatestInboundReceivedActivity/);
+  });
+});
+
+test("CRM timestamp displays are formatted in Kolkata time", () => {
+  const dateUtils = read("date-utils.js");
+  assert.match(dateUtils, /const KOLKATA_TIME_ZONE = "Asia\/Kolkata"/);
+  assert.match(dateUtils, /export function formatKolkataDateTime/);
+  assert.match(dateUtils, /timeZone: KOLKATA_TIME_ZONE/);
+
+  [
+    "pre-workshop.js",
+    "post-workshop.js",
+    "registered-candidates.js",
+    "main-admission-leads.js"
+  ].forEach((file) => {
+    const source = read(file);
+    assert.match(source, /formatKolkataDisplay\(lead\.createdAt, "-"\)/);
+    assert.match(source, /formatKolkataDateTime\(note\.at \|\| "", ""\)/);
+    assert.doesNotMatch(source, /<td>\$\{escapeHtml\(lead\.createdAt\)\}<\/td>/);
+    assert.doesNotMatch(source, /escapeHtml\(note\.at \|\| ""\)/);
+  });
+
+  assert.match(read("lead-tab.js"), /formatKolkataDateTime\(note\.at \|\| "", ""\)/);
+  assert.match(read("lead-browse.js"), /formatKolkataDateTime\(raw, "Not available"\)/);
+  assert.match(read("lost-leads.js"), /formatKolkataDisplay\(lead\.createdAt, "-"\)/);
+});
+
 test("MCUBE logs show exact call status before picked interpretation", () => {
   const mcubeIntegration = read("mcube-integration.js");
   const mcubeHtml = read("mcube-integration.html");

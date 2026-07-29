@@ -2,6 +2,7 @@ import { runPageCleanup } from "./page-runtime.js";
 import { bindThemeControls, initThemeSystem } from "./theme.js";
 import { bootstrapLocalState, changeOwnPassword, getSession, getStateField, logout, refreshSession, refreshState, awaitPendingMutations } from "./state-sync.js";
 import { startPingMonitor, mountPingPill } from "./ping-monitor.js";
+import { formatKolkataDateTime } from "./date-utils.js";
 const SYSTEM_UI_VERSION = "v2.0";
 if (localStorage.getItem("dv_crm_ui_version") !== SYSTEM_UI_VERSION) {
   localStorage.setItem("dv_crm_ui_version", SYSTEM_UI_VERSION);
@@ -1351,22 +1352,7 @@ function showNotificationPopup(n) {
 }
 
 function formatNotificationDueDate(value) {
-  if (!value) {
-    return "-";
-  }
-
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-
-  return parsed.toLocaleString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
+  return formatKolkataDateTime(value, "-");
 }
 
 function showTaskDuePanel(n) {

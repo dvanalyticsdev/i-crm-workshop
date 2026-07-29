@@ -19,7 +19,7 @@ import {
 import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
 import { addLeadNote, deleteLeadNote, deleteLeads as deleteLeadsOnServer, trackLeadView, updateLeadActivity as updateLeadActivityOnServer } from "./lead-service.js";
-import { formatKolkataDate, getKolkataDayRange, parseKolkataDate as parseTimelineDate, toKolkataDateKey } from "./date-utils.js";
+import { formatKolkataDate, formatKolkataDateTime, formatKolkataDisplay, getKolkataDayRange, parseKolkataDate as parseTimelineDate, toKolkataDateKey } from "./date-utils.js";
 import { createRenderScheduler, withButtonBusy } from "./ui-feedback.js";
 
 await bootstrapLocalState({ skipStateRefresh: true });
@@ -296,23 +296,37 @@ function getLatestHistoryEntry(history) {
   }, null);
 }
 
-function isLatestInboundReceivedActivity(history) {
+function isInboundCallActivity(entry = {}) {
+  const callDirection = String(
+    entry?.callMetadata?.callDirection
+    || entry?.callMetadata?.direction
+    || entry?.direction
+    || ""
+  ).trim().toLowerCase();
+  return callDirection === "inbound"
+    || String(entry?.actionDescription || "").trim().toLowerCase().includes("mcube inbound");
+}
+
+function isNotPickedCallActivity(entry = {}) {
+  const status = String(
+    entry?.callMetadata?.normalizedCallStatus
+    || entry?.callMetadata?.callStatus
+    || entry?.normalizedStatus
+    || entry?.callDisposition
+    || entry?.newValue
+    || entry?.actionDescription
+    || ""
+  ).trim();
+  return /(cancel|missed|no\s*answer|unanswered|busy|failed|reject|declin|timeout|not\s*reachable|switched\s*off|\bdnp\b|\bcnc\b)/i.test(status);
+}
+
+function isLatestInboundNotPickedActivity(history) {
   const latestEntry = getLatestHistoryEntry(history);
   if (!latestEntry || getActivityLabel(latestEntry) !== "Call Made") {
     return false;
   }
 
-  const callDirection = String(
-    latestEntry?.callMetadata?.callDirection
-    || latestEntry?.callMetadata?.direction
-    || latestEntry?.direction
-    || ""
-  ).trim().toLowerCase();
-  if (callDirection === "inbound") {
-    return true;
-  }
-
-  return String(latestEntry?.actionDescription || "").trim().toLowerCase().includes("mcube inbound");
+  return isInboundCallActivity(latestEntry) && isNotPickedCallActivity(latestEntry);
 }
 
 function getLatestLeadActivityTimestamp(lead) {
@@ -1226,7 +1240,7 @@ function renderFilters(leads) {
           <label for="registeredLatestActivitySelect">Latest Activity</label>
           <select id="registeredLatestActivitySelect">
             <option value="">Use Filter</option>
-            <option value="Inbound Received" ${filter.latestActivity === "Inbound Received" ? "selected" : ""}>Inbound Received</option>
+            <option value="Inbound Received" ${filter.latestActivity === "Inbound Received" ? "selected" : ""}>Inbound Not Picked</option>
           </select>
         </div>
         <div class="filter-item">
@@ -1447,7 +1461,7 @@ function filterLeads(leads) {
     if (filter.registeredCallStatus && filter.registeredCallStatus !== lead.registeredCallStatus) return false;
     if (filter.activityStatus === "Untouched" && getLeadActivityUpdateCount(lead) > 0) return false;
     if (filter.activityStatus === "Updated" && getLeadActivityUpdateCount(lead) === 0) return false;
-    if (filter.latestActivity === "Inbound Received" && !isLatestInboundReceivedActivity(lead?.registeredCourseActivityHistory)) return false;
+    if (filter.latestActivity === "Inbound Received" && !isLatestInboundNotPickedActivity(lead?.registeredCourseActivityHistory)) return false;
     if (filter.whatsappActivity && !leadMatchesWhatsappActivityFilter(lead)) return false;
     if (filter.repeatEnquiryStatus === "Repeat Enquiry" && !isRepeatEnquiryLead(lead)) return false;
     if (filter.repeatEnquiryStatus === "First Time" && isRepeatEnquiryLead(lead)) return false;
@@ -1519,7 +1533,7 @@ function renderLeadTable(leads) {
           ${pageLeads.length ? pageLeads.map((lead) => `
             <tr>
               ${isAdmin ? `<td><input type="checkbox" class="registered-lead-checkbox" data-lead-key="${escapeHtml(buildLeadKey(lead))}" ${selectedLeadKeys.has(buildLeadKey(lead)) ? "checked" : ""} /></td>` : ""}
-              <td>${escapeHtml(lead.createdAt)}</td>
+              <td>${escapeHtml(formatKolkataDisplay(lead.createdAt, "-"))}</td>
               <td><div class="lead-name-cell"><span>${escapeHtml(lead.name)}</span>${renderRepeatEnquiryBadge(lead)}</div></td>
               <td>${escapeHtml(lead.phone || "-")}</td>
               <td>${escapeHtml(lead.email)}</td>
@@ -1807,7 +1821,7 @@ function openNotesModal(leadKey) {
     ? lead.leadNotes.map((note, index) => `
         <div class="note-item">
           <span class="note-text">${escapeHtml(note.text)}</span>
-          <span class="note-meta">${escapeHtml(note.by || "")}${note.by && note.at ? " - " : ""}${escapeHtml(note.at || "")}</span>
+          <span class="note-meta">${escapeHtml(note.by || "")}${note.by && note.at ? " - " : ""}${escapeHtml(formatKolkataDateTime(note.at || "", ""))}</span>
           ${canEdit ? `<button type="button" class="btn-ghost registered-note-delete-btn" data-note-index="${index}" style="font-size:0.75rem;padding:2px 6px;">Delete</button>` : ""}
         </div>
       `).join("")

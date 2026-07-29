@@ -1,5 +1,6 @@
 import { bootstrapLocalState, getSession } from "./state-sync.js";
 import { apiUrl } from "./api-client.js";
+import { formatKolkataDateTime } from "./date-utils.js";
 
 await bootstrapLocalState({ skipStateRefresh: true });
 
@@ -608,7 +609,7 @@ async function syncWhatsapp() {
 
 function formatTime(iso) {
   try {
-    return new Date(iso).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" });
+    return formatKolkataDateTime(iso, iso || "-");
   } catch {
     return iso || "-";
   }

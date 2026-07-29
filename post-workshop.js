@@ -13,7 +13,7 @@ import {
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
-import { formatKolkataDate, getKolkataDayRange, parseKolkataDate, toKolkataDateKey } from "./date-utils.js";
+import { formatKolkataDate, formatKolkataDateTime, formatKolkataDisplay, getKolkataDayRange, parseKolkataDate, toKolkataDateKey } from "./date-utils.js";
 import { createRenderScheduler, withButtonBusy } from "./ui-feedback.js";
 import {
   addLeadNote,
@@ -232,9 +232,15 @@ function getFilterSummary(value) {
   const selected = getSelectedFilterValues(value);
   if (!selected.length) return EMPTY_FILTER_LABEL;
   if (selected.length <= 2) {
-    return selected.map((item) => (item === BLANK_FILTER_VALUE ? "Select" : item)).join(", ");
+    return selected.map(getFilterDisplayLabel).join(", ");
   }
   return `${selected.length} selected`;
+}
+
+function getFilterDisplayLabel(value) {
+  if (value === BLANK_FILTER_VALUE) return "Select";
+  if (value === "Inbound Received") return "Inbound Not Picked";
+  return value;
 }
 
 function withSelectFilterOption(options) {
@@ -295,23 +301,37 @@ function getLatestHistoryEntry(history) {
   }, null);
 }
 
-function isLatestInboundReceivedActivity(history) {
+function isInboundCallActivity(entry = {}) {
+  const callDirection = String(
+    entry?.callMetadata?.callDirection
+    || entry?.callMetadata?.direction
+    || entry?.direction
+    || ""
+  ).trim().toLowerCase();
+  return callDirection === "inbound"
+    || String(entry?.actionDescription || "").trim().toLowerCase().includes("mcube inbound");
+}
+
+function isNotPickedCallActivity(entry = {}) {
+  const status = String(
+    entry?.callMetadata?.normalizedCallStatus
+    || entry?.callMetadata?.callStatus
+    || entry?.normalizedStatus
+    || entry?.callDisposition
+    || entry?.newValue
+    || entry?.actionDescription
+    || ""
+  ).trim();
+  return /(cancel|missed|no\s*answer|unanswered|busy|failed|reject|declin|timeout|not\s*reachable|switched\s*off|\bdnp\b|\bcnc\b)/i.test(status);
+}
+
+function isLatestInboundNotPickedActivity(history) {
   const latestEntry = getLatestHistoryEntry(history);
   if (!latestEntry || getActivityLabel(latestEntry) !== "Call Made") {
     return false;
   }
 
-  const callDirection = String(
-    latestEntry?.callMetadata?.callDirection
-    || latestEntry?.callMetadata?.direction
-    || latestEntry?.direction
-    || ""
-  ).trim().toLowerCase();
-  if (callDirection === "inbound") {
-    return true;
-  }
-
-  return String(latestEntry?.actionDescription || "").trim().toLowerCase().includes("mcube inbound");
+  return isInboundCallActivity(latestEntry) && isNotPickedCallActivity(latestEntry);
 }
 
 function getLatestLeadActivityTimestamp(lead) {
@@ -338,7 +358,7 @@ function renderMultiSelectControl({ id, label, options, value, itemClass = "", i
   const optionHtml = uniqueOptions.length
     ? uniqueOptions.map((option) => {
         const isBlankOption = option === BLANK_FILTER_VALUE;
-        const optionLabel = isBlankOption ? "Select" : option;
+        const optionLabel = getFilterDisplayLabel(option);
         const escapedOption = escapeHtml(option);
         const escapedLabel = escapeHtml(optionLabel);
         const checked = selected.has(String(option)) ? " checked" : "";
@@ -1337,7 +1357,7 @@ function filterLeads(leads) {
   }
 
   if (isSelectedFilterValue(filter.latestActivity)) {
-    filtered = filtered.filter((lead) => isLatestInboundReceivedActivity(lead?.admissionActivityHistory));
+    filtered = filtered.filter((lead) => isLatestInboundNotPickedActivity(lead?.admissionActivityHistory));
   }
 
   if (isSelectedFilterValue(filter.workshopCallingDialed)) {
@@ -1478,7 +1498,7 @@ function renderLeadTable(leads) {
           <input class="lead-select-checkbox" type="checkbox" data-lead-key="${escapeHtml(buildLeadSelectionKey(lead))}" ${isLeadSelected(lead) ? "checked" : ""} />
         </td>
         ` : ""}
-        <td>${escapeHtml(lead.createdAt)}</td>
+        <td>${escapeHtml(formatKolkataDisplay(lead.createdAt, "-"))}</td>
         <td><div class="lead-name-cell"><span>${escapeHtml(lead.name)}</span>${renderRepeatEnquiryBadge(lead)}</div></td>
         <td>${escapeHtml(lead.phone || "-")}</td>
         <td>${escapeHtml(lead.email)}</td>
@@ -2073,7 +2093,7 @@ function openNotesModal(leadId, leadEmail = "") {
       ? notes.map((note, idx) => `
         <div class="note-item">
           <span class="note-text">${escapeHtml(note.text)}</span>
-          <span class="note-meta">${escapeHtml(note.by || "")}${note.by && note.at ? " \u2013 " : ""}${escapeHtml(note.at || "")}</span>
+          <span class="note-meta">${escapeHtml(note.by || "")}${note.by && note.at ? " \u2013 " : ""}${escapeHtml(formatKolkataDateTime(note.at || "", ""))}</span>
           ${canEditNotes ? `<button type="button" class="btn-ghost btn-delete-note" data-note-index="${idx}" style="font-size:0.75rem;padding:2px 6px;">Delete</button>` : ""}
         </div>`).join("")
       : `<p class="block-help">${canEditNotes ? "No notes yet. Add one below." : "No notes yet."}</p>`;

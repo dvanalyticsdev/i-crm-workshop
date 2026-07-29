@@ -2,6 +2,7 @@ import { registerPageCleanup } from "./page-runtime.js";
 import { apiUrl } from "./api-client.js";
 import { acceptServerState, bootstrapLocalState, getSession, loadLocalPreference, saveLocalPreference } from "./state-sync.js";
 import { openActivityHistory } from "./activity-history.js";
+import { formatKolkataDisplay } from "./date-utils.js";
 
 await bootstrapLocalState({ skipStateRefresh: true });
 
@@ -659,7 +660,7 @@ function renderLostTable(lostLeads) {
       .map(
         (lead) => `
       <tr>
-        <td>${escapeHtml(lead.createdAt)}</td>
+        <td>${escapeHtml(formatKolkataDisplay(lead.createdAt, "-"))}</td>
         <td>${escapeHtml(lead.name)}</td>
         <td>${escapeHtml(lead.phone || "-")}</td>
         <td>${escapeHtml(lead.email)}</td>
