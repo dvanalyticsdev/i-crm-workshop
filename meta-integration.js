@@ -155,6 +155,11 @@ function renderIntegrationSectionNav(activeRoute = "meta-integration.html") {
       description: "Manage workshop counselor rotation for Meta and Elementor leads."
     },
     {
+      route: "lead-inflow.html",
+      label: "Lead Inflow",
+      description: "Track incoming CRM leads by source, campaign, day, and duplicate inflow."
+    },
+    {
       route: "mcube-integration.html",
       label: "MCUBE",
       description: "Manage cloud telephony calling, webhook intake, click-to-call, and CRM call sync."

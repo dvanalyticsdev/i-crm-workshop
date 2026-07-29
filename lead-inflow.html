@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lead Inflow | DV Workshop Lead Platform</title>
+  <link rel="icon" type="image/png" href="Logos/DV-Logo.png" />
+  <script src="theme-bootstrap.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="dashboard-body">
+  <div class="layout-root">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="icrm-logo-wrap">
+          <div class="icrm-text-wrap">
+            <span class="icrm-logo-text">i-CRM</span>
+          </div>
+          <div class="icrm-dv-badge">
+            <span class="icrm-dv-by">by</span>
+            <img src="Logos/DV-Logo.png" alt="DV Analytics" class="icrm-dv-img" />
+          </div>
+        </div>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="dashboard.html" class="sidebar-link">Dashboard</a>
+        <a href="pre-workshop.html" class="sidebar-link">Workshop Calling</a>
+        <a href="post-workshop.html" class="sidebar-link">Admission Calling</a>
+        <a href="registered-candidates.html" class="sidebar-link">Registered Candidates</a>
+        <a href="main-admission-leads.html" class="sidebar-link">Main Admission Leads</a>
+        <a href="task-tracker.html" class="sidebar-link" data-counselor-only="true">Task Tracker</a>
+        <a href="lost-leads.html" class="sidebar-link">Lost Leads</a>
+        <a href="monitoring.html" class="sidebar-link">Monitoring</a>
+      </nav>
+      <div class="sidebar-bottom-links" style="display:flex;flex-direction:column;gap:0;">
+        <a href="counselor-management.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Counselor Management</a>
+        <a href="lead-control.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true">Lead & Data Control</a>
+        <a href="meta-integration.html" class="sidebar-link sidebar-link-bottom admin-only" data-admin-only="true" data-active-routes="elementor-integration.html mcube-integration.html lead-flow-control.html lead-inflow.html">Integration</a>
+      </div>
+    </aside>
+
+    <div class="main-content">
+      <header class="topbar">
+        <div class="topbar-title">
+          <h1>Lead Inflow</h1>
+          <p>Track CRM lead arrivals by day, source, campaign, and duplicate inflow.</p>
+        </div>
+        <div class="topbar-profile">
+          <button type="button" class="theme-toggle" data-theme-toggle aria-pressed="false">
+            <span class="theme-toggle__stack" aria-hidden="true">
+              <span class="theme-toggle__icon theme-toggle__icon--sun" aria-hidden="true">
+                <svg viewBox="0 0 24 24" role="presentation" focusable="false">
+                  <circle cx="12" cy="12" r="4.5"></circle>
+                  <path d="M12 1.8v2.4M12 19.8v2.4M4.2 4.2l1.7 1.7M18.1 18.1l1.7 1.7M1.8 12h2.4M19.8 12h2.4M4.2 19.8l1.7-1.7M18.1 5.9l1.7-1.7"></path>
+                </svg>
+              </span>
+              <span class="theme-toggle__icon theme-toggle__icon--moon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" role="presentation" focusable="false">
+                  <path d="M20.2 14.7A8.2 8.2 0 0 1 9.3 3.8a8.5 8.5 0 1 0 10.9 10.9Z"></path>
+                </svg>
+              </span>
+            </span>
+            <span class="theme-toggle__label" data-theme-label>Light</span>
+          </button>
+          <span class="role-tag" data-role-tag></span>
+          <button data-logout class="btn-ghost" type="button">Log out</button>
+        </div>
+      </header>
+
+      <div class="meta-page lead-inflow-page">
+        <section class="card" id="integrationSectionNav"></section>
+
+        <section class="card lead-inflow-toolbar">
+          <div class="lead-inflow-tabs" role="tablist" aria-label="Lead inflow sections">
+            <button type="button" class="btn-primary" data-inflow-section="workshop">Workshop</button>
+            <button type="button" class="btn-ghost" data-inflow-section="admission">Admission</button>
+          </div>
+
+          <div class="lead-inflow-filter-grid">
+            <div class="form-group">
+              <label for="inflowTimeline">Timeline</label>
+              <select id="inflowTimeline">
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <option value="week">Last 7 Days</option>
+                <option value="month">Last 30 Days</option>
+                <option value="overall">Overall</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="inflowStartDate">Start Date</label>
+              <input id="inflowStartDate" type="date" />
+            </div>
+            <div class="form-group">
+              <label for="inflowEndDate">End Date</label>
+              <input id="inflowEndDate" type="date" />
+            </div>
+            <div class="form-group">
+              <label for="inflowSourceFilter">Source</label>
+              <select id="inflowSourceFilter">
+                <option value="all">All Sources</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="inflowCampaignFilter">Campaign</label>
+              <select id="inflowCampaignFilter">
+                <option value="all">All Campaigns</option>
+              </select>
+            </div>
+            <div class="lead-inflow-actions">
+              <button type="button" class="btn-secondary" id="refreshInflowBtn">Refresh</button>
+              <button type="button" class="btn-ghost" id="resetInflowBtn">Reset</button>
+              <button type="button" class="btn-ghost hidden" id="clearInflowDataBtn" data-super-admin-only="true">Clear Inflow Data</button>
+            </div>
+          </div>
+          <p class="block-help" id="leadInflowMessage"></p>
+        </section>
+
+        <section class="lead-inflow-kpis" id="leadInflowKpis"></section>
+
+        <section class="card">
+          <div class="section-head">
+            <div>
+              <h3>Source and Campaign Breakdown</h3>
+              <p class="table-meta">Grouped by source and campaign for the selected timeline.</p>
+            </div>
+          </div>
+          <div class="table-shell">
+            <table class="data-table lead-inflow-table">
+              <thead>
+                <tr>
+                  <th>Source</th>
+                  <th>Campaign</th>
+                  <th>Total Inflow</th>
+                  <th>Unique Leads</th>
+                  <th>Duplicate Leads</th>
+                  <th>Duplicate %</th>
+                </tr>
+              </thead>
+              <tbody id="leadInflowSourceRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="section-head">
+            <div>
+              <h3>Day-Wise Inflow</h3>
+              <p class="table-meta">Daily lead inflow split by source and campaign.</p>
+            </div>
+          </div>
+          <div class="table-shell">
+            <table class="data-table lead-inflow-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Source</th>
+                  <th>Campaign</th>
+                  <th>Total Inflow</th>
+                  <th>Unique Leads</th>
+                  <th>Duplicate Leads</th>
+                  <th>Duplicate %</th>
+                </tr>
+              </thead>
+              <tbody id="leadInflowDayRows"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="lead-inflow.js"></script>
+  <script type="module" src="layouts.js"></script>
+</body>
+</html>

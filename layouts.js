@@ -30,6 +30,7 @@ const ROUTES_WITH_LOCAL_STATE_BOOTSTRAP = new Set([
   "lead-creation.html",
   "lead-browse.html",
   "lead-flow-control.html",
+  "lead-inflow.html",
   "main-admission-leads.html",
   "mcube-integration.html",
   "meta-integration.html",
@@ -68,6 +69,7 @@ const PAGE_PERMISSION_MAP = {
   "elementor-integration.html": "elementorIntegration",
   "mcube-integration.html": "mcubeIntegration",
   "lead-flow-control.html": "leadFlowControl",
+  "lead-inflow.html": "metaIntegration",
   "reachout.html": "reachout"
 };
 
@@ -552,7 +554,7 @@ function rebuildSidebarSections() {
     "meta-integration.html": {
       adminOnly: true,
       bottom: true,
-      activeRoutes: ["elementor-integration.html", "mcube-integration.html", "lead-flow-control.html"]
+      activeRoutes: ["elementor-integration.html", "mcube-integration.html", "lead-flow-control.html", "lead-inflow.html"]
     },
     "reachout.html": {
       adminOnly: true,

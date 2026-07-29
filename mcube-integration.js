@@ -210,6 +210,11 @@ function renderIntegrationSectionNav(activeRoute = "mcube-integration.html") {
       description: "Manage counselor rotation, branch routing, and course-wise lead eligibility."
     },
     {
+      route: "lead-inflow.html",
+      label: "Lead Inflow",
+      description: "Track incoming CRM leads by source, campaign, day, and duplicate inflow."
+    },
+    {
       route: "mcube-integration.html",
       label: "MCUBE",
       description: "Manage cloud telephony calling, webhook intake, click-to-call, and CRM call sync."

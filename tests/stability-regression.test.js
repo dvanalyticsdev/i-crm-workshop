@@ -775,6 +775,43 @@ test("Integration exposes lead flow control subsection", () => {
   assert.match(metaHtml, /lead-flow-control\.html/);
 });
 
+test("Integration exposes lead inflow reporting with source campaign and duplicate metrics", () => {
+  const layouts = read("layouts.js");
+  const server = read("server.js");
+  const leadInflowHtml = read("lead-inflow.html");
+  const leadInflow = read("lead-inflow.js");
+  const metaIntegration = read("meta-integration.js");
+  const elementorIntegration = read("elementor-integration.js");
+  const leadFlowControl = read("lead-flow-control.js");
+  const mcubeIntegration = read("mcube-integration.js");
+
+  assert.match(server, /app\.get\("\/api\/lead-inflow-report"/);
+  assert.match(server, /app\.delete\("\/api\/lead-inflow-report"/);
+  assert.match(server, /function buildLeadInflowReport/);
+  assert.match(server, /MONGODB_LEAD_INFLOW_COLLECTION/);
+  assert.match(server, /leadInflowCollection/);
+  assert.match(server, /function saveLeadInflowEvent/);
+  assert.match(server, /leadInflowCollection\.deleteMany\(\{\}\)/);
+  assert.match(server, /leadInflowClearedAt/);
+  assert.match(server, /function filterLeadInflowLeadsAfterClear/);
+  assert.match(server, /persistClearableLeadInflowLogs\("Meta", metaLogsCollection\)/);
+  assert.match(server, /persistClearableLeadInflowLogs\("Elementor", elementorLogsCollection\)/);
+  assert.match(server, /duplicateLeads/);
+  assert.match(server, /metaCampaignName/);
+  assert.match(server, /elementorFormName/);
+  assert.match(leadInflowHtml, /Lead Inflow/);
+  assert.match(leadInflowHtml, /inflowCampaignFilter/);
+  assert.match(leadInflowHtml, /id="clearInflowDataBtn" data-super-admin-only="true"/);
+  assert.match(leadInflow, /data-inflow-section/);
+  assert.match(leadInflow, /apiUrl\("\/api\/lead-inflow-report"\)/);
+  assert.match(leadInflow, /method: "DELETE"/);
+  assert.match(leadInflow, /session\?\.role !== "super_admin"/);
+  assert.match(layouts, /"lead-inflow\.html": "metaIntegration"/);
+  [metaIntegration, elementorIntegration, leadFlowControl, mcubeIntegration].forEach((source) => {
+    assert.match(source, /lead-inflow\.html/);
+  });
+});
+
 test("calling pages keep filtered leads newest first", () => {
   const preWorkshop = read("pre-workshop.js");
   const postWorkshop = read("post-workshop.js");

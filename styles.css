@@ -7962,10 +7962,66 @@ html[data-theme="dark"] .diff-val {
   color: var(--success);
 }
 
+.lead-inflow-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.lead-inflow-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.lead-inflow-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.lead-inflow-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--space-3);
+  align-items: end;
+}
+
+.lead-inflow-filter-grid .form-group {
+  margin: 0;
+}
+
+.lead-inflow-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: end;
+}
+
+.lead-inflow-kpis {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.lead-inflow-table {
+  min-width: 920px;
+}
+
+.empty-table-cell {
+  color: var(--text-muted);
+  text-align: center;
+}
+
 @media (max-width: 1100px) {
   .sop-kpi-grid,
-  .sop-filter-grid {
+  .sop-filter-grid,
+  .lead-inflow-kpis {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .lead-inflow-filter-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .sop-filter-grid__search {
@@ -7983,7 +8039,9 @@ html[data-theme="dark"] .diff-val {
   }
 
   .sop-kpi-grid,
-  .sop-filter-grid {
+  .sop-filter-grid,
+  .lead-inflow-kpis,
+  .lead-inflow-filter-grid {
     grid-template-columns: 1fr;
   }
 

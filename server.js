@@ -29,6 +29,7 @@ const MONGODB_REACHOUT_LOGS_COLLECTION = process.env.MONGODB_REACHOUT_LOGS_COLLE
 const MONGODB_REACHOUT_MEDIA_COLLECTION = process.env.MONGODB_REACHOUT_MEDIA_COLLECTION || "reachout_media";
 const MONGODB_PERFORMANCE_LOGS_COLLECTION = process.env.MONGODB_PERFORMANCE_LOGS_COLLECTION || "performance_logs";
 const MONGODB_LSQ_ARCHIVE_COLLECTION = process.env.MONGODB_LSQ_ARCHIVE_COLLECTION || "lsq_archive_leads";
+const MONGODB_LEAD_INFLOW_COLLECTION = process.env.MONGODB_LEAD_INFLOW_COLLECTION || "lead_inflow_events";
 const META_WEBHOOK_FORWARD_URL = String(process.env.META_WEBHOOK_FORWARD_URL || "").trim();
 const ADMIN_LOGIN_ID = String(process.env.ADMIN_LOGIN_ID || "").trim();
 const ADMIN_LOGIN_PASSWORD = String(process.env.ADMIN_LOGIN_PASSWORD || "").trim();
@@ -257,6 +258,33 @@ app.get("/favicon.ico", (_req, res) => {
 
 // Compress all responses ≥ 1 KB — dramatically reduces /api/state payload size.
 app.use(compress({ threshold: 1024 }));
+app.use("/api/webhook/elementor-lead", (req, res, next) => {
+  const configuredOrigins = String(process.env.ELEMENTOR_WEBHOOK_ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const allowedOrigins = new Set([
+    "https://dvanalyticsmds.com",
+    "https://www.dvanalyticsmds.com",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    ...configuredOrigins
+  ]);
+  const requestOrigin = String(req.headers.origin || "").trim();
+
+  if (requestOrigin && allowedOrigins.has(requestOrigin)) {
+    res.setHeader("Access-Control-Allow-Origin", requestOrigin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  }
+
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+
+  return next();
+});
 app.use("/api/meta/webhook", express.raw({
   type: "*/*",
   limit: "25mb",
@@ -335,6 +363,7 @@ let activityLogsCollection;
 let leadClaimsCollection;
 let leadCreationRequestsCollection;
 let lsqArchiveCollection;
+let leadInflowCollection;
 
 function logNotificationDebug(message, extra) {
   const payload = extra === undefined ? "" : ` ${JSON.stringify(extra)}`;
@@ -403,6 +432,8 @@ async function resetMongoConnection() {
   activityLogsCollection = null;
   leadClaimsCollection = null;
   leadCreationRequestsCollection = null;
+  lsqArchiveCollection = null;
+  leadInflowCollection = null;
 }
 
 async function withMongoRetry(operation, { retries = 1, label = "MongoDB operation" } = {}) {
@@ -2487,6 +2518,369 @@ function buildMonitoringLeadProjection(subsection = "") {
   };
 }
 
+function getLeadInflowRange(query = {}) {
+  const type = String(query.timelineType || query.type || "today").trim().toLowerCase();
+  if (type === "overall") return null;
+  if (type === "custom") {
+    const startDate = String(query.startDate || "").trim();
+    const endDate = String(query.endDate || startDate).trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+      return getMonitoringDayRange(0);
+    }
+    return {
+      start: new Date(`${startDate}T00:00:00+05:30`),
+      end: new Date(`${endDate}T23:59:59.999+05:30`)
+    };
+  }
+  if (type === "week") {
+    return { start: getMonitoringDayRange(-6).start, end: getMonitoringDayRange(0).end };
+  }
+  if (type === "month") {
+    return { start: getMonitoringDayRange(-29).start, end: getMonitoringDayRange(0).end };
+  }
+  if (type === "yesterday") return getMonitoringDayRange(-1);
+  return getMonitoringDayRange(0);
+}
+
+function parseLeadInflowDate(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return new Date(`${raw}T00:00:00+05:30`);
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getLeadInflowDateKey(value) {
+  const parsed = parseLeadInflowDate(value);
+  return parsed ? toKolkataDateKey(parsed) : "";
+}
+
+function isLeadInflowAdmissionLead(lead = {}) {
+  return isMainAdmissionLead(lead) || isPublicCourseRegistrationLead(lead);
+}
+
+function getLeadInflowSection(lead = {}) {
+  return isLeadInflowAdmissionLead(lead) ? "admission" : "workshop";
+}
+
+function getLeadInflowSource(lead = {}) {
+  const source = String(lead?.source || "").trim();
+  const normalizedSource = source.toLowerCase();
+  if (normalizedSource.includes("meta")) return "Meta";
+  if (normalizedSource.includes("elementor")) return "Elementor";
+  if (normalizedSource.includes("mcube")) return "MCUBE";
+  if (normalizedSource.includes("public course") || normalizedSource.includes("public registration")) return "Public Registration";
+  if (normalizedSource.includes("leadsquared")) return "LeadSquared Import";
+  if (normalizedSource.includes("lead creation request") || lead?.leadCreationRequestId) return "Counselor Created";
+  if (source) return source;
+  const files = Array.isArray(lead?.importSourceFiles) ? lead.importSourceFiles : [];
+  const fileSource = files.map((item) => String(item || "").trim()).find(Boolean);
+  return fileSource || "Unknown";
+}
+
+function getLeadInflowCampaign(lead = {}) {
+  return String(
+    lead?.metaCampaignName ||
+    lead?.metaAdsetName ||
+    lead?.metaAdName ||
+    lead?.elementorFormName ||
+    lead?.elementorFormId ||
+    lead?.importSourceSheet ||
+    lead?.lsqSourceSnapshot?.sourceFileName ||
+    ""
+  ).trim() || "Unspecified Campaign";
+}
+
+function isDuplicateInflowLog(log = {}) {
+  const type = String(log?.type || "").trim().toLowerCase();
+  const message = String(log?.message || "").trim().toLowerCase();
+  return type === "updated" || type === "ignored" || message.includes("duplicate");
+}
+
+function buildLeadInflowEventId(event = {}) {
+  const source = String(event?.source || "").trim().toLowerCase() || "unknown";
+  const sourceEventId = String(event?.sourceEventId || "").trim();
+  if (sourceEventId) return `${source}:${sourceEventId}`;
+  return crypto
+    .createHash("sha1")
+    .update(JSON.stringify({
+      source,
+      eventType: event?.eventType || "duplicate",
+      receivedAt: event?.receivedAt || "",
+      leadId: event?.leadId || "",
+      message: event?.message || "",
+      campaign: event?.campaign || ""
+    }))
+    .digest("hex");
+}
+
+async function saveLeadInflowEvent(event = {}) {
+  if (!leadInflowCollection) return;
+  const receivedAt = String(event?.receivedAt || new Date().toISOString()).trim();
+  const doc = {
+    eventId: buildLeadInflowEventId(event),
+    eventType: String(event?.eventType || "duplicate").trim().toLowerCase() || "duplicate",
+    source: String(event?.source || "Unknown").trim() || "Unknown",
+    section: String(event?.section || "workshop").trim().toLowerCase() === "admission" ? "admission" : "workshop",
+    campaign: String(event?.campaign || "Unspecified Campaign").trim() || "Unspecified Campaign",
+    leadId: event?.leadId === undefined || event?.leadId === null ? "" : String(event.leadId).trim(),
+    sourceEventId: String(event?.sourceEventId || "").trim(),
+    message: String(event?.message || "").trim(),
+    receivedAt,
+    updatedAt: new Date().toISOString()
+  };
+
+  await withMongoRetry(
+    () => leadInflowCollection.updateOne(
+      { eventId: doc.eventId },
+      {
+        $set: doc,
+        $setOnInsert: { createdAt: receivedAt }
+      },
+      { upsert: true }
+    ),
+    { retries: 1, label: "Persist lead inflow event" }
+  ).catch((error) => {
+    console.warn(`Lead inflow event skipped: ${error.message}`);
+  });
+}
+
+function getLogInflowSection(log = {}, leadById = new Map()) {
+  const pipeline = String(log?.leadPipeline || "").trim().toLowerCase();
+  if (pipeline === MAIN_ADMISSION_PIPELINE || pipeline === "course-registration" || pipeline === "admission") {
+    return "admission";
+  }
+  const lead = leadById.get(String(log?.leadId || "").trim());
+  if (lead) return getLeadInflowSection(lead);
+  return "workshop";
+}
+
+function getLogInflowCampaign(log = {}, leadById = new Map()) {
+  const lead = leadById.get(String(log?.leadId || "").trim());
+  return String(
+    log?.campaignName ||
+    log?.formName ||
+    log?.formId ||
+    lead?.metaCampaignName ||
+    lead?.metaAdsetName ||
+    lead?.metaAdName ||
+    lead?.elementorFormName ||
+    ""
+  ).trim() || "Unspecified Campaign";
+}
+
+function buildLeadInflowEventFromLog(source, log = {}, leadById = new Map()) {
+  if (!isDuplicateInflowLog(log)) return null;
+  const leadId = String(log?.leadId || "").trim();
+  const sourceEventId = String(
+    log?.leadgenId ||
+    log?.dedupeKey ||
+    log?.eventId ||
+    ""
+  ).trim() || crypto
+    .createHash("sha1")
+    .update(`${source}|${log?.receivedAt || ""}|${leadId}|${log?.message || ""}|${log?.formId || ""}|${log?.campaignName || ""}`)
+    .digest("hex");
+  return {
+    eventType: "duplicate",
+    source,
+    section: getLogInflowSection(log, leadById),
+    campaign: getLogInflowCampaign(log, leadById),
+    leadId,
+    sourceEventId,
+    message: log?.message || "",
+    receivedAt: log?.receivedAt || new Date().toISOString()
+  };
+}
+
+async function persistDuplicateLeadInflowLogs(source, logs = [], leadById = new Map()) {
+  const events = (Array.isArray(logs) ? logs : [])
+    .map((log) => buildLeadInflowEventFromLog(source, log, leadById))
+    .filter(Boolean);
+  for (const event of events) {
+    await saveLeadInflowEvent(event);
+  }
+  return events.length;
+}
+
+async function getLeadInflowClearedAt() {
+  if (!stateCollection) return "";
+  const doc = await withMongoRetry(
+    () => stateCollection.findOne({ _id: STATE_DOC_ID }),
+    { retries: 1, label: "Load lead inflow clear marker" }
+  ).catch(() => null);
+  return String(doc?.leadInflowClearedAt || "").trim();
+}
+
+function filterLeadInflowLogsAfterClear(logs = [], clearedAt = "") {
+  const markerMs = Date.parse(clearedAt);
+  if (!Number.isFinite(markerMs)) return Array.isArray(logs) ? logs : [];
+  return (Array.isArray(logs) ? logs : []).filter((log) => {
+    const receivedMs = Date.parse(log?.receivedAt || "");
+    return Number.isFinite(receivedMs) && receivedMs > markerMs;
+  });
+}
+
+function filterLeadInflowLeadsAfterClear(leads = [], clearedAt = "") {
+  const markerMs = Date.parse(clearedAt);
+  if (!Number.isFinite(markerMs)) return Array.isArray(leads) ? leads : [];
+  return (Array.isArray(leads) ? leads : []).filter((lead) => {
+    const leadMs = Date.parse(lead?.createdAtExact || lead?.approvedAt || lead?.createdAt || "");
+    return Number.isFinite(leadMs) && leadMs > markerMs;
+  });
+}
+
+async function persistClearableLeadInflowLogs(source, logsCollection) {
+  if (!logsCollection) return 0;
+  const [logs, rawLeads] = await Promise.all([
+    withMongoRetry(
+      () => logsCollection.find({}, {
+        projection: {
+          _id: 0,
+          type: 1,
+          message: 1,
+          receivedAt: 1,
+          leadId: 1,
+          leadgenId: 1,
+          dedupeKey: 1,
+          leadPipeline: 1,
+          campaignName: 1,
+          formName: 1,
+          formId: 1
+        }
+      }).toArray(),
+      { retries: 1, label: `Load ${source} logs for durable lead inflow` }
+    ),
+    withMongoRetry(
+      () => leadsCollection.find({}, {
+        projection: {
+          _id: 0,
+          id: 1,
+          source: 1,
+          leadPipeline: 1,
+          publicCourseSegment: 1,
+          metaAdName: 1,
+          metaAdsetName: 1,
+          metaCampaignName: 1,
+          elementorFormName: 1,
+          elementorFormId: 1
+        }
+      }).toArray(),
+      { retries: 1, label: "Load leads for durable lead inflow" }
+    )
+  ]);
+  const leads = decorateLeadListForStorage(rawLeads || []);
+  const leadById = new Map(leads.map((lead) => [String(lead?.id || "").trim(), lead]));
+  const clearedAt = await getLeadInflowClearedAt();
+  return persistDuplicateLeadInflowLogs(source, filterLeadInflowLogsAfterClear(logs, clearedAt), leadById);
+}
+
+function getLeadInflowKey(parts = []) {
+  return parts.map((part) => String(part || "").trim() || "-").join("||");
+}
+
+function addLeadInflowCount(map, keyParts, patch) {
+  const key = getLeadInflowKey(keyParts);
+  const current = map.get(key) || {
+    date: keyParts[0],
+    source: keyParts[1],
+    campaign: keyParts[2],
+    totalLeads: 0,
+    uniqueLeads: 0,
+    duplicateLeads: 0
+  };
+  current.totalLeads += Number(patch.totalLeads) || 0;
+  current.uniqueLeads += Number(patch.uniqueLeads) || 0;
+  current.duplicateLeads += Number(patch.duplicateLeads) || 0;
+  map.set(key, current);
+  return current;
+}
+
+function buildLeadInflowReport({ leads = [], inflowEvents = [], range = null, section = "workshop", sourceFilter = "all", campaignFilter = "all" }) {
+  const normalizedSection = section === "admission" ? "admission" : "workshop";
+  const leadById = new Map((Array.isArray(leads) ? leads : []).map((lead) => [String(lead?.id || "").trim(), lead]));
+  const sourceOptions = new Set();
+  const campaignOptions = new Set();
+  const sourceRows = new Map();
+  const dayRows = new Map();
+
+  const inRange = (date) => !range || (date && date >= range.start && date <= range.end);
+  const matchesFilters = (source, campaign) =>
+    (sourceFilter === "all" || source === sourceFilter) &&
+    (campaignFilter === "all" || campaign === campaignFilter);
+
+  (Array.isArray(leads) ? leads : []).forEach((lead) => {
+    if (getLeadInflowSection(lead) !== normalizedSection) return;
+    const dateValue = lead?.createdAtExact || lead?.approvedAt || lead?.createdAt;
+    const date = parseLeadInflowDate(dateValue);
+    if (!inRange(date)) return;
+    const dateKey = getLeadInflowDateKey(dateValue);
+    const source = getLeadInflowSource(lead);
+    const campaign = getLeadInflowCampaign(lead);
+    sourceOptions.add(source);
+    campaignOptions.add(campaign);
+    if (!matchesFilters(source, campaign)) return;
+    addLeadInflowCount(sourceRows, ["All", source, campaign], { totalLeads: 1, uniqueLeads: 1 });
+    addLeadInflowCount(dayRows, [dateKey, source, campaign], { totalLeads: 1, uniqueLeads: 1 });
+  });
+
+  (Array.isArray(inflowEvents) ? inflowEvents : []).forEach((event) => {
+    if (String(event?.eventType || "").trim().toLowerCase() !== "duplicate") return;
+    if (String(event?.section || "").trim().toLowerCase() !== normalizedSection) return;
+    const date = parseLeadInflowDate(event?.receivedAt);
+    if (!inRange(date)) return;
+    const dateKey = getLeadInflowDateKey(event?.receivedAt);
+    const source = String(event?.source || "Unknown").trim() || "Unknown";
+    const campaign = String(event?.campaign || "Unspecified Campaign").trim() || "Unspecified Campaign";
+    sourceOptions.add(source);
+    campaignOptions.add(campaign);
+    if (!matchesFilters(source, campaign)) return;
+    addLeadInflowCount(sourceRows, ["All", source, campaign], { totalLeads: 1, duplicateLeads: 1 });
+    addLeadInflowCount(dayRows, [dateKey, source, campaign], { totalLeads: 1, duplicateLeads: 1 });
+  });
+
+  const sourceRowList = [...sourceRows.values()]
+    .map((row) => ({
+      ...row,
+      duplicateRate: row.totalLeads ? Math.round((row.duplicateLeads / row.totalLeads) * 1000) / 10 : 0
+    }))
+    .sort((left, right) => (right.totalLeads - left.totalLeads) || left.source.localeCompare(right.source) || left.campaign.localeCompare(right.campaign));
+
+  const dayRowList = [...dayRows.values()]
+    .map((row) => ({
+      ...row,
+      duplicateRate: row.totalLeads ? Math.round((row.duplicateLeads / row.totalLeads) * 1000) / 10 : 0
+    }))
+    .sort((left, right) => right.date.localeCompare(left.date) || (right.totalLeads - left.totalLeads) || left.source.localeCompare(right.source));
+
+  const totals = [...dayRows.values()].reduce((summary, row) => {
+    summary.totalLeads += row.totalLeads;
+    summary.uniqueLeads += row.uniqueLeads;
+    summary.duplicateLeads += row.duplicateLeads;
+    return summary;
+  }, { totalLeads: 0, uniqueLeads: 0, duplicateLeads: 0 });
+  const topSource = sourceRowList[0]?.source || "-";
+  const dayTotals = new Map();
+  dayRowList.forEach((row) => dayTotals.set(row.date, (dayTotals.get(row.date) || 0) + row.totalLeads));
+  const topDay = [...dayTotals.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] || "-";
+
+  return {
+    section: normalizedSection,
+    filters: {
+      sources: [...sourceOptions].filter(Boolean).sort((a, b) => a.localeCompare(b)),
+      campaigns: [...campaignOptions].filter(Boolean).sort((a, b) => a.localeCompare(b))
+    },
+    metrics: {
+      ...totals,
+      duplicateRate: totals.totalLeads ? Math.round((totals.duplicateLeads / totals.totalLeads) * 1000) / 10 : 0,
+      topSource,
+      topDay
+    },
+    sourceRows: sourceRowList,
+    dayRows: dayRowList
+  };
+}
+
 function restoreLostLeadPatch(lead = {}) {
   const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
   if (pipeline === MAIN_ADMISSION_PIPELINE) {
@@ -2701,6 +3095,7 @@ async function initMongo() {
         leadClaimsCollection    = db.collection("lead_claims");
         leadCreationRequestsCollection = db.collection("lead_creation_requests");
         lsqArchiveCollection = db.collection(MONGODB_LSQ_ARCHIVE_COLLECTION);
+        leadInflowCollection = db.collection(MONGODB_LEAD_INFLOW_COLLECTION);
 
         // Ensure indexes for activity_logs
         await activityLogsCollection.createIndex({ leadId: 1, timestamp: -1 }, { background: true }).catch(() => undefined);
@@ -2760,6 +3155,14 @@ async function initMongo() {
         await performanceLogsCollection.createIndex(
           { createdAtDate: 1 },
           { expireAfterSeconds: 30 * 24 * 60 * 60, background: true }
+        ).catch(() => undefined);
+        await leadInflowCollection.createIndex(
+          { eventId: 1 },
+          { unique: true, background: true }
+        ).catch(() => undefined);
+        await leadInflowCollection.createIndex(
+          { receivedAt: -1, section: 1, source: 1, campaign: 1 },
+          { background: true }
         ).catch(() => undefined);
         await metaRetryCollection.createIndex(
           { leadgenId: 1 },
@@ -2923,6 +3326,8 @@ async function initMongo() {
         activityLogsCollection  = new MockCollection("activityLogs");
         leadClaimsCollection    = new MockCollection("leadClaims");
         leadCreationRequestsCollection = new MockCollection("leadCreationRequests");
+        lsqArchiveCollection = new MockCollection("lsqArchive");
+        leadInflowCollection = new MockCollection("leadInflowEvents");
         
         // Sync lead sequence for mock db too
         await syncLeadSequence().catch(() => undefined);
@@ -6555,6 +6960,7 @@ app.delete("/api/meta/logs", async (req, res) => {
     if (!activeSession || !["super_admin", "admin"].includes(activeSession.session.role)) {
       return res.status(403).json({ message: "Admin access required." });
     }
+    await persistClearableLeadInflowLogs("Meta", metaLogsCollection);
     await Promise.all([
       metaLogsCollection.deleteMany({}),
       metaRetryCollection.deleteMany({})
@@ -6757,6 +7163,7 @@ app.delete("/api/elementor/logs", async (req, res) => {
     if (!activeSession || !["super_admin", "admin"].includes(activeSession.session.role)) {
       return res.status(403).json({ message: "Admin access required." });
     }
+    await persistClearableLeadInflowLogs("Elementor", elementorLogsCollection);
     await Promise.all([
       elementorLogsCollection.deleteMany({}),
       elementorRetryCollection.deleteMany({})
@@ -14157,6 +14564,137 @@ app.get("/api/monitoring-report", async (req, res) => {
   }
 });
 
+app.get("/api/lead-inflow-report", async (req, res) => {
+  try {
+    await initMongo();
+    const activeSession = await getSessionFromRequest(req);
+    if (!activeSession || !["super_admin", "admin", "marketing"].includes(activeSession.session.role)) {
+      return res.status(403).json({ message: "Access required." });
+    }
+
+    const section = String(req.query?.section || "workshop").trim().toLowerCase() === "admission"
+      ? "admission"
+      : "workshop";
+    const sourceFilter = String(req.query?.source || "all").trim() || "all";
+    const campaignFilter = String(req.query?.campaign || "all").trim() || "all";
+    const range = getLeadInflowRange(req.query || {});
+    const leadProjection = {
+      _id: 0,
+      id: 1,
+      source: 1,
+      createdAt: 1,
+      createdAtExact: 1,
+      approvedAt: 1,
+      leadPipeline: 1,
+      leadCreationRequestId: 1,
+      publicCourseSegment: 1,
+      courseId: 1,
+      metaLeadId: 1,
+      metaAdName: 1,
+      metaAdsetName: 1,
+      metaCampaignName: 1,
+      elementorFormId: 1,
+      elementorFormName: 1,
+      elementorPageUrl: 1,
+      importSourceFiles: 1,
+      importSourceSheet: 1,
+      lsqSourceSnapshot: 1
+    };
+    const logProjection = {
+      _id: 0,
+      type: 1,
+      message: 1,
+      receivedAt: 1,
+      leadId: 1,
+      leadgenId: 1,
+      dedupeKey: 1,
+      leadPipeline: 1,
+      campaignName: 1,
+      formName: 1,
+      formId: 1
+    };
+
+    const [rawLeads, metaLogs, elementorLogs] = await Promise.all([
+      withMongoRetry(
+        () => leadsCollection.find({}, { projection: leadProjection }).toArray(),
+        { retries: 1, label: "Load lead inflow leads" }
+      ),
+      withMongoRetry(
+        () => metaLogsCollection.find({}, { projection: logProjection }).toArray(),
+        { retries: 1, label: "Load lead inflow Meta logs" }
+      ),
+      withMongoRetry(
+        () => elementorLogsCollection.find({}, { projection: logProjection }).toArray(),
+        { retries: 1, label: "Load lead inflow Elementor logs" }
+      )
+    ]);
+    const leads = decorateLeadListForStorage(rawLeads || []);
+    const leadById = new Map(leads.map((lead) => [String(lead?.id || "").trim(), lead]));
+    const clearedAt = await getLeadInflowClearedAt();
+    const reportLeads = filterLeadInflowLeadsAfterClear(leads, clearedAt);
+    await persistDuplicateLeadInflowLogs("Meta", filterLeadInflowLogsAfterClear(metaLogs, clearedAt), leadById);
+    await persistDuplicateLeadInflowLogs("Elementor", filterLeadInflowLogsAfterClear(elementorLogs, clearedAt), leadById);
+    const inflowEvents = await withMongoRetry(
+      () => leadInflowCollection.find({}, { projection: { _id: 0 } }).toArray(),
+      { retries: 1, label: "Load durable lead inflow events" }
+    );
+    const reportInflowEvents = filterLeadInflowLogsAfterClear(inflowEvents, clearedAt);
+
+    const report = buildLeadInflowReport({
+      leads: reportLeads,
+      inflowEvents: reportInflowEvents,
+      range,
+      section,
+      sourceFilter,
+      campaignFilter
+    });
+
+    return res.json({
+      ok: true,
+      timelineType: String(req.query?.timelineType || "today"),
+      generatedAt: new Date().toISOString(),
+      ...report
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch lead inflow report.", details: error.message });
+  }
+});
+
+app.delete("/api/lead-inflow-report", async (req, res) => {
+  try {
+    await initMongo();
+    const activeSession = await getSessionFromRequest(req);
+    if (!activeSession || activeSession.session.role !== "super_admin") {
+      return res.status(403).json({ message: "Super admin access required." });
+    }
+
+    const clearedAt = new Date().toISOString();
+    const result = await withMongoRetry(
+      () => leadInflowCollection.deleteMany({}),
+      { retries: 1, label: "Clear lead inflow events" }
+    );
+    await withMongoRetry(
+      () => stateCollection.updateOne(
+        { _id: STATE_DOC_ID },
+        { $set: { leadInflowClearedAt: clearedAt, updatedAt: clearedAt } },
+        { upsert: true }
+      ),
+      { retries: 1, label: "Save lead inflow clear marker" }
+    );
+    cachedStateDoc = null;
+    cachedStateDocAt = 0;
+
+    return res.json({
+      ok: true,
+      deletedCount: Number(result?.deletedCount) || 0,
+      clearedAt,
+      message: "Lead inflow data cleared. CRM leads and lead activity records were kept."
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to clear lead inflow data.", details: error.message });
+  }
+});
+
 app.put("/api/state", async (req, res) => {
   try {
     const session = await requireRole(req, res, ["admin", "counselor"]);
@@ -14737,6 +15275,10 @@ app.get("/mcube-integration", (_req, res) => {
   res.sendFile(path.join(ROOT_DIR, "mcube-integration.html"));
 });
 
+app.get("/lead-inflow", (_req, res) => {
+  res.sendFile(path.join(ROOT_DIR, "lead-inflow.html"));
+});
+
 app.get("/reachout", (_req, res) => {
   res.sendFile(path.join(ROOT_DIR, "reachout.html"));
 });
@@ -14974,7 +15516,18 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
       message: `Duplicate lead updated by ${duplicateField} match`,
       leadgenId,
       formId,
-      leadId: updatedLead.id
+      leadId: updatedLead.id,
+      leadPipeline: updatedLead.leadPipeline || newLead.leadPipeline || "workshop",
+      campaignName: newLead.metaCampaignName
+    });
+    await saveLeadInflowEvent({
+      eventType: "duplicate",
+      source: "Meta",
+      section: isAdmissionLead ? "admission" : "workshop",
+      campaign: newLead.metaCampaignName || newLead.metaAdsetName || newLead.metaAdName || "Unspecified Campaign",
+      leadId: updatedLead.id,
+      sourceEventId: leadgenId,
+      message: `Duplicate lead updated by ${duplicateField} match`
     });
     return;
   }
@@ -14992,6 +15545,15 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
       );
     }
     await saveMetaLog({ type: "ignored", message: "Duplicate lead (already imported)", leadgenId });
+    await saveLeadInflowEvent({
+      eventType: "duplicate",
+      source: "Meta",
+      section: isAdmissionLead ? "admission" : "workshop",
+      campaign: newLead.metaCampaignName || newLead.metaAdsetName || newLead.metaAdName || "Unspecified Campaign",
+      leadId: nextId,
+      sourceEventId: leadgenId,
+      message: "Duplicate lead (already imported)"
+    });
     return;
   }
 
@@ -15217,7 +15779,17 @@ async function processElementorLeadRecord(payload, config, options = {}) {
       formId,
       formName,
       pageUrl,
-      leadId: updatedLead.id
+      leadId: updatedLead.id,
+      leadPipeline: updatedLead.leadPipeline || newLead.leadPipeline || "workshop"
+    });
+    await saveLeadInflowEvent({
+      eventType: "duplicate",
+      source: "Elementor",
+      section: isAdmissionLead ? "admission" : "workshop",
+      campaign: newLead.elementorFormName || newLead.elementorFormId || "Unspecified Campaign",
+      leadId: updatedLead.id,
+      sourceEventId: [formId, formName, pageUrl, email, phone].join("|"),
+      message: `Duplicate lead updated by ${duplicateField} match`
     });
     return;
   }
@@ -15240,6 +15812,15 @@ async function processElementorLeadRecord(payload, config, options = {}) {
       formId,
       formName,
       pageUrl
+    });
+    await saveLeadInflowEvent({
+      eventType: "duplicate",
+      source: "Elementor",
+      section: isAdmissionLead ? "admission" : "workshop",
+      campaign: newLead.elementorFormName || newLead.elementorFormId || "Unspecified Campaign",
+      leadId: nextId,
+      sourceEventId: [formId, formName, pageUrl, email, phone].join("|"),
+      message: "Duplicate lead (already imported)"
     });
     return;
   }
