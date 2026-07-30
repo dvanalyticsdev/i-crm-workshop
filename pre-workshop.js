@@ -18,6 +18,12 @@ import {
 import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
 import { formatKolkataDateTime, formatKolkataDisplay, getKolkataDayRange, parseKolkataDate as parseLocalDate, toKolkataDateKey } from "./date-utils.js";
+import {
+  bindCounselorActivityDateFilter,
+  COUNSELOR_ACTIVITY_DATE_DEFAULTS,
+  leadMatchesCounselorActivityDate,
+  renderCounselorActivityDateFilter
+} from "./counselor-activity-filter.js";
 import { createRenderScheduler, withButtonBusy } from "./ui-feedback.js";
 import {
   addLeadNote,
@@ -813,6 +819,7 @@ const DEFAULT_FILTER = {
   timeline: isCounselorSession() ? "overall" : "week",
   startDate: "",
   endDate: "",
+  ...COUNSELOR_ACTIVITY_DATE_DEFAULTS,
   search: "",
   leadOwner: isCounselorSession() ? "direct" : "all",
   counselor: EMPTY_FILTER_VALUE,
@@ -1453,6 +1460,12 @@ function filterByTimeline(leads) {
 function filterLeads(leads) {
   let filtered = filterByTimeline(leads);
 
+  filtered = filtered.filter((lead) => leadMatchesCounselorActivityDate(lead, filter, {
+    historyFields: ["workshopActivityHistory"],
+    activityFields: ["dialed", "callStatus", "wsStatus"],
+    excludedFields: ["whatsappInvite", "whatsappGroupStatus"]
+  }));
+
   if (filter.search) {
     const query = filter.search.toLowerCase();
     filtered = filtered.filter((lead) => {
@@ -1632,6 +1645,7 @@ function renderFilters(leads) {
           <label for="endDateInput">End Date</label>
           <input id="endDateInput" type="date" />
         </div>
+        ${renderCounselorActivityDateFilter({ prefix: "pre", filter, escapeHtml })}
       </div>
     </div>
 
@@ -1751,6 +1765,15 @@ function renderFilters(leads) {
   bindMultiFilter("latestActivitySelect", "latestActivity");
   bindMultiFilter("whatsappInviteSelect", "whatsappInvite");
   bindMultiFilter("whatsappGroupStatusSelect", "whatsappGroupStatus");
+  bindCounselorActivityDateFilter({
+    prefix: "pre",
+    filter,
+    persist: persistFilterState,
+    render: renderAll,
+    resetPage: () => {
+      currentPage = 1;
+    }
+  });
 
   document.getElementById("startDateWrap").classList.toggle("hidden", filter.timeline !== "custom");
   document.getElementById("endDateWrap").classList.toggle("hidden", filter.timeline !== "custom");

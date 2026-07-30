@@ -14,6 +14,12 @@ import {
 import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
 import { formatKolkataDate, formatKolkataDateTime, formatKolkataDisplay, getKolkataDayRange, parseKolkataDate, toKolkataDateKey } from "./date-utils.js";
+import {
+  bindCounselorActivityDateFilter,
+  COUNSELOR_ACTIVITY_DATE_DEFAULTS,
+  leadMatchesCounselorActivityDate,
+  renderCounselorActivityDateFilter
+} from "./counselor-activity-filter.js";
 import { createRenderScheduler, withButtonBusy } from "./ui-feedback.js";
 import {
   addLeadNote,
@@ -461,6 +467,7 @@ const DEFAULT_FILTER = {
   timeline: isCounselorSession() ? "overall" : "week",
   startDate: "",
   endDate: "",
+  ...COUNSELOR_ACTIVITY_DATE_DEFAULTS,
   search: "",
   leadOwner: isCounselorSession() ? "direct" : "all",
   workshopName: EMPTY_FILTER_VALUE,
@@ -996,6 +1003,7 @@ function renderFilters(leads) {
           <label for="postEndDateInput">End Date</label>
           <input id="postEndDateInput" type="date" />
         </div>
+        ${renderCounselorActivityDateFilter({ prefix: "post", filter, escapeHtml })}
       </div>
     </div>
 
@@ -1180,6 +1188,15 @@ function renderFilters(leads) {
   bindMultiFilter("postAdmissionStatusSelect", "admissionStatus");
   bindMultiFilter("postCallStatusSelect", "postCallStatus");
   bindMultiFilter("postWorkshopJoiningStatusSelect", "workshopJoiningStatus");
+  bindCounselorActivityDateFilter({
+    prefix: "post",
+    filter,
+    persist: persistFilterState,
+    render: renderAll,
+    resetPage: () => {
+      currentPage = 1;
+    }
+  });
 
   document.getElementById("postTimelineSelect").onchange = (event) => {
     filter.timeline = event.target.value;
@@ -1303,6 +1320,11 @@ function exportFilteredLeads() {
 
 function filterLeads(leads) {
   let filtered = filterLeadsByTimeline(leads, getTimelineRange(leads));
+
+  filtered = filtered.filter((lead) => leadMatchesCounselorActivityDate(lead, filter, {
+    historyFields: ["admissionActivityHistory"],
+    activityFields: ["postDialed", "coursePitched", "courseStatus", "admissionStatus", "postCallStatus", "workshopJoiningStatus"]
+  }));
 
   if (filter.search) {
     const query = filter.search.toLowerCase();

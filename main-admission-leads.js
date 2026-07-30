@@ -30,6 +30,12 @@ import {
   updateMainAdmissionLeadDetails
 } from "./lead-service.js";
 import { formatKolkataDate, formatKolkataDateTime, formatKolkataDisplay, getKolkataDayRange, parseKolkataDate as parseTimelineDate, toKolkataDateKey } from "./date-utils.js";
+import {
+  bindCounselorActivityDateFilter,
+  COUNSELOR_ACTIVITY_DATE_DEFAULTS,
+  leadMatchesCounselorActivityDate,
+  renderCounselorActivityDateFilter
+} from "./counselor-activity-filter.js";
 import { createRenderScheduler, withButtonBusy } from "./ui-feedback.js";
 import { getPerformanceDuration, recordClientPerformance, waitForPaint } from "./performance-client.js";
 
@@ -90,6 +96,7 @@ const DEFAULT_FILTER = {
   timeline: isCounselorSession() ? "overall" : "week",
   startDate: "",
   endDate: "",
+  ...COUNSELOR_ACTIVITY_DATE_DEFAULTS,
   search: "",
   leadOwner: isCounselorSession() ? "direct" : "all",
   counselor: "",
@@ -1122,6 +1129,7 @@ function renderFilters(leads) {
           <label for="mainAdmissionEndDate">End Date</label>
           <input id="mainAdmissionEndDate" type="date" value="${escapeHtml(filter.endDate)}" />
         </div>
+        ${renderCounselorActivityDateFilter({ prefix: "mainAdmission", filter, escapeHtml })}
       </div>
     </div>
 
@@ -1317,6 +1325,15 @@ function renderFilters(leads) {
     document.getElementById("mainAdmissionEndDateWrap").classList.toggle("hidden", filter.timeline !== "custom");
     renderAll();
   };
+  bindCounselorActivityDateFilter({
+    prefix: "mainAdmission",
+    filter,
+    persist: persistFilters,
+    render: renderAll,
+    resetPage: () => {
+      currentPage = 1;
+    }
+  });
   const startDateInput = document.getElementById("mainAdmissionStartDate");
   if (startDateInput) {
     startDateInput.onchange = (event) => {
@@ -1598,6 +1615,10 @@ function exportFilteredLeads() {
 function filterLeads(leads) {
   const selectedCourses = normalizeMultiValueFilter(filter.courseName);
   const filtered = filterLeadsByTimeline(leads).filter((lead) => {
+    if (!leadMatchesCounselorActivityDate(lead, filter, {
+      historyFields: ["mainAdmissionActivityHistory"],
+      activityFields: ["mainAdmissionDialed", "mainAdmissionCoursePitched", "mainAdmissionCourseStatus", "mainAdmissionAdmissionStatus", "mainAdmissionCallStatus"]
+    })) return false;
     const location = getLeadLocation(lead);
     if (filter.search) {
       const haystack = [lead.name, lead.email, lead.phone, lead.courseName, location, lead.country, lead.counselor].join(" ").toLowerCase();

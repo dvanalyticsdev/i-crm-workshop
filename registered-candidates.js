@@ -20,6 +20,12 @@ import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
 import { addLeadNote, deleteLeadNote, deleteLeads as deleteLeadsOnServer, trackLeadView, updateLeadActivity as updateLeadActivityOnServer } from "./lead-service.js";
 import { formatKolkataDate, formatKolkataDateTime, formatKolkataDisplay, getKolkataDayRange, parseKolkataDate as parseTimelineDate, toKolkataDateKey } from "./date-utils.js";
+import {
+  bindCounselorActivityDateFilter,
+  COUNSELOR_ACTIVITY_DATE_DEFAULTS,
+  leadMatchesCounselorActivityDate,
+  renderCounselorActivityDateFilter
+} from "./counselor-activity-filter.js";
 import { createRenderScheduler, withButtonBusy } from "./ui-feedback.js";
 
 await bootstrapLocalState({ skipStateRefresh: true });
@@ -80,6 +86,7 @@ const DEFAULT_FILTER = {
   timeline: isCounselorSession() ? "overall" : "week",
   startDate: "",
   endDate: "",
+  ...COUNSELOR_ACTIVITY_DATE_DEFAULTS,
   search: "",
   leadOwner: isCounselorSession() ? "direct" : "all",
   counselor: "",
@@ -1136,6 +1143,7 @@ function renderFilters(leads) {
           <label for="registeredEndDate">End Date</label>
           <input id="registeredEndDate" type="date" value="${escapeHtml(filter.endDate)}" />
         </div>
+        ${renderCounselorActivityDateFilter({ prefix: "registered", filter, escapeHtml })}
       </div>
     </div>
 
@@ -1283,6 +1291,15 @@ function renderFilters(leads) {
     document.getElementById("registeredEndDateWrap").classList.toggle("hidden", filter.timeline !== "custom");
     renderAll();
   };
+  bindCounselorActivityDateFilter({
+    prefix: "registered",
+    filter,
+    persist: persistFilters,
+    render: renderAll,
+    resetPage: () => {
+      currentPage = 1;
+    }
+  });
   const startDateInput = document.getElementById("registeredStartDate");
   if (startDateInput) {
     startDateInput.onchange = (event) => {
@@ -1448,6 +1465,10 @@ function exportFilteredLeads() {
 
 function filterLeads(leads) {
   const filtered = filterLeadsByTimeline(leads).filter((lead) => {
+    if (!leadMatchesCounselorActivityDate(lead, filter, {
+      historyFields: ["registeredCourseActivityHistory"],
+      activityFields: ["registeredDialed", "registeredCoursePitched", "registeredCourseStatus", "registeredAdmissionStatus", "registeredCallStatus"]
+    })) return false;
     if (filter.search) {
       const haystack = [lead.name, lead.email, lead.phone, lead.courseName, lead.country, lead.counselor].join(" ").toLowerCase();
       if (!haystack.includes(filter.search.toLowerCase())) return false;
