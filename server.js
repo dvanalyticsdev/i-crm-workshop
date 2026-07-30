@@ -2102,12 +2102,83 @@ function getMonitoringHistoryInRange(history = [], range = null) {
   });
 }
 
+const MONITORING_SYSTEM_ACTIVITY_ACTORS = new Set(["reachout webhook", "system"]);
+const MONITORING_EXCLUDED_ACTIVITY_TYPES = new Set([
+  "Lead Created",
+  "Lead Assigned",
+  "Lead Reassigned",
+  "Counselor Changed",
+  "Lead Viewed"
+]);
+const MONITORING_ACTIVITY_OPTIONS = {
+  workshopActivityHistory: {
+    activityFields: ["dialed", "callStatus", "wsStatus"],
+    excludedFields: ["whatsappInvite", "whatsappGroupStatus"]
+  },
+  admissionActivityHistory: {
+    activityFields: ["postDialed", "coursePitched", "courseStatus", "admissionStatus", "postCallStatus", "workshopJoiningStatus"]
+  },
+  mainAdmissionActivityHistory: {
+    activityFields: ["mainAdmissionDialed", "mainAdmissionCoursePitched", "mainAdmissionCourseStatus", "mainAdmissionAdmissionStatus", "mainAdmissionCallStatus"]
+  },
+  registeredCourseActivityHistory: {
+    activityFields: ["registeredDialed", "registeredCoursePitched", "registeredCourseStatus", "registeredAdmissionStatus", "registeredCallStatus"]
+  }
+};
+
+function hasMonitoringWhatsAppSignal(value) {
+  return /whatsapp|reachout/i.test(String(value || "").trim());
+}
+
+function isMonitoringSystemActivityEntry(entry = {}) {
+  const by = String(entry?.by || "").trim().toLowerCase();
+  const source = String(entry?.source || "").trim().toLowerCase();
+  return MONITORING_SYSTEM_ACTIVITY_ACTORS.has(by)
+    || MONITORING_SYSTEM_ACTIVITY_ACTORS.has(source)
+    || source.includes("webhook");
+}
+
+function isMonitoringCounselorActivityEntry(entry = {}, options = {}) {
+  if (!entry || typeof entry !== "object" || isMonitoringSystemActivityEntry(entry)) {
+    return false;
+  }
+
+  const activityType = String(entry.activityType || entry.type || entry.eventType || entry.actionType || entry.label || "").trim();
+  const actionDescription = String(entry.actionDescription || entry.description || "").trim();
+  if (
+    MONITORING_EXCLUDED_ACTIVITY_TYPES.has(activityType)
+    || hasMonitoringWhatsAppSignal(activityType)
+    || hasMonitoringWhatsAppSignal(actionDescription)
+  ) {
+    return false;
+  }
+
+  const updates = entry.updates && typeof entry.updates === "object" ? entry.updates : null;
+  if (!updates) {
+    return Boolean(activityType || String(entry.by || "").trim());
+  }
+
+  const allowedFields = new Set((options.activityFields || []).map((item) => String(item || "").trim()).filter(Boolean));
+  const excludedFields = new Set((options.excludedFields || []).map((item) => String(item || "").trim()).filter(Boolean));
+  return Object.keys(updates).some((field) => {
+    const normalizedField = String(field || "").trim();
+    if (!normalizedField || excludedFields.has(normalizedField) || hasMonitoringWhatsAppSignal(normalizedField)) {
+      return false;
+    }
+    return !allowedFields.size || allowedFields.has(normalizedField);
+  });
+}
+
 function getMonitoringActivityRecords(leads, field, counselor, range, directory) {
   const target = normalizeMonitoringText(counselor);
+  const activityOptions = MONITORING_ACTIVITY_OPTIONS[field] || {};
   return leads.reduce((records, lead) => {
     const matchingEntries = getMonitoringHistoryInRange(lead?.[field], range)
-      .filter((entry) => normalizeMonitoringText(resolveMonitoringCounselorName(entry?.by, directory, false)) === target);
-    if (matchingEntries.length) records.push({ lead, activityCount: matchingEntries.length, matchingEntries });
+      .filter((entry) =>
+        normalizeMonitoringText(resolveMonitoringCounselorName(entry?.by, directory, false)) === target
+        && isMonitoringCounselorActivityEntry(entry, activityOptions)
+      );
+    if (matchingEntries.length) records.push({ lead, activityCount: 1, matchingEntries });
     return records;
   }, []);
 }
@@ -2149,7 +2220,7 @@ function countMonitoringAssigned(rawLeads, counselor, range, directory) {
 }
 
 function splitMonitoringFreshOld(activityLeads, countField, range) {
-  const activities = activityLeads.reduce((sum, lead) => sum + (Number(lead[countField]) || 0), 0);
+  const activities = activityLeads.length;
   if (!range) return { activities, freshLeadTouches: activityLeads.length, oldLeadTouches: 0 };
   const freshLeadTouches = activityLeads.filter((lead) => {
     const date = getMonitoringOwnershipDate(lead);
@@ -2162,7 +2233,7 @@ function monitoringBreakdown(items, getLabel, countField) {
   const counts = new Map();
   items.forEach((item) => {
     const label = String(typeof getLabel === "function" ? getLabel(item) : item?.[getLabel] || "").trim() || "Unspecified";
-    counts.set(label, (counts.get(label) || 0) + (countField ? Number(item[countField]) || 0 : 1));
+    counts.set(label, (counts.get(label) || 0) + 1);
   });
   return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count }));
 }
@@ -2337,18 +2408,18 @@ function buildMonitoringReport({ subsection, leads, counselors, range, session }
   }
   const rows = buildMonitoringRowsForSubsection(subsection, counselorNames, timelineLeads, rawLeads, range, session, directory);
   const metricMap = {
-    "workshop-calling": [["Overall Activity", "activities"], ["Leads Assigned", "assignedLeads"], ["Interested Leads", "interested"], ["Not Interested Leads", "notInterested"], ["WhatsApp Group Joined", "whatsappJoined"], ["Fresh Leads Touched", "freshLeadTouches"], ["Old Leads Touched", "oldLeadTouches"]],
-    "admission-calling": [["Overall Activity", "activities"], ["Leads Assigned", "assignedLeads"], ["Interested Leads", "interested"], ["Not Interested Leads", "notInterested"], ["Enrolled", "enrolled"], ["Won", "won"], ["Fresh Leads Touched", "freshLeadTouches"], ["Old Leads Touched", "oldLeadTouches"]],
-    "main-admission": [["Overall Activity", "activities"], ["Leads Assigned", "assignedLeads"], ["Interested Leads", "interested"], ["Not Interested Leads", "notInterested"], ["Enrolled", "enrolled"], ["Won", "won"], ["Fresh Leads Touched", "freshLeadTouches"], ["Old Leads Touched", "oldLeadTouches"]],
-    "registered-candidates": [["Overall Activity", "activities"], ["Leads Assigned", "assignedLeads"], ["Dialed Leads", "dialed"], ["Interested Leads", "interested"], ["Not Interested Leads", "notInterested"], ["Fresh Leads Touched", "freshLeadTouches"], ["Old Leads Touched", "oldLeadTouches"]],
-    "crash-course": [["Overall Activity", "activities"], ["Leads Assigned", "assignedLeads"], ["Dialed Leads", "dialed"], ["Interested Leads", "interested"], ["Not Interested Leads", "notInterested"], ["Fresh Leads Touched", "freshLeadTouches"], ["Old Leads Touched", "oldLeadTouches"]]
+    "workshop-calling": [["Total Leads Touched", "activities"], ["Leads Assigned", "assignedLeads"], ["Interested Leads", "interested"], ["Not Interested Leads", "notInterested"], ["WhatsApp Group Joined", "whatsappJoined"], ["Fresh Leads Touched", "freshLeadTouches"], ["Old Leads Touched", "oldLeadTouches"]],
+    "admission-calling": [["Total Leads Touched", "activities"], ["Leads Assigned", "assignedLeads"], ["Interested Leads", "interested"], ["Not Interested Leads", "notInterested"], ["Enrolled", "enrolled"], ["Won", "won"], ["Fresh Leads Touched", "freshLeadTouches"], ["Old Leads Touched", "oldLeadTouches"]],
+    "main-admission": [["Total Leads Touched", "activities"], ["Leads Assigned", "assignedLeads"], ["Interested Leads", "interested"], ["Not Interested Leads", "notInterested"], ["Enrolled", "enrolled"], ["Won", "won"], ["Fresh Leads Touched", "freshLeadTouches"], ["Old Leads Touched", "oldLeadTouches"]],
+    "registered-candidates": [["Total Leads Touched", "activities"], ["Leads Assigned", "assignedLeads"], ["Dialed Leads", "dialed"], ["Interested Leads", "interested"], ["Not Interested Leads", "notInterested"], ["Fresh Leads Touched", "freshLeadTouches"], ["Old Leads Touched", "oldLeadTouches"]],
+    "crash-course": [["Total Leads Touched", "activities"], ["Leads Assigned", "assignedLeads"], ["Dialed Leads", "dialed"], ["Interested Leads", "interested"], ["Not Interested Leads", "notInterested"], ["Fresh Leads Touched", "freshLeadTouches"], ["Old Leads Touched", "oldLeadTouches"]]
   };
   const metrics = (metricMap[subsection] || []).map(([label, key]) => ({ label, value: rows.reduce((sum, row) => sum + (Number(row[key]) || 0), 0) }));
   const columns = subsection === "workshop-calling"
-    ? ["Counselor Name", "Total Activities Completed", "Workshop-wise Activity Breakdown", "Interested Leads", "Not Interested Leads", "WhatsApp Group Joined", "Leads Assigned", "Fresh Leads Touched", "Old Leads Touched"]
+    ? ["Counselor Name", "Total Leads Touched", "Workshop-wise Leads Touched", "Interested Leads", "Not Interested Leads", "WhatsApp Group Joined", "Leads Assigned", "Fresh Leads Touched", "Old Leads Touched"]
     : subsection === "registered-candidates" || subsection === "crash-course"
-      ? ["Counselor Name", "Overall Activity", "Course-wise Activity Breakdown", "Leads Assigned", "Fresh Leads Touched", "Old Leads Touched", "Dialed Leads", "Interested Leads", "Not Interested Leads"]
-      : ["Counselor Name", "Total Activities Completed", subsection === "main-admission" ? "Course-wise Activity Breakdown" : "Workshop-wise Activity Breakdown", "Interested Leads", "Not Interested Leads", "Enrolled", "Won", "Leads Assigned", "Fresh Leads Touched", "Old Leads Touched"];
+      ? ["Counselor Name", "Total Leads Touched", "Course-wise Leads Touched", "Leads Assigned", "Fresh Leads Touched", "Old Leads Touched", "Dialed Leads", "Interested Leads", "Not Interested Leads"]
+      : ["Counselor Name", "Total Leads Touched", subsection === "main-admission" ? "Course-wise Leads Touched" : "Workshop-wise Leads Touched", "Interested Leads", "Not Interested Leads", "Enrolled", "Won", "Leads Assigned", "Fresh Leads Touched", "Old Leads Touched"];
   return { metrics, columns, rows };
 }
 

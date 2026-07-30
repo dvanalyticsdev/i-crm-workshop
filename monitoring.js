@@ -7,6 +7,7 @@ import {
 } from "./state-sync.js";
 import { apiUrl } from "./api-client.js";
 import { formatKolkataDate, getKolkataDayRange, parseKolkataDate as parseLocalDate, toKolkataDateKey } from "./date-utils.js";
+import { isCounselorActivityEntry } from "./counselor-activity-filter.js";
 
 await bootstrapLocalState({ skipStateRefresh: true });
 
@@ -41,6 +42,22 @@ const MONITORING_ACTIVITY_HISTORY_FIELDS = [
   "registeredCourseActivityHistory",
   "mainAdmissionActivityHistory"
 ];
+const MONITORING_COUNTER_LABEL = "Total Leads Touched";
+const MONITORING_ACTIVITY_OPTIONS = {
+  workshopActivityHistory: {
+    activityFields: ["dialed", "callStatus", "wsStatus"],
+    excludedFields: ["whatsappInvite", "whatsappGroupStatus"]
+  },
+  admissionActivityHistory: {
+    activityFields: ["postDialed", "coursePitched", "courseStatus", "admissionStatus", "postCallStatus", "workshopJoiningStatus"]
+  },
+  mainAdmissionActivityHistory: {
+    activityFields: ["mainAdmissionDialed", "mainAdmissionCoursePitched", "mainAdmissionCourseStatus", "mainAdmissionAdmissionStatus", "mainAdmissionCallStatus"]
+  },
+  registeredCourseActivityHistory: {
+    activityFields: ["registeredDialed", "registeredCoursePitched", "registeredCourseStatus", "registeredAdmissionStatus", "registeredCallStatus"]
+  }
+};
 
 const VIEW_CONFIG = {
   workshop: {
@@ -662,8 +679,7 @@ function formatBreakdownEntries(items, key, countField = "") {
     if (!value) {
       return;
     }
-    const count = countField ? Number(item[countField]) || 0 : 1;
-    counts.set(value, (counts.get(value) || 0) + count);
+    counts.set(value, (counts.get(value) || 0) + 1);
   });
 
   return Array.from(counts.entries())
@@ -684,8 +700,7 @@ function formatDerivedBreakdownEntries(items, getLabel, countField = "", emptyLa
 
   items.forEach((item) => {
     const value = String(getLabel(item) || "").trim() || emptyLabel;
-    const count = countField ? Number(item[countField]) || 0 : 1;
-    counts.set(value, (counts.get(value) || 0) + count);
+    counts.set(value, (counts.get(value) || 0) + 1);
   });
 
   return Array.from(counts.entries())
@@ -808,7 +823,7 @@ function countAssignedLeads(rawLeads, counselor, range = null) {
 }
 
 function splitFreshAndOldActivities(activityLeads, countField, range) {
-  const totalActivities = activityLeads.reduce((sum, lead) => sum + (Number(lead[countField]) || 0), 0);
+  const totalActivities = activityLeads.length;
 
   if (!range) {
     return {
@@ -1119,14 +1134,18 @@ function formatTalkTime(totalSeconds) {
 }
 
 function getCounselorActivityLeadRecords(leads, historyField, counselorName, range) {
+  const activityOptions = MONITORING_ACTIVITY_OPTIONS[historyField] || {};
   return leads.reduce((records, lead) => {
     const matchingEntries = getHistoryEntriesInRange(lead?.[historyField], range)
-      .filter((entry) => resolveCounselorActivityActor(entry?.by) === counselorName);
+      .filter((entry) =>
+        resolveCounselorActivityActor(entry?.by) === counselorName
+        && isCounselorActivityEntry(entry, activityOptions)
+      );
 
     if (matchingEntries.length) {
       records.push({
         lead,
-        activityCount: matchingEntries.length,
+        activityCount: 1,
         matchingEntries
       });
     }
@@ -1395,8 +1414,11 @@ function getServerReportCell(row, label) {
     "Counselor Name": "counselor",
     "Total Activities Completed": "activities",
     "Overall Activity": "activities",
+    "Total Leads Touched": "activities",
     "Workshop-wise Activity Breakdown": "entries",
     "Course-wise Activity Breakdown": "entries",
+    "Workshop-wise Leads Touched": "entries",
+    "Course-wise Leads Touched": "entries",
     "Interested Leads": "interested",
     "Not Interested Leads": "notInterested",
     "WhatsApp Group Joined": "whatsappJoined",
@@ -1579,7 +1601,7 @@ function renderWorkshopCallingView(counselors, leads, rawLeads, range) {
   const oldLeadTouches = rows.reduce((sum, row) => sum + row.oldLeadTouches, 0);
 
   buildMetricCards([
-    { label: "Overall Activity", value: totalActivity },
+    { label: MONITORING_COUNTER_LABEL, value: totalActivity },
     { label: "Leads Assigned", value: assignedLeads },
     { label: "Interested Leads", value: interested },
     { label: "Not Interested Leads", value: notInterested },
@@ -1590,8 +1612,8 @@ function renderWorkshopCallingView(counselors, leads, rawLeads, range) {
 
   renderTable([
     { label: "Counselor Name", render: (row) => escapeHtml(row.counselor) },
-    { label: "Total Activities Completed", render: (row) => String(row.activities) },
-    { label: "Workshop-wise Activity Breakdown", render: (row) => renderBreakdownCell(row.workshopEntries, "No workshop activity") },
+    { label: MONITORING_COUNTER_LABEL, render: (row) => String(row.activities) },
+    { label: "Workshop-wise Leads Touched", render: (row) => renderBreakdownCell(row.workshopEntries, "No workshop activity") },
     { label: "Interested Leads", render: (row) => String(row.interested) },
     { label: "Not Interested Leads", render: (row) => String(row.notInterested) },
     { label: "WhatsApp Group Joined", render: (row) => String(row.whatsappJoined) },
@@ -1613,7 +1635,7 @@ function renderAdmissionCallingView(counselors, leads, rawLeads, range) {
   const oldLeadTouches = rows.reduce((sum, row) => sum + row.oldLeadTouches, 0);
 
   buildMetricCards([
-    { label: "Overall Activity", value: totalActivity },
+    { label: MONITORING_COUNTER_LABEL, value: totalActivity },
     { label: "Leads Assigned", value: assignedLeads },
     { label: "Interested Leads", value: interested },
     { label: "Not Interested Leads", value: notInterested },
@@ -1625,8 +1647,8 @@ function renderAdmissionCallingView(counselors, leads, rawLeads, range) {
 
   renderTable([
     { label: "Counselor Name", render: (row) => escapeHtml(row.counselor) },
-    { label: "Total Activities Completed", render: (row) => String(row.activities) },
-    { label: "Workshop-wise Activity Breakdown", render: (row) => renderBreakdownCell(row.workshopEntries, "No workshop activity") },
+    { label: MONITORING_COUNTER_LABEL, render: (row) => String(row.activities) },
+    { label: "Workshop-wise Leads Touched", render: (row) => renderBreakdownCell(row.workshopEntries, "No workshop activity") },
     { label: "Interested Leads", render: (row) => String(row.interested) },
     { label: "Not Interested Leads", render: (row) => String(row.notInterested) },
     { label: "Enrolled", render: (row) => String(row.enrolled) },
@@ -1649,7 +1671,7 @@ function renderMainAdmissionView(counselors, leads, rawLeads, range) {
   const oldLeadTouches = rows.reduce((sum, row) => sum + row.oldLeadTouches, 0);
 
   buildMetricCards([
-    { label: "Overall Activity", value: totalActivity },
+    { label: MONITORING_COUNTER_LABEL, value: totalActivity },
     { label: "Leads Assigned", value: assignedLeads },
     { label: "Interested Leads", value: interested },
     { label: "Not Interested Leads", value: notInterested },
@@ -1661,8 +1683,8 @@ function renderMainAdmissionView(counselors, leads, rawLeads, range) {
 
   renderTable([
     { label: "Counselor Name", render: (row) => escapeHtml(row.counselor) },
-    { label: "Total Activities Completed", render: (row) => String(row.activities) },
-    { label: "Course-wise Activity Breakdown", render: (row) => renderBreakdownCell(row.courseEntries, "No course activity") },
+    { label: MONITORING_COUNTER_LABEL, render: (row) => String(row.activities) },
+    { label: "Course-wise Leads Touched", render: (row) => renderBreakdownCell(row.courseEntries, "No course activity") },
     { label: "Interested Leads", render: (row) => String(row.interested) },
     { label: "Not Interested Leads", render: (row) => String(row.notInterested) },
     { label: "Enrolled", render: (row) => String(row.enrolled) },
@@ -1684,7 +1706,7 @@ function renderRegisteredView(counselors, leads, rawLeads, range) {
   const oldLeadTouches = rows.reduce((sum, row) => sum + row.oldLeadTouches, 0);
 
   buildMetricCards([
-    { label: "Overall Activity", value: totalActivity },
+    { label: MONITORING_COUNTER_LABEL, value: totalActivity },
     { label: "Leads Assigned", value: assignedLeads },
     { label: "Dialed Leads", value: dialed },
     { label: "Interested Leads", value: interested },
@@ -1695,8 +1717,8 @@ function renderRegisteredView(counselors, leads, rawLeads, range) {
 
   renderTable([
     { label: "Counselor Name", render: (row) => escapeHtml(row.counselor) },
-    { label: "Overall Activity", render: (row) => String(row.activities) },
-    { label: "Course-wise Activity Breakdown", render: (row) => renderBreakdownCell(row.courseEntries, "No course activity") },
+    { label: MONITORING_COUNTER_LABEL, render: (row) => String(row.activities) },
+    { label: "Course-wise Leads Touched", render: (row) => renderBreakdownCell(row.courseEntries, "No course activity") },
     { label: "Leads Assigned", render: (row) => String(row.assignedLeads) },
     { label: "Fresh Leads Touched", render: (row) => String(row.freshLeadTouches) },
     { label: "Old Leads Touched", render: (row) => String(row.oldLeadTouches) },
