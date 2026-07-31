@@ -498,9 +498,10 @@ function isSelectedFilterValue(value) {
 
 function normalizeSelectedFilterValue(value, options = null) {
   const selected = getSelectedFilterValues(value);
+  const remapped = selected.map((item) => item === "Inbound Received" ? "Inbound Not Picked" : item);
   const normalized = Array.isArray(options)
-    ? selected.filter((item) => options.includes(item))
-    : selected;
+    ? remapped.filter((item) => options.includes(item))
+    : remapped;
   return normalized.length ? normalized : EMPTY_FILTER_VALUE;
 }
 
@@ -697,7 +698,6 @@ function getFilterSummary(value) {
 
 function getFilterDisplayLabel(value) {
   if (value === BLANK_FILTER_VALUE) return "Select";
-  if (value === "Inbound Received") return "Inbound Not Picked";
   return value;
 }
 
@@ -1107,7 +1107,7 @@ function normalizeFilterState(leads) {
     dialed: normalizeSelectedFilterValue(filter.dialed, withSelectFilterOption(dialedOptions)),
     callStatus: normalizeSelectedFilterValue(filter.callStatus, withSelectFilterOption(callStatusOptions)),
     wsStatus: normalizeSelectedFilterValue(filter.wsStatus, withSelectFilterOption(wsStatusOptions)),
-    latestActivity: normalizeSelectedFilterValue(filter.latestActivity, ["Inbound Received"]),
+    latestActivity: normalizeSelectedFilterValue(filter.latestActivity, ["Inbound Not Picked"]),
     whatsappInvite: normalizeSelectedFilterValue(filter.whatsappInvite, withSelectFilterOption(whatsappInviteOptions)),
     whatsappGroupStatus: normalizeSelectedFilterValue(filter.whatsappGroupStatus, withSelectFilterOption(["Joined", "Not Joined"]))
   };
@@ -1717,7 +1717,7 @@ function renderFilters(leads) {
         ${renderMultiSelectControl({
           id: "latestActivitySelect",
           label: "Latest Activity",
-          options: ["Inbound Received"],
+          options: ["Inbound Not Picked"],
           value: filter.latestActivity
         })}
         ${renderMultiSelectControl({

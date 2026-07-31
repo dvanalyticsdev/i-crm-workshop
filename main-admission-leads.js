@@ -119,6 +119,9 @@ const persistedFilter = await loadLocalPreference(FILTER_STORAGE_KEY, {});
 if (persistedFilter.timeline === "daily") {
   persistedFilter.timeline = "today";
 }
+if (persistedFilter.latestActivity === "Inbound Received") {
+  persistedFilter.latestActivity = "Inbound Not Picked";
+}
 let filter = { ...DEFAULT_FILTER, ...persistedFilter };
 filter.leadOwner = ["all", "direct", "reassigned"].includes(String(filter.leadOwner || "").trim())
   ? String(filter.leadOwner || "").trim()
@@ -1274,7 +1277,7 @@ function renderFilters(leads) {
           <label for="mainAdmissionLatestActivitySelect">Latest Activity</label>
           <select id="mainAdmissionLatestActivitySelect">
             <option value="">Use Filter</option>
-            <option value="Inbound Received" ${filter.latestActivity === "Inbound Received" ? "selected" : ""}>Inbound Not Picked</option>
+            <option value="Inbound Not Picked" ${filter.latestActivity === "Inbound Not Picked" ? "selected" : ""}>Inbound Not Picked</option>
           </select>
         </div>
         <div class="filter-item">
@@ -1636,7 +1639,7 @@ function filterLeads(leads) {
     if (filter.mainAdmissionCallStatus && filter.mainAdmissionCallStatus !== lead.mainAdmissionCallStatus) return false;
     if (filter.activityStatus === "Untouched" && getLeadActivityUpdateCount(lead) > 0) return false;
     if (filter.activityStatus === "Updated" && getLeadActivityUpdateCount(lead) === 0) return false;
-    if (filter.latestActivity === "Inbound Received" && !isLatestInboundNotPickedActivity(lead?.mainAdmissionActivityHistory)) return false;
+    if (filter.latestActivity === "Inbound Not Picked" && !isLatestInboundNotPickedActivity(lead?.mainAdmissionActivityHistory)) return false;
     if (filter.repeatEnquiryStatus === "Repeat Enquiry" && !isRepeatEnquiryLead(lead)) return false;
     if (filter.repeatEnquiryStatus === "First Time" && isRepeatEnquiryLead(lead)) return false;
     if (filter.whatsappActivity && !leadMatchesWhatsappActivityFilter(lead)) return false;

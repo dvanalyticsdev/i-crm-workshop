@@ -245,8 +245,11 @@ function getFilterSummary(value) {
 
 function getFilterDisplayLabel(value) {
   if (value === BLANK_FILTER_VALUE) return "Select";
-  if (value === "Inbound Received") return "Inbound Not Picked";
   return value;
+}
+
+function normalizeLatestActivityFilterValue(value) {
+  return value === "Inbound Received" ? "Inbound Not Picked" : value;
 }
 
 function withSelectFilterOption(options) {
@@ -504,6 +507,7 @@ if (persistedFilter.workshop && !persistedFilter.workshopName) {
 if (persistedFilter.timeline === "daily") {
   persistedFilter.timeline = "today";
 }
+persistedFilter.latestActivity = normalizeLatestActivityFilterValue(persistedFilter.latestActivity);
 
 Object.keys(DEFAULT_FILTER).forEach((key) => {
   if (persistedFilter[key] === "All" || persistedFilter[key] === "Select" || persistedFilter[key] === EMPTY_FILTER_LABEL) {
@@ -1039,7 +1043,7 @@ function renderFilters(leads) {
         ${renderMultiSelectControl({
           id: "postLatestActivitySelect",
           label: "Latest Activity",
-          options: ["Inbound Received"],
+          options: ["Inbound Not Picked"],
           value: filter.latestActivity
         })}
       </div>

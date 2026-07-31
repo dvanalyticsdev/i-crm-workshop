@@ -1187,6 +1187,7 @@ test("latest inbound activity filter requires not-picked calls across calling se
     assert.match(notPickedFilter, /cancel\|missed\|no\\s\*answer/);
     assert.match(notPickedFilter, /\\bdnp\\b\|\\bcnc\\b/);
     assert.doesNotMatch(source, /isLatestInboundReceivedActivity/);
+    assert.match(source, /Inbound Not Picked/);
   });
 });
 
