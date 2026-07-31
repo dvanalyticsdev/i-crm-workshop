@@ -382,20 +382,40 @@ function getLatestHistoryEntry(history) {
   }, null);
 }
 
-function getLatestCallActivityEntry(history) {
-  if (!Array.isArray(history) || !history.length) {
-    return null;
-  }
+function getMcubeCallActivityEntries(lead = {}) {
+  const history = Array.isArray(lead?.mcubeCallHistory) ? lead.mcubeCallHistory : [];
+  return history.map((entry) => ({
+    activityType: "Call Made",
+    actionDescription: `MCUBE ${entry?.direction || "call"} event recorded${entry?.normalizedStatus ? ` with status ${entry.normalizedStatus}` : ""}.`,
+    at: entry?.at || entry?.timestamp || "",
+    timestamp: entry?.at || entry?.timestamp || "",
+    direction: entry?.direction || "",
+    callDisposition: entry?.disposition || entry?.rawStatus || entry?.eventType || "",
+    normalizedStatus: entry?.normalizedStatus || "",
+    newValue: [
+      `MCUBE status: ${entry?.disposition || entry?.normalizedStatus || entry?.eventType || "-"}`,
+      `Direction: ${entry?.direction || "-"}`,
+      entry?.callId ? `Call ID: ${entry.callId}` : ""
+    ].filter(Boolean).join(", "),
+    callMetadata: {
+      provider: "MCUBE",
+      callId: entry?.callId || "",
+      callDirection: entry?.direction || "",
+      callStatus: entry?.disposition || entry?.rawStatus || entry?.eventType || "",
+      normalizedCallStatus: entry?.normalizedStatus || "",
+      agentName: entry?.agentName || "",
+      agentPhone: entry?.agentPhone || "",
+      recordingUrl: entry?.recordingUrl || ""
+    }
+  }));
+}
 
-  return history.reduce((latest, entry) => {
-    if (getActivityLabel(entry) !== "Call Made") {
-      return latest;
-    }
-    if (!latest) {
-      return entry;
-    }
-    return getEntryTimestamp(entry) >= getEntryTimestamp(latest) ? entry : latest;
-  }, null);
+function getLatestMainAdmissionActivityEntry(lead = {}) {
+  const combinedHistory = [
+    ...(Array.isArray(lead?.mainAdmissionActivityHistory) ? lead.mainAdmissionActivityHistory : []),
+    ...getMcubeCallActivityEntries(lead)
+  ];
+  return getLatestHistoryEntry(combinedHistory);
 }
 
 function isInboundCallActivity(entry = {}) {
@@ -423,8 +443,17 @@ function isNotPickedCallActivity(entry = {}) {
 }
 
 function isLatestInboundNotPickedActivity(history) {
-  const latestEntry = getLatestCallActivityEntry(history);
-  if (!latestEntry) {
+  const latestEntry = getLatestHistoryEntry(history);
+  if (!latestEntry || getActivityLabel(latestEntry) !== "Call Made") {
+    return false;
+  }
+
+  return isInboundCallActivity(latestEntry) && isNotPickedCallActivity(latestEntry);
+}
+
+function isLatestInboundNotPickedLead(lead = {}) {
+  const latestEntry = getLatestMainAdmissionActivityEntry(lead);
+  if (!latestEntry || getActivityLabel(latestEntry) !== "Call Made") {
     return false;
   }
 
@@ -575,6 +604,7 @@ function normalizeLeadFields(leads) {
     lead.mainAdmissionCallStatus = lead.mainAdmissionCallStatus || "";
     lead.mainAdmissionActivityUpdated = typeof lead.mainAdmissionActivityUpdated === "boolean" ? lead.mainAdmissionActivityUpdated : false;
     lead.mainAdmissionActivityHistory = Array.isArray(lead.mainAdmissionActivityHistory) ? lead.mainAdmissionActivityHistory : [];
+    lead.mcubeCallHistory = Array.isArray(lead.mcubeCallHistory) ? lead.mcubeCallHistory : [];
     lead.mainAdmissionActivityTouchedByAssignee = typeof lead.mainAdmissionActivityTouchedByAssignee === "boolean"
       ? lead.mainAdmissionActivityTouchedByAssignee
       : lead.mainAdmissionActivityUpdated || hasAssigneeActivityHistory(lead.mainAdmissionActivityHistory);
@@ -1655,7 +1685,7 @@ function filterLeads(leads) {
     if (filter.mainAdmissionCallStatus && filter.mainAdmissionCallStatus !== lead.mainAdmissionCallStatus) return false;
     if (filter.activityStatus === "Untouched" && getLeadActivityUpdateCount(lead) > 0) return false;
     if (filter.activityStatus === "Updated" && getLeadActivityUpdateCount(lead) === 0) return false;
-    if (filter.latestActivity === "Inbound Not Picked" && !isLatestInboundNotPickedActivity(lead?.mainAdmissionActivityHistory)) return false;
+    if (filter.latestActivity === "Inbound Not Picked" && !isLatestInboundNotPickedLead(lead)) return false;
     if (filter.repeatEnquiryStatus === "Repeat Enquiry" && !isRepeatEnquiryLead(lead)) return false;
     if (filter.repeatEnquiryStatus === "First Time" && isRepeatEnquiryLead(lead)) return false;
     if (filter.whatsappActivity && !leadMatchesWhatsappActivityFilter(lead)) return false;

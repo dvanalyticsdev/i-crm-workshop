@@ -1179,18 +1179,66 @@ test("latest inbound activity filter requires not-picked calls across calling se
   ].forEach(([file, historyField]) => {
     const source = read(file);
     const latestInboundFilter = getNamedFunctionSource(source, "isLatestInboundNotPickedActivity");
-    const latestCallFilter = getNamedFunctionSource(source, "getLatestCallActivityEntry");
     const notPickedFilter = getNamedFunctionSource(source, "isNotPickedCallActivity");
 
-    assert.match(source, new RegExp(`isLatestInboundNotPickedActivity\\(lead\\?\\.${historyField}\\)`));
-    assert.match(latestCallFilter, /getActivityLabel\(entry\) !== "Call Made"/);
-    assert.match(latestInboundFilter, /getLatestCallActivityEntry\(history\)/);
+    if (file === "main-admission-leads.js") {
+      assert.match(source, /isLatestInboundNotPickedLead\(lead\)/);
+      assert.match(source, /getLatestMainAdmissionActivityEntry\(lead\)/);
+      assert.match(source, /getMcubeCallActivityEntries\(lead\)/);
+    } else {
+      assert.match(source, new RegExp(`isLatestInboundNotPickedActivity\\(lead\\?\\.${historyField}\\)`));
+    }
+    assert.match(latestInboundFilter, /getLatestHistoryEntry\(history\)/);
+    assert.match(latestInboundFilter, /getActivityLabel\(latestEntry\) !== "Call Made"/);
     assert.match(latestInboundFilter, /isInboundCallActivity\(latestEntry\) && isNotPickedCallActivity\(latestEntry\)/);
     assert.match(notPickedFilter, /cancel\|missed\|no\\s\*answer/);
     assert.match(notPickedFilter, /\\bdnp\\b\|\\bcnc\\b/);
     assert.doesNotMatch(source, /isLatestInboundReceivedActivity/);
     assert.match(source, /Inbound Not Picked/);
   });
+});
+
+test("main admission inbound not-picked filter includes latest MCUBE call history", () => {
+  const source = read("main-admission-leads.js");
+  const functions = [
+    "getActivityLabel",
+    "getEntryTimestamp",
+    "getLatestHistoryEntry",
+    "getMcubeCallActivityEntries",
+    "getLatestMainAdmissionActivityEntry",
+    "isInboundCallActivity",
+    "isNotPickedCallActivity",
+    "isLatestInboundNotPickedLead"
+  ].map((name) => getNamedFunctionSource(source, name)).join("\n\n");
+  const factory = new Function(`${functions}; return { isLatestInboundNotPickedLead };`);
+  const { isLatestInboundNotPickedLead } = factory();
+  const lead = {
+    counselor: "Pushkar Rai",
+    mainAdmissionActivityHistory: [
+      {
+        activityType: "Lead Viewed",
+        at: "2026-07-31T10:00:00.000Z",
+        actionDescription: "Lead viewed"
+      }
+    ],
+    mcubeCallHistory: [
+      {
+        at: "2026-07-31T10:05:00.000Z",
+        direction: "inbound",
+        disposition: "CANCEL",
+        normalizedStatus: "DNP",
+        callId: "81470500471785495861"
+      }
+    ]
+  };
+
+  assert.equal(isLatestInboundNotPickedLead(lead), true);
+  lead.mainAdmissionActivityHistory.unshift({
+    activityType: "Notes Added",
+    at: "2026-07-31T10:10:00.000Z",
+    actionDescription: "Followed up manually"
+  });
+  assert.equal(isLatestInboundNotPickedLead(lead), false);
 });
 
 test("CRM timestamp displays are formatted in Kolkata time", () => {
