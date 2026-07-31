@@ -9095,6 +9095,12 @@ function normalizeAdmissionSopStatus(value) {
   return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+function isLeadSquaredImportedLead(lead) {
+  return Boolean(lead?.lsqImported)
+    || String(lead?.source || "").trim().toLowerCase().includes("leadsquared")
+    || Boolean(lead?.lsqSourceSnapshot);
+}
+
 function hasAdmissionSopWhatsAppSignal(value) {
   return /whatsapp|reachout/i.test(String(value || "").trim());
 }
@@ -9140,6 +9146,11 @@ function isAdmissionSopCounselorProgressEvent(entry = {}, options = {}) {
 }
 
 function getAdmissionSopAnchorAt(lead, trackingConfig) {
+  const explicit = String(lead?.admissionSopLastProgressAt || "").trim();
+  if (explicit && isLeadSquaredImportedLead(lead)) {
+    return explicit;
+  }
+
   const history = Array.isArray(lead?.[trackingConfig?.activityHistoryField]) ? lead[trackingConfig.activityHistoryField] : [];
   const activityOptions = ADMISSION_SOP_ACTIVITY_OPTIONS_BY_HISTORY_FIELD[trackingConfig?.activityHistoryField] || {};
   const latestEntry = history

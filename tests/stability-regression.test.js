@@ -1514,13 +1514,15 @@ test("admission SOP progress only counts counselor activity", () => {
   assert.match(counselorActivityFilter, /by\.startsWith\("system:"\)/);
   assert.match(admissionSop, /import \{ isCounselorActivityEntry \} from "\.\/counselor-activity-filter\.js"/);
   assert.match(admissionSop, /SOP_ACTIVITY_OPTIONS_BY_HISTORY_FIELD/);
+  assert.match(admissionSop, /function isLeadSquaredImportedLead/);
   assert.match(getNamedFunctionSource(admissionSop, "getLatestHistoryTimestamp"), /isCounselorActivityEntry\(item, activityOptions\)/);
-  assert.doesNotMatch(getNamedFunctionSource(admissionSop, "getLatestHistoryTimestamp"), /admissionSopLastProgressAt/);
+  assert.match(getNamedFunctionSource(admissionSop, "getLatestHistoryTimestamp"), /explicit && isLeadSquaredImportedLead\(lead\)/);
 
   assert.match(server, /ADMISSION_SOP_ACTIVITY_OPTIONS_BY_HISTORY_FIELD/);
   assert.match(server, /function isAdmissionSopCounselorProgressEvent/);
+  assert.match(server, /function isLeadSquaredImportedLead/);
   assert.match(getNamedFunctionSource(server, "getAdmissionSopAnchorAt"), /isAdmissionSopCounselorProgressEvent\(entry, activityOptions\)/);
-  assert.doesNotMatch(getNamedFunctionSource(server, "getAdmissionSopAnchorAt"), /admissionSopLastProgressAt/);
+  assert.match(getNamedFunctionSource(server, "getAdmissionSopAnchorAt"), /explicit && isLeadSquaredImportedLead\(lead\)/);
   assert.match(server, /isAdmissionSopCounselorProgressEvent\(event, ADMISSION_SOP_ACTIVITY_OPTIONS_BY_HISTORY_FIELD\[config\.historyField\]/);
 
   assert.match(styles, /\.lead-tab-summary__meta div[\s\S]*?overflow-wrap: anywhere/);

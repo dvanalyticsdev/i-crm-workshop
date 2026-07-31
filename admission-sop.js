@@ -313,7 +313,16 @@ function formatDateTime(value) {
   });
 }
 
+function isLeadSquaredImportedLead(lead) {
+  return Boolean(lead?.lsqImported)
+    || normalize(lead?.source).includes("leadsquared")
+    || Boolean(lead?.lsqSourceSnapshot);
+}
+
 function getLatestHistoryTimestamp(lead, config) {
+  const explicit = String(lead?.admissionSopLastProgressAt || "").trim();
+  if (explicit && isLeadSquaredImportedLead(lead)) return explicit;
+
   const history = Array.isArray(lead?.[config.activityHistoryField]) ? lead[config.activityHistoryField] : [];
   const activityOptions = SOP_ACTIVITY_OPTIONS_BY_HISTORY_FIELD[config.activityHistoryField] || {};
   const sorted = history
