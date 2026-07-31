@@ -1505,6 +1505,28 @@ test("main admission page uses scoped loading with full-state fallback", () => {
   assert.match(layouts, /bootstrapLocalState\(\{ skipStateRefresh \}\)/);
 });
 
+test("admission SOP progress only counts counselor activity", () => {
+  const admissionSop = read("admission-sop.js");
+  const counselorActivityFilter = read("counselor-activity-filter.js");
+  const server = read("server.js");
+  const styles = read("styles.css");
+
+  assert.match(counselorActivityFilter, /by\.startsWith\("system:"\)/);
+  assert.match(admissionSop, /import \{ isCounselorActivityEntry \} from "\.\/counselor-activity-filter\.js"/);
+  assert.match(admissionSop, /SOP_ACTIVITY_OPTIONS_BY_HISTORY_FIELD/);
+  assert.match(getNamedFunctionSource(admissionSop, "getLatestHistoryTimestamp"), /isCounselorActivityEntry\(item, activityOptions\)/);
+  assert.doesNotMatch(getNamedFunctionSource(admissionSop, "getLatestHistoryTimestamp"), /admissionSopLastProgressAt/);
+
+  assert.match(server, /ADMISSION_SOP_ACTIVITY_OPTIONS_BY_HISTORY_FIELD/);
+  assert.match(server, /function isAdmissionSopCounselorProgressEvent/);
+  assert.match(getNamedFunctionSource(server, "getAdmissionSopAnchorAt"), /isAdmissionSopCounselorProgressEvent\(entry, activityOptions\)/);
+  assert.doesNotMatch(getNamedFunctionSource(server, "getAdmissionSopAnchorAt"), /admissionSopLastProgressAt/);
+  assert.match(server, /isAdmissionSopCounselorProgressEvent\(event, ADMISSION_SOP_ACTIVITY_OPTIONS_BY_HISTORY_FIELD\[config\.historyField\]/);
+
+  assert.match(styles, /\.lead-tab-summary__meta div[\s\S]*?overflow-wrap: anywhere/);
+  assert.match(styles, /\.lead-tab-panel \.main-admission-details-item dd[\s\S]*?overflow-wrap: anywhere/);
+});
+
 test("lead activity and assignment avoid full-state response after atomic writes", () => {
   const server = read("server.js");
   const leadService = read("lead-service.js");

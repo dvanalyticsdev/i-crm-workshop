@@ -26,7 +26,11 @@ function hasWhatsAppSignal(value) {
 function isSystemEntry(entry = {}) {
   const by = normalize(entry.by).toLowerCase();
   const source = normalize(entry.source).toLowerCase();
-  return SYSTEM_ACTORS.has(by) || SYSTEM_ACTORS.has(source) || source.includes("webhook");
+  return SYSTEM_ACTORS.has(by)
+    || SYSTEM_ACTORS.has(source)
+    || by.startsWith("system:")
+    || source.startsWith("system:")
+    || source.includes("webhook");
 }
 
 function getEntryTimestamp(value) {

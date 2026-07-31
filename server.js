@@ -75,6 +75,22 @@ const LOST_LEAD_ARCHIVE_AFTER_MS = 24 * 60 * 60 * 1000;
 const ADMISSION_SOP_NEW_WINDOW_MS = 48 * 60 * 60 * 1000;
 const ADMISSION_SOP_ACTIVE_WINDOW_DAYS = 15;
 const ADMISSION_SOP_OFFERED_WINDOW_DAYS = 30;
+const ADMISSION_SOP_SYSTEM_ACTIVITY_ACTORS = new Set(["reachout webhook", "system"]);
+const ADMISSION_SOP_EXCLUDED_ACTIVITY_TYPES = new Set([
+  "Lead Created",
+  "Lead Assigned",
+  "Lead Reassigned",
+  "Counselor Changed",
+  "Lead Viewed"
+]);
+const ADMISSION_SOP_ACTIVITY_OPTIONS_BY_HISTORY_FIELD = {
+  mainAdmissionActivityHistory: {
+    activityFields: ["mainAdmissionDialed", "mainAdmissionCoursePitched", "mainAdmissionCourseStatus", "mainAdmissionAdmissionStatus", "mainAdmissionCallStatus"]
+  },
+  registeredCourseActivityHistory: {
+    activityFields: ["registeredDialed", "registeredCoursePitched", "registeredCourseStatus", "registeredAdmissionStatus", "registeredCallStatus"]
+  }
+};
 const PUBLIC_COURSE_CATALOG = [
   { id: "apids", code: "APIDS", name: "Advanced Program in Industrial Data Science & AI", duration: "6-8 Months" },
   { id: "apida", code: "APIDA", name: "Advanced Program in Industrial Data Analytics & AI", duration: "4-5 Months" },
@@ -9079,24 +9095,60 @@ function normalizeAdmissionSopStatus(value) {
   return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-function getAdmissionSopAnchorAt(lead, trackingConfig) {
-  const explicit = String(lead?.admissionSopLastProgressAt || "").trim();
-  if (explicit) {
-    return explicit;
+function hasAdmissionSopWhatsAppSignal(value) {
+  return /whatsapp|reachout/i.test(String(value || "").trim());
+}
+
+function isAdmissionSopSystemActivityEntry(entry = {}) {
+  const by = String(entry?.by || "").trim().toLowerCase();
+  const source = String(entry?.source || "").trim().toLowerCase();
+  return ADMISSION_SOP_SYSTEM_ACTIVITY_ACTORS.has(by)
+    || ADMISSION_SOP_SYSTEM_ACTIVITY_ACTORS.has(source)
+    || by.startsWith("system:")
+    || source.startsWith("system:")
+    || source.includes("webhook");
+}
+
+function isAdmissionSopCounselorProgressEvent(entry = {}, options = {}) {
+  if (!entry || typeof entry !== "object" || isAdmissionSopSystemActivityEntry(entry)) {
+    return false;
   }
 
+  const activityType = String(entry.activityType || entry.type || entry.eventType || entry.actionType || entry.label || "").trim();
+  const actionDescription = String(entry.actionDescription || entry.description || "").trim();
+  if (
+    ADMISSION_SOP_EXCLUDED_ACTIVITY_TYPES.has(activityType)
+    || hasAdmissionSopWhatsAppSignal(activityType)
+    || hasAdmissionSopWhatsAppSignal(actionDescription)
+  ) {
+    return false;
+  }
+
+  const updates = entry.updates && typeof entry.updates === "object" ? entry.updates : null;
+  if (!updates) {
+    return Boolean(activityType || String(entry.by || "").trim());
+  }
+
+  const allowedFields = new Set((options.activityFields || []).map((item) => String(item || "").trim()).filter(Boolean));
+  return Object.keys(updates).some((field) => {
+    const normalizedField = String(field || "").trim();
+    if (!normalizedField || hasAdmissionSopWhatsAppSignal(normalizedField)) {
+      return false;
+    }
+    return !allowedFields.size || allowedFields.has(normalizedField);
+  });
+}
+
+function getAdmissionSopAnchorAt(lead, trackingConfig) {
   const history = Array.isArray(lead?.[trackingConfig?.activityHistoryField]) ? lead[trackingConfig.activityHistoryField] : [];
+  const activityOptions = ADMISSION_SOP_ACTIVITY_OPTIONS_BY_HISTORY_FIELD[trackingConfig?.activityHistoryField] || {};
   const latestEntry = history
+    .filter((entry) => isAdmissionSopCounselorProgressEvent(entry, activityOptions))
     .map((entry) => String(entry?.at || "").trim())
     .filter(Boolean)
     .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0];
   if (latestEntry) {
     return latestEntry;
-  }
-
-  const hasActivity = Boolean(lead?.[trackingConfig?.activityUpdatedField]);
-  if (hasActivity) {
-    return String(lead?.updatedAt || lead?.createdAtExact || "").trim() || null;
   }
 
   return null;
@@ -13084,7 +13136,10 @@ app.post("/api/leads/:leadId/activity", async (req, res) => {
       }
     };
 
-    if (stage === "registered-course" || stage === "main-admission") {
+    if (
+      (stage === "registered-course" || stage === "main-admission")
+      && isAdmissionSopCounselorProgressEvent(event, ADMISSION_SOP_ACTIVITY_OPTIONS_BY_HISTORY_FIELD[config.historyField] || {})
+    ) {
       update.$set.admissionSopLastProgressAt = event.at;
       if (!String(lead?.admissionSopAssignedAt || "").trim()) {
         update.$set.admissionSopAssignedAt = event.at;

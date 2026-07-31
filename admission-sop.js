@@ -3,12 +3,21 @@ import { apiUrl } from "./api-client.js";
 import { bootstrapLocalState, getCounselors, getLeads, getSession, refreshState } from "./state-sync.js";
 import { assignLeads, deleteLeads, formatLeadAssignmentResult, trackLeadView } from "./lead-service.js";
 import { openActivityHistory } from "./activity-history.js";
+import { isCounselorActivityEntry } from "./counselor-activity-filter.js";
 
 const KOLKATA_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const NEW_WINDOW_MS = 48 * 60 * 60 * 1000;
 const ACTIVE_WINDOW_DAYS = 15;
 const OFFERED_WINDOW_DAYS = 30;
 const PAGE_SIZE = 20;
+const SOP_ACTIVITY_OPTIONS_BY_HISTORY_FIELD = {
+  mainAdmissionActivityHistory: {
+    activityFields: ["mainAdmissionDialed", "mainAdmissionCoursePitched", "mainAdmissionCourseStatus", "mainAdmissionAdmissionStatus", "mainAdmissionCallStatus"]
+  },
+  registeredCourseActivityHistory: {
+    activityFields: ["registeredDialed", "registeredCoursePitched", "registeredCourseStatus", "registeredAdmissionStatus", "registeredCallStatus"]
+  }
+};
 
 const kpiGrid = document.getElementById("sopKpiGrid");
 const filterCard = document.getElementById("sopFilterCard");
@@ -305,17 +314,14 @@ function formatDateTime(value) {
 }
 
 function getLatestHistoryTimestamp(lead, config) {
-  const explicit = String(lead?.admissionSopLastProgressAt || "").trim();
-  if (explicit) return explicit;
   const history = Array.isArray(lead?.[config.activityHistoryField]) ? lead[config.activityHistoryField] : [];
+  const activityOptions = SOP_ACTIVITY_OPTIONS_BY_HISTORY_FIELD[config.activityHistoryField] || {};
   const sorted = history
+    .filter((item) => isCounselorActivityEntry(item, activityOptions))
     .map((item) => String(item?.at || "").trim())
     .filter(Boolean)
     .sort((left, right) => new Date(right).getTime() - new Date(left).getTime());
   if (sorted[0]) return sorted[0];
-  if (lead?.[config.activityUpdatedField]) {
-    return String(lead?.updatedAt || lead?.createdAtExact || "").trim() || null;
-  }
   return null;
 }
 

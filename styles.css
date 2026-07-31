@@ -2101,6 +2101,7 @@ tbody tr:hover {
   max-height: calc(100vh - 48px);
   padding: var(--space-5);
   overflow: auto;
+  min-width: 0;
 }
 
 .main-admission-details-modal__header {
@@ -2132,6 +2133,7 @@ tbody tr:hover {
   border-radius: var(--radius-sm);
   padding: var(--space-3);
   min-height: 100%;
+  min-width: 0;
 }
 
 .main-admission-details-card h4 {
@@ -2148,6 +2150,7 @@ tbody tr:hover {
 .main-admission-details-item {
   display: grid;
   gap: 4px;
+  min-width: 0;
 }
 
 .main-admission-details-item dt {
@@ -2162,6 +2165,8 @@ tbody tr:hover {
   margin: 0;
   color: var(--text);
   line-height: 1.45;
+  min-width: 0;
+  overflow-wrap: anywhere;
   word-break: break-word;
 }
 
@@ -2208,16 +2213,19 @@ tbody tr:hover {
   grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
   gap: var(--space-4);
   align-items: start;
+  min-width: 0;
 }
 
 .lead-tab-sidebar,
 .lead-tab-card {
   padding: var(--space-4);
+  min-width: 0;
 }
 
 .lead-tab-summary {
   display: grid;
   gap: var(--space-3);
+  min-width: 0;
 }
 
 .lead-tab-summary__hero {
@@ -2227,6 +2235,7 @@ tbody tr:hover {
   border-radius: var(--radius-sm);
   background: linear-gradient(145deg, color-mix(in srgb, var(--primary) 76%, white), color-mix(in srgb, var(--chart-2) 60%, white));
   color: #fff;
+  min-width: 0;
 }
 
 .lead-tab-summary__eyebrow {
@@ -2244,11 +2253,13 @@ tbody tr:hover {
 .lead-tab-summary__hero h2 {
   font-size: 1.25rem;
   line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
 .lead-tab-summary__hero p {
   color: rgba(255, 255, 255, 0.9);
   font-size: 0.9rem;
+  overflow-wrap: anywhere;
 }
 
 .lead-tab-summary__meta {
@@ -2263,6 +2274,9 @@ tbody tr:hover {
   gap: var(--space-2);
   padding: 0.7rem 0;
   border-bottom: 1px solid var(--border);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .lead-tab-summary__meta strong {
@@ -2270,6 +2284,7 @@ tbody tr:hover {
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  flex: 0 0 auto;
 }
 
 .lead-tab-status-grid {
@@ -2284,11 +2299,14 @@ tbody tr:hover {
   gap: var(--space-3);
   font-size: 0.9rem;
   color: var(--text-muted);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .lead-tab-card {
   display: grid;
   gap: var(--space-4);
+  min-width: 0;
 }
 
 .lead-tab-actions {
@@ -2388,6 +2406,7 @@ tbody tr:hover {
 .lead-tab-panel {
   display: grid;
   gap: var(--space-4);
+  min-width: 0;
 }
 
 .lead-tab-section-head {
@@ -2405,6 +2424,7 @@ tbody tr:hover {
 .lead-tab-panel .main-admission-details-card {
   border-radius: var(--radius-sm);
   padding: var(--space-4);
+  min-width: 0;
 }
 
 .lead-tab-panel .main-admission-details-list {
@@ -2418,6 +2438,7 @@ tbody tr:hover {
   align-items: baseline;
   padding: 0.55rem 0;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  min-width: 0;
 }
 
 .lead-tab-panel .main-admission-details-item:last-child {
@@ -2430,6 +2451,9 @@ tbody tr:hover {
 
 .lead-tab-panel .main-admission-details-item dd {
   font-size: 0.95rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .lead-tab-notes,
