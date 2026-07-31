@@ -306,6 +306,22 @@ function getLatestHistoryEntry(history) {
   }, null);
 }
 
+function getLatestCallActivityEntry(history) {
+  if (!Array.isArray(history) || !history.length) {
+    return null;
+  }
+
+  return history.reduce((latest, entry) => {
+    if (getActivityLabel(entry) !== "Call Made") {
+      return latest;
+    }
+    if (!latest) {
+      return entry;
+    }
+    return getEntryTimestamp(entry) >= getEntryTimestamp(latest) ? entry : latest;
+  }, null);
+}
+
 function isInboundCallActivity(entry = {}) {
   const callDirection = String(
     entry?.callMetadata?.callDirection
@@ -331,8 +347,8 @@ function isNotPickedCallActivity(entry = {}) {
 }
 
 function isLatestInboundNotPickedActivity(history) {
-  const latestEntry = getLatestHistoryEntry(history);
-  if (!latestEntry || getActivityLabel(latestEntry) !== "Call Made") {
+  const latestEntry = getLatestCallActivityEntry(history);
+  if (!latestEntry) {
     return false;
   }
 

@@ -1179,10 +1179,12 @@ test("latest inbound activity filter requires not-picked calls across calling se
   ].forEach(([file, historyField]) => {
     const source = read(file);
     const latestInboundFilter = getNamedFunctionSource(source, "isLatestInboundNotPickedActivity");
+    const latestCallFilter = getNamedFunctionSource(source, "getLatestCallActivityEntry");
     const notPickedFilter = getNamedFunctionSource(source, "isNotPickedCallActivity");
 
     assert.match(source, new RegExp(`isLatestInboundNotPickedActivity\\(lead\\?\\.${historyField}\\)`));
-    assert.match(latestInboundFilter, /getActivityLabel\(latestEntry\) !== "Call Made"/);
+    assert.match(latestCallFilter, /getActivityLabel\(entry\) !== "Call Made"/);
+    assert.match(latestInboundFilter, /getLatestCallActivityEntry\(history\)/);
     assert.match(latestInboundFilter, /isInboundCallActivity\(latestEntry\) && isNotPickedCallActivity\(latestEntry\)/);
     assert.match(notPickedFilter, /cancel\|missed\|no\\s\*answer/);
     assert.match(notPickedFilter, /\\bdnp\\b\|\\bcnc\\b/);
