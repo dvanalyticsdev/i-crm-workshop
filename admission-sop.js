@@ -39,6 +39,7 @@ let currentPage = 1;
 let scopedAdmissionSopLeads = null;
 let scopedAdmissionSopCounselors = null;
 let scopedAdmissionSopActive = false;
+let draftSopQuery = filter.query;
 
 function showToast(message, isError = false) {
   let container = document.querySelector(".toast-container");
@@ -683,7 +684,7 @@ function renderFilters(rows = getAllRowModels()) {
       ${counselorOptions}
       <label class="sop-filter-grid__search">
         Search
-        <input id="sopQueryFilter" type="search" value="${escapeHtml(filter.query)}" placeholder="Lead, phone, course, counselor..." />
+        <input id="sopQueryFilter" type="search" value="${escapeHtml(draftSopQuery)}" placeholder="Lead, phone, course, counselor..." />
       </label>
       <div class="sop-filter-grid__actions">
         <button type="button" class="btn-ghost" id="sopResetFiltersBtn">Reset Filters</button>
@@ -711,8 +712,17 @@ function renderFilters(rows = getAllRowModels()) {
     currentPage = 1;
     render();
   });
-  document.getElementById("sopQueryFilter")?.addEventListener("input", (event) => {
-    filter.query = event.target.value;
+  const queryInput = document.getElementById("sopQueryFilter");
+  queryInput?.addEventListener("input", (event) => {
+    draftSopQuery = event.target.value;
+  });
+  queryInput?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
+    draftSopQuery = event.target.value;
+    filter.query = draftSopQuery;
     currentPage = 1;
     render();
   });
@@ -722,6 +732,7 @@ function renderFilters(rows = getAllRowModels()) {
     filter.section = "all";
     filter.course = "all";
     filter.query = "";
+    draftSopQuery = "";
     currentPage = 1;
     render();
   });

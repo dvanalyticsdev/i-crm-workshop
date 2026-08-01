@@ -533,6 +533,7 @@ let modalMode = "edit";
 let selectedLeadKeys = new Set();
 let searchTimeout = null;
 let currentPage = 1;
+let draftPostWorkshopSearch = filter.search;
 const pageSize = 50;
 const activityFields = ["modalPostDialed", "modalCoursePitched", "modalCourseStatus", "modalAdmissionStatus", "modalPostCallStatus", "modalAdmissionWorkshop", "modalWorkshopJoiningStatus", "modalPostActivityNote"];
 
@@ -1177,7 +1178,7 @@ function renderFilters(leads) {
   document.getElementById("postEndDateInput").value = filter.endDate;
   document.getElementById("postStartDateWrap").classList.toggle("hidden", filter.timeline !== "custom");
   document.getElementById("postEndDateWrap").classList.toggle("hidden", filter.timeline !== "custom");
-  document.getElementById("postSearchLeadInput").value = filter.search;
+  document.getElementById("postSearchLeadInput").value = draftPostWorkshopSearch;
   document.getElementById("postLeadOwnerSelect").value = filter.leadOwner;
   bindMultiFilter("postCounselorSelect", "counselor");
   bindMultiFilter("postActivityStatusSelect", "activityStatus");
@@ -1234,12 +1235,17 @@ function renderFilters(leads) {
     renderAll();
   };
 
-  document.getElementById("postSearchLeadInput").onkeydown = (event) => {
+  const searchInput = document.getElementById("postSearchLeadInput");
+  searchInput.oninput = (event) => {
+    draftPostWorkshopSearch = event.target.value;
+  };
+  searchInput.onkeydown = (event) => {
     if (event.key !== "Enter") {
       return;
     }
     event.preventDefault();
-    filter.search = event.target.value.trim();
+    draftPostWorkshopSearch = event.target.value;
+    filter.search = draftPostWorkshopSearch.trim();
     persistFilterState();
       currentPage = 1;
       renderAll();
@@ -1254,6 +1260,7 @@ function renderFilters(leads) {
 
   document.getElementById("postResetFilters").onclick = () => {
     filter = { ...DEFAULT_FILTER };
+    draftPostWorkshopSearch = filter.search;
     persistFilterState();
     currentPage = 1;
     void renderAll();

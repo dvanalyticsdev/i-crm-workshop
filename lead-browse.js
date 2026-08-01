@@ -40,6 +40,7 @@ let duplicateGroups = [];
 let duplicateGroupsLoading = false;
 let duplicateGroupsLoaded = false;
 let leadBrowseLeads = [];
+let draftLeadBrowseQuery = filter.query;
 let initialLeadBrowseLoadPending = true;
 let initialLeadBrowseLoadFailed = false;
 const selectedDuplicateKeeperByGroup = new Map();
@@ -470,7 +471,7 @@ function renderControls() {
       ` : ""}
       <label>
         Search
-        <input id="leadBrowseSearch" type="search" value="${escapeHtml(filter.query)}" placeholder="${filter.category === "duplicates" ? "Name, phone, email, counselor..." : "Name, phone, email, course..."}" />
+        <input id="leadBrowseSearch" type="search" value="${escapeHtml(draftLeadBrowseQuery)}" placeholder="${filter.category === "duplicates" ? "Name, phone, email, counselor..." : "Name, phone, email, course..."}" />
       </label>
       ${filter.category !== "duplicates" ? `<label>
         Counselor
@@ -534,12 +535,17 @@ function renderControls() {
     });
   }
 
-  document.getElementById("leadBrowseSearch").addEventListener("keydown", (event) => {
+  const searchInput = document.getElementById("leadBrowseSearch");
+  searchInput.addEventListener("input", (event) => {
+    draftLeadBrowseQuery = event.target.value;
+  });
+  searchInput.addEventListener("keydown", (event) => {
     if (event.key !== "Enter") {
       return;
     }
     event.preventDefault();
-    filter.query = event.target.value;
+    draftLeadBrowseQuery = event.target.value;
+    filter.query = draftLeadBrowseQuery;
     currentPage = 1;
     render();
   });

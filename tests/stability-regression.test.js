@@ -489,6 +489,31 @@ test("lead browse uses read-only full lead scope for counselors", () => {
   assert.match(server, /const isLeadBrowseActivityRead = String\(req\.query\.scope \|\| ""\)[\s\S]*?getSessionPagePermissions\(session\)\.leadBrowse/);
 });
 
+test("CRM lead search bars preserve draft typing until Enter", () => {
+  const leadBrowse = read("lead-browse.js");
+  const admissionSop = read("admission-sop.js");
+  const preWorkshop = read("pre-workshop.js");
+  const postWorkshop = read("post-workshop.js");
+  const registeredCandidates = read("registered-candidates.js");
+  const mainAdmission = read("main-admission-leads.js");
+
+  [
+    [leadBrowse, /let draftLeadBrowseQuery = filter\.query/, /value="\$\{escapeHtml\(draftLeadBrowseQuery\)\}"/, /addEventListener\("input"[\s\S]*?draftLeadBrowseQuery = event\.target\.value/, /event\.key !== "Enter"[\s\S]*?filter\.query = draftLeadBrowseQuery/],
+    [admissionSop, /let draftSopQuery = filter\.query/, /value="\$\{escapeHtml\(draftSopQuery\)\}"/, /addEventListener\("input"[\s\S]*?draftSopQuery = event\.target\.value/, /event\.key !== "Enter"[\s\S]*?filter\.query = draftSopQuery/],
+    [preWorkshop, /let draftPreWorkshopSearch = filter\.search/, /searchLeadInput"\)\.value = draftPreWorkshopSearch/, /searchInput\.oninput[\s\S]*?draftPreWorkshopSearch = event\.target\.value/, /event\.key !== "Enter"[\s\S]*?filter\.search = draftPreWorkshopSearch\.trim\(\)/],
+    [postWorkshop, /let draftPostWorkshopSearch = filter\.search/, /postSearchLeadInput"\)\.value = draftPostWorkshopSearch/, /searchInput\.oninput[\s\S]*?draftPostWorkshopSearch = event\.target\.value/, /event\.key !== "Enter"[\s\S]*?filter\.search = draftPostWorkshopSearch\.trim\(\)/],
+    [registeredCandidates, /let draftRegisteredSearch = filter\.search/, /value="\$\{escapeHtml\(draftRegisteredSearch\)\}"/, /searchInput\.oninput[\s\S]*?draftRegisteredSearch = event\.target\.value/, /event\.key !== "Enter"[\s\S]*?filter\.search = draftRegisteredSearch\.trim\(\)/],
+    [mainAdmission, /let draftMainAdmissionSearch = filter\.search/, /value="\$\{escapeHtml\(draftMainAdmissionSearch\)\}"/, /searchInput\.oninput[\s\S]*?draftMainAdmissionSearch = event\.target\.value/, /event\.key !== "Enter"[\s\S]*?filter\.search = draftMainAdmissionSearch\.trim\(\)/]
+  ].forEach(([source, draftDeclaration, renderedDraft, inputDraft, enterCommit]) => {
+    assert.match(source, draftDeclaration);
+    assert.match(source, renderedDraft);
+    assert.match(source, inputDraft);
+    assert.match(source, enterCommit);
+  });
+
+  assert.doesNotMatch(admissionSop, /sopQueryFilter"\)\?\.addEventListener\("input", \(event\) => \{\s*filter\.query = event\.target\.value/);
+});
+
 test("lead creation requests require counselor submission and admin approval before insert", () => {
   const server = read("server.js");
   const leadCreationHtml = read("lead-creation.html");

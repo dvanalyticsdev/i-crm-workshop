@@ -148,6 +148,7 @@ let scopedCounselors = null;
 let scopedLoadActive = false;
 let mainAdmissionAssignmentBusy = false;
 let initialMainAdmissionLoadPending = true;
+let draftMainAdmissionSearch = filter.search;
 let initialMainAdmissionLoadFailed = false;
 populateCrmCourseSelect("modalMainAdmissionCoursePitched", { includeNo: true });
 
@@ -1187,7 +1188,7 @@ function renderFilters(leads) {
       <div class="filter-row">
         <div class="filter-item filter-item--search">
           <label for="mainAdmissionSearchInput">Search Lead</label>
-          <input id="mainAdmissionSearchInput" type="text" placeholder="Name, email, phone, course, counselor" value="${escapeHtml(filter.search)}" />
+          <input id="mainAdmissionSearchInput" type="text" placeholder="Name, email, phone, course, counselor" value="${escapeHtml(draftMainAdmissionSearch)}" />
         </div>
         <div class="filter-item">
           <label for="mainAdmissionLeadOwnerSelect">Lead Owner</label>
@@ -1401,12 +1402,17 @@ function renderFilters(leads) {
       renderAll();
     };
   }
-  document.getElementById("mainAdmissionSearchInput").onkeydown = (event) => {
+  const searchInput = document.getElementById("mainAdmissionSearchInput");
+  searchInput.oninput = (event) => {
+    draftMainAdmissionSearch = event.target.value;
+  };
+  searchInput.onkeydown = (event) => {
     if (event.key !== "Enter") {
       return;
     }
     event.preventDefault();
-    filter.search = event.target.value.trim();
+    draftMainAdmissionSearch = event.target.value;
+    filter.search = draftMainAdmissionSearch.trim();
     persistFilters();
     currentPage = 1;
     renderAll();
@@ -1527,6 +1533,7 @@ function renderFilters(leads) {
   };
   document.getElementById("mainAdmissionResetFiltersBtn").onclick = () => {
     filter = { ...DEFAULT_FILTER };
+    draftMainAdmissionSearch = filter.search;
     isCourseFilterOpen = false;
     persistFilters();
     currentPage = 1;

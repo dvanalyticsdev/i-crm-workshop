@@ -128,6 +128,7 @@ let activeSegment = normalizeSegment(window.location.hash.replace(/^#/, "")) || 
 let scopedRegisteredCandidateLeads = null;
 let scopedRegisteredCandidateCounselors = null;
 let scopedRegisteredCandidateActive = false;
+let draftRegisteredSearch = filter.search;
 populateCrmCourseSelect("modalRegisteredCoursePitched", { includeNo: true });
 
 function persistFilters() {
@@ -1155,7 +1156,7 @@ function renderFilters(leads) {
       <div class="filter-row">
         <div class="filter-item filter-item--search">
           <label for="registeredSearchInput">Search Lead</label>
-          <input id="registeredSearchInput" type="text" placeholder="Name, email, phone, course, counselor" value="${escapeHtml(filter.search)}" />
+          <input id="registeredSearchInput" type="text" placeholder="Name, email, phone, course, counselor" value="${escapeHtml(draftRegisteredSearch)}" />
         </div>
         <div class="filter-item">
           <label for="registeredLeadOwnerSelect">Lead Owner</label>
@@ -1321,12 +1322,17 @@ function renderFilters(leads) {
       renderAll();
     };
   }
-  document.getElementById("registeredSearchInput").onkeydown = (event) => {
+  const searchInput = document.getElementById("registeredSearchInput");
+  searchInput.oninput = (event) => {
+    draftRegisteredSearch = event.target.value;
+  };
+  searchInput.onkeydown = (event) => {
     if (event.key !== "Enter") {
       return;
     }
     event.preventDefault();
-    filter.search = event.target.value.trim();
+    draftRegisteredSearch = event.target.value;
+    filter.search = draftRegisteredSearch.trim();
     persistFilters();
     currentPage = 1;
     renderAll();
@@ -1412,6 +1418,7 @@ function renderFilters(leads) {
   };
   document.getElementById("registeredResetFiltersBtn").onclick = () => {
     filter = { ...DEFAULT_FILTER };
+    draftRegisteredSearch = filter.search;
     persistFilters();
     currentPage = 1;
     renderAll();

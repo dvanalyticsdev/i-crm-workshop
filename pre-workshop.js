@@ -868,6 +868,7 @@ let selectedLeadKeys = new Set();
 let lastAssignmentSuggestions = [];
 let searchTimeout = null;
 let currentPage = 1;
+let draftPreWorkshopSearch = filter.search;
 const pageSize = 50;
 
 const activityFields = ["modalDialed", "modalCallStatus", "modalWsStatus", "modalWhatsappInvite", "modalWhatsappGroupStatus", "modalActivityNote"];
@@ -1752,7 +1753,7 @@ function renderFilters(leads) {
   document.getElementById("timelineSelect").value = filter.timeline;
   document.getElementById("startDateInput").value = filter.startDate;
   document.getElementById("endDateInput").value = filter.endDate;
-  document.getElementById("searchLeadInput").value = filter.search;
+  document.getElementById("searchLeadInput").value = draftPreWorkshopSearch;
   document.getElementById("leadOwnerSelect").value = filter.leadOwner;
   bindMultiFilterOutsideClick();
   bindMultiFilter("counselorSelect", "counselor");
@@ -1808,12 +1809,17 @@ function renderFilters(leads) {
     renderAll();
   };
 
-  document.getElementById("searchLeadInput").onkeydown = (event) => {
+  const searchInput = document.getElementById("searchLeadInput");
+  searchInput.oninput = (event) => {
+    draftPreWorkshopSearch = event.target.value;
+  };
+  searchInput.onkeydown = (event) => {
     if (event.key !== "Enter") {
       return;
     }
     event.preventDefault();
-    filter.search = event.target.value.trim();
+    draftPreWorkshopSearch = event.target.value;
+    filter.search = draftPreWorkshopSearch.trim();
     persistFilterState();
       currentPage = 1;
       renderAll();
@@ -1822,6 +1828,7 @@ function renderFilters(leads) {
 
   document.getElementById("resetFilters").onclick = () => {
     filter = { ...DEFAULT_FILTER };
+    draftPreWorkshopSearch = filter.search;
     persistFilterState();
     currentPage = 1;
     renderAll();
