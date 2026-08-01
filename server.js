@@ -14965,6 +14965,12 @@ app.get("/api/leads", async (req, res) => {
     if (!session) return;
 
     const scope = String(req.query?.scope || "").trim().toLowerCase();
+    if (scope === "lead-browse") {
+      const permissions = getSessionPagePermissions(session);
+      if (!permissions.leadBrowse) {
+        return res.status(403).json({ message: "You do not have permission to browse leads." });
+      }
+    }
     const monitoringSubsection = String(req.query?.monitoringSubsection || "").trim().toLowerCase();
     const leadQuery = monitoringSubsection ? buildMonitoringLeadMongoQuery(monitoringSubsection) : {};
     const findOptions = scope === "reachout"
@@ -14983,7 +14989,7 @@ app.get("/api/leads", async (req, res) => {
         : Promise.resolve([])
     ]);
     const leads = decorateLeadListForStorage(rawLeads || []);
-    if (session.role !== "counselor") {
+    if (session.role !== "counselor" || scope === "lead-browse") {
       return res.json(leads);
     }
 
@@ -15053,9 +15059,11 @@ app.get("/api/activity-logs", async (req, res) => {
     // 1. Enforce counselor scoping permissions
     if (session.role === "counselor") {
       const counselorName = getSessionCounselorName(state, session);
+      const isLeadBrowseActivityRead = String(req.query.scope || "").trim().toLowerCase() === "lead-browse"
+        && getSessionPagePermissions(session).leadBrowse;
       if (targetLeadId) {
         const lead = findLeadByIdentity(state, targetLeadId);
-        if (!lead || !canViewLeadActivity(session, state, lead)) {
+        if (!lead || (!isLeadBrowseActivityRead && !canViewLeadActivity(session, state, lead))) {
           return res.status(403).json({ message: "Access denied. You can only view activity logs of leads assigned to you." });
         }
         query.leadId = { $in: leadIdsToQuery };

@@ -210,7 +210,7 @@ function getAllLeads() {
 }
 
 async function loadLeadBrowseData() {
-  const response = await fetch(apiUrl("/api/leads"), {
+  const response = await fetch(apiUrl("/api/leads?scope=lead-browse"), {
     credentials: "same-origin",
     headers: { Accept: "application/json" }
   });
@@ -896,7 +896,7 @@ async function openLeadActivityHistory(leadKey) {
   if (!lead) return;
 
   latestLeadKey = leadKey;
-  openActivityHistory(lead.id, lead.name || "Lead", lead.email || "");
+  openActivityHistory(lead.id, lead.name || "Lead", lead.email || "", { scope: "lead-browse" });
 
   const result = await trackLeadView(lead.id, lead.email || "");
   if (!result.ok) {

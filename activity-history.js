@@ -4,6 +4,7 @@ import { formatKolkataDateTime } from "./date-utils.js";
 let currentLeadId = "";
 let currentLeadName = "";
 let currentLeadEmail = "";
+let currentScope = "";
 let currentPage = 1;
 let totalPages = 1;
 let debounceTimeout = null;
@@ -323,6 +324,7 @@ async function fetchActivityLogs() {
   const search = document.getElementById("historySearchInput").value;
 
   let query = `?leadId=${encodeURIComponent(currentLeadId)}&page=${currentPage}&limit=10`;
+  if (currentScope) query += `&scope=${encodeURIComponent(currentScope)}`;
   if (type) query += `&activityType=${encodeURIComponent(type)}`;
   if (start) query += `&startDate=${encodeURIComponent(start)}`;
   if (end) query += `&endDate=${encodeURIComponent(end)}`;
@@ -442,12 +444,13 @@ async function fetchActivityLogs() {
   }
 }
 
-export function openActivityHistory(leadId, leadName, leadEmail = "") {
+export function openActivityHistory(leadId, leadName, leadEmail = "", options = {}) {
   ensureModalInDom();
 
   currentLeadId = leadId;
   currentLeadName = leadName;
   currentLeadEmail = leadEmail;
+  currentScope = String(options?.scope || "").trim();
   currentPage = 1;
 
   document.getElementById("historyLeadName").textContent = leadName;

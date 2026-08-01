@@ -475,6 +475,20 @@ test("sidebar keeps admission workflows grouped under one counselor admission ro
   assert.match(layouts, /"registered-candidates\.html": \{\s*activeRoutes: \["post-workshop\.html", "main-admission-leads\.html", "crash-course\.html"\]/);
 });
 
+test("lead browse uses read-only full lead scope for counselors", () => {
+  const server = read("server.js");
+  const leadBrowse = read("lead-browse.js");
+  const activityHistory = read("activity-history.js");
+
+  assert.match(leadBrowse, /apiUrl\("\/api\/leads\?scope=lead-browse"\)/);
+  assert.match(leadBrowse, /openActivityHistory\(lead\.id, lead\.name \|\| "Lead", lead\.email \|\| "", \{ scope: "lead-browse" \}\)/);
+  assert.match(activityHistory, /let currentScope = "";/);
+  assert.match(activityHistory, /if \(currentScope\) query \+= `&scope=\$\{encodeURIComponent\(currentScope\)\}`;/);
+  assert.match(server, /scope === "lead-browse"[\s\S]*?getSessionPagePermissions\(session\)[\s\S]*?permissions\.leadBrowse/);
+  assert.match(server, /session\.role !== "counselor" \|\| scope === "lead-browse"/);
+  assert.match(server, /const isLeadBrowseActivityRead = String\(req\.query\.scope \|\| ""\)[\s\S]*?getSessionPagePermissions\(session\)\.leadBrowse/);
+});
+
 test("lead creation requests require counselor submission and admin approval before insert", () => {
   const server = read("server.js");
   const leadCreationHtml = read("lead-creation.html");
