@@ -11041,10 +11041,9 @@ function normalizeAssignmentWorkshopStatus(value) {
 }
 
 function getLeadBulkAssignmentSkipReason(lead) {
-  const hasProtectedWorkshopStatus = [
-    lead?.courseStatus,
-    lead?.wsStatus
-  ].some((status) => PROTECTED_ASSIGNMENT_WORKSHOP_STATUSES.has(normalizeAssignmentWorkshopStatus(status)));
+  const hasProtectedWorkshopStatus = PROTECTED_ASSIGNMENT_WORKSHOP_STATUSES.has(
+    normalizeAssignmentWorkshopStatus(lead?.courseStatus)
+  );
   if (hasProtectedWorkshopStatus) {
     return "workshopInterested";
   }
