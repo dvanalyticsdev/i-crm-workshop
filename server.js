@@ -110,6 +110,7 @@ const COURSE_IDENTITY_RULES = [
   { pattern: /\bdata analytics specialist\b|\bdas\b/i, label: "DAS", key: "data-analytics-specialist" },
   { pattern: /\bmaster\b.*\bgen\s*ai\b|\bgen\s*ai\b.*\bmaster\b|\bgenai\s*master\b|\bagentic\b/i, label: "GenAI Master", key: "master-genai-agentic" }
 ];
+const WORKSHOP_ROUTING_SIGNAL_PATTERN = /\b(workshop|webinar|masterclass|bootcamp|demo class|session)\b/i;
 
 const ADMIN_USER = {
   id: ADMIN_LOGIN_ID,
@@ -5717,18 +5718,30 @@ function getMetaLeadDescriptor(fields = {}, meta = {}) {
   ].map((value) => normalizeMetaLabel(value).toLowerCase()).filter(Boolean).join(" ");
 }
 
+function hasWorkshopRoutingSignal(...parts) {
+  return WORKSHOP_ROUTING_SIGNAL_PATTERN.test(
+    parts.map((value) => normalizeMetaLabel(value).toLowerCase()).filter(Boolean).join(" ")
+  );
+}
+
+function shouldRouteKnownCourseToAdmission(leadType, courseIdentity = {}, ...sourceParts) {
+  return String(leadType || "").trim().toLowerCase() !== "workshop"
+    && !hasWorkshopRoutingSignal(...sourceParts)
+    && isKnownPublicCourseIdentity(courseIdentity);
+}
+
 function classifyIncomingMetaLead(fields = {}, meta = {}) {
   const descriptor = getMetaLeadDescriptor(fields, meta);
-  const hasWorkshopSignal = /\b(workshop|webinar|masterclass|bootcamp|demo class|session)\b/i.test(descriptor);
+  const hasWorkshopSignal = hasWorkshopRoutingSignal(descriptor);
   const hasCourseCatalogSignal = /\b(apids|apida|apcs|das|aiml|genai|gen ai|7days|7 days)\b/i.test(descriptor);
   const hasAdmissionSignal = /\b(admission|admissions|enroll|enrol|course|program|programme|counselling|counseling|brochure|fees|career|certification|adv ai ml|advanced ai ml|ai ml|data analytics|data science|cybersecurity|cyber security|full stack)\b/i.test(descriptor);
 
-  if (hasCourseCatalogSignal) {
-    return "admission";
-  }
-
   if (hasWorkshopSignal) {
     return "workshop";
+  }
+
+  if (hasCourseCatalogSignal) {
+    return "admission";
   }
 
   return hasAdmissionSignal || descriptor ? "admission" : "workshop";
@@ -5798,16 +5811,16 @@ function classifyIncomingElementorLead(fields = {}, meta = {}, config = {}) {
 
   const descriptor = getElementorLeadDescriptor(fields, meta);
   const hasCrashCourseSignal = /\b(crash course|crash-course)\b/i.test(descriptor);
-  const hasWorkshopSignal = /\b(workshop|webinar|masterclass|bootcamp|demo class|session)\b/i.test(descriptor);
+  const hasWorkshopSignal = hasWorkshopRoutingSignal(descriptor);
   const hasCourseCatalogSignal = /\b(apids|apida|apcs|das|aiml|genai|gen ai|7days|7 days)\b/i.test(descriptor);
   const hasAdmissionSignal = /\b(admission|admissions|enroll|enrol|course|program|programme|counselling|counseling|brochure|fees|career|certification|adv ai ml|advanced ai ml|ai ml|data analytics|data science|cybersecurity|cyber security|full stack)\b/i.test(descriptor);
 
-  if (hasCourseCatalogSignal || hasCrashCourseSignal) {
-    return "admission";
-  }
-
   if (hasWorkshopSignal) {
     return "workshop";
+  }
+
+  if (hasCourseCatalogSignal || hasCrashCourseSignal) {
+    return "admission";
   }
 
   return hasAdmissionSignal || descriptor ? "admission" : "workshop";
@@ -15628,7 +15641,14 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
     metaAdsetName: metaInfo.adsetName,
     metaCampaignName: metaInfo.campaignName
   });
-  const isAdmissionLead = leadType === "admission" || isKnownPublicCourseIdentity(forcedAdmissionCourseIdentity);
+  const isAdmissionLead = leadType === "admission" || shouldRouteKnownCourseToAdmission(
+    leadType,
+    forcedAdmissionCourseIdentity,
+    inferredAdmissionCourse,
+    metaInfo.adName,
+    metaInfo.adsetName,
+    metaInfo.campaignName
+  );
   const effectiveLeadType = isAdmissionLead ? "admission" : leadType;
   const counselorName = isAdmissionLead
     ? "Unassigned"
@@ -15895,7 +15915,13 @@ async function processElementorLeadRecord(payload, config, options = {}) {
     elementorFormName: metaInfo.formName,
     elementorPageUrl: metaInfo.pageUrl
   });
-  const isAdmissionLead = leadType === "admission" || isKnownPublicCourseIdentity(forcedAdmissionCourseIdentity);
+  const isAdmissionLead = leadType === "admission" || shouldRouteKnownCourseToAdmission(
+    leadType,
+    forcedAdmissionCourseIdentity,
+    inferredAdmissionCourse,
+    metaInfo.formName,
+    metaInfo.pageUrl
+  );
   const effectiveLeadType = isAdmissionLead ? "admission" : leadType;
   const counselorName = isAdmissionLead
     ? "Unassigned"

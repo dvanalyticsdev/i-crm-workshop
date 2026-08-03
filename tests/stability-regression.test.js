@@ -57,6 +57,14 @@ function getConstDeclaration(source, name) {
   return source.slice(start, end + 3);
 }
 
+function getConstStatement(source, name) {
+  const start = source.indexOf(`const ${name} = `);
+  assert.notEqual(start, -1, `${name} should exist`);
+  const end = source.indexOf(";\n", start);
+  assert.notEqual(end, -1, `${name} should have a statement declaration`);
+  return source.slice(start, end + 1);
+}
+
 test("Meta active handler names are single-source", () => {
   const server = read("server.js");
 
@@ -938,6 +946,45 @@ test("admission course matcher keeps every catalog course isolated", () => {
       );
     }
   }
+});
+
+test("Gen AI workshop campaign names stay in workshop routing", () => {
+  const server = read("server.js");
+  const source = [
+    getConstStatement(server, "WORKSHOP_ROUTING_SIGNAL_PATTERN"),
+    getNamedFunctionSource(server, "normalizeMetaLabel"),
+    getNamedFunctionSource(server, "getMetaLeadDescriptor"),
+    getNamedFunctionSource(server, "hasWorkshopRoutingSignal"),
+    getNamedFunctionSource(server, "classifyIncomingMetaLead"),
+    getNamedFunctionSource(server, "normalizeRuleList"),
+    getNamedFunctionSource(server, "matchNormalizedRule"),
+    getNamedFunctionSource(server, "matchPatternRule"),
+    getNamedFunctionSource(server, "getElementorLeadDescriptor"),
+    getNamedFunctionSource(server, "classifyIncomingElementorLead")
+  ].join("\n");
+
+  const { classifyMeta, classifyElementor } = new Function(`${source}; return {
+    classifyMeta: (fields, meta) => classifyIncomingMetaLead(fields, meta),
+    classifyElementor: (fields, meta, config = {}) => classifyIncomingElementorLead(fields, meta, config)
+  };`)();
+
+  assert.equal(
+    classifyMeta({}, {
+      adName: "Gen Ai Workshop 20th August",
+      adsetName: "DV Workshop Leads",
+      campaignName: "GenAI Workshop Campaign"
+    }),
+    "workshop"
+  );
+  assert.equal(
+    classifyElementor(
+      { workshop_name: "GenAI Workshop 16th July" },
+      { formName: "Gen AI Workshop Leads", pageUrl: "/gen-ai-workshop" }
+    ),
+    "workshop"
+  );
+  assert.equal(classifyMeta({ course_name: "GenAI Master" }, {}), "admission");
+  assert.equal(classifyElementor({ course_name: "7DAYS_GENAI" }, { formName: "Crash Course" }), "admission");
 });
 
 test("full counselor saves preserve lead flow routing permissions", () => {
