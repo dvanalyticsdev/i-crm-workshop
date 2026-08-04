@@ -1669,6 +1669,7 @@ test("admission SOP progress only counts counselor activity", () => {
 test("lead activity and assignment avoid full-state response after atomic writes", () => {
   const server = read("server.js");
   const leadService = read("lead-service.js");
+  const stateSync = read("state-sync.js");
   const activityRoute = server.slice(
     server.indexOf('app.post("/api/leads/:leadId/activity"'),
     server.indexOf('app.post("/api/leads/:leadId/notes"')
@@ -1684,6 +1685,10 @@ test("lead activity and assignment avoid full-state response after atomic writes
   assert.match(assignmentRoute, /leads: updatedLeads/);
   assert.doesNotMatch(assignmentRouteCore, /state: buildStateResponse/);
   assert.match(leadService, /acceptLeadUpdates/);
+  assert.match(leadService, /broadcastLeadUpdates/);
+  assert.match(stateSync, /LEAD_UPDATE_BROADCAST_CHANNEL/);
+  assert.match(stateSync, /window\.addEventListener\("storage"/);
+  assert.match(stateSync, /acceptBroadcastLeadUpdate/);
 });
 
 test("performance logs dashboard is super admin only", () => {

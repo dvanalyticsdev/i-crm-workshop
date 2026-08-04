@@ -31,6 +31,9 @@ const MAX_PUT_RETRIES = 3;
 const PUT_TIMEOUT_MS = 20000;
 const HIDDEN_TAB_WARM_INTERVAL_MS = 45000;
 const stateSubscribers = new Set();
+const LEAD_UPDATE_BROADCAST_KEY = "dvLeadUpdatesBroadcast";
+const LEAD_UPDATE_BROADCAST_CHANNEL = "dv-lead-updates";
+let leadUpdateBroadcastChannel = null;
 
 function notifyStateSubscribers() {
   const snapshot = getStateSnapshot();
@@ -179,6 +182,75 @@ export function acceptLeadUpdates(leads, etag = null, updatedAt = null) {
     updatedAt: updatedAt || currentState.updatedAt
   });
 }
+
+export function broadcastLeadUpdates(leads, etag = null, updatedAt = null) {
+  const nextLeads = (Array.isArray(leads) ? leads : [leads])
+    .filter((lead) => lead && lead.id !== undefined && lead.id !== null);
+  if (!nextLeads.length || typeof window === "undefined") {
+    return;
+  }
+
+  const message = {
+    leads: nextLeads,
+    etag,
+    updatedAt,
+    sentAt: Date.now()
+  };
+
+  try {
+    if (leadUpdateBroadcastChannel) {
+      leadUpdateBroadcastChannel.postMessage(message);
+    }
+  } catch (_error) {
+    // Storage fallback below still covers browsers where BroadcastChannel fails.
+  }
+
+  try {
+    window.localStorage?.setItem(LEAD_UPDATE_BROADCAST_KEY, JSON.stringify(message));
+  } catch (_error) {
+    // Cross-tab sync is best effort; normal polling remains the fallback.
+  }
+}
+
+function acceptBroadcastLeadUpdate(message = {}) {
+  const leads = Array.isArray(message?.leads) ? message.leads : [];
+  if (!leads.length) {
+    return;
+  }
+
+  acceptLeadUpdates(leads, message?.etag || null, message?.updatedAt || null);
+}
+
+function initLeadUpdateBroadcastListener() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    if ("BroadcastChannel" in window) {
+      leadUpdateBroadcastChannel = new BroadcastChannel(LEAD_UPDATE_BROADCAST_CHANNEL);
+      leadUpdateBroadcastChannel.onmessage = (event) => {
+        acceptBroadcastLeadUpdate(event.data);
+      };
+    }
+  } catch (_error) {
+    leadUpdateBroadcastChannel = null;
+  }
+
+  window.addEventListener("storage", (event) => {
+    if (event.key !== LEAD_UPDATE_BROADCAST_KEY || !event.newValue) {
+      return;
+    }
+
+    try {
+      acceptBroadcastLeadUpdate(JSON.parse(event.newValue));
+    } catch (_error) {
+      // Ignore malformed storage events; polling will recover the state.
+    }
+  });
+}
+
+initLeadUpdateBroadcastListener();
 
 export async function refreshState() {
   const headers = { Accept: "application/json" };

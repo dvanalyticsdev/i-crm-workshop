@@ -1,5 +1,5 @@
 import { apiUrl } from "./api-client.js";
-import { acceptLeadUpdates, acceptServerState } from "./state-sync.js";
+import { acceptLeadUpdates, acceptServerState, broadcastLeadUpdates } from "./state-sync.js";
 
 async function requestJson(path, options = {}) {
   const response = await fetch(apiUrl(path), {
@@ -19,7 +19,11 @@ async function requestJson(path, options = {}) {
   if (payload?.state) {
     acceptServerState(payload.state, response.headers.get("etag"));
   } else if (payload?.lead || Array.isArray(payload?.leads)) {
-    acceptLeadUpdates(payload.lead || payload.leads, response.headers.get("etag"), payload?.updatedAt || null);
+    const leadUpdates = payload.lead || payload.leads;
+    const etag = response.headers.get("etag");
+    const updatedAt = payload?.updatedAt || null;
+    acceptLeadUpdates(leadUpdates, etag, updatedAt);
+    broadcastLeadUpdates(leadUpdates, etag, updatedAt);
   }
 
   if (!response.ok) {
