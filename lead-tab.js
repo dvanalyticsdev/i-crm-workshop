@@ -493,7 +493,14 @@ function renderNotFound(message) {
 }
 
 async function fetchLeadTabPayload() {
-  const query = requestedLeadEmail ? `?leadEmail=${encodeURIComponent(requestedLeadEmail)}` : "";
+  const params = new URLSearchParams();
+  if (requestedLeadEmail) {
+    params.set("leadEmail", requestedLeadEmail);
+  }
+  if (requestedStage) {
+    params.set("stage", requestedStage);
+  }
+  const query = params.toString() ? `?${params.toString()}` : "";
   const response = await fetch(apiUrl(`/api/leads/${encodeURIComponent(requestedLeadId)}/tab${query}`), {
     credentials: "same-origin",
     headers: { Accept: "application/json" }
@@ -510,7 +517,7 @@ function applyLeadPayload({ lead, stage, counselors: payloadCounselors = [] } = 
   counselors = Array.isArray(payloadCounselors) && payloadCounselors.length ? payloadCounselors : counselors;
   normalizeLeadFields([lead]);
   activeLead = lead;
-  activeStage = stage || requestedStage || inferStage(lead);
+  activeStage = requestedStage || stage || inferStage(lead);
   writeLeadTabCache({ lead, stage: activeStage, counselors });
   return true;
 }

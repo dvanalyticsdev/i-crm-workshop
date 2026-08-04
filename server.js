@@ -14515,6 +14515,7 @@ app.get("/api/leads/:leadId/tab", async (req, res) => {
     }
 
     const permissions = getSessionPagePermissions(session);
+    const requestedStage = String(req.query?.stage || "").trim().toLowerCase();
     const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
     const inferredStage = pipeline === MAIN_ADMISSION_PIPELINE
       ? "main-admission"
@@ -14529,12 +14530,19 @@ app.get("/api/leads/:leadId/tab", async (req, res) => {
         )
           ? "admission"
           : "workshop";
+    const effectiveStage = (
+      pipeline !== MAIN_ADMISSION_PIPELINE
+      && pipeline !== "course-registration"
+      && ["workshop", "admission"].includes(requestedStage)
+    )
+      ? requestedStage
+      : inferredStage;
 
-    const permissionKey = inferredStage === "main-admission"
+    const permissionKey = effectiveStage === "main-admission"
       ? "mainAdmissionLeads"
-      : inferredStage === "registered-course"
+      : effectiveStage === "registered-course"
         ? "registeredCandidates"
-        : inferredStage === "admission"
+        : effectiveStage === "admission"
           ? "postWorkshop"
           : "preWorkshop";
 
@@ -14560,7 +14568,7 @@ app.get("/api/leads/:leadId/tab", async (req, res) => {
 
     return res.json({
       ok: true,
-      stage: inferredStage,
+      stage: effectiveStage,
       lead
     });
   } catch (error) {
