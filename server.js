@@ -2539,6 +2539,11 @@ function buildMonitoringLeadMongoQuery(subsection = "") {
     ]
   };
   if (key === "main-admission") return { leadPipeline: MAIN_ADMISSION_PIPELINE };
+  if (key === "admission-calling") {
+    return {
+      leadPipeline: { $nin: ["course-registration", MAIN_ADMISSION_PIPELINE] }
+    };
+  }
   if (key === "registered-candidates") {
     return {
       leadPipeline: "course-registration",

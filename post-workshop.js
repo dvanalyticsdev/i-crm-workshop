@@ -771,27 +771,50 @@ function getScopedLeads(allLeads) {
 }
 
 function getLeadActivityUpdateCount(lead) {
-  if (typeof lead?.admissionActivityTouchedByAssignee === "boolean") {
-    return lead.admissionActivityTouchedByAssignee ? 1 : 0;
+  if (lead?.admissionActivityTouchedByAssignee === true) {
+    return 1;
   }
 
-  return hasAssigneeActivityHistory(lead?.admissionActivityHistory) ? 1 : 0;
+  return hasAssigneeActivityHistory(lead, "admissionActivityHistory") ? 1 : 0;
 }
 
-function hasAssigneeActivityHistory(history) {
+function getLeadAssignmentTime(lead) {
+  const assignedAt = Date.parse(String(lead?.leadOwnerTimelineAt || lead?.counselorAssignedAt || "").trim());
+  return Number.isFinite(assignedAt) ? assignedAt : null;
+}
+
+function hasAssigneeActivityHistory(lead, historyField) {
+  const history = lead?.[historyField];
   if (!Array.isArray(history)) {
     return false;
   }
 
+  const assignee = String(lead?.counselor || "").trim().toLowerCase();
+  const assignedAt = getLeadAssignmentTime(lead);
   return history.some((entry) => {
+    const by = String(entry?.by || "").trim().toLowerCase();
+    const source = String(entry?.source || "").trim().toLowerCase();
+    if (!by || ["reachout webhook", "system"].includes(by) || source === "reachout webhook") {
+      return false;
+    }
+
+    if (assignee && by !== assignee) {
+      return false;
+    }
+
+    if (assignedAt) {
+      const activityAt = Date.parse(String(entry?.at || "").trim());
+      if (Number.isFinite(activityAt) && activityAt < assignedAt) {
+        return false;
+      }
+    }
+
     const updates = entry?.updates;
     if (updates && typeof updates === "object" && Object.keys(updates).length > 0) {
       return true;
     }
 
-    const by = String(entry?.by || "").trim().toLowerCase();
-    const source = String(entry?.source || "").trim().toLowerCase();
-    return Boolean(by) && !["reachout webhook", "system"].includes(by) && source !== "reachout webhook";
+    return true;
   });
 }
 
@@ -828,10 +851,9 @@ function normalizeLeadFields(leads) {
       || (Number.isFinite(Number(lead.postActivityUpdates)) ? Number(lead.postActivityUpdates) : 0);
     lead.workshopActivityTouchedByAssignee = typeof lead.workshopActivityTouchedByAssignee === "boolean"
       ? lead.workshopActivityTouchedByAssignee
-      : hasAssigneeActivityHistory(lead.workshopActivityHistory);
-    lead.admissionActivityTouchedByAssignee = typeof lead.admissionActivityTouchedByAssignee === "boolean"
-      ? lead.admissionActivityTouchedByAssignee
-      : hasAssigneeActivityHistory(lead.admissionActivityHistory);
+      : hasAssigneeActivityHistory(lead, "workshopActivityHistory");
+    lead.admissionActivityTouchedByAssignee = lead.admissionActivityTouchedByAssignee === true
+      || hasAssigneeActivityHistory(lead, "admissionActivityHistory");
     lead.whatsappGroupStatus = lead.whatsappGroupStatus || "";
     lead.leadNotes = Array.isArray(lead.leadNotes) ? lead.leadNotes : [];
   });
