@@ -1697,6 +1697,18 @@ test("admission SOP progress only counts counselor activity", () => {
   assert.match(styles, /\.lead-tab-panel \.main-admission-details-item dd[\s\S]*?overflow-wrap: anywhere/);
 });
 
+test("admission SOP rows can open lead tabs", () => {
+  const admissionSop = read("admission-sop.js");
+
+  assert.match(admissionSop, /function buildLeadTabUrl\(model = \{\}\)/);
+  assert.match(admissionSop, /function cacheLeadTabSnapshot\(model = \{\}\)/);
+  assert.match(admissionSop, /stage: getLeadTabStage\(model\)/);
+  assert.match(admissionSop, /data-open-tab-key="\$\{escapeHtml\(model\.key\)\}"/);
+  assert.match(admissionSop, /data-lead-tab-url="\$\{escapeHtml\(buildLeadTabUrl\(model\)\)\}"/);
+  assert.match(admissionSop, /cacheLeadTabSnapshot\(model\);/);
+  assert.match(admissionSop, /window\.location\.href = targetUrl;/);
+});
+
 test("lead activity and assignment avoid full-state response after atomic writes", () => {
   const server = read("server.js");
   const leadService = read("lead-service.js");

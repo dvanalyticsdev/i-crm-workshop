@@ -815,6 +815,38 @@ function buildLeadRef(lead) {
   };
 }
 
+function getLeadTabStage(model = {}) {
+  return model.sectionKey === "registered-candidates" || model.sectionKey === "crash-course"
+    ? "registered-course"
+    : "main-admission";
+}
+
+function buildLeadTabUrl(model = {}) {
+  const lead = model.lead || {};
+  const params = new URLSearchParams({
+    leadId: String(lead?.id || "").trim(),
+    leadEmail: String(lead?.email || "").trim().toLowerCase(),
+    stage: getLeadTabStage(model)
+  });
+  return `lead-tab.html?${params.toString()}`;
+}
+
+function cacheLeadTabSnapshot(model = {}) {
+  const lead = model.lead;
+  if (!lead) return;
+  const stage = getLeadTabStage(model);
+  const cacheKey = `dvLeadTabCache:${String(lead?.id || "").trim()}:${String(lead?.email || "").trim().toLowerCase() || "no-email"}:${stage || "auto"}`;
+  try {
+    localStorage.setItem(cacheKey, JSON.stringify({
+      cachedAt: Date.now(),
+      stage,
+      lead
+    }));
+  } catch {
+    // Ignore cache write failures.
+  }
+}
+
 function renderLeadTable(rows = getFilteredRows()) {
   const totalPages = ensureValidPage(rows.length);
   const pageRows = getCurrentPageRowModels(rows);
@@ -890,6 +922,7 @@ function renderLeadTable(rows = getFilteredRows()) {
               <td>${model.sop?.progressAt ? escapeHtml(formatDateTime(model.sop.progressAt)) : '<span class="block-help">No activity yet</span>'}</td>
               <td>
                 <div class="table-actions">
+                  <button type="button" class="btn-primary btn-sm" data-open-tab-key="${escapeHtml(model.key)}" data-lead-tab-url="${escapeHtml(buildLeadTabUrl(model))}">Open Tab</button>
                   <button type="button" class="btn-ghost btn-sm" data-history-key="${escapeHtml(model.key)}">Activity History</button>
                 </div>
               </td>
@@ -959,6 +992,21 @@ function renderLeadTable(rows = getFilteredRows()) {
   document.getElementById("sopBulkAssignBtn")?.addEventListener("click", () => {
     const counselor = String(document.getElementById("sopBulkAssignCounselor")?.value || "").trim();
     void assignSelectedBlockedLeads(counselor);
+  });
+
+  leadTable.querySelectorAll("[data-open-tab-key]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const key = String(button.getAttribute("data-open-tab-key") || "");
+      const model = getAllRowModels().find((item) => item.key === key);
+      const targetUrl = button.getAttribute("data-lead-tab-url");
+      if (!model || !targetUrl) {
+        showToast("Could not open this lead tab. Please refresh and try again.", true);
+        return;
+      }
+      await trackLeadView(model.lead.id, model.lead.email || "").catch(() => undefined);
+      cacheLeadTabSnapshot(model);
+      window.location.href = targetUrl;
+    });
   });
 
   leadTable.querySelectorAll("[data-history-key]").forEach((button) => {
