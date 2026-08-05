@@ -45,6 +45,8 @@ const session = getSession();
 const isAdmin = session?.role === "admin" || session?.role === "super_admin";
 const canUseLeadRowActions = !isAdmin;
 const canCreateTasks = session?.role === "counselor";
+const FIXED_COURSE_LABELS = CRM_FIXED_COURSE_OPTIONS.map((course) => course.label).filter(Boolean);
+const FIXED_COURSE_LABEL_SET = new Set(FIXED_COURSE_LABELS);
 
 const mainAdmissionRoutingPanel = document.getElementById("mainAdmissionRoutingPanel");
 const mainAdmissionRoutingOptions = document.getElementById("mainAdmissionRoutingOptions");
@@ -550,6 +552,34 @@ function getCanonicalCourseIdentity(lead = {}) {
   ]);
 }
 
+function isFixedCrmCourseIdentity(identity = {}) {
+  return Boolean(identity.id && identity.label && FIXED_COURSE_LABEL_SET.has(identity.label));
+}
+
+function getFixedCrmCourseLabel(lead = {}) {
+  const identity = getCanonicalCourseIdentity(lead);
+  return isFixedCrmCourseIdentity(identity) ? identity.label : "";
+}
+
+function getFixedCourseFilterOptions(leads = []) {
+  const available = new Set(
+    (Array.isArray(leads) ? leads : [])
+      .map((lead) => getFixedCrmCourseLabel(lead))
+      .filter(Boolean)
+  );
+  return FIXED_COURSE_LABELS.filter((label) => available.has(label));
+}
+
+function sanitizeFixedCourseFilter(leads = []) {
+  const available = new Set(getFixedCourseFilterOptions(leads));
+  const currentValues = normalizeMultiValueFilter(filter.courseName);
+  const nextValues = currentValues.filter((value) => available.has(value));
+  if (nextValues.length !== currentValues.length) {
+    filter.courseName = nextValues;
+    persistFilters();
+  }
+}
+
 function isCounselorSession() {
   return session?.role === "counselor";
 }
@@ -595,8 +625,13 @@ function normalizeLeadFields(leads) {
     lead.counselor = lead.counselor || "Unassigned";
     const canonicalCourse = getCanonicalCourseIdentity(lead);
     lead.courseRawName = String(lead.courseRawName || lead.courseName || "").trim();
-    lead.courseName = canonicalCourse.label || String(lead.courseName || "").trim();
-    lead.courseKey = canonicalCourse.key || String(lead.courseKey || "").trim();
+    if (isFixedCrmCourseIdentity(canonicalCourse)) {
+      lead.courseName = canonicalCourse.label;
+      lead.courseKey = canonicalCourse.key || String(lead.courseKey || "").trim();
+    } else {
+      lead.courseName = String(lead.courseName || "").trim();
+      lead.courseKey = String(lead.courseKey || "").trim();
+    }
     lead.createdAt = lead.createdAt || toKolkataDateKey();
     lead.mainAdmissionDialed = lead.mainAdmissionDialed || "";
     lead.mainAdmissionCoursePitched = normalizeCrmCourseValue(lead.mainAdmissionCoursePitched, { allowNo: true, preserveUnknown: true });
@@ -1145,7 +1180,7 @@ function renderKpis(leads) {
 function renderFilters(leads) {
   const segmentConfig = getSegmentConfig();
   const counselors = getUniqueValues(leads, "counselor");
-  const courses = getUniqueValues(leads, "courseName");
+  const courses = getFixedCourseFilterOptions(leads);
   const locations = [...new Set(leads.map((lead) => getLeadLocation(lead)).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   const selectedCourses = normalizeMultiValueFilter(filter.courseName);
   const allCoursesSelected = courses.length > 0 && selectedCourses.length === courses.length;
@@ -1576,7 +1611,7 @@ function toggleCourseFilterValue(value) {
 }
 
 function setAllCourseFilters(leads) {
-  const courses = getUniqueValues(leads, "courseName");
+  const courses = getFixedCourseFilterOptions(leads);
   updateCourseFilterSelection(courses);
 }
 
@@ -1671,6 +1706,8 @@ function exportFilteredLeads() {
 function filterLeads(leads) {
   const selectedCourses = normalizeMultiValueFilter(filter.courseName);
   const filtered = filterLeadsByTimeline(leads).filter((lead) => {
+    const fixedCourseLabel = getFixedCrmCourseLabel(lead);
+    if (activeSegment === DEFAULT_SEGMENT && !fixedCourseLabel) return false;
     if (!leadMatchesCounselorActivityDate(lead, filter, {
       historyFields: ["mainAdmissionActivityHistory"],
       activityFields: ["mainAdmissionDialed", "mainAdmissionCoursePitched", "mainAdmissionCourseStatus", "mainAdmissionAdmissionStatus", "mainAdmissionCallStatus"]
@@ -1682,7 +1719,7 @@ function filterLeads(leads) {
     }
     if (filter.counselor && filter.counselor !== lead.counselor) return false;
     if (activeSegment === DEFAULT_SEGMENT) {
-      if (selectedCourses.length && !selectedCourses.includes(lead.courseName)) return false;
+      if (selectedCourses.length && !selectedCourses.includes(fixedCourseLabel)) return false;
     }
     if (filter.location && filter.location !== location) return false;
     if (filter.leadSource && getLeadSourceFilterValue(lead) !== filter.leadSource) return false;
@@ -2786,6 +2823,7 @@ async function renderAll() {
     }
   }
   const allLeads = getScopedLeads(getAllLeads());
+  sanitizeFixedCourseFilter(allLeads);
   const filteredLeads = filterLeads(allLeads);
   renderRegisteredRoutingPanel();
   renderKpis(filteredLeads);

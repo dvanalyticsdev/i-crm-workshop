@@ -950,6 +950,20 @@ test("admission course matcher keeps every catalog course isolated", () => {
   }
 });
 
+test("main admission course filter is limited to fixed CRM courses", () => {
+  const mainAdmission = read("main-admission-leads.js");
+
+  assert.match(mainAdmission, /CRM_FIXED_COURSE_OPTIONS/);
+  assert.match(mainAdmission, /function getFixedCrmCourseLabel\(lead = \{\}\)/);
+  assert.match(mainAdmission, /function getFixedCourseFilterOptions\(leads = \[\]\)/);
+  assert.match(mainAdmission, /const courses = getFixedCourseFilterOptions\(leads\);/);
+  assert.match(mainAdmission, /const courses = getFixedCourseFilterOptions\(leads\);[\s\S]*?updateCourseFilterSelection\(courses\);/);
+  assert.match(mainAdmission, /if \(activeSegment === DEFAULT_SEGMENT && !fixedCourseLabel\) return false;/);
+  assert.match(mainAdmission, /selectedCourses\.length && !selectedCourses\.includes\(fixedCourseLabel\)/);
+  assert.match(mainAdmission, /sanitizeFixedCourseFilter\(allLeads\);/);
+  assert.doesNotMatch(mainAdmission, /const courses = getUniqueValues\(leads, "courseName"\);/);
+});
+
 test("Gen AI workshop campaign names stay in workshop routing", () => {
   const server = read("server.js");
   const source = [
