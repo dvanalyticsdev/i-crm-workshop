@@ -9356,7 +9356,9 @@ function deriveAdmissionSopState(lead, nowValue = Date.now()) {
         ? addNonSundayWorkingDays(anchorAt, ADMISSION_SOP_OFFERED_WINDOW_DAYS)
         : addNonSundayWorkingDays(anchorAt, ADMISSION_SOP_ACTIVE_WINDOW_DAYS))
     : addNonSundayWorkingMs(anchorAt, ADMISSION_SOP_NEW_WINDOW_MS);
-  const remainingMs = Number.isFinite(deadlineTs) ? deadlineTs - nowTs : null;
+  const overrideDeadlineTs = new Date(String(lead?.admissionSopDeadlineOverrideAt || "")).getTime();
+  const effectiveDeadlineTs = Number.isFinite(overrideDeadlineTs) ? overrideDeadlineTs : deadlineTs;
+  const remainingMs = Number.isFinite(effectiveDeadlineTs) ? effectiveDeadlineTs - nowTs : null;
   const blocked = Number.isFinite(remainingMs) ? remainingMs <= 0 : false;
   const elapsedMs = getNonSundayElapsedMs(anchorAt, nowTs);
   const dueSoonThresholdMs = hasStartedProgress
@@ -9380,7 +9382,7 @@ function deriveAdmissionSopState(lead, nowValue = Date.now()) {
     countdownLabel: blocked ? "Blocked" : formatRemainingWorkingTime(remainingMs),
     assignedAt,
     lastProgressAt: progressAnchorAt,
-    deadlineAt: Number.isFinite(deadlineTs) ? new Date(deadlineTs).toISOString() : null,
+    deadlineAt: Number.isFinite(effectiveDeadlineTs) ? new Date(effectiveDeadlineTs).toISOString() : null,
     remainingMs: Number.isFinite(remainingMs) ? remainingMs : null
   };
 }
@@ -13837,6 +13839,88 @@ app.post("/api/leads/:leadId/take-sop", async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ message: "Failed to take SOP lead", details: error.message });
+  }
+});
+
+app.post("/api/leads/sop-unblock", async (req, res) => {
+  try {
+    const session = await requireSuperAdmin(req, res);
+    if (!session) return;
+
+    const leadRefs = Array.isArray(req.body?.leadRefs) ? req.body.leadRefs : [];
+    const rawDays = Math.round(Number(req.body?.days) || 0);
+    const days = Math.max(1, Math.min(365, rawDays));
+    if (!leadRefs.length) {
+      return res.status(400).json({ message: "Lead references are required." });
+    }
+    if (!rawDays || rawDays < 1 || rawDays > 365) {
+      return res.status(400).json({ message: "Custom deadline days must be between 1 and 365." });
+    }
+
+    const identityMatchConditions = buildLiveLeadIdentityMatchConditions(leadRefs);
+    if (!identityMatchConditions.length) {
+      return res.status(400).json({ message: "Valid lead references are required." });
+    }
+
+    const leadsToReview = decorateLeadListForStorage(
+      await leadsCollection.find({ $or: identityMatchConditions }).toArray()
+    );
+    const blockedSopLeads = leadsToReview.filter((lead) => (
+      isAdmissionSopScopedLead(lead) && deriveAdmissionSopState(lead)?.blocked
+    ));
+
+    if (!blockedSopLeads.length) {
+      return res.status(409).json({ message: "No selected blocked SOP leads were eligible to unblock." });
+    }
+
+    const now = new Date().toISOString();
+    const customDeadlineAt = new Date(addNonSundayWorkingDays(now, days)).toISOString();
+    const updatedIds = [];
+
+    for (const lead of blockedSopLeads) {
+      const result = await leadsCollection.updateOne(
+        { id: { $in: getLeadIdCandidates(lead.id) } },
+        {
+          $set: {
+            admissionSopDeadlineOverrideAt: customDeadlineAt,
+            admissionSopUnblockedAt: now,
+            admissionSopUnblockedBy: session.name || session.email || session.role,
+            admissionSopUnblockDays: days,
+            updatedAt: now
+          }
+        }
+      );
+      if (result.matchedCount) {
+        updatedIds.push(lead.id);
+        await recordActivity({
+          leadId: lead.id,
+          leadName: lead.name,
+          counselorName: lead.counselor || "",
+          activityType: "SOP Unblocked",
+          actionDescription: `SOP block removed by Super Admin with ${days} day deadline`,
+          previousValue: deriveAdmissionSopState(lead)?.deadlineAt || "Blocked",
+          newValue: customDeadlineAt,
+          session
+        });
+      }
+    }
+
+    await touchStateUpdatedAt(now);
+    const updatedLeads = decorateLeadListForStorage(
+      await leadsCollection.find({ id: { $in: updatedIds.flatMap((id) => getLeadIdCandidates(id)) } }).toArray()
+    );
+
+    res.setHeader("ETag", buildStateEtag({ updatedAt: now }));
+    return res.json({
+      ok: true,
+      updatedCount: updatedLeads.length,
+      customDeadlineAt,
+      days,
+      leads: updatedLeads,
+      updatedAt: now
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to unblock SOP leads", details: error.message });
   }
 });
 

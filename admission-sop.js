@@ -1,7 +1,7 @@
 import { registerPageCleanup } from "./page-runtime.js";
 import { apiUrl } from "./api-client.js";
 import { bootstrapLocalState, getCounselors, getLeads, getSession, refreshState } from "./state-sync.js";
-import { assignLeads, deleteLeads, formatLeadAssignmentResult, takeSopLead, trackLeadView } from "./lead-service.js";
+import { assignLeads, deleteLeads, formatLeadAssignmentResult, takeSopLead, trackLeadView, unblockSopLeads } from "./lead-service.js";
 import { openActivityHistory } from "./activity-history.js";
 import { isCounselorActivityEntry } from "./counselor-activity-filter.js";
 
@@ -71,6 +71,10 @@ function normalize(value) {
 function isAdminSession() {
   const role = String(getSession()?.role || "").trim().toLowerCase();
   return role === "admin" || role === "super_admin";
+}
+
+function isSuperAdminSession() {
+  return String(getSession()?.role || "").trim().toLowerCase() === "super_admin";
 }
 
 function canViewAllAdmissionLeads() {
@@ -414,7 +418,9 @@ function deriveSopState(lead) {
   const deadlineTs = isNewWindow
     ? addNonSundayWorkingMs(anchorAt, NEW_WINDOW_MS)
     : (isOffered ? addNonSundayWorkingDays(anchorAt, OFFERED_WINDOW_DAYS) : addNonSundayWorkingDays(anchorAt, ACTIVE_WINDOW_DAYS));
-  const remainingMs = Number.isFinite(deadlineTs) ? deadlineTs - Date.now() : null;
+  const overrideDeadlineTs = new Date(String(lead?.admissionSopDeadlineOverrideAt || "")).getTime();
+  const effectiveDeadlineTs = Number.isFinite(overrideDeadlineTs) ? overrideDeadlineTs : deadlineTs;
+  const remainingMs = Number.isFinite(effectiveDeadlineTs) ? effectiveDeadlineTs - Date.now() : null;
   const blocked = Number.isFinite(remainingMs) ? remainingMs <= 0 : false;
   const dueSoonThreshold = isNewWindow ? 12 * 60 * 60 * 1000 : (isOffered ? 5 : 3) * 24 * 60 * 60 * 1000;
 
@@ -423,7 +429,7 @@ function deriveSopState(lead) {
     stageLabel: isNewWindow ? "New window" : (isOffered ? "Opportunity / Offered" : "Active management"),
     blocked,
     isDueSoon: !blocked && remainingMs !== null && remainingMs <= dueSoonThreshold,
-    deadlineAt: Number.isFinite(deadlineTs) ? new Date(deadlineTs).toISOString() : null,
+    deadlineAt: Number.isFinite(effectiveDeadlineTs) ? new Date(effectiveDeadlineTs).toISOString() : null,
     remainingMs,
     remainingLabel: blocked ? "Blocked" : formatRemainingTime(remainingMs),
     assignedAt,
@@ -893,6 +899,10 @@ function renderLeadTable(rows = getFilteredRows()) {
             ${getAssignableCounselors().map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("")}
           </select>
           <button type="button" class="btn-ghost bulk-action-btn" id="sopBulkAssignBtn" ${selectedBlockedRows.length ? "" : "disabled"}>Assign Selected</button>
+          ${isSuperAdminSession() ? `
+            <input type="number" id="sopUnblockDaysInput" class="bulk-count-input" min="1" max="365" placeholder="Days" ${selectedBlockedRows.length ? "" : "disabled"} />
+            <button type="button" class="btn-ghost bulk-action-btn" id="sopBulkUnblockBtn" ${selectedBlockedRows.length ? "" : "disabled"}>Unblock Selected</button>
+          ` : ""}
           <button type="button" class="btn-delete bulk-delete-btn" id="sopBulkDeleteBtn" ${selectedBlockedRows.length ? "" : "disabled"}>Delete Selected</button>
         </div>
       </div>
@@ -1009,6 +1019,10 @@ function renderLeadTable(rows = getFilteredRows()) {
     const counselor = String(document.getElementById("sopBulkAssignCounselor")?.value || "").trim();
     void assignSelectedBlockedLeads(counselor);
   });
+  document.getElementById("sopBulkUnblockBtn")?.addEventListener("click", () => {
+    const days = Number(document.getElementById("sopUnblockDaysInput")?.value || 0);
+    void unblockSelectedBlockedLeads(days);
+  });
 
   leadTable.querySelectorAll("[data-open-tab-key]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -1117,6 +1131,42 @@ async function assignSelectedBlockedLeads(counselorName) {
   await loadScopedAdmissionSopData().catch(() => refreshState().catch(() => undefined));
   render();
   showToast(assignmentSummary.message, assignmentSummary.assignedCount === 0);
+}
+
+async function unblockSelectedBlockedLeads(days) {
+  if (!isSuperAdminSession()) return;
+
+  const selectedRows = getCurrentPageRowModels(getFilteredRows())
+    .filter((row) => selectedBlockedLeadKeys.has(row.pageSelectionKey) && row.sop?.blocked);
+  if (!selectedRows.length) {
+    showToast("Select at least one blocked lead to unblock.", true);
+    return;
+  }
+
+  const customDays = Math.round(Number(days) || 0);
+  if (!customDays || customDays < 1 || customDays > 365) {
+    showToast("Enter custom deadline days between 1 and 365.", true);
+    return;
+  }
+
+  const confirmed = window.confirm(`Unblock ${selectedRows.length} selected lead${selectedRows.length === 1 ? "" : "s"} with a ${customDays} day SOP deadline?`);
+  if (!confirmed) {
+    return;
+  }
+
+  const result = await unblockSopLeads(
+    selectedRows.map((row) => buildLeadRef(row.lead)),
+    customDays
+  );
+  if (!result?.ok) {
+    showToast(result?.message || "Failed to unblock selected SOP leads.", true);
+    return;
+  }
+
+  selectedBlockedLeadKeys = new Set();
+  await loadScopedAdmissionSopData().catch(() => refreshState().catch(() => undefined));
+  render();
+  showToast(`Unblocked ${result.updatedCount || selectedRows.length} lead${Number(result.updatedCount || selectedRows.length) === 1 ? "" : "s"} with a ${customDays} day deadline.`);
 }
 
 function render() {

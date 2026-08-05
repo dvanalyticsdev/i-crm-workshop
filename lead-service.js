@@ -100,6 +100,13 @@ export function takeSopLead(leadId, leadEmail = "") {
   });
 }
 
+export function unblockSopLeads(leadRefs, days) {
+  return requestJson("/api/leads/sop-unblock", {
+    method: "POST",
+    body: JSON.stringify({ leadRefs, days })
+  });
+}
+
 export function formatLeadAssignmentResult(result, requestedCount, counselor) {
   const assignedCount = Number(
     result?.assignedCount
