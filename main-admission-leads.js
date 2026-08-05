@@ -43,10 +43,12 @@ await bootstrapLocalState({ skipStateRefresh: true });
 
 const session = getSession();
 const isAdmin = session?.role === "admin" || session?.role === "super_admin";
+const canFilterByCounselor = isAdmin || session?.role === "manager";
 const canUseLeadRowActions = !isAdmin;
 const canCreateTasks = session?.role === "counselor" || session?.role === "manager";
 const FIXED_COURSE_LABELS = CRM_FIXED_COURSE_OPTIONS.map((course) => course.label).filter(Boolean);
 const FIXED_COURSE_LABEL_SET = new Set(FIXED_COURSE_LABELS);
+const OTHER_COURSE_FILTER_LABEL = "Others";
 
 const mainAdmissionRoutingPanel = document.getElementById("mainAdmissionRoutingPanel");
 const mainAdmissionRoutingOptions = document.getElementById("mainAdmissionRoutingOptions");
@@ -100,7 +102,7 @@ const DEFAULT_FILTER = {
   endDate: "",
   ...COUNSELOR_ACTIVITY_DATE_DEFAULTS,
   search: "",
-  leadOwner: isCounselorSession() ? "direct" : "all",
+  leadOwner: session?.role === "manager" ? "all" : isCounselorSession() ? "direct" : "all",
   counselor: "",
   courseName: [],
   leadSource: "",
@@ -561,13 +563,19 @@ function getFixedCrmCourseLabel(lead = {}) {
   return isFixedCrmCourseIdentity(identity) ? identity.label : "";
 }
 
+function hasOtherCourseForMainAdmission(lead = {}) {
+  return !getFixedCrmCourseLabel(lead);
+}
+
 function getFixedCourseFilterOptions(leads = []) {
   const available = new Set(
     (Array.isArray(leads) ? leads : [])
       .map((lead) => getFixedCrmCourseLabel(lead))
       .filter(Boolean)
   );
-  return FIXED_COURSE_LABELS.filter((label) => available.has(label));
+  const options = FIXED_COURSE_LABELS.filter((label) => available.has(label));
+  const hasOtherCourse = (Array.isArray(leads) ? leads : []).some((lead) => hasOtherCourseForMainAdmission(lead));
+  return hasOtherCourse ? [...options, OTHER_COURSE_FILTER_LABEL] : options;
 }
 
 function sanitizeFixedCourseFilter(leads = []) {
@@ -1233,7 +1241,7 @@ function renderFilters(leads) {
             <option value="reassigned" ${filter.leadOwner === "reassigned" ? "selected" : ""}>Assigned From Someone Else</option>
           </select>
         </div>
-        ${isAdmin ? `
+        ${canFilterByCounselor ? `
         <div class="filter-item">
           <label for="mainAdmissionCounselorSelect">Counselor</label>
           <select id="mainAdmissionCounselorSelect">
@@ -1458,7 +1466,7 @@ function renderFilters(leads) {
     currentPage = 1;
     renderAll();
   };
-  if (isAdmin) {
+  if (canFilterByCounselor) {
     document.getElementById("mainAdmissionCounselorSelect").onchange = (event) => {
       filter.counselor = event.target.value;
       persistFilters();
@@ -1707,7 +1715,6 @@ function filterLeads(leads) {
   const selectedCourses = normalizeMultiValueFilter(filter.courseName);
   const filtered = filterLeadsByTimeline(leads).filter((lead) => {
     const fixedCourseLabel = getFixedCrmCourseLabel(lead);
-    if (activeSegment === DEFAULT_SEGMENT && !fixedCourseLabel) return false;
     if (!leadMatchesCounselorActivityDate(lead, filter, {
       historyFields: ["mainAdmissionActivityHistory"],
       activityFields: ["mainAdmissionDialed", "mainAdmissionCoursePitched", "mainAdmissionCourseStatus", "mainAdmissionAdmissionStatus", "mainAdmissionCallStatus"]
@@ -1719,7 +1726,10 @@ function filterLeads(leads) {
     }
     if (filter.counselor && filter.counselor !== lead.counselor) return false;
     if (activeSegment === DEFAULT_SEGMENT) {
-      if (selectedCourses.length && !selectedCourses.includes(fixedCourseLabel)) return false;
+      if (selectedCourses.length) {
+        const courseFilterValue = fixedCourseLabel || OTHER_COURSE_FILTER_LABEL;
+        if (!selectedCourses.includes(courseFilterValue)) return false;
+      }
     }
     if (filter.location && filter.location !== location) return false;
     if (filter.leadSource && getLeadSourceFilterValue(lead) !== filter.leadSource) return false;

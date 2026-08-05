@@ -659,7 +659,7 @@ function renderKpis(rows = getFilteredRows()) {
 }
 
 function renderFilters(rows = getAllRowModels()) {
-  const counselorOptions = isAdminSession()
+  const counselorOptions = canViewAllAdmissionLeads()
     ? `<label>
         Counselor
         <select id="sopCounselorFilter">
