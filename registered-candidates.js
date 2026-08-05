@@ -33,7 +33,7 @@ await bootstrapLocalState({ skipStateRefresh: true });
 const session = getSession();
 const isAdmin = session?.role === "admin" || session?.role === "super_admin";
 const canUseLeadRowActions = !isAdmin;
-const canCreateTasks = session?.role === "counselor";
+const canCreateTasks = session?.role === "counselor" || session?.role === "manager";
 
 const registeredRoutingPanel = document.getElementById("registeredRoutingPanel");
 const registeredRoutingOptions = document.getElementById("registeredRoutingOptions");
@@ -430,7 +430,7 @@ function getCanonicalCourseIdentity(lead = {}) {
 }
 
 function isCounselorSession() {
-  return session?.role === "counselor";
+  return session?.role === "counselor" || session?.role === "manager";
 }
 
 function getCounselorIdentity() {
@@ -597,7 +597,7 @@ function setRoutingMessage(message, isError = false) {
 }
 
 function getScopedLeads(leads) {
-  if (!isCounselorSession()) {
+  if (!isCounselorSession() || session?.role === "manager") {
     return leads;
   }
 

@@ -40,7 +40,7 @@ if (lostSearchInput) {
 }
 
 function isCounselorSession() {
-  return session?.role === "counselor";
+  return session?.role === "counselor" || session?.role === "manager";
 }
 
 function canViewArchivedLeads() {
@@ -87,7 +87,7 @@ function toLocalDateKey(date = new Date()) {
 }
 
 function getScopedLeads(allLeads) {
-  if (!isCounselorSession()) {
+  if (!isCounselorSession() || session?.role === "manager") {
     return allLeads;
   }
 

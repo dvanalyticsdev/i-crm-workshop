@@ -287,6 +287,7 @@ function getCounselors() {
   return getStoredCounselors().map((item) => ({
     ...item,
     email: String(item.email || "").toLowerCase(),
+    role: String(item.role || "counselor").trim().toLowerCase() === "manager" ? "manager" : "counselor",
     branch: normalizeBranch(item.branch),
     admissionCoursePermissions: normalizeCoursePermissions(item.admissionCoursePermissions),
     permissions: clonePermissions(item.permissions)
@@ -651,6 +652,42 @@ async function removeCounselor(counselorId) {
   renderPermissionControlPanel();
 }
 
+async function toggleManagerRole(counselorId) {
+  const counselors = getCounselors();
+  const target = counselors.find((item) => item.id === counselorId);
+  if (!target) {
+    setCounselorMessage("Counselor not found.", true);
+    return;
+  }
+
+  const promote = target.role !== "manager";
+  const confirmed = window.confirm(`${promote ? "Promote" : "Move"} ${target.name} ${promote ? "to Manager" : "back to Counselor"}?`);
+  if (!confirmed) {
+    return;
+  }
+
+  const nextCounselors = counselors.map((item) => (
+    item.id === counselorId
+      ? { ...item, role: promote ? "manager" : "counselor" }
+      : item
+  ));
+  const result = await saveCounselors(nextCounselors);
+  if (!result || result.ok === false) {
+    setCounselorMessage(result?.message || "Failed to update counselor role.", true);
+    return;
+  }
+
+  const syncResult = await syncStateFromLocalAndVerify();
+  if (!syncResult.ok) {
+    setCounselorMessage(syncResult.message || "Backend confirmation failed after updating role.", true);
+    return;
+  }
+
+  setCounselorMessage(`${target.name} is now a ${promote ? "Manager" : "Counselor"}.`, false);
+  renderCounselorList();
+  renderPermissionControlPanel();
+}
+
 async function removeAdminUser(userId) {
   if (!isSuperAdminSession) {
     setAdminMessage("You do not have permission to remove admin accounts.", true);
@@ -698,7 +735,8 @@ function openUserDetailsModal({ userType, user }) {
 
   activeDetailsUser = { userType, userId: user.id };
   const isCounselor = userType === "counselor";
-  const roleLabel = isCounselor ? "Counselor" : "Admin";
+  const accountRole = isCounselor && user.role === "manager" ? "Manager" : isCounselor ? "Counselor" : "Admin";
+  const roleLabel = accountRole;
   const sourceLabel = hasSavedPermissionOverride(user) ? "Saved override" : "Current fallback";
 
   userDetailsTitle.textContent = user.name || "User";
@@ -712,6 +750,7 @@ function openUserDetailsModal({ userType, user }) {
           title: "Profile",
           rows: [
             ["Name", user.name],
+            ["Role", accountRole],
             ["Email", user.email],
             ["Phone Number", user.phone],
             ["Branch Location", normalizeBranch(user.branch)]
@@ -755,6 +794,7 @@ function openUserDetailsModal({ userType, user }) {
 
   userDetailsActions.innerHTML = `
     <button type="button" class="btn-primary" id="userDetailsEditBtn">Edit ${escapeHtml(roleLabel)}</button>
+    ${isCounselor ? `<button type="button" class="btn-ghost" id="userDetailsRoleBtn">${user.role === "manager" ? "Move to Counselor" : "Promote to Manager"}</button>` : ""}
     <button type="button" class="btn-ghost" id="userDetailsPasswordBtn">Change Password</button>
     <button type="button" class="btn-ghost" id="userDetailsRemoveBtn">Remove</button>
   `;
@@ -770,6 +810,10 @@ function openUserDetailsModal({ userType, user }) {
       userId: user.id,
       name: user.name
     });
+  });
+  document.getElementById("userDetailsRoleBtn")?.addEventListener("click", () => {
+    closeUserDetailsModal();
+    void toggleManagerRole(user.id);
   });
   document.getElementById("userDetailsRemoveBtn")?.addEventListener("click", () => {
     closeUserDetailsModal();
@@ -790,6 +834,7 @@ function renderManagementSummary() {
 
   const counselors = getCounselors();
   const admins = getAdminUsers();
+  const managerCount = counselors.filter((item) => item.role === "manager").length;
   const branchCounts = BRANCH_OPTIONS.map((branch) => ({
     branch,
     count: counselors.filter((item) => normalizeBranch(item.branch) === branch).length
@@ -805,6 +850,10 @@ function renderManagementSummary() {
     <article class="card management-summary-card">
       <p>Total Counselors</p>
       <h2>${counselors.length}</h2>
+    </article>
+    <article class="card management-summary-card">
+      <p>Managers</p>
+      <h2>${managerCount}</h2>
     </article>
     ${branchCounts.map((item) => `
       <article class="card management-summary-card">
@@ -831,6 +880,7 @@ function renderCounselorList() {
       counselor.email,
       counselor.phone,
       counselor.branch,
+      counselor.role === "manager" ? "manager" : "counselor",
       coursePermissionText(counselor.admissionCoursePermissions),
       permissionText("counselor", counselor)
     ].join(" ").toLowerCase();
@@ -846,6 +896,7 @@ function renderCounselorList() {
             data-counselor-id="${escapeHtml(counselor.id)}"
           >
             <span class="management-name-card__title">${escapeHtml(counselor.name)}</span>
+            <span class="management-name-card__meta">${counselor.role === "manager" ? "Manager" : "Counselor"}</span>
             <span class="management-name-card__meta">${escapeHtml(counselor.email)}</span>
             <span class="management-name-card__meta">${escapeHtml(normalizeBranch(counselor.branch))} branch</span>
           </button>

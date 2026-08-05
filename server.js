@@ -168,6 +168,13 @@ const COUNSELOR_DEFAULT_PAGE_ACCESS = Object.freeze({
   performanceLogs: false,
   postWorkshop: true
 });
+const MANAGER_DEFAULT_PAGE_ACCESS = Object.freeze({
+  ...COUNSELOR_DEFAULT_PAGE_ACCESS,
+  counselorManagement: false,
+  leadControl: false,
+  leadFlowControl: false,
+  performanceLogs: false
+});
 const MARKETING_DEFAULT_PAGE_ACCESS = Object.freeze({
   ...FULL_PAGE_ACCESS,
   counselorManagement: false,
@@ -7745,7 +7752,7 @@ app.all("/api/mcube/call-routing", async (req, res) => {
 
 app.post("/api/mcube/click-to-call", async (req, res) => {
   try {
-    const session = await requireRole(req, res, ["admin", "counselor"]);
+    const session = await requireRole(req, res, ["admin", "counselor", "manager"]);
     if (!session) return;
 
     const config = await getMcubeConfig();
@@ -7767,6 +7774,9 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
     const targetPhone = normalizeMcubeDialNumber(phone || lead?.phone || "");
     if (!targetPhone) {
       return res.status(400).json({ message: "A target phone number is required." });
+    }
+    if (isCounselorLikeSession(session) && lead && !canMutateLead(session, state, lead)) {
+      return res.status(403).json({ message: "Only the assigned counselor can call this lead." });
     }
 
     const counselorName = String(lead?.counselor || session.name || "").trim();
@@ -8384,7 +8394,7 @@ app.post("/api/reachout/whatsapp/webhook", async (req, res) => {
 
 app.get("/api/activity-history/lead-ids", async (req, res) => {
   try {
-    const session = await requireRole(req, res, ["admin", "counselor"]);
+    const session = await requireRole(req, res, ["admin", "counselor", "manager"]);
     if (!session) return;
 
     await initMongo();
@@ -10899,6 +10909,11 @@ function isAdminLikeSession(session) {
   return role === "admin" || role === "super_admin";
 }
 
+function isCounselorLikeSession(session) {
+  const role = String(session?.role || "").trim().toLowerCase();
+  return role === "counselor" || role === "manager";
+}
+
 function getSessionPagePermissions(session = {}) {
   const role = String(session.role || "").trim().toLowerCase();
   if (role === "super_admin") {
@@ -10909,6 +10924,15 @@ function getSessionPagePermissions(session = {}) {
   }
   if (role === "marketing") {
     return normalizePagePermissions(session.permissions || {}, MARKETING_DEFAULT_PAGE_ACCESS);
+  }
+  if (role === "manager") {
+    return {
+      ...normalizePagePermissions(session.permissions || {}, MANAGER_DEFAULT_PAGE_ACCESS),
+      counselorManagement: false,
+      leadControl: false,
+      leadFlowControl: false,
+      performanceLogs: false
+    };
   }
   if (role === "counselor") {
     return normalizePagePermissions(session.permissions || {}, COUNSELOR_DEFAULT_PAGE_ACCESS);
@@ -11022,7 +11046,7 @@ function findLeadByIdentity(state, leadId, leadEmail = "") {
 }
 
 function getSessionCounselorName(state, session) {
-  if (session?.role !== "counselor") {
+  if (!isCounselorLikeSession(session)) {
     return "";
   }
 
@@ -11041,7 +11065,7 @@ function getLeadMutationRestrictionMessage(session, state, lead) {
     return "";
   }
 
-  if (session?.role !== "counselor") {
+  if (!isCounselorLikeSession(session)) {
     return "Only the assigned counselor can update this lead.";
   }
 
@@ -11067,7 +11091,7 @@ function canViewLeadActivity(session, state, lead) {
   if (isAdminLikeSession(session)) {
     return true;
   }
-  if (session?.role === "counselor") {
+  if (isCounselorLikeSession(session)) {
     const counselorName = getSessionCounselorName(state, session).toLowerCase();
     const leadCounselor = String(lead?.counselor || "").trim().toLowerCase();
     return !!counselorName && leadCounselor === counselorName;
@@ -11138,7 +11162,7 @@ function isLeadProtectedFromBulkAssignment(lead) {
 }
 
 function getLeadActivityAssigneePatch(stage, session) {
-  if (session?.role !== "counselor") {
+  if (!isCounselorLikeSession(session)) {
     return {};
   }
 
@@ -11510,7 +11534,7 @@ function getTaskCategoryLabel(category) {
 }
 
 async function createDueTaskNotificationsForSession(session, state) {
-  if (!session || session.role !== "counselor") {
+  if (!session || !isCounselorLikeSession(session)) {
     return;
   }
 
@@ -11583,7 +11607,7 @@ function canMutateTask(session, state, task) {
     return true;
   }
 
-  if (session?.role !== "counselor") {
+  if (!isCounselorLikeSession(session)) {
     return false;
   }
 
@@ -11598,7 +11622,7 @@ function getScopedTasksForSession(tasks, counselors, session) {
   if (isAdminLikeSession(session)) {
     return safeTasks;
   }
-  if (session?.role !== "counselor") {
+  if (!isCounselorLikeSession(session)) {
     return [];
   }
 
@@ -11751,16 +11775,20 @@ app.post("/api/auth/login", async (req, res) => {
       return res.json({ session, landing: "dashboard.html" });
     }
 
-    if (role !== "counselor") {
+    if (role !== "counselor" && role !== "manager") {
       return res.status(400).json({ message: "Unsupported role." });
     }
 
     const state = await getStateDoc();
     const counselors = Array.isArray(state.counselors) ? state.counselors : [];
     const email = identifier.toLowerCase();
-    const counselor = counselors.find(
-      (item) => String(item.email || "").trim().toLowerCase() === email && String(item.password || "") === password
-    );
+    const counselor = counselors.find((item) => {
+      const accountRole = String(item.role || "counselor").trim().toLowerCase();
+      const effectiveRole = accountRole === "manager" ? "manager" : "counselor";
+      return effectiveRole === role
+        && String(item.email || "").trim().toLowerCase() === email
+        && String(item.password || "") === password;
+    });
 
     if (!counselor) {
       if (!counselors.length) {
@@ -11772,10 +11800,19 @@ app.post("/api/auth/login", async (req, res) => {
       return res.status(401).json({ message: "Invalid credentials for selected role." });
     }
 
-    const permissions = {
-      ...COUNSELOR_DEFAULT_PAGE_ACCESS,
-      ...(counselor.permissions || {})
-    };
+    const permissions = role === "manager"
+      ? {
+          ...MANAGER_DEFAULT_PAGE_ACCESS,
+          ...(counselor.permissions || {}),
+          counselorManagement: false,
+          leadControl: false,
+          leadFlowControl: false,
+          performanceLogs: false
+        }
+      : {
+          ...COUNSELOR_DEFAULT_PAGE_ACCESS,
+          ...(counselor.permissions || {})
+        };
 
     const session = await persistSession(res, {
       role,
@@ -12294,7 +12331,7 @@ app.post("/api/auth/change-password", async (req, res) => {
         { $set: { marketingUsers: nextMarketingUsers, updatedAt: now } },
         { upsert: true }
       );
-    } else if (session.role === "counselor") {
+    } else if (isCounselorLikeSession(session)) {
       const counselors = Array.isArray(state.counselors) ? state.counselors : [];
       const nextCounselors = counselors.map((user) => ({ ...user }));
       const index = nextCounselors.findIndex((user) => String(user.email || "").trim().toLowerCase() === String(session.email || "").trim().toLowerCase());
@@ -12671,7 +12708,7 @@ function serializeLeadClaim(claim = {}) {
 
 function isClaimVisibleToSession(claim, session) {
   if (isAdminLikeSession(session)) return true;
-  if (session?.role !== "counselor") return false;
+  if (!isCounselorLikeSession(session)) return false;
 
   const email = String(session?.email || "").trim().toLowerCase();
   const name = String(session?.name || "").trim().toLowerCase();
@@ -12724,7 +12761,7 @@ function isLeadCreationRequestVisibleToSession(request, session) {
   if (isAdminLikeSession(session)) {
     return !request.clearedByAdmin;
   }
-  if (session?.role !== "counselor") {
+  if (!isCounselorLikeSession(session)) {
     return false;
   }
 
@@ -12998,7 +13035,7 @@ app.post("/api/notifications/read", async (req, res) => {
 
 app.patch("/api/main-admission-leads/:leadId/details", async (req, res) => {
   try {
-    const session = await requireRole(req, res, ["admin", "counselor"]);
+    const session = await requireRole(req, res, ["admin", "counselor", "manager"]);
     if (!session) return;
 
     const leadId = req.params.leadId;
@@ -13095,7 +13132,7 @@ app.patch("/api/main-admission-leads/:leadId/details", async (req, res) => {
 
 app.post("/api/leads/:leadId/activity", async (req, res) => {
   try {
-    const session = await requireRole(req, res, ["admin", "counselor"]);
+    const session = await requireRole(req, res, ["admin", "counselor", "manager"]);
     if (!session) return;
 
     const leadId = req.params.leadId;
@@ -13318,7 +13355,7 @@ app.post("/api/leads/:leadId/activity", async (req, res) => {
 
 app.post("/api/leads/:leadId/notes", async (req, res) => {
   try {
-    const session = await requireRole(req, res, ["admin", "counselor"]);
+    const session = await requireRole(req, res, ["admin", "counselor", "manager"]);
     if (!session) return;
 
     const leadId = req.params.leadId;
@@ -13386,7 +13423,7 @@ app.post("/api/leads/:leadId/notes", async (req, res) => {
 
 app.delete("/api/leads/:leadId/notes/:noteIndex", async (req, res) => {
   try {
-    const session = await requireRole(req, res, ["admin", "counselor"]);
+    const session = await requireRole(req, res, ["admin", "counselor", "manager"]);
     if (!session) return;
 
     const leadId = req.params.leadId;
@@ -13723,9 +13760,89 @@ async function assignLeadsHandler(req, res) {
 app.patch("/api/leads/assignment", assignLeadsHandler);
 app.post("/api/leads/assignment", assignLeadsHandler);
 
+app.post("/api/leads/:leadId/take-sop", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, "manager");
+    if (!session) return;
+
+    const leadId = String(req.params?.leadId || "").trim();
+    const leadEmail = String(req.body?.leadEmail || "").trim().toLowerCase();
+    if (!leadId) {
+      return res.status(400).json({ message: "Lead id is required." });
+    }
+
+    const state = await getStateDoc();
+    const managerName = getSessionCounselorName(state, session);
+    if (!managerName) {
+      return res.status(403).json({ message: "Manager account details are required to take SOP leads." });
+    }
+
+    const lead = findLeadByIdentity(state, leadId, leadEmail);
+    if (!lead) {
+      return res.status(404).json({ message: "Lead not found." });
+    }
+    if (!isAdmissionSopScopedLead(lead)) {
+      return res.status(400).json({ message: "Only admission SOP leads can be taken by a manager." });
+    }
+
+    const sopState = deriveAdmissionSopState(lead);
+    if (!sopState?.blocked) {
+      return res.status(409).json({ message: "This lead is not currently out of SOP." });
+    }
+
+    const oldCounselor = String(lead.counselor || "").trim();
+    if (oldCounselor.toLowerCase() === managerName.toLowerCase()) {
+      return res.status(409).json({ message: "This lead is already assigned to you." });
+    }
+
+    const now = new Date().toISOString();
+    const updateResult = await leadsCollection.updateOne(
+      {
+        id: { $in: getLeadIdCandidates(lead.id) },
+        ...(leadEmail ? { email: leadEmail } : {})
+      },
+      { $set: getLeadAssignmentResetPatch(lead, managerName, now) }
+    );
+    if (!updateResult.matchedCount) {
+      return res.status(409).json({ message: "Lead changed before it could be taken. Please reload and retry." });
+    }
+
+    const hasOldCounselor = oldCounselor && oldCounselor.toLowerCase() !== "unassigned";
+    await recordActivity({
+      leadId: lead.id,
+      leadName: lead.name,
+      counselorName: managerName,
+      activityType: hasOldCounselor ? "Lead Reassigned" : "Lead Assigned",
+      actionDescription: hasOldCounselor
+        ? `SOP-blocked lead taken by manager ${managerName} from ${oldCounselor}`
+        : `SOP-blocked lead taken by manager ${managerName}`,
+      previousValue: oldCounselor || "Unassigned",
+      newValue: managerName,
+      session
+    });
+
+    await touchStateUpdatedAt(now);
+    const updatedLead = await leadsCollection.findOne({
+      id: { $in: getLeadIdCandidates(lead.id) },
+      ...(leadEmail ? { email: leadEmail } : {})
+    });
+    const [decoratedLead] = decorateLeadListForStorage(updatedLead ? [updatedLead] : []);
+
+    res.setHeader("ETag", buildStateEtag({ updatedAt: now }));
+    return res.json({
+      ok: true,
+      lead: decoratedLead || null,
+      updatedAt: now,
+      message: `Lead assigned to ${managerName}.`
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to take SOP lead", details: error.message });
+  }
+});
+
 app.get("/api/lead-creation-requests", async (req, res) => {
   try {
-    const session = await requireRole(req, res, ["admin", "counselor"]);
+    const session = await requireRole(req, res, ["admin", "counselor", "manager"]);
     if (!session) return;
 
     const requests = await leadCreationRequestsCollection.find({}).sort({ createdAt: -1 }).toArray();
@@ -13742,7 +13859,7 @@ app.get("/api/lead-creation-requests", async (req, res) => {
 
 app.delete("/api/lead-creation-requests", async (req, res) => {
   try {
-    const session = await requireRole(req, res, ["admin", "counselor"]);
+    const session = await requireRole(req, res, ["admin", "counselor", "manager"]);
     if (!session) return;
 
     const now = new Date().toISOString();
@@ -13763,7 +13880,7 @@ app.delete("/api/lead-creation-requests", async (req, res) => {
 
 app.post("/api/lead-creation-requests", async (req, res) => {
   try {
-    const session = await requireRole(req, res, "counselor");
+    const session = await requireRole(req, res, ["counselor", "manager"]);
     if (!session) return;
 
     const state = await getStateDoc();
@@ -13779,7 +13896,7 @@ app.post("/api/lead-creation-requests", async (req, res) => {
     const notes = String(req.body?.notes || "").trim();
 
     if (!requesterName || !requesterEmail) {
-      return res.status(403).json({ message: "Counselor account details are required to request lead creation." });
+      return res.status(403).json({ message: "Account details are required to create a lead." });
     }
     if (!name || !phone) {
       return res.status(400).json({ message: "Lead name and phone are required." });
@@ -13791,24 +13908,10 @@ app.post("/api/lead-creation-requests", async (req, res) => {
       return res.status(400).json({ message: "Course name is required for main admission calling requests." });
     }
 
-    const pendingRequests = await leadCreationRequestsCollection.find({
-      requesterEmail,
-      status: "pending"
-    }).toArray();
-    const duplicatePending = (Array.isArray(pendingRequests) ? pendingRequests : []).find((request) => {
-      const normalized = normalizeLeadCreationRequestDoc(request);
-      const sameEmail = email && normalized.email === email;
-      const samePhone = normalizeLeadPhone(normalized.phone) && normalizeLeadPhone(normalized.phone) === normalizeLeadPhone(phone);
-      return normalized.pipeline === pipeline && (sameEmail || samePhone);
-    });
-    if (duplicatePending) {
-      return res.status(409).json({ message: "You already have a pending lead creation request for this contact." });
-    }
-
     const now = new Date().toISOString();
     const requestDoc = normalizeLeadCreationRequestDoc({
       id: `lead-request-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`,
-      status: "pending",
+      status: "approved",
       pipeline,
       name,
       email,
@@ -13820,22 +13923,57 @@ app.post("/api/lead-creation-requests", async (req, res) => {
       requesterName,
       requesterEmail,
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
+      decidedAt: now,
+      decidedBy: session.name || session.email || session.role
     });
 
+    const nextId = await getNextMetaLeadId();
+    const leadDraft = buildApprovedLeadFromCreationRequest(requestDoc, nextId, now);
+    const duplicateLead = findLeadCreationDuplicate(state.leads, leadDraft);
+    if (duplicateLead) {
+      return res.status(409).json({
+        message: "A matching lead already exists in this calling section.",
+        leadId: duplicateLead.id || null
+      });
+    }
+
+    await withMongoRetry(
+      () => leadsCollection.insertOne(leadDraft),
+      { retries: 1, label: "Create counselor lead directly" }
+    );
+    await recordActivity({
+      leadId: leadDraft.id,
+      leadName: leadDraft.name,
+      counselorName: leadDraft.counselor || "",
+      activityType: "Lead Created",
+      actionDescription: `Lead created directly by ${session.role} after duplicate validation for ${getLeadCreationTargetLabel(requestDoc)}`,
+      newValue: `Name: ${leadDraft.name}, Phone: ${leadDraft.phone}, Email: ${leadDraft.email}`,
+      session
+    });
+    if (leadDraft.counselor && leadDraft.counselor.toLowerCase() !== "unassigned") {
+      await recordActivity({
+        leadId: leadDraft.id,
+        leadName: leadDraft.name,
+        counselorName: leadDraft.counselor,
+        activityType: "Lead Assigned",
+        actionDescription: `Lead initially assigned to creator ${leadDraft.counselor}`,
+        newValue: leadDraft.counselor,
+        session
+      });
+    }
+    requestDoc.requestedLeadId = String(leadDraft.id);
     await leadCreationRequestsCollection.insertOne(requestDoc);
-    await createNotification({
-      userId: "admin",
-      role: "admin",
-      type: "lead_creation_requested",
-      title: "Lead Creation Request",
-      message: `${requesterName} requested a new ${getLeadCreationTargetLabel(requestDoc)} lead for ${name}.`,
-      sound: true,
-      leadName: name,
-      toCounselor: requesterName
-    });
+    await touchStateUpdatedAt(now);
+    const nextState = await refreshStateAfterAtomicUpdate();
+    res.setHeader("ETag", buildStateEtag(nextState));
 
-    return res.status(201).json({ ok: true, request: serializeLeadCreationRequest(requestDoc) });
+    return res.status(201).json({
+      ok: true,
+      request: serializeLeadCreationRequest(requestDoc),
+      lead: leadDraft,
+      state: buildStateResponse(nextState)
+    });
   } catch (error) {
     return res.status(500).json({ message: "Failed to submit lead creation request", details: error.message });
   }
@@ -13952,7 +14090,7 @@ app.patch("/api/lead-creation-requests/:requestId/decision", async (req, res) =>
 
 app.get("/api/lead-claims", async (req, res) => {
   try {
-    const session = await requireRole(req, res, ["admin", "counselor"]);
+    const session = await requireRole(req, res, ["admin", "counselor", "manager"]);
     if (!session) return;
 
     const claims = await leadClaimsCollection.find({}).sort({ createdAt: -1 }).toArray();
@@ -14094,7 +14232,7 @@ app.post("/api/lead-claims", async (req, res) => {
 
 app.patch("/api/lead-claims/:claimId/decision", async (req, res) => {
   try {
-    const session = await requireRole(req, res, ["admin", "counselor"]);
+    const session = await requireRole(req, res, ["admin", "counselor", "manager"]);
     if (!session) return;
 
     const claimId = String(req.params.claimId || "").trim();
@@ -14258,7 +14396,7 @@ app.patch("/api/lead-claims/:claimId/decision", async (req, res) => {
 
 app.get("/api/tasks", async (req, res) => {
   try {
-    const session = await requireRole(req, res, ["admin", "counselor"]);
+    const session = await requireRole(req, res, ["admin", "counselor", "manager"]);
     if (!session) return;
 
     const [tasks, counselors] = await Promise.all([
@@ -14285,7 +14423,7 @@ app.get("/api/tasks", async (req, res) => {
 
 app.post("/api/tasks", async (req, res) => {
   try {
-    const session = await requireRole(req, res, ["admin", "counselor"]);
+    const session = await requireRole(req, res, ["admin", "counselor", "manager"]);
     if (!session) return;
 
     const task = normalizeTaskDoc({
@@ -14294,7 +14432,7 @@ app.post("/api/tasks", async (req, res) => {
     });
     const state = await getStateDoc();
 
-    if (session.role === "counselor" && !canMutateTask(session, state, task)) {
+    if (isCounselorLikeSession(session) && !canMutateTask(session, state, task)) {
       return res.status(403).json({ message: "Counselors can only create tasks assigned to themselves." });
     }
 
@@ -14330,7 +14468,7 @@ app.post("/api/tasks", async (req, res) => {
 
 app.patch("/api/tasks/:taskId", async (req, res) => {
   try {
-    const session = await requireRole(req, res, ["admin", "counselor"]);
+    const session = await requireRole(req, res, ["admin", "counselor", "manager"]);
     if (!session) return;
 
     const taskId = String(req.params.taskId || "").trim();
@@ -14380,7 +14518,7 @@ app.patch("/api/tasks/:taskId", async (req, res) => {
 
 app.delete("/api/tasks/:taskId", async (req, res) => {
   try {
-    const session = await requireRole(req, res, ["admin", "counselor"]);
+    const session = await requireRole(req, res, ["admin", "counselor", "manager"]);
     if (!session) return;
 
     const taskId = String(req.params.taskId || "").trim();
@@ -14470,7 +14608,7 @@ app.get("/api/state/version", async (req, res) => {
 
 app.get("/api/leads/scoped", async (req, res) => {
   try {
-    const session = await requireRole(req, res, ["admin", "counselor"]);
+    const session = await requireRole(req, res, ["admin", "counselor", "manager"]);
     if (!session) return;
 
     const section = String(req.query?.section || "").trim().toLowerCase();
@@ -14539,7 +14677,7 @@ app.get("/api/leads/scoped", async (req, res) => {
 
 app.get("/api/leads/:leadId/tab", async (req, res) => {
   try {
-    const session = await requireRole(req, res, ["admin", "counselor"]);
+    const session = await requireRole(req, res, ["admin", "counselor", "manager"]);
     if (!session) return;
 
     const leadId = String(req.params?.leadId || "").trim();
@@ -15173,7 +15311,7 @@ app.get("/api/activity-logs", async (req, res) => {
           { performedBy: { $regex: new RegExp("^" + escapeRegExp(session.name || session.email || "") + "$", "i") } }
         ];
       }
-    } else if (session.role === "super_admin" || session.role === "admin" || session.role === "marketing") {
+    } else if (session.role === "super_admin" || session.role === "admin" || session.role === "marketing" || session.role === "manager") {
       if (targetLeadId) {
         query.leadId = { $in: leadIdsToQuery };
       }

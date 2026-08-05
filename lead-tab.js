@@ -23,7 +23,7 @@ await bootstrapLocalState({ skipStateRefresh: true });
 
 const session = getSession();
 const isAdmin = session?.role === "admin" || session?.role === "super_admin";
-const isCounselor = session?.role === "counselor";
+const isCounselor = session?.role === "counselor" || session?.role === "manager";
 
 const pageTitle = document.getElementById("leadTabPageTitle");
 const pageSubtitle = document.getElementById("leadTabPageSubtitle");

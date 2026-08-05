@@ -104,12 +104,12 @@ function renderHeader() {
   formPanel?.classList.toggle("hidden", isAdmin());
   if (isAdmin()) {
     heading.textContent = "Lead Creation Review";
-    subheading.textContent = "Approve counselor requests to create workshop or main admission leads.";
+    subheading.textContent = "Review direct counselor and manager lead creation history.";
     return;
   }
 
-  heading.textContent = "My Lead Requests";
-  subheading.textContent = "Track your pending, approved, and rejected lead creation requests.";
+  heading.textContent = "Create Lead";
+  subheading.textContent = "Create workshop or main admission leads after duplicate validation.";
 }
 
 function renderStatusPill(value) {
@@ -140,8 +140,8 @@ function renderRequests() {
   if (!requests.length) {
     list.innerHTML = `
       <div class="empty-state">
-        <h3>No lead creation requests found</h3>
-        <p>New requests will appear here.</p>
+        <h3>No lead creation history found</h3>
+        <p>Newly created leads will appear here.</p>
       </div>
     `;
     return;
@@ -209,7 +209,7 @@ async function handleSubmit(event) {
   if (isAdmin()) return;
 
   submitButton.disabled = true;
-  setMessage("Submitting lead creation request...");
+  setMessage("Checking duplicates and creating lead...");
   const result = await submitLeadCreationRequest(getFormPayload());
   submitButton.disabled = false;
 
@@ -220,7 +220,7 @@ async function handleSubmit(event) {
 
   form.reset();
   updatePipelineFields();
-  setMessage("Lead creation request submitted for admin approval.");
+  setMessage("Lead created successfully.");
   await loadRequests();
 }
 

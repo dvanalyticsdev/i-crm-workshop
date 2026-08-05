@@ -65,6 +65,10 @@ const ROLE_COPY = {
   counselor: {
     label: "Counselor Email",
     placeholder: "Enter counselor email"
+  },
+  manager: {
+    label: "Manager Email",
+    placeholder: "Enter manager email"
   }
 };
 

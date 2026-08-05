@@ -53,7 +53,7 @@ const taskMessage = document.getElementById("taskMessage");
 const session = getSession();
 const isAdmin = session?.role === "admin" || session?.role === "super_admin";
 const canUseLeadRowActions = !isAdmin;
-const canCreateTasks = session?.role === "counselor";
+const canCreateTasks = session?.role === "counselor" || session?.role === "manager";
 
 postFilterBar.classList.add("filter-bar--crm");
 
@@ -737,7 +737,7 @@ function filterLeadsByTimeline(leads, range) {
 }
 
 function isCounselorSession() {
-  return session?.role === "counselor";
+  return session?.role === "counselor" || session?.role === "manager";
 }
 
 function getCounselorIdentity() {
@@ -756,7 +756,7 @@ function getCounselorIdentity() {
 }
 
 function getScopedLeads(allLeads) {
-  if (!isCounselorSession()) {
+  if (!isCounselorSession() || session?.role === "manager") {
     return allLeads;
   }
 

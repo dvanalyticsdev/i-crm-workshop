@@ -93,6 +93,13 @@ export function assignLeads(leadRefs, counselor) {
   });
 }
 
+export function takeSopLead(leadId, leadEmail = "") {
+  return requestJson(`/api/leads/${encodeURIComponent(leadId)}/take-sop`, {
+    method: "POST",
+    body: JSON.stringify({ leadEmail })
+  });
+}
+
 export function formatLeadAssignmentResult(result, requestedCount, counselor) {
   const assignedCount = Number(
     result?.assignedCount

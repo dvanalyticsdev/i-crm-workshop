@@ -57,7 +57,7 @@ const taskMessage = document.getElementById("taskMessage");
 const session = getSession();
 const isAdmin = session?.role === "admin" || session?.role === "super_admin";
 const canUseLeadRowActions = !isAdmin;
-const canCreateTasks = session?.role === "counselor";
+const canCreateTasks = session?.role === "counselor" || session?.role === "manager";
 
 preFilterBar.classList.add("filter-bar--crm");
 
@@ -327,7 +327,7 @@ async function assignSelectedLeads(leads, counselorName) {
 }
 
 function isCounselorSession() {
-  return session?.role === "counselor";
+  return session?.role === "counselor" || session?.role === "manager";
 }
 
 function getCounselorIdentity() {
@@ -346,7 +346,7 @@ function getCounselorIdentity() {
 }
 
 function getScopedLeads(allLeads) {
-  if (!isCounselorSession()) {
+  if (!isCounselorSession() || session?.role === "manager") {
     return allLeads;
   }
 
@@ -535,7 +535,22 @@ function getCoreWorkshopName(workshopName) {
     return "SQL Workshop 13th June";
   }
   
-  return normalizedWorkshopName;
+  return collapseRepeatedWorkshopDates(normalizedWorkshopName);
+}
+
+function collapseRepeatedWorkshopDates(workshopName) {
+  const seenDates = new Set();
+  return String(workshopName || "")
+    .replace(/\b(\d{1,2})(?:st|nd|rd|th)\s+(January|February|March|April|May|June|July|August|September|October|November|December)\b/gi, (match, day, month) => {
+      const key = `${Number(day)}-${String(month || "").trim().toLowerCase()}`;
+      if (seenDates.has(key)) {
+        return "";
+      }
+      seenDates.add(key);
+      return match;
+    })
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function extractWorkshopDate(workshopName) {

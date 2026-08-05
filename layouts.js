@@ -664,6 +664,7 @@ function getSessionIdentityLabel(session) {
   if (session?.role === "super_admin") return "Super Admin";
   if (session?.role === "admin") return "Admin";
   if (session?.role === "marketing") return "Marketing";
+  if (session?.role === "manager") return String(session?.name || "").trim() || "Manager";
 
   const name = String(session?.name || "").trim();
   if (name) {
@@ -714,11 +715,22 @@ function getSessionPermissions(session) {
     };
   }
 
-  if (session?.role === "counselor") {
+  if (session?.role === "counselor" || session?.role === "manager") {
     const counselors = getCounselors();
     const counselor = counselors.find(
       (item) => String(item.email || "").toLowerCase() === String(session.email || "").toLowerCase()
     );
+
+    if (session?.role === "manager") {
+      return {
+        ...base,
+        ...(counselor?.permissions || {}),
+        counselorManagement: false,
+        leadControl: false,
+        leadFlowControl: false,
+        performanceLogs: false
+      };
+    }
 
     return {
       ...base,
@@ -765,7 +777,7 @@ function applyRoleVisibility(session) {
   const counselorOnlyElements = document.querySelectorAll("[data-counselor-only='true']");
   const isAdmin = session.role === "admin" || session.role === "super_admin";
   const isSuperAdmin = session.role === "super_admin";
-  const isCounselor = session.role === "counselor";
+  const isCounselor = session.role === "counselor" || session.role === "manager";
   adminOnlyElements.forEach((element) => {
     element.classList.toggle("hidden", !isAdmin);
   });

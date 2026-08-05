@@ -1,7 +1,7 @@
 import { registerPageCleanup } from "./page-runtime.js";
 import { apiUrl } from "./api-client.js";
 import { bootstrapLocalState, getCounselors, getLeads, getSession, refreshState } from "./state-sync.js";
-import { assignLeads, deleteLeads, formatLeadAssignmentResult, trackLeadView } from "./lead-service.js";
+import { assignLeads, deleteLeads, formatLeadAssignmentResult, takeSopLead, trackLeadView } from "./lead-service.js";
 import { openActivityHistory } from "./activity-history.js";
 import { isCounselorActivityEntry } from "./counselor-activity-filter.js";
 
@@ -73,8 +73,23 @@ function isAdminSession() {
   return role === "admin" || role === "super_admin";
 }
 
+function canViewAllAdmissionLeads() {
+  const role = String(getSession()?.role || "").trim().toLowerCase();
+  return isAdminSession() || role === "manager";
+}
+
+function isManagerSession() {
+  return String(getSession()?.role || "").trim().toLowerCase() === "manager";
+}
+
 function getSessionCounselorName() {
   return String(getSession()?.name || "").trim().toLowerCase();
+}
+
+function canManagerTakeLead(model) {
+  return isManagerSession()
+    && Boolean(model?.sop?.blocked)
+    && normalize(model?.counselor) !== getSessionCounselorName();
 }
 
 function shouldTreatLeadAsAssigned(counselorName) {
@@ -419,7 +434,7 @@ function deriveSopState(lead) {
 
 function getAdmissionLeadsForView() {
   const all = getAdmissionSopSourceLeads().filter((lead) => lead && !lead.isDeleted && isAdmissionScopedLead(lead));
-  if (isAdminSession()) return all;
+  if (canViewAllAdmissionLeads()) return all;
   const counselorName = getSessionCounselorName();
   return all.filter((lead) => normalize(lead?.counselor) === counselorName);
 }
@@ -922,6 +937,7 @@ function renderLeadTable(rows = getFilteredRows()) {
               <td>${model.sop?.progressAt ? escapeHtml(formatDateTime(model.sop.progressAt)) : '<span class="block-help">No activity yet</span>'}</td>
               <td>
                 <div class="table-actions">
+                  ${canManagerTakeLead(model) ? `<button type="button" class="btn-primary btn-sm" data-take-sop-key="${escapeHtml(model.key)}">Take Lead</button>` : ""}
                   <button type="button" class="btn-primary btn-sm" data-open-tab-key="${escapeHtml(model.key)}" data-lead-tab-url="${escapeHtml(buildLeadTabUrl(model))}">Open Tab</button>
                   <button type="button" class="btn-ghost btn-sm" data-history-key="${escapeHtml(model.key)}">Activity History</button>
                 </div>
@@ -1006,6 +1022,31 @@ function renderLeadTable(rows = getFilteredRows()) {
       await trackLeadView(model.lead.id, model.lead.email || "").catch(() => undefined);
       cacheLeadTabSnapshot(model);
       window.location.href = targetUrl;
+    });
+  });
+
+  leadTable.querySelectorAll("[data-take-sop-key]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const key = String(button.getAttribute("data-take-sop-key") || "");
+      const model = getAllRowModels().find((item) => item.key === key);
+      if (!model?.lead) {
+        showToast("Could not find this lead. Please refresh and try again.", true);
+        return;
+      }
+
+      button.disabled = true;
+      button.textContent = "Taking...";
+      const result = await takeSopLead(model.lead.id, model.lead.email || "");
+      if (!result?.ok) {
+        button.disabled = false;
+        button.textContent = "Take Lead";
+        showToast(result?.message || "Could not take this SOP lead.", true);
+        return;
+      }
+
+      await loadScopedAdmissionSopData().catch(() => refreshState().catch(() => undefined));
+      render();
+      showToast(result.message || "Lead assigned to you.");
     });
   });
 

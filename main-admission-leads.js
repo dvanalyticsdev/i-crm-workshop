@@ -44,7 +44,7 @@ await bootstrapLocalState({ skipStateRefresh: true });
 const session = getSession();
 const isAdmin = session?.role === "admin" || session?.role === "super_admin";
 const canUseLeadRowActions = !isAdmin;
-const canCreateTasks = session?.role === "counselor";
+const canCreateTasks = session?.role === "counselor" || session?.role === "manager";
 const FIXED_COURSE_LABELS = CRM_FIXED_COURSE_OPTIONS.map((course) => course.label).filter(Boolean);
 const FIXED_COURSE_LABEL_SET = new Set(FIXED_COURSE_LABELS);
 
@@ -581,7 +581,7 @@ function sanitizeFixedCourseFilter(leads = []) {
 }
 
 function isCounselorSession() {
-  return session?.role === "counselor";
+  return session?.role === "counselor" || session?.role === "manager";
 }
 
 function getCounselorIdentity() {
@@ -752,7 +752,7 @@ function setRoutingMessage(message, isError = false) {
 }
 
 function getScopedLeads(leads) {
-  if (!isCounselorSession()) {
+  if (!isCounselorSession() || session?.role === "manager") {
     return leads;
   }
 
