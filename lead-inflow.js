@@ -16,6 +16,12 @@ const startDateInput = document.getElementById("inflowStartDate");
 const endDateInput = document.getElementById("inflowEndDate");
 const sourceFilter = document.getElementById("inflowSourceFilter");
 const campaignFilter = document.getElementById("inflowCampaignFilter");
+const workshopNameFilter = document.getElementById("inflowWorkshopNameFilter");
+const workshopDateFilter = document.getElementById("inflowWorkshopDateFilter");
+const courseNameFilter = document.getElementById("inflowCourseNameFilter");
+const workshopNameFilterWrap = document.getElementById("inflowWorkshopNameFilterWrap");
+const workshopDateFilterWrap = document.getElementById("inflowWorkshopDateFilterWrap");
+const courseNameFilterWrap = document.getElementById("inflowCourseNameFilterWrap");
 const refreshButton = document.getElementById("refreshInflowBtn");
 const resetButton = document.getElementById("resetInflowBtn");
 const clearInflowDataButton = document.getElementById("clearInflowDataBtn");
@@ -96,6 +102,10 @@ function syncSectionTabs() {
     button.className = selected ? "btn-primary" : "btn-ghost";
     button.setAttribute("aria-selected", selected ? "true" : "false");
   });
+  const isAdmission = activeSection === "admission";
+  workshopNameFilterWrap?.classList.toggle("hidden", isAdmission);
+  workshopDateFilterWrap?.classList.toggle("hidden", isAdmission);
+  courseNameFilterWrap?.classList.toggle("hidden", !isAdmission);
 }
 
 function formatNumber(value) {
@@ -161,6 +171,7 @@ function renderRows(report = {}) {
 }
 
 function syncSelectOptions(select, values = [], allLabel) {
+  if (!select) return;
   const previous = select.value || "all";
   select.innerHTML = `
     <option value="all">${escapeHtml(allLabel)}</option>
@@ -180,8 +191,22 @@ function buildReportUrl(includeFilters = true) {
   if (includeFilters) {
     url.searchParams.set("source", sourceFilter.value || "all");
     url.searchParams.set("campaign", campaignFilter.value || "all");
+    if (activeSection === "admission") {
+      url.searchParams.set("courseName", courseNameFilter.value || "all");
+    } else {
+      url.searchParams.set("workshopName", workshopNameFilter.value || "all");
+      url.searchParams.set("workshopDate", workshopDateFilter.value || "all");
+    }
   }
   return url;
+}
+
+function resetSectionFilters() {
+  sourceFilter.value = "all";
+  campaignFilter.value = "all";
+  if (workshopNameFilter) workshopNameFilter.value = "all";
+  if (workshopDateFilter) workshopDateFilter.value = "all";
+  if (courseNameFilter) courseNameFilter.value = "all";
 }
 
 async function loadReport({ preserveFilters = true } = {}) {
@@ -199,9 +224,11 @@ async function loadReport({ preserveFilters = true } = {}) {
     currentReport = payload;
     syncSelectOptions(sourceFilter, payload.filters?.sources || [], "All Sources");
     syncSelectOptions(campaignFilter, payload.filters?.campaigns || [], "All Campaigns");
+    syncSelectOptions(workshopNameFilter, payload.filters?.workshopNames || [], "Use Filter");
+    syncSelectOptions(workshopDateFilter, payload.filters?.workshopDates || [], "Use Filter");
+    syncSelectOptions(courseNameFilter, payload.filters?.courseNames || [], "All Courses");
     if (!preserveFilters) {
-      sourceFilter.value = "all";
-      campaignFilter.value = "all";
+      resetSectionFilters();
     }
     renderKpis(payload.metrics || {});
     renderRows(payload);
@@ -248,22 +275,23 @@ function bindEvents() {
     button.addEventListener("click", () => {
       activeSection = button.getAttribute("data-inflow-section") === "admission" ? "admission" : "workshop";
       syncSectionTabs();
-      sourceFilter.value = "all";
-      campaignFilter.value = "all";
+      resetSectionFilters();
       void loadReport({ preserveFilters: false });
     });
   });
 
   timelineSelect.addEventListener("change", () => {
     updateCustomDateState();
-    sourceFilter.value = "all";
-    campaignFilter.value = "all";
+    resetSectionFilters();
     void loadReport({ preserveFilters: false });
   });
   startDateInput.addEventListener("change", () => void loadReport());
   endDateInput.addEventListener("change", () => void loadReport());
   sourceFilter.addEventListener("change", () => void loadReport());
   campaignFilter.addEventListener("change", () => void loadReport());
+  workshopNameFilter?.addEventListener("change", () => void loadReport());
+  workshopDateFilter?.addEventListener("change", () => void loadReport());
+  courseNameFilter?.addEventListener("change", () => void loadReport());
   refreshButton.addEventListener("click", () => void loadReport());
   clearInflowDataButton?.addEventListener("click", () => void clearInflowData());
   resetButton.addEventListener("click", () => {
@@ -272,8 +300,7 @@ function bindEvents() {
     setTodayDefaults();
     updateCustomDateState();
     syncSectionTabs();
-    sourceFilter.value = "all";
-    campaignFilter.value = "all";
+    resetSectionFilters();
     void loadReport({ preserveFilters: false });
   });
 }

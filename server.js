@@ -2891,18 +2891,55 @@ function addLeadInflowCount(map, keyParts, patch) {
   return current;
 }
 
-function buildLeadInflowReport({ leads = [], inflowEvents = [], range = null, section = "workshop", sourceFilter = "all", campaignFilter = "all" }) {
+function getLeadInflowWorkshopName(lead = {}) {
+  return String(lead?.workshopName || lead?.admissionWorkshopName || lead?.workshop || lead?.admissionWorkshop || "").trim();
+}
+
+function getLeadInflowWorkshopDate(lead = {}) {
+  return String(lead?.workshopDateLabel || lead?.admissionWorkshopDateLabel || lead?.workshopDateKey || lead?.admissionWorkshopDateKey || "").trim();
+}
+
+function getLeadInflowCourseName(lead = {}) {
+  const courseIdentity = buildCourseIdentity(lead?.courseRawName || lead?.courseName || lead?.courseCode, lead);
+  return isKnownPublicCourseIdentity(courseIdentity)
+    ? String(courseIdentity.label || lead?.courseName || lead?.courseCode || "").trim()
+    : "";
+}
+
+function buildLeadInflowReport({
+  leads = [],
+  inflowEvents = [],
+  range = null,
+  section = "workshop",
+  sourceFilter = "all",
+  campaignFilter = "all",
+  workshopNameFilter = "all",
+  workshopDateFilter = "all",
+  courseNameFilter = "all"
+}) {
   const normalizedSection = section === "admission" ? "admission" : "workshop";
   const leadById = new Map((Array.isArray(leads) ? leads : []).map((lead) => [String(lead?.id || "").trim(), lead]));
   const sourceOptions = new Set();
   const campaignOptions = new Set();
+  const workshopNameOptions = new Set();
+  const workshopDateOptions = new Set();
+  const courseNameOptions = new Set();
   const sourceRows = new Map();
   const dayRows = new Map();
 
   const inRange = (date) => !range || (date && date >= range.start && date <= range.end);
-  const matchesFilters = (source, campaign) =>
-    (sourceFilter === "all" || source === sourceFilter) &&
-    (campaignFilter === "all" || campaign === campaignFilter);
+  const matchesFilters = (source, campaign, lead = null) => {
+    if (sourceFilter !== "all" && source !== sourceFilter) return false;
+    if (campaignFilter !== "all" && campaign !== campaignFilter) return false;
+    if (normalizedSection === "admission") {
+      const courseName = lead ? getLeadInflowCourseName(lead) : "";
+      return courseNameFilter === "all" || courseName === courseNameFilter;
+    }
+    const workshopName = lead ? getLeadInflowWorkshopName(lead) : "";
+    const workshopDate = lead ? getLeadInflowWorkshopDate(lead) : "";
+    return (workshopNameFilter === "all" || workshopName === workshopNameFilter)
+      && (workshopDateFilter === "all" || workshopDate === workshopDateFilter);
+  };
 
   (Array.isArray(leads) ? leads : []).forEach((lead) => {
     if (getLeadInflowSection(lead) !== normalizedSection) return;
@@ -2914,7 +2951,13 @@ function buildLeadInflowReport({ leads = [], inflowEvents = [], range = null, se
     const campaign = getLeadInflowCampaign(lead);
     sourceOptions.add(source);
     campaignOptions.add(campaign);
-    if (!matchesFilters(source, campaign)) return;
+    if (normalizedSection === "admission") {
+      courseNameOptions.add(getLeadInflowCourseName(lead));
+    } else {
+      workshopNameOptions.add(getLeadInflowWorkshopName(lead));
+      workshopDateOptions.add(getLeadInflowWorkshopDate(lead));
+    }
+    if (!matchesFilters(source, campaign, lead)) return;
     addLeadInflowCount(sourceRows, ["All", source, campaign], { totalLeads: 1, uniqueLeads: 1 });
     addLeadInflowCount(dayRows, [dateKey, source, campaign], { totalLeads: 1, uniqueLeads: 1 });
   });
@@ -2927,9 +2970,16 @@ function buildLeadInflowReport({ leads = [], inflowEvents = [], range = null, se
     const dateKey = getLeadInflowDateKey(event?.receivedAt);
     const source = String(event?.source || "Unknown").trim() || "Unknown";
     const campaign = String(event?.campaign || "Unspecified Campaign").trim() || "Unspecified Campaign";
+    const lead = leadById.get(String(event?.leadId || "").trim()) || null;
     sourceOptions.add(source);
     campaignOptions.add(campaign);
-    if (!matchesFilters(source, campaign)) return;
+    if (normalizedSection === "admission") {
+      courseNameOptions.add(getLeadInflowCourseName(lead));
+    } else {
+      workshopNameOptions.add(getLeadInflowWorkshopName(lead));
+      workshopDateOptions.add(getLeadInflowWorkshopDate(lead));
+    }
+    if (!matchesFilters(source, campaign, lead)) return;
     addLeadInflowCount(sourceRows, ["All", source, campaign], { totalLeads: 1, duplicateLeads: 1 });
     addLeadInflowCount(dayRows, [dateKey, source, campaign], { totalLeads: 1, duplicateLeads: 1 });
   });
@@ -2963,7 +3013,10 @@ function buildLeadInflowReport({ leads = [], inflowEvents = [], range = null, se
     section: normalizedSection,
     filters: {
       sources: [...sourceOptions].filter(Boolean).sort((a, b) => a.localeCompare(b)),
-      campaigns: [...campaignOptions].filter(Boolean).sort((a, b) => a.localeCompare(b))
+      campaigns: [...campaignOptions].filter(Boolean).sort((a, b) => a.localeCompare(b)),
+      workshopNames: [...workshopNameOptions].filter(Boolean).sort((a, b) => a.localeCompare(b)),
+      workshopDates: [...workshopDateOptions].filter(Boolean).sort((a, b) => a.localeCompare(b)),
+      courseNames: [...courseNameOptions].filter(Boolean).sort((a, b) => a.localeCompare(b))
     },
     metrics: {
       ...totals,
@@ -14741,6 +14794,9 @@ app.get("/api/lead-inflow-report", async (req, res) => {
       : "workshop";
     const sourceFilter = String(req.query?.source || "all").trim() || "all";
     const campaignFilter = String(req.query?.campaign || "all").trim() || "all";
+    const workshopNameFilter = String(req.query?.workshopName || "all").trim() || "all";
+    const workshopDateFilter = String(req.query?.workshopDate || "all").trim() || "all";
+    const courseNameFilter = String(req.query?.courseName || "all").trim() || "all";
     const range = getLeadInflowRange(req.query || {});
     const leadProjection = {
       _id: 0,
@@ -14753,6 +14809,19 @@ app.get("/api/lead-inflow-report", async (req, res) => {
       leadCreationRequestId: 1,
       publicCourseSegment: 1,
       courseId: 1,
+      courseCode: 1,
+      courseName: 1,
+      courseRawName: 1,
+      workshop: 1,
+      workshopName: 1,
+      workshopNameKey: 1,
+      workshopDateLabel: 1,
+      workshopDateKey: 1,
+      admissionWorkshop: 1,
+      admissionWorkshopName: 1,
+      admissionWorkshopNameKey: 1,
+      admissionWorkshopDateLabel: 1,
+      admissionWorkshopDateKey: 1,
       metaLeadId: 1,
       metaAdName: 1,
       metaAdsetName: 1,
@@ -14810,7 +14879,10 @@ app.get("/api/lead-inflow-report", async (req, res) => {
       range,
       section,
       sourceFilter,
-      campaignFilter
+      campaignFilter,
+      workshopNameFilter,
+      workshopDateFilter,
+      courseNameFilter
     });
 
     return res.json({
