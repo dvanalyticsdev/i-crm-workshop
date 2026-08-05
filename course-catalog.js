@@ -679,6 +679,65 @@ export const PUBLIC_COURSES = [
         "Receive structured guidance on resume optimization and showcasing agentic AI skills."
       ])
     ]
+  },
+  {
+    id: "forward-deployed-engineer",
+    shortName: "FDE",
+    code: "FDE",
+    poster: "Logos/DV-Logo.png",
+    name: "Forward Deployed Engineer",
+    duration: "3 Months",
+    price: buildPrice(180000, 10000),
+    badge: "Deployment Track",
+    headline: "Build the applied engineering, AI integration, and client delivery skills needed to ship production-ready solutions.",
+    sections: [
+      buildSection("Program Overview", [
+        "The Forward Deployed Engineer program is designed for learners who want to work close to real business problems and turn AI, data, and automation ideas into working systems.",
+        "The course focuses on practical solution engineering, deployment thinking, customer workflows, and hands-on implementation across modern AI and analytics stacks."
+      ]),
+      buildSection("Program Highlights", [], [
+        "Live instructor-led sessions with hands-on implementation practice",
+        "Real-world business workflows, requirement discovery, and solution design",
+        "AI application integration, automation, and deployment fundamentals",
+        "Portfolio-ready projects that demonstrate client-facing delivery skills",
+        "Resume, interview, and placement readiness support"
+      ]),
+      buildCurriculumSection("Curriculum", [
+        "The FDE curriculum combines software foundations, AI integration, analytics delivery, and production deployment practices."
+      ], [
+        {
+          title: "Skill-1 Engineering Foundations",
+          summary: "Build practical programming and systems thinking for delivery work.",
+          topics: [
+            "Python and JavaScript fundamentals for automation and application workflows",
+            "API integration, data formats, error handling, and debugging practices",
+            "Git, documentation, and collaborative engineering workflows"
+          ]
+        },
+        {
+          title: "Skill-2 AI Solution Building",
+          summary: "Turn business use cases into useful AI-powered tools.",
+          topics: [
+            "Prompt engineering, RAG patterns, and AI assistant workflows",
+            "Connecting LLMs with databases, documents, and business applications",
+            "Evaluation, guardrails, and responsible AI usage in production contexts"
+          ]
+        },
+        {
+          title: "Skill-3 Deployment and Client Delivery",
+          summary: "Learn how to ship, monitor, and improve solutions with users.",
+          topics: [
+            "Requirement discovery, stakeholder communication, and solution scoping",
+            "Cloud deployment basics, environment configuration, and monitoring",
+            "Iteration based on feedback, issue triage, and handover documentation"
+          ]
+        }
+      ]),
+      buildSection("Career Outcomes", [], [
+        "Forward Deployed Engineer, AI Implementation Engineer, Solution Engineer",
+        "AI Automation Engineer, Technical Consultant, Product Implementation Specialist"
+      ])
+    ]
   }
 ];
 
@@ -742,6 +801,10 @@ const PUBLIC_COURSE_IDENTITY_RULES = [
   {
     id: "days7_genai",
     pattern: /\b7\s*days?\b.*\bgen\s*ai\b|\bgen\s*ai\b.*\b7\s*days?\b|\b7days\b|\bdays7[_\s-]*genai\b/i
+  },
+  {
+    id: "forward-deployed-engineer",
+    pattern: /\bfde\b|\bforward deployed engineer(?:ing)?\b|\bforward deployment engineer(?:ing)?\b|\bmaster ai forward deployed engineer(?:ing)?\b|\bmaster ai forward deployment engineer(?:ing)?\b/i
   },
   {
     id: "master-genai-agentic",

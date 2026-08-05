@@ -888,6 +888,7 @@ test("admission course permission matching uses catalog course ids", () => {
   assert.match(server, /key: "master-genai-agentic"/);
   assert.match(server, /key: "days7_genai"/);
   assert.match(server, /key: "apcs"/);
+  assert.match(server, /key: "forward-deployed-engineer"/);
   assert.match(server, /isKnownPublicCourseIdentity\(courseIdentity\)[\s\S]*?return courseIdentity\.key === course\.id/);
   assert.doesNotMatch(server, /key: "advanced-ai-ml"/);
   assert.doesNotMatch(server, /key: "7-days-gen-ai"/);
@@ -895,7 +896,7 @@ test("admission course permission matching uses catalog course ids", () => {
   assert.match(server, /if \(!descriptor\) return false;/);
   assert.match(server, /if \(!Array\.isArray\(value\)\) \{\s*return \[\];\s*\}/);
   assert.match(server, /if \(courseMatches\.length\) return courseMatches;\s*return \[\];/);
-  assert.ok(server.includes("apids|apida|apcs|das|aiml|genai|gen ai|7days|7 days"));
+  assert.ok(server.includes("apids|apida|apcs|das|fde|aiml|genai|gen ai|7days|7 days"));
   assert.match(server, /if \(hasCourseCatalogSignal\) \{\s*return "admission";\s*\}/);
   assert.match(server, /function isKnownPublicCourseIdentity/);
   assert.match(server, /leadType === "admission" \|\| isKnownPublicCourseIdentity\(forcedAdmissionCourseIdentity\)/);
@@ -934,7 +935,8 @@ test("admission course matcher keeps every catalog course isolated", () => {
     "master-genai-agentic": "DV_GenAI Master campaign",
     "data-analytics-specialist": "DV_DAS campaign",
     apcs: "DV_APCS campaign",
-    days7_genai: "DV_7DAYS_GENAI campaign"
+    days7_genai: "DV_7DAYS_GENAI campaign",
+    "forward-deployed-engineer": "Fde Desktop Https://Test.Dvanalyticsmds.Com/Master Ai Forward Deployment Engineer/"
   };
 
   for (const [expectedCourseId, signal] of Object.entries(signals)) {

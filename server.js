@@ -98,7 +98,8 @@ const PUBLIC_COURSE_CATALOG = [
   { id: "master-genai-agentic", code: "GenAI Master", name: "Master Program in Gen AI & Agentic AI", duration: "3 Months" },
   { id: "data-analytics-specialist", code: "DAS", name: "Data Analytics Specialist", duration: "3 Months" },
   { id: "apcs", code: "APCS", name: "Advanced Program in Cybersecurity & Forensics", duration: "3-4 Months" },
-  { id: "days7_genai", code: "7DAYS_GENAI", name: "7 Days Gen AI & Agentic AI Hands-on Master Program", duration: "7 Days" }
+  { id: "days7_genai", code: "7DAYS_GENAI", name: "7 Days Gen AI & Agentic AI Hands-on Master Program", duration: "7 Days" },
+  { id: "forward-deployed-engineer", code: "FDE", name: "Forward Deployed Engineer", duration: "3 Months" }
 ];
 
 const COURSE_IDENTITY_RULES = [
@@ -108,6 +109,7 @@ const COURSE_IDENTITY_RULES = [
   { pattern: /\badvanced\b.*\b(ai\s*\/?\s*ml|aiml)\b|\badv\b.*\b(ai\s*\/?\s*ml|aiml)\b|\bai\s*\/?\s*ml\b|\bartificial intelligence\b.*\bmachine learning\b|\baiml\b/i, label: "AIML + GenAI", key: "advanced-aiml-genai-agentic" },
   { pattern: /\bcyber\s*security\b|\bcybersecurity\b|\bcyber\s*ai\b|\bcyberai\b|\bapcs\b|\bforensics\b/i, label: "APCS", key: "apcs" },
   { pattern: /\bdata analytics specialist\b|\bdas\b/i, label: "DAS", key: "data-analytics-specialist" },
+  { pattern: /\bfde\b|\bforward deployed engineer(?:ing)?\b|\bforward deployment engineer(?:ing)?\b|\bmaster ai forward deployed engineer(?:ing)?\b|\bmaster ai forward deployment engineer(?:ing)?\b/i, label: "FDE", key: "forward-deployed-engineer" },
   { pattern: /\bmaster\b.*\bgen\s*ai\b|\bgen\s*ai\b.*\bmaster\b|\bgenai\s*master\b|\bagentic\b/i, label: "GenAI Master", key: "master-genai-agentic" }
 ];
 const WORKSHOP_ROUTING_SIGNAL_PATTERN = /\b(workshop|webinar|masterclass|bootcamp|demo class|session)\b/i;
@@ -5738,7 +5740,7 @@ function shouldRouteKnownCourseToAdmission(leadType, courseIdentity = {}, ...sou
 function classifyIncomingMetaLead(fields = {}, meta = {}) {
   const descriptor = getMetaLeadDescriptor(fields, meta);
   const hasWorkshopSignal = hasWorkshopRoutingSignal(descriptor);
-  const hasCourseCatalogSignal = /\b(apids|apida|apcs|das|aiml|genai|gen ai|7days|7 days)\b/i.test(descriptor);
+  const hasCourseCatalogSignal = /\b(apids|apida|apcs|das|fde|aiml|genai|gen ai|7days|7 days|forward deployed engineer|forward deployment engineer)\b/i.test(descriptor);
   const hasAdmissionSignal = /\b(admission|admissions|enroll|enrol|course|program|programme|counselling|counseling|brochure|fees|career|certification|adv ai ml|advanced ai ml|ai ml|data analytics|data science|cybersecurity|cyber security|full stack)\b/i.test(descriptor);
 
   if (hasWorkshopSignal) {
@@ -5817,7 +5819,7 @@ function classifyIncomingElementorLead(fields = {}, meta = {}, config = {}) {
   const descriptor = getElementorLeadDescriptor(fields, meta);
   const hasCrashCourseSignal = /\b(crash course|crash-course)\b/i.test(descriptor);
   const hasWorkshopSignal = hasWorkshopRoutingSignal(descriptor);
-  const hasCourseCatalogSignal = /\b(apids|apida|apcs|das|aiml|genai|gen ai|7days|7 days)\b/i.test(descriptor);
+  const hasCourseCatalogSignal = /\b(apids|apida|apcs|das|fde|aiml|genai|gen ai|7days|7 days|forward deployed engineer|forward deployment engineer)\b/i.test(descriptor);
   const hasAdmissionSignal = /\b(admission|admissions|enroll|enrol|course|program|programme|counselling|counseling|brochure|fees|career|certification|adv ai ml|advanced ai ml|ai ml|data analytics|data science|cybersecurity|cyber security|full stack)\b/i.test(descriptor);
 
   if (hasWorkshopSignal) {
