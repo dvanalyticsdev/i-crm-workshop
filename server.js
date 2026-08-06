@@ -2067,6 +2067,7 @@ function getMonitoringTimelineRange(query = {}) {
   const type = String(query.type || "week").trim().toLowerCase();
   if (type === "overall") return null;
   if (type === "today") return getMonitoringDayRange(0);
+  if (type === "yesterday") return getMonitoringDayRange(-1);
   if (type === "recent") {
     return { start: getMonitoringDayRange(-29).start, end: getMonitoringDayRange(0).end };
   }

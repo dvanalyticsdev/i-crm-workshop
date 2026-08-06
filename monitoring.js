@@ -43,6 +43,46 @@ const MONITORING_ACTIVITY_HISTORY_FIELDS = [
   "mainAdmissionActivityHistory"
 ];
 const MONITORING_COUNTER_LABEL = "Total Leads Touched";
+const ADMIN_MONITORING_GROUP = "admin";
+const ADMIN_MONITORING_SUBSECTIONS = new Set(["reporting", "lead-assignment"]);
+const REPORTING_BUCKETS = ["Enrolled", "PDE", "CNC", "CBL", "NI", "Pending Leads"];
+const ASSIGNMENT_COURSE_COLUMNS = [
+  {
+    key: "apids",
+    label: "APIDS",
+    patterns: [/apids/i, /industrial\s+data\s+science/i]
+  },
+  {
+    key: "apida",
+    label: "APIDA",
+    patterns: [/apida/i, /industrial\s+data\s+analytics/i]
+  },
+  {
+    key: "da",
+    label: "DA",
+    patterns: [/^da$/i, /\bdas\b/i, /data\s+analytics\s+specialist/i]
+  },
+  {
+    key: "aiml",
+    label: "AIML",
+    patterns: [/\baiml\b/i, /advanced\s+aiml/i]
+  },
+  {
+    key: "days7Genai",
+    label: "7 DAYS GEN AI & AGENTIC AI",
+    patterns: [/7\s*days/i, /7days/i, /days7/i, /hands[-\s]*on\s+master/i]
+  },
+  {
+    key: "genai",
+    label: "GEN AI",
+    patterns: [/\bgen\s*ai\b/i, /\bgenai\b/i, /generative\s+ai/i, /agentic\s+ai/i]
+  },
+  {
+    key: "cyberSecurity",
+    label: "CYBER SECURITY",
+    patterns: [/cyber/i, /forensics/i, /\bapcs\b/i]
+  }
+];
 const MONITORING_ACTIVITY_OPTIONS = {
   workshopActivityHistory: {
     activityFields: ["dialed", "callStatus", "wsStatus"],
@@ -105,6 +145,23 @@ const VIEW_CONFIG = {
         label: "MCube",
         title: "MCube Monitoring",
         description: "Track total calls, inbound and outbound volume, lead-picked calls, not connected calls, and talk time."
+      }
+    }
+  },
+  [ADMIN_MONITORING_GROUP]: {
+    label: "Admin",
+    adminOnly: true,
+    description: "Review CRM reporting buckets and course-wise lead assignment counts.",
+    subsections: {
+      reporting: {
+        label: "Reporting",
+        title: "Reporting",
+        description: "Track Enrolled, PDE, CNC, CBL, NI, and untouched pending leads by counselor."
+      },
+      "lead-assignment": {
+        label: "Lead Assignment Panel",
+        title: "Lead Assignment Panel",
+        description: "Review counselor-wise lead assignment counts by course, excluding workshop-stage items."
       }
     }
   }
@@ -308,6 +365,15 @@ function isCounselorSession() {
   return session?.role === "counselor";
 }
 
+function isAdminSession() {
+  return session?.role === "admin" || session?.role === "super_admin";
+}
+
+function isAdminMonitoringView() {
+  return activeView.group === ADMIN_MONITORING_GROUP
+    || ADMIN_MONITORING_SUBSECTIONS.has(activeView.subsection);
+}
+
 function getCounselorIdentity() {
   if (!isCounselorSession()) {
     return "";
@@ -413,31 +479,38 @@ function getAllLeads() {
 }
 
 async function loadMonitoringData() {
-  const reportUrl = new URL(apiUrl("/api/monitoring-report"), window.location.origin);
-  reportUrl.searchParams.set("subsection", activeView.subsection);
-  reportUrl.searchParams.set("timelineType", timelineFilter.type || "week");
-  if (timelineFilter.startDate) reportUrl.searchParams.set("startDate", timelineFilter.startDate);
-  if (timelineFilter.endDate) reportUrl.searchParams.set("endDate", timelineFilter.endDate);
-  try {
-    const response = await fetch(reportUrl.toString(), {
-      credentials: "same-origin",
-      headers: { Accept: "application/json" }
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || payload?.ok === false) {
-      throw new Error(payload?.message || "Failed to load monitoring report.");
+  if (!isAdminMonitoringView()) {
+    const reportUrl = new URL(apiUrl("/api/monitoring-report"), window.location.origin);
+    reportUrl.searchParams.set("subsection", activeView.subsection);
+    reportUrl.searchParams.set("timelineType", timelineFilter.type || "week");
+    if (timelineFilter.startDate) reportUrl.searchParams.set("startDate", timelineFilter.startDate);
+    if (timelineFilter.endDate) reportUrl.searchParams.set("endDate", timelineFilter.endDate);
+    try {
+      const response = await fetch(reportUrl.toString(), {
+        credentials: "same-origin",
+        headers: { Accept: "application/json" }
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload?.ok === false) {
+        throw new Error(payload?.message || "Failed to load monitoring report.");
+      }
+      monitoringReport = payload;
+      monitoringLeads = [];
+      monitoringCounselors = [];
+      return;
+    } catch (error) {
+      console.warn("[monitoring] server report failed, falling back to client calculations:", error?.message || error);
+      monitoringReport = null;
     }
-    monitoringReport = payload;
-    monitoringLeads = [];
-    monitoringCounselors = [];
-    return;
-  } catch (error) {
-    console.warn("[monitoring] server report failed, falling back to client calculations:", error?.message || error);
+  } else {
     monitoringReport = null;
   }
 
+  const leadsPath = isAdminMonitoringView()
+    ? "/api/leads?scope=assigned-or-touched"
+    : `/api/leads?scope=assigned-or-touched&monitoringSubsection=${encodeURIComponent(activeView.subsection)}`;
   const [leadResponse, counselorResponse] = await Promise.all([
-    fetch(apiUrl(`/api/leads?scope=assigned-or-touched&monitoringSubsection=${encodeURIComponent(activeView.subsection)}`), {
+    fetch(apiUrl(leadsPath), {
       credentials: "same-origin",
       headers: { Accept: "application/json" }
     }),
@@ -523,6 +596,11 @@ function getTimelineRange() {
 
   if (timelineFilter.type === "today") {
     const { start, end } = getKolkataDayRange(0);
+    return { start, end };
+  }
+
+  if (timelineFilter.type === "yesterday") {
+    const { start, end } = getKolkataDayRange(-1);
     return { start, end };
   }
 
@@ -1173,6 +1251,312 @@ function countLeadsByLatestHistoryUpdate(records, field, expectedValue) {
   ).length;
 }
 
+function getLeadKey(lead = {}) {
+  return String(lead?.id || lead?._id || lead?.email || lead?.phone || Math.random()).trim();
+}
+
+function isFilledCourseValue(value) {
+  const normalized = normalizeText(value);
+  return Boolean(normalized)
+    && normalized !== "no"
+    && normalized !== "select"
+    && normalized !== "not selected"
+    && normalized !== "not specified"
+    && normalized !== "na"
+    && normalized !== "n/a";
+}
+
+function getReportingContexts(lead = {}) {
+  return [
+    {
+      historyField: "admissionActivityHistory",
+      coursePitchedField: "coursePitched",
+      courseStatusField: "courseStatus",
+      admissionStatusField: "admissionStatus",
+      callStatusField: "postCallStatus"
+    },
+    {
+      historyField: "mainAdmissionActivityHistory",
+      coursePitchedField: "mainAdmissionCoursePitched",
+      courseStatusField: "mainAdmissionCourseStatus",
+      admissionStatusField: "mainAdmissionAdmissionStatus",
+      callStatusField: "mainAdmissionCallStatus"
+    },
+    {
+      historyField: "registeredCourseActivityHistory",
+      coursePitchedField: "registeredCoursePitched",
+      courseStatusField: "registeredCourseStatus",
+      admissionStatusField: "registeredAdmissionStatus",
+      callStatusField: "registeredCallStatus"
+    }
+  ].map((context) => ({
+    ...context,
+    history: Array.isArray(lead?.[context.historyField]) ? lead[context.historyField] : []
+  }));
+}
+
+function isAdmissionReportingLead(lead = {}) {
+  return isCourseRegistrationLead(lead)
+    || isMainAdmissionLead(lead)
+    || getReportingContexts(lead).some((context) =>
+      context.history.length
+      || String(lead?.[context.coursePitchedField] || "").trim()
+      || String(lead?.[context.courseStatusField] || "").trim()
+      || String(lead?.[context.admissionStatusField] || "").trim()
+      || String(lead?.[context.callStatusField] || "").trim()
+    );
+}
+
+function getReportingEventStatus(field, value) {
+  const normalized = normalizeText(value);
+  if (!normalized) {
+    return "";
+  }
+
+  if (field.toLowerCase().includes("admissionstatus") && normalized === "enrolled") {
+    return "Enrolled";
+  }
+  if (field.toLowerCase().includes("callstatus") && normalized === "cnc") {
+    return "CNC";
+  }
+  if (field.toLowerCase().includes("callstatus") && normalized === "cbl") {
+    return "CBL";
+  }
+  if (normalized === "ni" || normalized === "not interested") {
+    return "NI";
+  }
+  return "";
+}
+
+function getReportingEventsForLead(lead = {}, range = null) {
+  const events = [];
+
+  getReportingContexts(lead).forEach((context) => {
+    context.history.forEach((entry) => {
+      const eventDate = parseLocalDate(entry?.at);
+      if (range && (!eventDate || eventDate < range.start || eventDate > range.end)) {
+        return;
+      }
+      const updates = entry?.updates && typeof entry.updates === "object" ? entry.updates : {};
+      Object.entries(updates).forEach(([field, value]) => {
+        if (![context.admissionStatusField, context.courseStatusField, context.callStatusField].includes(field)) {
+          return;
+        }
+        const bucket = getReportingEventStatus(field, value);
+        if (!bucket) {
+          return;
+        }
+        events.push({
+          bucket,
+          at: entry?.at || "",
+          counselor: resolveCounselorActivityActor(entry?.by)
+        });
+      });
+    });
+  });
+
+  return events;
+}
+
+function findFirstCoursePitchedEvent(lead = {}) {
+  const candidates = [];
+
+  getReportingContexts(lead).forEach((context) => {
+    context.history.forEach((entry) => {
+      const updates = entry?.updates && typeof entry.updates === "object" ? entry.updates : {};
+      if (!Object.prototype.hasOwnProperty.call(updates, context.coursePitchedField)) {
+        return;
+      }
+      if (!isFilledCourseValue(updates[context.coursePitchedField])) {
+        return;
+      }
+      const eventDate = parseLocalDate(entry?.at);
+      candidates.push({
+        at: entry?.at || "",
+        time: eventDate?.getTime() || 0,
+        counselor: resolveCounselorActivityActor(entry?.by)
+      });
+    });
+  });
+
+  return candidates.sort((left, right) => left.time - right.time)[0] || null;
+}
+
+function getCurrentReportingBucketForLead(lead = {}) {
+  const contexts = getReportingContexts(lead);
+  if (contexts.some((context) => normalizeText(lead?.[context.admissionStatusField]) === "enrolled")) {
+    return "Enrolled";
+  }
+
+  const currentStatus = contexts
+    .flatMap((context) => [
+      [context.callStatusField, lead?.[context.callStatusField]],
+      [context.courseStatusField, lead?.[context.courseStatusField]]
+    ])
+    .map(([field, value]) => getReportingEventStatus(field, value))
+    .find((bucket) => ["CNC", "CBL", "NI"].includes(bucket));
+
+  return currentStatus || "";
+}
+
+function hasCounselorAdmissionActivity(lead = {}, counselor = "") {
+  const normalizedCounselor = normalizeText(counselor);
+  return getReportingContexts(lead).some((context) =>
+    context.history.some((entry) =>
+      normalizeText(resolveCounselorActivityActor(entry?.by)) === normalizedCounselor
+      && isCounselorActivityEntry(entry, MONITORING_ACTIVITY_OPTIONS[context.historyField] || {})
+    )
+  );
+}
+
+function getAssignmentCourseValue(lead = {}) {
+  return String(
+    lead?.mainAdmissionCoursePitched
+    || lead?.registeredCoursePitched
+    || lead?.coursePitched
+    || lead?.courseName
+    || lead?.courseCode
+    || ""
+  ).trim();
+}
+
+function getAssignmentCourseColumnKey(value) {
+  const text = String(value || "").trim();
+  if (!isFilledCourseValue(text)) {
+    return "";
+  }
+  if (/pre\s*workshop|post\s*workshop|workshop\s*calling/i.test(text)) {
+    return "";
+  }
+
+  const matched = ASSIGNMENT_COURSE_COLUMNS.find((column) =>
+    column.patterns.some((pattern) => pattern.test(text))
+  );
+  return matched?.key || "";
+}
+
+function getAssignedAdmissionLeadsForCounselor(leads, counselor, range = null) {
+  const normalizedCounselor = normalizeText(counselor);
+  return leads.filter((lead) => {
+    if (!isAdmissionReportingLead(lead)) {
+      return false;
+    }
+    if (normalizeText(resolveCounselorName(lead?.counselor, true)) !== normalizedCounselor) {
+      return false;
+    }
+    if (wasLeadCreatedByCounselor(lead, counselor)) {
+      return false;
+    }
+    if (!range) {
+      return true;
+    }
+    const assignmentDate = getLeadOwnershipDate(lead);
+    return assignmentDate && assignmentDate >= range.start && assignmentDate <= range.end;
+  });
+}
+
+function buildReportingRows(counselors, leads, range = null) {
+  const rows = counselors.map((counselor) => {
+    const row = {
+      counselor,
+      enrolled: 0,
+      pde: 0,
+      cnc: 0,
+      cbl: 0,
+      ni: 0,
+      pendingLeads: 0
+    };
+    const countedByBucket = {
+      enrolled: new Set(),
+      pde: new Set(),
+      cnc: new Set(),
+      cbl: new Set(),
+      ni: new Set()
+    };
+    const normalizedCounselor = normalizeText(counselor);
+
+    leads.filter(isAdmissionReportingLead).forEach((lead) => {
+      const leadKey = getLeadKey(lead);
+      const assignedToCounselor = normalizeText(resolveCounselorName(lead?.counselor, true)) === normalizedCounselor;
+      const firstPde = findFirstCoursePitchedEvent(lead);
+      if (firstPde) {
+        const pdeDate = parseLocalDate(firstPde.at);
+        if (
+          normalizeText(firstPde.counselor) === normalizedCounselor
+          && (!range || (pdeDate && pdeDate >= range.start && pdeDate <= range.end))
+        ) {
+          countedByBucket.pde.add(leadKey);
+        }
+      } else if (!range && assignedToCounselor && getReportingContexts(lead).some((context) => isFilledCourseValue(lead?.[context.coursePitchedField]))) {
+        countedByBucket.pde.add(leadKey);
+      }
+
+      const events = getReportingEventsForLead(lead, range)
+        .filter((event) => normalizeText(event.counselor) === normalizedCounselor)
+        .sort((left, right) => (parseLocalDate(right.at)?.getTime() || 0) - (parseLocalDate(left.at)?.getTime() || 0));
+      const latestDisposition = events.find((event) => ["CNC", "CBL", "NI"].includes(event.bucket));
+      if (events.some((event) => event.bucket === "Enrolled")) {
+        countedByBucket.enrolled.add(leadKey);
+      }
+      if (latestDisposition?.bucket === "CNC") countedByBucket.cnc.add(leadKey);
+      if (latestDisposition?.bucket === "CBL") countedByBucket.cbl.add(leadKey);
+      if (latestDisposition?.bucket === "NI") countedByBucket.ni.add(leadKey);
+
+      if (!range && assignedToCounselor) {
+        const currentBucket = getCurrentReportingBucketForLead(lead);
+        if (currentBucket === "Enrolled") countedByBucket.enrolled.add(leadKey);
+        if (currentBucket === "CNC") countedByBucket.cnc.add(leadKey);
+        if (currentBucket === "CBL") countedByBucket.cbl.add(leadKey);
+        if (currentBucket === "NI") countedByBucket.ni.add(leadKey);
+      }
+    });
+
+    row.enrolled = countedByBucket.enrolled.size;
+    row.pde = countedByBucket.pde.size;
+    row.cnc = countedByBucket.cnc.size;
+    row.cbl = countedByBucket.cbl.size;
+    row.ni = countedByBucket.ni.size;
+    row.pendingLeads = getAssignedAdmissionLeadsForCounselor(leads, counselor, range)
+      .filter((lead) => !hasCounselorAdmissionActivity(lead, counselor))
+      .length;
+    return row;
+  });
+
+  return rows
+    .filter((row) => Object.values(row).some((value) => typeof value === "number" && value > 0))
+    .sort((left, right) => (
+      (right.enrolled + right.pde + right.cnc + right.cbl + right.ni + right.pendingLeads)
+      - (left.enrolled + left.pde + left.cnc + left.cbl + left.ni + left.pendingLeads)
+    ) || String(left.counselor).localeCompare(String(right.counselor)));
+}
+
+function buildLeadAssignmentRows(counselors, leads, range = null) {
+  const rows = counselors.map((counselor) => {
+    const row = {
+      counselor,
+      total: 0
+    };
+    ASSIGNMENT_COURSE_COLUMNS.forEach((column) => {
+      row[column.key] = 0;
+    });
+
+    getAssignedAdmissionLeadsForCounselor(leads, counselor, range).forEach((lead) => {
+      const columnKey = getAssignmentCourseColumnKey(getAssignmentCourseValue(lead));
+      if (!columnKey) {
+        return;
+      }
+      row[columnKey] += 1;
+      row.total += 1;
+    });
+
+    return row;
+  });
+
+  return rows
+    .filter((row) => row.total > 0)
+    .sort((left, right) => right.total - left.total || String(left.counselor).localeCompare(String(right.counselor)));
+}
+
 function formatPercent(count, total) {
   if (!total) {
     return "0%";
@@ -1376,6 +1760,7 @@ function getVisibleKpiSnapshot() {
 function getTimelineLabel() {
   if (timelineFilter.type === "overall") return "Overall";
   if (timelineFilter.type === "today") return "Today";
+  if (timelineFilter.type === "yesterday") return "Yesterday";
   if (timelineFilter.type === "week") return "Week";
   if (timelineFilter.type === "recent") return "Last 30 Days";
   if (timelineFilter.type === "custom") {
@@ -1498,7 +1883,8 @@ function renderSectionNav() {
     return;
   }
 
-  const groups = Object.entries(VIEW_CONFIG);
+  const groups = Object.entries(VIEW_CONFIG)
+    .filter(([, group]) => !group.adminOnly || isAdminSession());
   const activeGroup = getActiveGroupConfig();
 
   monitoringSectionNav.innerHTML = `
@@ -1728,6 +2114,68 @@ function renderRegisteredView(counselors, leads, rawLeads, range) {
   ], rows, 9);
 }
 
+function renderReportingView(counselors, rawLeads, range) {
+  const rows = buildReportingRows(counselors, rawLeads, range);
+  const totals = rows.reduce((summary, row) => {
+    summary.enrolled += row.enrolled;
+    summary.pde += row.pde;
+    summary.cnc += row.cnc;
+    summary.cbl += row.cbl;
+    summary.ni += row.ni;
+    summary.pendingLeads += row.pendingLeads;
+    return summary;
+  }, {
+    enrolled: 0,
+    pde: 0,
+    cnc: 0,
+    cbl: 0,
+    ni: 0,
+    pendingLeads: 0
+  });
+
+  buildMetricCards([
+    { label: "Enrolled", value: totals.enrolled },
+    { label: "PDE", value: totals.pde },
+    { label: "CNC", value: totals.cnc },
+    { label: "CBL", value: totals.cbl },
+    { label: "NI", value: totals.ni },
+    { label: "Pending Leads", value: totals.pendingLeads }
+  ]);
+
+  renderTable([
+    { label: "Counselor Name", render: (row) => escapeHtml(row.counselor) },
+    { label: "Enrolled", render: (row) => String(row.enrolled) },
+    { label: "PDE", render: (row) => String(row.pde) },
+    { label: "CNC", render: (row) => String(row.cnc) },
+    { label: "CBL", render: (row) => String(row.cbl) },
+    { label: "NI", render: (row) => String(row.ni) },
+    { label: "Pending Leads", render: (row) => String(row.pendingLeads) }
+  ], rows, 7);
+}
+
+function renderLeadAssignmentView(counselors, rawLeads, range) {
+  const rows = buildLeadAssignmentRows(counselors, rawLeads, range);
+  const totalAssigned = rows.reduce((sum, row) => sum + row.total, 0);
+  const courseTotals = ASSIGNMENT_COURSE_COLUMNS.map((column) => ({
+    label: column.label,
+    value: rows.reduce((sum, row) => sum + row[column.key], 0)
+  }));
+
+  buildMetricCards([
+    { label: "Total Assigned", value: totalAssigned },
+    ...courseTotals.filter((metric) => metric.value > 0).slice(0, 5)
+  ]);
+
+  renderTable([
+    { label: "Counselor Name", render: (row) => escapeHtml(row.counselor) },
+    ...ASSIGNMENT_COURSE_COLUMNS.map((column) => ({
+      label: column.label,
+      render: (row) => String(row[column.key] || 0)
+    })),
+    { label: "Total", render: (row) => String(row.total) }
+  ], rows, ASSIGNMENT_COURSE_COLUMNS.length + 2, "lead-assignment-table");
+}
+
 function getMcubeCounselorLabel(entry = {}) {
   const counselor = resolveCounselorName(entry?.counselor);
   if (counselor) {
@@ -1851,6 +2299,20 @@ function renderActiveMonitoringView() {
   monitoringActiveTitle.textContent = subsectionConfig.title;
   monitoringActiveDescription.textContent = subsectionConfig.description;
 
+  if (activeView.subsection === "reporting") {
+    const rawLeads = rawAllLeads.filter(isAdmissionReportingLead);
+    const counselors = getMonitoringCounselorNames(rawLeads);
+    renderReportingView(counselors, rawLeads, range);
+    return;
+  }
+
+  if (activeView.subsection === "lead-assignment") {
+    const rawLeads = rawAllLeads.filter(isAdmissionReportingLead);
+    const counselors = getMonitoringCounselorNames(rawLeads);
+    renderLeadAssignmentView(counselors, rawLeads, range);
+    return;
+  }
+
   if (activeView.subsection === "workshop-calling") {
     const leads = legacyNonMainAdmissionTimelineLeads.filter((lead) => !isNonWorkshopPipelineLead(lead) && !isLostLead(lead));
     const rawLeads = legacyNonMainAdmissionRawLeads.filter((lead) => !isNonWorkshopPipelineLead(lead) && !isLostLead(lead));
@@ -1895,6 +2357,11 @@ function renderActiveMonitoringView() {
 }
 
 function ensureValidActiveView() {
+  if (VIEW_CONFIG[activeView.group]?.adminOnly && !isAdminSession()) {
+    activeView.group = "workshop";
+    activeView.subsection = "workshop-calling";
+  }
+
   if (!VIEW_CONFIG[activeView.group]) {
     activeView.group = "workshop";
   }

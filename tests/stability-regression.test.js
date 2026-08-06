@@ -722,6 +722,24 @@ test("monitoring includes a single-view MCube tab with call summary metrics", ()
   assert.match(monitoring, /renderMcubeView\(rawAllLeads, range\)/);
 });
 
+test("monitoring adds admin reporting views and yesterday timeline", () => {
+  const monitoringHtml = read("monitoring.html");
+  const monitoring = read("monitoring.js");
+  const server = read("server.js");
+
+  assert.match(monitoringHtml, /<option value="yesterday">Yesterday<\/option>/);
+  assert.match(server, /if \(type === "yesterday"\) return getMonitoringDayRange\(-1\)/);
+  assert.match(monitoring, /if \(timelineFilter\.type === "yesterday"\)/);
+  assert.match(monitoring, /adminOnly: true/);
+  assert.match(monitoring, /label: "Reporting"/);
+  assert.match(monitoring, /label: "Lead Assignment Panel"/);
+  assert.match(monitoring, /const REPORTING_BUCKETS = \["Enrolled", "PDE", "CNC", "CBL", "NI", "Pending Leads"\]/);
+  assert.doesNotMatch(getNamedFunctionSource(monitoring, "renderReportingView"), /NE/);
+  assert.match(monitoring, /function findFirstCoursePitchedEvent\(/);
+  assert.match(monitoring, /function hasCounselorAdmissionActivity\(/);
+  assert.match(monitoring, /pre\\s\*workshop\|post\\s\*workshop\|workshop\\s\*calling/);
+});
+
 test("activity update panels can save notes into activity history", () => {
   const preWorkshopHtml = read("pre-workshop.html");
   const postWorkshopHtml = read("post-workshop.html");
