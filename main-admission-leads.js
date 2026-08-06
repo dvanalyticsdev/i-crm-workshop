@@ -1241,6 +1241,7 @@ function renderFilters(leads) {
           <label for="mainAdmissionCounselorSelect">Counselor</label>
           <select id="mainAdmissionCounselorSelect">
             <option value="">All</option>
+            <option value="Unassigned" ${filter.counselor === "Unassigned" ? "selected" : ""}>Unassigned</option>
             ${counselors.map((item) => `<option value="${escapeHtml(item)}" ${filter.counselor === item ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
           </select>
         </div>
