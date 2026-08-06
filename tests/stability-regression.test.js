@@ -746,6 +746,7 @@ test("monitoring adds admin reporting views and yesterday timeline", () => {
   assert.match(monitoring, /const rawLeads = getManagementReportMainAdmissionLeads\(rawAllLeads, range\)/);
   assert.match(monitoring, /const rawLeads = rawAllLeads\.filter\(isMainAdmissionLead\)/);
   assert.match(getNamedFunctionSource(monitoring, "getAssignedAdmissionLeadsForCounselor"), /getLeadOwnershipDate\(lead\)/);
+  assert.match(getNamedFunctionSource(monitoring, "getAssignedAdmissionLeadsForCounselor"), /wasLeadCreatedByCounselor\(lead, counselor\)/);
   assert.match(monitoring, /label: "FDE"/);
   assert.match(monitoring, /forward\\s\+deployed\\s\+engineer/);
   assert.match(monitoring, /label: "Unspecified"/);

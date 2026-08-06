@@ -1470,6 +1470,9 @@ function getAssignedAdmissionLeadsForCounselor(leads, counselor, range = null) {
     if (normalizeText(resolveCounselorName(lead?.counselor, true)) !== normalizedCounselor) {
       return false;
     }
+    if (wasLeadCreatedByCounselor(lead, counselor)) {
+      return false;
+    }
     if (range) {
       const assignmentDate = getLeadOwnershipDate(lead);
       if (!assignmentDate || assignmentDate < range.start || assignmentDate > range.end) {
