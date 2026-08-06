@@ -1461,7 +1461,7 @@ function getAssignmentCourseColumnKey(value) {
   return matched?.key || "unspecified";
 }
 
-function getAssignedAdmissionLeadsForCounselor(leads, counselor) {
+function getAssignedAdmissionLeadsForCounselor(leads, counselor, range = null) {
   const normalizedCounselor = normalizeText(counselor);
   return leads.filter((lead) => {
     if (!isAdmissionReportingLead(lead)) {
@@ -1469,6 +1469,12 @@ function getAssignedAdmissionLeadsForCounselor(leads, counselor) {
     }
     if (normalizeText(resolveCounselorName(lead?.counselor, true)) !== normalizedCounselor) {
       return false;
+    }
+    if (range) {
+      const assignmentDate = getLeadOwnershipDate(lead);
+      if (!assignmentDate || assignmentDate < range.start || assignmentDate > range.end) {
+        return false;
+      }
     }
     return true;
   });
@@ -1559,7 +1565,7 @@ function buildLeadAssignmentRows(counselors, leads, range = null) {
       row[column.key] = 0;
     });
 
-    getAssignedAdmissionLeadsForCounselor(leads, counselor).forEach((lead) => {
+    getAssignedAdmissionLeadsForCounselor(leads, counselor, range).forEach((lead) => {
       const columnKey = getAssignmentCourseColumnKey(getAssignmentCourseValue(lead));
       row[columnKey] += 1;
       row.total += 1;
@@ -2322,7 +2328,7 @@ function renderActiveMonitoringView() {
   }
 
   if (activeView.subsection === "lead-assignment") {
-    const rawLeads = getManagementReportMainAdmissionLeads(rawAllLeads, range);
+    const rawLeads = rawAllLeads.filter(isMainAdmissionLead);
     const counselors = getMonitoringCounselorNames(rawLeads);
     renderLeadAssignmentView(counselors, rawLeads, range);
     return;
