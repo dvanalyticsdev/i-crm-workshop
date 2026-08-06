@@ -744,6 +744,9 @@ test("monitoring adds admin reporting views and yesterday timeline", () => {
   assert.match(monitoring, /function getManagementReportMainAdmissionLeads\(/);
   assert.match(monitoring, /getMainAdmissionLeadOwnerType\(lead\) === "reassigned"/);
   assert.match(monitoring, /const rawLeads = getManagementReportMainAdmissionLeads\(rawAllLeads, range\)/);
+  assert.match(monitoring, /label: "FDE"/);
+  assert.match(monitoring, /forward\\s\+deployed\\s\+engineer/);
+  assert.doesNotMatch(getNamedFunctionSource(monitoring, "buildLeadAssignmentRows"), /\.filter\(\(row\) => row\.total > 0\)/);
   assert.match(monitoring, /pre\\s\*workshop\|post\\s\*workshop\|workshop\\s\*calling/);
 });
 

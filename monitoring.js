@@ -64,8 +64,8 @@ const ASSIGNMENT_COURSE_COLUMNS = [
   },
   {
     key: "aiml",
-    label: "AIML",
-    patterns: [/\baiml\b/i, /advanced\s+aiml/i]
+    label: "AIML + GENAI",
+    patterns: [/\baiml\b/i, /advanced\s+aiml/i, /aiml\s*\+?\s*gen\s*ai/i]
   },
   {
     key: "days7Genai",
@@ -79,8 +79,13 @@ const ASSIGNMENT_COURSE_COLUMNS = [
   },
   {
     key: "cyberSecurity",
-    label: "CYBER SECURITY",
+    label: "APCS",
     patterns: [/cyber/i, /forensics/i, /\bapcs\b/i]
+  },
+  {
+    key: "fde",
+    label: "FDE",
+    patterns: [/\bfde\b/i, /forward\s+deployed\s+engineer/i, /forward\s+deployment\s+engineer/i]
   }
 ];
 const MONITORING_ACTIVITY_OPTIONS = {
@@ -1562,7 +1567,6 @@ function buildLeadAssignmentRows(counselors, leads, range = null) {
   });
 
   return rows
-    .filter((row) => row.total > 0)
     .sort((left, right) => right.total - left.total || String(left.counselor).localeCompare(String(right.counselor)));
 }
 
