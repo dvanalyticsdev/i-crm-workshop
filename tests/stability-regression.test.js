@@ -731,12 +731,17 @@ test("monitoring adds admin reporting views and yesterday timeline", () => {
   assert.match(server, /if \(type === "yesterday"\) return getMonitoringDayRange\(-1\)/);
   assert.match(monitoring, /if \(timelineFilter\.type === "yesterday"\)/);
   assert.match(monitoring, /adminOnly: true/);
+  assert.match(monitoring, /label: "Management Reports"/);
   assert.match(monitoring, /label: "Reporting"/);
   assert.match(monitoring, /label: "Lead Assignment Panel"/);
   assert.match(monitoring, /const REPORTING_BUCKETS = \["Enrolled", "PDE", "CNC", "CBL", "NI", "Pending Leads"\]/);
   assert.doesNotMatch(getNamedFunctionSource(monitoring, "renderReportingView"), /NE/);
   assert.match(monitoring, /function findFirstCoursePitchedEvent\(/);
   assert.match(monitoring, /function hasCounselorAdmissionActivity\(/);
+  assert.match(getNamedFunctionSource(monitoring, "getReportingContexts"), /mainAdmissionActivityHistory/);
+  assert.doesNotMatch(getNamedFunctionSource(monitoring, "getReportingContexts"), /admissionActivityHistory/);
+  assert.doesNotMatch(getNamedFunctionSource(monitoring, "getReportingContexts"), /registeredCourseActivityHistory/);
+  assert.match(monitoring, /const rawLeads = rawAllLeads\.filter\(isMainAdmissionLead\)/);
   assert.match(monitoring, /pre\\s\*workshop\|post\\s\*workshop\|workshop\\s\*calling/);
 });
 

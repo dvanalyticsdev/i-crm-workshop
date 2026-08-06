@@ -149,19 +149,19 @@ const VIEW_CONFIG = {
     }
   },
   [ADMIN_MONITORING_GROUP]: {
-    label: "Admin",
+    label: "Management Reports",
     adminOnly: true,
-    description: "Review CRM reporting buckets and course-wise lead assignment counts.",
+    description: "Review Main Admission reporting buckets and course-wise lead assignment counts.",
     subsections: {
       reporting: {
         label: "Reporting",
         title: "Reporting",
-        description: "Track Enrolled, PDE, CNC, CBL, NI, and untouched pending leads by counselor."
+        description: "Track Main Admission Enrolled, PDE, CNC, CBL, NI, and untouched pending leads by counselor."
       },
       "lead-assignment": {
         label: "Lead Assignment Panel",
         title: "Lead Assignment Panel",
-        description: "Review counselor-wise lead assignment counts by course, excluding workshop-stage items."
+        description: "Review Main Admission counselor-wise lead assignment counts by course."
       }
     }
   }
@@ -1269,25 +1269,11 @@ function isFilledCourseValue(value) {
 function getReportingContexts(lead = {}) {
   return [
     {
-      historyField: "admissionActivityHistory",
-      coursePitchedField: "coursePitched",
-      courseStatusField: "courseStatus",
-      admissionStatusField: "admissionStatus",
-      callStatusField: "postCallStatus"
-    },
-    {
       historyField: "mainAdmissionActivityHistory",
       coursePitchedField: "mainAdmissionCoursePitched",
       courseStatusField: "mainAdmissionCourseStatus",
       admissionStatusField: "mainAdmissionAdmissionStatus",
       callStatusField: "mainAdmissionCallStatus"
-    },
-    {
-      historyField: "registeredCourseActivityHistory",
-      coursePitchedField: "registeredCoursePitched",
-      courseStatusField: "registeredCourseStatus",
-      admissionStatusField: "registeredAdmissionStatus",
-      callStatusField: "registeredCallStatus"
     }
   ].map((context) => ({
     ...context,
@@ -1296,8 +1282,7 @@ function getReportingContexts(lead = {}) {
 }
 
 function isAdmissionReportingLead(lead = {}) {
-  return isCourseRegistrationLead(lead)
-    || isMainAdmissionLead(lead)
+  return isMainAdmissionLead(lead)
     || getReportingContexts(lead).some((context) =>
       context.history.length
       || String(lead?.[context.coursePitchedField] || "").trim()
@@ -1412,8 +1397,6 @@ function hasCounselorAdmissionActivity(lead = {}, counselor = "") {
 function getAssignmentCourseValue(lead = {}) {
   return String(
     lead?.mainAdmissionCoursePitched
-    || lead?.registeredCoursePitched
-    || lead?.coursePitched
     || lead?.courseName
     || lead?.courseCode
     || ""
@@ -2300,14 +2283,14 @@ function renderActiveMonitoringView() {
   monitoringActiveDescription.textContent = subsectionConfig.description;
 
   if (activeView.subsection === "reporting") {
-    const rawLeads = rawAllLeads.filter(isAdmissionReportingLead);
+    const rawLeads = rawAllLeads.filter(isMainAdmissionLead);
     const counselors = getMonitoringCounselorNames(rawLeads);
     renderReportingView(counselors, rawLeads, range);
     return;
   }
 
   if (activeView.subsection === "lead-assignment") {
-    const rawLeads = rawAllLeads.filter(isAdmissionReportingLead);
+    const rawLeads = rawAllLeads.filter(isMainAdmissionLead);
     const counselors = getMonitoringCounselorNames(rawLeads);
     renderLeadAssignmentView(counselors, rawLeads, range);
     return;
