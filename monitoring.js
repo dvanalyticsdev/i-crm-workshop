@@ -75,7 +75,7 @@ const ASSIGNMENT_COURSE_COLUMNS = [
   {
     key: "genai",
     label: "GEN AI",
-    patterns: [/\bgen\s*ai\b/i, /\bgenai\b/i, /generative\s+ai/i, /agentic\s+ai/i]
+    patterns: [/genai\s*master/i, /gen\s*ai\s*master/i, /master\s+program\s+in\s+gen\s*ai/i, /generative\s+ai/i]
   },
   {
     key: "cyberSecurity",
@@ -872,6 +872,39 @@ function getLeadOwnershipDate(lead) {
   );
 }
 
+function getMainAdmissionLeadOwnerType(lead = {}) {
+  const assignedFromCounselor = String(lead?.assignedFromCounselor || "").trim();
+  return normalizeText(lead?.leadOwnerType) === "reassigned"
+    || (assignedFromCounselor && normalizeText(assignedFromCounselor) !== "unassigned")
+    ? "reassigned"
+    : "direct";
+}
+
+function getMainAdmissionLeadTimelineDate(lead = {}) {
+  const timelineValue = getMainAdmissionLeadOwnerType(lead) === "reassigned"
+    ? lead?.leadOwnerTimelineAt
+      || lead?.counselorAssignedAt
+      || lead?.updatedAt
+      || lead?.createdAtExact
+      || lead?.createdAt
+    : lead?.createdAtExact
+      || lead?.createdAt;
+
+  return parseLocalDate(timelineValue);
+}
+
+function getManagementReportMainAdmissionLeads(leads = [], range = null) {
+  const mainAdmissionLeads = leads.filter(isMainAdmissionLead);
+  if (!range) {
+    return mainAdmissionLeads;
+  }
+
+  return mainAdmissionLeads.filter((lead) => {
+    const timelineDate = getMainAdmissionLeadTimelineDate(lead);
+    return timelineDate && timelineDate >= range.start && timelineDate <= range.end;
+  });
+}
+
 function wasLeadCreatedByCounselor(lead, counselor) {
   if (!lead?.leadCreationRequestId && !lead?.requestedBy && !lead?.requestedByEmail) {
     return false;
@@ -1418,7 +1451,7 @@ function getAssignmentCourseColumnKey(value) {
   return matched?.key || "";
 }
 
-function getAssignedAdmissionLeadsForCounselor(leads, counselor, range = null) {
+function getAssignedAdmissionLeadsForCounselor(leads, counselor) {
   const normalizedCounselor = normalizeText(counselor);
   return leads.filter((lead) => {
     if (!isAdmissionReportingLead(lead)) {
@@ -1427,14 +1460,7 @@ function getAssignedAdmissionLeadsForCounselor(leads, counselor, range = null) {
     if (normalizeText(resolveCounselorName(lead?.counselor, true)) !== normalizedCounselor) {
       return false;
     }
-    if (wasLeadCreatedByCounselor(lead, counselor)) {
-      return false;
-    }
-    if (!range) {
-      return true;
-    }
-    const assignmentDate = getLeadOwnershipDate(lead);
-    return assignmentDate && assignmentDate >= range.start && assignmentDate <= range.end;
+    return true;
   });
 }
 
@@ -1499,7 +1525,7 @@ function buildReportingRows(counselors, leads, range = null) {
     row.cnc = countedByBucket.cnc.size;
     row.cbl = countedByBucket.cbl.size;
     row.ni = countedByBucket.ni.size;
-    row.pendingLeads = getAssignedAdmissionLeadsForCounselor(leads, counselor, range)
+    row.pendingLeads = getAssignedAdmissionLeadsForCounselor(leads, counselor)
       .filter((lead) => !hasCounselorAdmissionActivity(lead, counselor))
       .length;
     return row;
@@ -1523,7 +1549,7 @@ function buildLeadAssignmentRows(counselors, leads, range = null) {
       row[column.key] = 0;
     });
 
-    getAssignedAdmissionLeadsForCounselor(leads, counselor, range).forEach((lead) => {
+    getAssignedAdmissionLeadsForCounselor(leads, counselor).forEach((lead) => {
       const columnKey = getAssignmentCourseColumnKey(getAssignmentCourseValue(lead));
       if (!columnKey) {
         return;
@@ -2283,14 +2309,14 @@ function renderActiveMonitoringView() {
   monitoringActiveDescription.textContent = subsectionConfig.description;
 
   if (activeView.subsection === "reporting") {
-    const rawLeads = rawAllLeads.filter(isMainAdmissionLead);
+    const rawLeads = getManagementReportMainAdmissionLeads(rawAllLeads, range);
     const counselors = getMonitoringCounselorNames(rawLeads);
     renderReportingView(counselors, rawLeads, range);
     return;
   }
 
   if (activeView.subsection === "lead-assignment") {
-    const rawLeads = rawAllLeads.filter(isMainAdmissionLead);
+    const rawLeads = getManagementReportMainAdmissionLeads(rawAllLeads, range);
     const counselors = getMonitoringCounselorNames(rawLeads);
     renderLeadAssignmentView(counselors, rawLeads, range);
     return;
