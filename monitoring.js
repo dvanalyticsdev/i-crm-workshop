@@ -86,6 +86,11 @@ const ASSIGNMENT_COURSE_COLUMNS = [
     key: "fde",
     label: "FDE",
     patterns: [/\bfde\b/i, /forward\s+deployed\s+engineer/i, /forward\s+deployment\s+engineer/i]
+  },
+  {
+    key: "unspecified",
+    label: "Unspecified",
+    patterns: []
   }
 ];
 const MONITORING_ACTIVITY_OPTIONS = {
@@ -1444,16 +1449,16 @@ function getAssignmentCourseValue(lead = {}) {
 function getAssignmentCourseColumnKey(value) {
   const text = String(value || "").trim();
   if (!isFilledCourseValue(text)) {
-    return "";
+    return "unspecified";
   }
   if (/pre\s*workshop|post\s*workshop|workshop\s*calling/i.test(text)) {
-    return "";
+    return "unspecified";
   }
 
   const matched = ASSIGNMENT_COURSE_COLUMNS.find((column) =>
     column.patterns.some((pattern) => pattern.test(text))
   );
-  return matched?.key || "";
+  return matched?.key || "unspecified";
 }
 
 function getAssignedAdmissionLeadsForCounselor(leads, counselor) {
@@ -1556,9 +1561,6 @@ function buildLeadAssignmentRows(counselors, leads, range = null) {
 
     getAssignedAdmissionLeadsForCounselor(leads, counselor).forEach((lead) => {
       const columnKey = getAssignmentCourseColumnKey(getAssignmentCourseValue(lead));
-      if (!columnKey) {
-        return;
-      }
       row[columnKey] += 1;
       row.total += 1;
     });

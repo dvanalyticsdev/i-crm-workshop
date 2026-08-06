@@ -746,8 +746,9 @@ test("monitoring adds admin reporting views and yesterday timeline", () => {
   assert.match(monitoring, /const rawLeads = getManagementReportMainAdmissionLeads\(rawAllLeads, range\)/);
   assert.match(monitoring, /label: "FDE"/);
   assert.match(monitoring, /forward\\s\+deployed\\s\+engineer/);
+  assert.match(monitoring, /label: "Unspecified"/);
   assert.doesNotMatch(getNamedFunctionSource(monitoring, "buildLeadAssignmentRows"), /\.filter\(\(row\) => row\.total > 0\)/);
-  assert.match(monitoring, /pre\\s\*workshop\|post\\s\*workshop\|workshop\\s\*calling/);
+  assert.match(getNamedFunctionSource(monitoring, "getAssignmentCourseColumnKey"), /return "unspecified"/);
 });
 
 test("activity update panels can save notes into activity history", () => {
