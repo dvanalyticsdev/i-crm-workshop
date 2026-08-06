@@ -1025,7 +1025,7 @@ function renderLeadTable(rows = getFilteredRows()) {
   });
 
   leadTable.querySelectorAll("[data-open-tab-key]").forEach((button) => {
-    button.addEventListener("click", async () => {
+    button.addEventListener("click", () => {
       const key = String(button.getAttribute("data-open-tab-key") || "");
       const model = getAllRowModels().find((item) => item.key === key);
       const targetUrl = button.getAttribute("data-lead-tab-url");
@@ -1033,9 +1033,9 @@ function renderLeadTable(rows = getFilteredRows()) {
         showToast("Could not open this lead tab. Please refresh and try again.", true);
         return;
       }
-      await trackLeadView(model.lead.id, model.lead.email || "").catch(() => undefined);
       cacheLeadTabSnapshot(model);
-      window.location.href = targetUrl;
+      window.open(targetUrl, "_blank", "noopener");
+      void trackLeadView(model.lead.id, model.lead.email || "");
     });
   });
 

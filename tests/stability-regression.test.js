@@ -1741,7 +1741,7 @@ test("admission SOP rows can open lead tabs", () => {
   assert.match(admissionSop, /data-open-tab-key="\$\{escapeHtml\(model\.key\)\}"/);
   assert.match(admissionSop, /data-lead-tab-url="\$\{escapeHtml\(buildLeadTabUrl\(model\)\)\}"/);
   assert.match(admissionSop, /cacheLeadTabSnapshot\(model\);/);
-  assert.match(admissionSop, /window\.location\.href = targetUrl;/);
+  assert.match(admissionSop, /window\.open\(targetUrl, "_blank", "noopener"\);/);
 });
 
 test("lead activity and assignment avoid full-state response after atomic writes", () => {
