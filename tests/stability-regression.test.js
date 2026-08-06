@@ -814,6 +814,8 @@ test("incoming Meta leads route admission traffic into Main Admission Leads", ()
   assert.match(mainAdmission, /mainAdmissionBulkAssignCounselor/);
   assert.match(mainAdmission, /Assign Selected/);
   assert.match(mainAdmission, /Select at least one unassigned lead to use this panel/);
+  assert.match(getNamedFunctionSource(mainAdmission, "getLeadOwnerTimelineValue"), /lead\?\.leadOwnerTimelineAt[\s\S]*lead\?\.counselorAssignedAt/);
+  assert.doesNotMatch(getNamedFunctionSource(mainAdmission, "getLeadOwnerTimelineValue"), /getLeadOwnerType\(lead\) === "reassigned"/);
   assert.match(taskService, /mainAdmission: "main-admission"/);
   assert.match(taskTracker, /mainAdmissionTaskSection/);
 });

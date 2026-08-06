@@ -489,18 +489,13 @@ function getLeadOwnerType(lead) {
 }
 
 function getLeadOwnerTimelineValue(lead) {
-  if (getLeadOwnerType(lead) === "reassigned") {
-    return String(
-      lead?.leadOwnerTimelineAt
-      || lead?.counselorAssignedAt
-      || lead?.updatedAt
-      || lead?.createdAtExact
-      || lead?.createdAt
-      || ""
-    ).trim();
-  }
-
-  return String(lead?.createdAtExact || lead?.createdAt || "").trim();
+  return String(
+    lead?.leadOwnerTimelineAt
+    || lead?.counselorAssignedAt
+    || lead?.createdAtExact
+    || lead?.createdAt
+    || ""
+  ).trim();
 }
 
 function getLeadImportTimestamp(lead) {
