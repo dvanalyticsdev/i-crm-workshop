@@ -119,12 +119,11 @@ const DEFAULT_FILTER = {
   lsqLeads: "",
   sopFilter: "",
   advanced: {
-    mode: "and",
     conditions: []
   }
 };
 const ADVANCED_FILTER_EMPTY_CONDITION = { field: "", operator: "", value: "" };
-const ADVANCED_FILTER_DEFAULT = { mode: "and", conditions: [] };
+const ADVANCED_FILTER_DEFAULT = { conditions: [] };
 const ADVANCED_FILTER_MODES = new Set(["and", "or"]);
 const WHATSAPP_ACTIVITY_FILTER_OPTIONS = ["WhatsApp Read", "WhatsApp Clicked", "WhatsApp Replied"];
 const ADVANCED_FILTER_FIELDS = [
@@ -396,20 +395,25 @@ function getAdvancedFilterDefinition(field) {
 function normalizeAdvancedFilterCondition(value = {}) {
   const field = String(value?.field || "").trim();
   const definition = getAdvancedFilterDefinition(field);
+  const connector = ADVANCED_FILTER_MODES.has(String(value?.connector || "").trim().toLowerCase())
+    ? String(value.connector).trim().toLowerCase()
+    : "and";
   if (!definition) {
-    return { ...ADVANCED_FILTER_EMPTY_CONDITION };
+    return { ...ADVANCED_FILTER_EMPTY_CONDITION, connector };
   }
   const operator = String(value?.operator || definition.defaultOperator || "").trim();
   const rawValue = String(value?.value ?? "").trim();
   if (definition.type === "choice") {
     const allowed = new Set((definition.choices || []).map((choice) => choice.value));
     return {
+      connector,
       field,
       operator: "is",
       value: allowed.has(rawValue) ? rawValue : ""
     };
   }
   return {
+    connector,
     field,
     operator,
     value: rawValue
@@ -420,40 +424,46 @@ function normalizeAdvancedFilter(value = {}) {
   if (Array.isArray(value)) {
     return {
       ...ADVANCED_FILTER_DEFAULT,
-      conditions: value.map(normalizeAdvancedFilterCondition).filter((item) => item.field && item.value)
+      conditions: value.map((item, index) => {
+        const normalized = normalizeAdvancedFilterCondition(item);
+        return {
+          ...normalized,
+          connector: index === 0 ? "and" : normalized.connector
+        };
+      }).filter((item) => item.field && item.value)
     };
   }
 
-  const mode = ADVANCED_FILTER_MODES.has(String(value?.mode || "").trim().toLowerCase())
-    ? String(value.mode).trim().toLowerCase()
-    : "and";
   const rawConditions = Array.isArray(value?.conditions)
     ? value.conditions
     : value?.field
       ? [value]
       : [];
+  const legacyMode = ADVANCED_FILTER_MODES.has(String(value?.mode || "").trim().toLowerCase())
+    ? String(value.mode).trim().toLowerCase()
+    : "and";
   return {
-    mode,
-    conditions: rawConditions.map(normalizeAdvancedFilterCondition).filter((item) => item.field && item.value)
+    conditions: rawConditions.map((item, index) => {
+      const normalized = normalizeAdvancedFilterCondition(item);
+      return {
+        ...normalized,
+        connector: index === 0 ? "and" : normalizeAdvancedFilterCondition({ connector: item?.connector || legacyMode }).connector
+      };
+    }).filter((item) => item.field && item.value)
   };
 }
 
 function getAdvancedFilterDraftSet() {
   if (advancedFilterDraft) {
-    const draftMode = ADVANCED_FILTER_MODES.has(String(advancedFilterDraft.mode || "").trim().toLowerCase())
-      ? String(advancedFilterDraft.mode).trim().toLowerCase()
-      : "and";
     const draftConditions = Array.isArray(advancedFilterDraft.conditions)
       ? advancedFilterDraft.conditions.map(normalizeAdvancedFilterCondition)
       : [];
     return {
-      mode: draftMode,
       conditions: draftConditions.length ? draftConditions : [{ ...ADVANCED_FILTER_EMPTY_CONDITION }]
     };
   }
   const normalized = normalizeAdvancedFilter(filter.advanced);
   return {
-    mode: normalized.mode || "and",
     conditions: normalized.conditions.length
       ? normalized.conditions
       : [{ ...ADVANCED_FILTER_EMPTY_CONDITION }]
@@ -471,7 +481,7 @@ function getAdvancedFilterSummary() {
     return "Use Filter";
   }
   if (advanced.conditions.length > 1) {
-    return `${advanced.conditions.length} filters (${advanced.mode.toUpperCase()})`;
+    return `${advanced.conditions.length} advanced filters`;
   }
   const condition = advanced.conditions[0];
   const definition = getAdvancedFilterDefinition(condition.field);
@@ -568,6 +578,15 @@ function renderAdvancedFilterConditionRow(condition, index, total) {
       : "Value";
   return `
     <div class="advanced-filter-condition" data-advanced-condition="${index}">
+      ${index > 0 ? `
+      <div class="modal-row advanced-filter-connector">
+        <label for="mainAdmissionAdvancedConnector${index}">Join</label>
+        <select id="mainAdmissionAdvancedConnector${index}" data-advanced-connector="${index}">
+          <option value="and" ${draft.connector === "and" ? "selected" : ""}>AND</option>
+          <option value="or" ${draft.connector === "or" ? "selected" : ""}>OR</option>
+        </select>
+      </div>
+      ` : `<div class="advanced-filter-connector advanced-filter-connector--empty" aria-hidden="true"></div>`}
       <div class="modal-row">
         <label for="mainAdmissionAdvancedField${index}">Filter Type</label>
         <select id="mainAdmissionAdvancedField${index}" data-advanced-field="${index}">
@@ -607,14 +626,7 @@ function renderAdvancedFilterPanel() {
           </div>
           <button type="button" id="mainAdmissionAdvancedCloseBtn" class="btn-ghost">Close</button>
         </div>
-        <div class="advanced-filter-mode-row">
-          <div class="modal-row">
-            <label for="mainAdmissionAdvancedMode">Match Mode</label>
-            <select id="mainAdmissionAdvancedMode">
-              <option value="and" ${draft.mode === "and" ? "selected" : ""}>AND - Match all filters</option>
-              <option value="or" ${draft.mode === "or" ? "selected" : ""}>OR - Match any filter</option>
-            </select>
-          </div>
+        <div class="advanced-filter-toolbar">
           <button type="button" id="mainAdmissionAdvancedAddBtn" class="btn-ghost advanced-filter-add-btn">+ Add Filter</button>
         </div>
         <div class="advanced-filter-condition-list">
@@ -622,8 +634,8 @@ function renderAdvancedFilterPanel() {
         </div>
         <div class="advanced-filter-examples">
           <strong>Useful examples</strong>
-          <span>AND: Outbound Call Count no more than 2 + Follow-Up Task overdue</span>
-          <span>OR: Assigned Without Activity at least 1 day + No Task Created</span>
+          <span>Outbound Call Count no more than 2 AND Follow-Up Task overdue</span>
+          <span>Assigned Without Activity at least 1 day OR No Task Created</span>
         </div>
         <div class="modal-actions">
           <button type="button" id="mainAdmissionAdvancedClearBtn" class="btn-ghost">Clear</button>
@@ -657,7 +669,6 @@ function applyAdvancedFilterFromPanel() {
     return;
   }
   filter.advanced = normalizeAdvancedFilter({
-    mode: nextDraft.mode,
     conditions: activeConditions
   });
   advancedFilterDraft = null;
@@ -680,29 +691,27 @@ function clearAdvancedFilter() {
 }
 
 function readAdvancedFilterDraftFromPanel() {
-  const mode = ADVANCED_FILTER_MODES.has(String(document.getElementById("mainAdmissionAdvancedMode")?.value || "").trim().toLowerCase())
-    ? String(document.getElementById("mainAdmissionAdvancedMode")?.value || "").trim().toLowerCase()
-    : "and";
   const rows = [...document.querySelectorAll("[data-advanced-condition]")];
   const conditions = rows.map((row) => {
     const index = row.getAttribute("data-advanced-condition");
+    const connector = index === "0"
+      ? "and"
+      : String(row.querySelector(`[data-advanced-connector="${index}"]`)?.value || "and").trim().toLowerCase();
     const field = String(row.querySelector(`[data-advanced-field="${index}"]`)?.value || "").trim();
     const definition = getAdvancedFilterDefinition(field);
     const operator = definition?.type === "choice"
       ? "is"
       : String(row.querySelector(`[data-advanced-operator="${index}"]`)?.value || definition?.defaultOperator || "").trim();
     const value = String(row.querySelector(`[data-advanced-value="${index}"]`)?.value || "").trim();
-    return normalizeAdvancedFilterCondition({ field, operator, value });
+    return normalizeAdvancedFilterCondition({ connector, field, operator, value });
   });
   return {
-    mode,
     conditions: conditions.length ? conditions : [{ ...ADVANCED_FILTER_EMPTY_CONDITION }]
   };
 }
 
 function rerenderAdvancedFilterPanel(nextDraft) {
   advancedFilterDraft = {
-    mode: nextDraft.mode || "and",
     conditions: nextDraft.conditions.length ? nextDraft.conditions : [{ ...ADVANCED_FILTER_EMPTY_CONDITION }]
   };
   void renderAll();
@@ -723,21 +732,24 @@ function bindAdvancedFilterPanel() {
   document.getElementById("mainAdmissionAdvancedClearBtn")?.addEventListener("click", clearAdvancedFilter);
   document.getElementById("mainAdmissionAdvancedAddBtn")?.addEventListener("click", () => {
     const draft = readAdvancedFilterDraftFromPanel();
-    draft.conditions.push({ ...ADVANCED_FILTER_EMPTY_CONDITION });
+    draft.conditions.push({ ...ADVANCED_FILTER_EMPTY_CONDITION, connector: "and" });
     rerenderAdvancedFilterPanel(draft);
-  });
-  document.getElementById("mainAdmissionAdvancedMode")?.addEventListener("change", () => {
-    rerenderAdvancedFilterPanel(readAdvancedFilterDraftFromPanel());
   });
   document.querySelectorAll("[data-advanced-field]").forEach((input) => {
     input.addEventListener("change", (event) => {
       const draft = readAdvancedFilterDraftFromPanel();
       const index = Number(event.target.getAttribute("data-advanced-field"));
       const definition = getAdvancedFilterDefinition(event.target.value);
+      const existingConnector = draft.conditions[index]?.connector || "and";
       draft.conditions[index] = definition
-        ? { field: definition.value, operator: definition.type === "choice" ? "is" : definition.defaultOperator, value: "" }
-        : { ...ADVANCED_FILTER_EMPTY_CONDITION };
+        ? { connector: existingConnector, field: definition.value, operator: definition.type === "choice" ? "is" : definition.defaultOperator, value: "" }
+        : { ...ADVANCED_FILTER_EMPTY_CONDITION, connector: existingConnector };
       rerenderAdvancedFilterPanel(draft);
+    });
+  });
+  document.querySelectorAll("[data-advanced-connector]").forEach((input) => {
+    input.addEventListener("change", () => {
+      advancedFilterDraft = readAdvancedFilterDraftFromPanel();
     });
   });
   document.querySelectorAll("[data-advanced-remove]").forEach((button) => {
@@ -1542,9 +1554,15 @@ function leadMatchesAdvancedFilter(lead = {}) {
   if (!advanced.conditions.length) {
     return true;
   }
-  return advanced.mode === "or"
-    ? advanced.conditions.some((condition) => leadMatchesAdvancedCondition(lead, condition))
-    : advanced.conditions.every((condition) => leadMatchesAdvancedCondition(lead, condition));
+  return advanced.conditions.reduce((matches, condition, index) => {
+    const conditionMatches = leadMatchesAdvancedCondition(lead, condition);
+    if (index === 0) {
+      return conditionMatches;
+    }
+    return condition.connector === "or"
+      ? matches || conditionMatches
+      : matches && conditionMatches;
+  }, true);
 }
 
 function renderRepeatEnquiryBadge(lead) {

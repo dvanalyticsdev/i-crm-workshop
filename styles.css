@@ -2662,11 +2662,12 @@ tbody tr:hover {
   margin-bottom: var(--space-1);
 }
 
-.advanced-filter-mode-row {
+.advanced-filter-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto;
+  grid-template-columns: auto;
   gap: var(--space-3);
   align-items: end;
+  justify-content: end;
 }
 
 .advanced-filter-add-btn {
@@ -2681,12 +2682,16 @@ tbody tr:hover {
 
 .advanced-filter-condition {
   display: grid;
-  grid-template-columns: 1.2fr 0.9fr 1fr auto;
+  grid-template-columns: 96px 1.2fr 0.9fr 1fr auto;
   gap: var(--space-3);
   align-items: end;
   padding: var(--space-3);
   border: 1px solid var(--border);
   background: var(--surface-muted);
+}
+
+.advanced-filter-connector--empty {
+  min-height: 1px;
 }
 
 .advanced-filter-condition .modal-row {
@@ -3536,7 +3541,7 @@ html[data-theme="dark"] .theme-toggle__icon--moon {
   }
 
   .advanced-filter-panel__header,
-  .advanced-filter-mode-row,
+  .advanced-filter-toolbar,
   .advanced-filter-condition {
     grid-template-columns: 1fr;
   }
