@@ -115,9 +115,28 @@ const DEFAULT_FILTER = {
   latestActivity: "",
   repeatEnquiryStatus: "",
   whatsappActivity: "",
-  lsqLeads: ""
+  lsqLeads: "",
+  sopFilter: ""
 };
 const WHATSAPP_ACTIVITY_FILTER_OPTIONS = ["WhatsApp Read", "WhatsApp Clicked", "WhatsApp Replied"];
+const SOP_FILTER_BLOCKED = "blocked";
+const SOP_NEW_WINDOW_MS = 48 * 60 * 60 * 1000;
+const SOP_ACTIVE_WINDOW_DAYS = 15;
+const SOP_OFFERED_WINDOW_DAYS = 30;
+const KOLKATA_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+const SOP_SYSTEM_ACTIVITY_ACTORS = new Set(["reachout webhook", "system"]);
+const SOP_EXCLUDED_ACTIVITY_TYPES = new Set([
+  "Lead Created",
+  "Lead Assigned",
+  "Lead Reassigned",
+  "Counselor Changed",
+  "Lead Viewed"
+]);
+const SOP_ACTIVITY_OPTIONS_BY_HISTORY_FIELD = {
+  mainAdmissionActivityHistory: {
+    activityFields: ["mainAdmissionDialed", "mainAdmissionCoursePitched", "mainAdmissionCourseStatus", "mainAdmissionAdmissionStatus", "mainAdmissionCallStatus"]
+  }
+};
 
 const persistedFilter = await loadLocalPreference(FILTER_STORAGE_KEY, {});
 if (persistedFilter.timeline === "daily") {
@@ -130,6 +149,7 @@ let filter = { ...DEFAULT_FILTER, ...persistedFilter };
 filter.leadOwner = ["all", "direct", "reassigned"].includes(String(filter.leadOwner || "").trim())
   ? String(filter.leadOwner || "").trim()
   : DEFAULT_FILTER.leadOwner;
+filter.sopFilter = isAdmin && filter.sopFilter === SOP_FILTER_BLOCKED ? SOP_FILTER_BLOCKED : "";
 filter.courseName = normalizeMultiValueFilter(filter.courseName);
 filter.location = normalizeLocationLabel(filter.location);
 if (isCounselorSession() && (!persistedFilter.timeline || persistedFilter.timeline === "week")) {
@@ -688,6 +708,170 @@ function getLeadActivityUpdateCount(lead) {
   return hasAssigneeActivityHistory(lead?.mainAdmissionActivityHistory) ? 1 : 0;
 }
 
+function getKolkataShiftedDate(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Date(date.getTime() + KOLKATA_OFFSET_MS);
+}
+
+function getKolkataWeekday(value) {
+  const shifted = getKolkataShiftedDate(value);
+  return shifted ? shifted.getUTCDay() : null;
+}
+
+function getNextKolkataMidnightTs(value) {
+  const shifted = getKolkataShiftedDate(value);
+  if (!shifted) return null;
+  const nextMidnightUtc = Date.UTC(
+    shifted.getUTCFullYear(),
+    shifted.getUTCMonth(),
+    shifted.getUTCDate() + 1,
+    0,
+    0,
+    0,
+    0
+  );
+  return nextMidnightUtc - KOLKATA_OFFSET_MS;
+}
+
+function addNonSundayWorkingMs(startValue, durationMs) {
+  const startTs = new Date(startValue).getTime();
+  let remaining = Math.max(0, Number(durationMs) || 0);
+  if (!Number.isFinite(startTs) || remaining <= 0) {
+    return Number.isFinite(startTs) ? startTs : null;
+  }
+
+  let cursor = startTs;
+  while (remaining > 0) {
+    const nextBoundary = getNextKolkataMidnightTs(cursor);
+    if (!Number.isFinite(nextBoundary) || nextBoundary <= cursor) {
+      return cursor + remaining;
+    }
+    const segmentEnd = Math.min(cursor + remaining, nextBoundary);
+    const segmentDuration = segmentEnd - cursor;
+    if (getKolkataWeekday(cursor) !== 0) {
+      remaining -= segmentDuration;
+    }
+    cursor = segmentEnd;
+  }
+  return cursor;
+}
+
+function addNonSundayWorkingDays(startValue, days) {
+  return addNonSundayWorkingMs(startValue, Math.max(0, Number(days) || 0) * 24 * 60 * 60 * 1000);
+}
+
+function isSopSystemActivityEntry(entry = {}) {
+  const by = String(entry?.by || "").trim().toLowerCase();
+  const source = String(entry?.source || "").trim().toLowerCase();
+  return SOP_SYSTEM_ACTIVITY_ACTORS.has(by)
+    || SOP_SYSTEM_ACTIVITY_ACTORS.has(source)
+    || by.startsWith("system:")
+    || source.startsWith("system:")
+    || source.includes("webhook");
+}
+
+function hasSopWhatsappSignal(value) {
+  return /whatsapp|reachout/i.test(String(value || "").trim());
+}
+
+function isSopCounselorProgressEvent(entry = {}, options = {}) {
+  if (!entry || typeof entry !== "object" || isSopSystemActivityEntry(entry)) {
+    return false;
+  }
+
+  const activityType = String(entry.activityType || entry.type || entry.eventType || entry.actionType || entry.label || "").trim();
+  const actionDescription = String(entry.actionDescription || entry.description || "").trim();
+  if (
+    SOP_EXCLUDED_ACTIVITY_TYPES.has(activityType)
+    || hasSopWhatsappSignal(activityType)
+    || hasSopWhatsappSignal(actionDescription)
+  ) {
+    return false;
+  }
+
+  const updates = entry.updates && typeof entry.updates === "object" ? entry.updates : null;
+  if (!updates) {
+    return Boolean(activityType || String(entry.by || "").trim());
+  }
+
+  const allowedFields = new Set((options.activityFields || []).map((item) => String(item || "").trim()).filter(Boolean));
+  return Object.keys(updates).some((field) => {
+    const normalizedField = String(field || "").trim();
+    if (!normalizedField || hasSopWhatsappSignal(normalizedField)) {
+      return false;
+    }
+    return !allowedFields.size || allowedFields.has(normalizedField);
+  });
+}
+
+function getSopProgressAnchorAt(lead) {
+  const explicit = String(lead?.admissionSopLastProgressAt || "").trim();
+  if (explicit && isLsqImportedLead(lead)) {
+    return explicit;
+  }
+
+  const history = Array.isArray(lead?.mainAdmissionActivityHistory) ? lead.mainAdmissionActivityHistory : [];
+  const activityOptions = SOP_ACTIVITY_OPTIONS_BY_HISTORY_FIELD.mainAdmissionActivityHistory || {};
+  return history
+    .filter((entry) => isSopCounselorProgressEvent(entry, activityOptions))
+    .map((entry) => String(entry?.at || "").trim())
+    .filter(Boolean)
+    .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0] || null;
+}
+
+function resolveSopBaseTimestamp(lead) {
+  const candidates = [
+    lead?.admissionSopAssignedAt,
+    lead?.counselorAssignedAt,
+    lead?.createdAtExact,
+    lead?.updatedAt
+  ].map((value) => String(value || "").trim()).filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (Number.isFinite(new Date(candidate).getTime())) {
+      return candidate;
+    }
+  }
+
+  const createdAt = String(lead?.createdAt || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(createdAt)) {
+    return `${createdAt}T00:00:00+05:30`;
+  }
+  return Number.isFinite(new Date(createdAt).getTime()) ? createdAt : null;
+}
+
+function isSopBlockedLead(lead) {
+  if (!isRegisteredCandidateLead(lead)) {
+    return false;
+  }
+
+  const counselor = String(lead?.counselor || "").trim();
+  if (!counselor || counselor.toLowerCase() === "unassigned") {
+    return false;
+  }
+
+  const status = String(lead?.mainAdmissionAdmissionStatus || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (status === "won" || status === "enrolled") {
+    return false;
+  }
+
+  const assignedAt = resolveSopBaseTimestamp(lead);
+  const progressAt = getSopProgressAnchorAt(lead);
+  const anchorAt = progressAt || assignedAt;
+  if (!anchorAt) {
+    return false;
+  }
+
+  const isOfferedStage = status === "opportunity" || status === "offered";
+  const deadlineTs = progressAt
+    ? (isOfferedStage ? addNonSundayWorkingDays(anchorAt, SOP_OFFERED_WINDOW_DAYS) : addNonSundayWorkingDays(anchorAt, SOP_ACTIVE_WINDOW_DAYS))
+    : addNonSundayWorkingMs(anchorAt, SOP_NEW_WINDOW_MS);
+  const overrideDeadlineTs = new Date(String(lead?.admissionSopDeadlineOverrideAt || "")).getTime();
+  const effectiveDeadlineTs = Number.isFinite(overrideDeadlineTs) ? overrideDeadlineTs : deadlineTs;
+  return Number.isFinite(effectiveDeadlineTs) && effectiveDeadlineTs - Date.now() <= 0;
+}
+
 function getRepeatEnquiryCount(lead) {
   const explicitCount = Number.isFinite(Number(lead?.repeatEnquiryCount))
     ? Number(lead.repeatEnquiryCount)
@@ -840,6 +1024,10 @@ function getSelectedLeads(leads) {
 
 function getSelectedUnassignedLeads(leads) {
   return getSelectedLeads(leads).filter((lead) => isUnassignedCounselor(lead?.counselor));
+}
+
+function getSelectedBlockedSopLeads(leads) {
+  return getSelectedLeads(leads).filter(isSopBlockedLead);
 }
 
 function getSelectedLeadCount(leads) {
@@ -1218,6 +1406,15 @@ function renderFilters(leads) {
           <input id="mainAdmissionEndDate" type="date" value="${escapeHtml(filter.endDate)}" />
         </div>
         ${renderCounselorActivityDateFilter({ prefix: "mainAdmission", filter, escapeHtml })}
+        ${isAdmin ? `
+        <div class="filter-item">
+          <label for="mainAdmissionSopFilterSelect">SOP Filter</label>
+          <select id="mainAdmissionSopFilterSelect">
+            <option value="">Use Filter</option>
+            <option value="${SOP_FILTER_BLOCKED}" ${filter.sopFilter === SOP_FILTER_BLOCKED ? "selected" : ""}>Blocked Leads</option>
+          </select>
+        </div>
+        ` : ""}
       </div>
     </div>
 
@@ -1422,6 +1619,14 @@ function renderFilters(leads) {
     resetPage: () => {
       currentPage = 1;
     }
+  });
+  document.getElementById("mainAdmissionSopFilterSelect")?.addEventListener("change", (event) => {
+    filter.sopFilter = event.target.value === SOP_FILTER_BLOCKED ? SOP_FILTER_BLOCKED : "";
+    selectedLeadKeys = new Set();
+    bulkAssignCounselor = "";
+    persistFilters();
+    currentPage = 1;
+    renderAll();
   });
   const startDateInput = document.getElementById("mainAdmissionStartDate");
   if (startDateInput) {
@@ -1710,6 +1915,12 @@ function exportFilteredLeads() {
 function filterLeads(leads) {
   const selectedCourses = normalizeMultiValueFilter(filter.courseName);
   const filtered = filterLeadsByTimeline(leads).filter((lead) => {
+    const isBlockedSopLead = isSopBlockedLead(lead);
+    if (filter.sopFilter === SOP_FILTER_BLOCKED) {
+      if (!isAdmin || !isBlockedSopLead) return false;
+    } else if (isBlockedSopLead) {
+      return false;
+    }
     const fixedCourseLabel = getFixedCrmCourseLabel(lead);
     if (!leadMatchesCounselorActivityDate(lead, filter, {
       historyFields: ["mainAdmissionActivityHistory"],
@@ -2106,6 +2317,9 @@ function renderLeadTable(leads) {
   syncSelectedLeadIds(leads);
   const selectedCount = isAdmin ? getSelectedLeadCount(leads) : 0;
   const selectedUnassignedCount = isAdmin ? getSelectedUnassignedLeads(leads).length : 0;
+  const selectedAssignableCount = filter.sopFilter === SOP_FILTER_BLOCKED
+    ? getSelectedBlockedSopLeads(leads).length
+    : selectedUnassignedCount;
   const allSelected = isAdmin && pageLeads.length > 0 && pageLeads.every(isLeadSelected);
   const assignCounselorOptions = getActiveCounselorNames();
   const filteredLeadCountLabel = `${leads.length} ${leads.length === 1 ? "lead" : "leads"}`;
@@ -2129,7 +2343,7 @@ function renderLeadTable(leads) {
             <option value="">Assign to</option>
             ${assignCounselorOptions.map((item) => `<option value="${escapeHtml(item)}" ${bulkAssignCounselor === item ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
           </select>
-          <button id="mainAdmissionBulkAssign" type="button" class="btn-ghost bulk-action-btn ${mainAdmissionAssignmentBusy ? "is-loading" : ""}" ${(selectedUnassignedCount && bulkAssignCounselor && !mainAdmissionAssignmentBusy) ? "" : "disabled"} aria-busy="${mainAdmissionAssignmentBusy ? "true" : "false"}">${mainAdmissionAssignmentBusy ? "Assigning, please wait..." : "Assign Selected"}</button>
+          <button id="mainAdmissionBulkAssign" type="button" class="btn-ghost bulk-action-btn ${mainAdmissionAssignmentBusy ? "is-loading" : ""}" ${(selectedAssignableCount && bulkAssignCounselor && !mainAdmissionAssignmentBusy) ? "" : "disabled"} aria-busy="${mainAdmissionAssignmentBusy ? "true" : "false"}">${mainAdmissionAssignmentBusy ? "Assigning, please wait..." : "Assign Selected"}</button>
         </div>
       </div>
       <div class="bulk-toolbar-summary" aria-live="polite">
@@ -2616,13 +2830,17 @@ async function assignSelectedUnassignedLeads(leads) {
   }
 
   const selectedLeads = getSelectedLeads(leads);
-  const selectedUnassignedLeads = selectedLeads.filter((lead) => isUnassignedCounselor(lead?.counselor));
-  if (!selectedUnassignedLeads.length) {
-    showToast("Select at least one unassigned lead to use this panel.", true);
+  const selectedAssignableLeads = filter.sopFilter === SOP_FILTER_BLOCKED
+    ? selectedLeads.filter(isSopBlockedLead)
+    : selectedLeads.filter((lead) => isUnassignedCounselor(lead?.counselor));
+  if (!selectedAssignableLeads.length) {
+    showToast(filter.sopFilter === SOP_FILTER_BLOCKED
+      ? "Select at least one blocked SOP lead to assign."
+      : "Select at least one unassigned lead to use this panel.", true);
     return false;
   }
 
-  const assignedLeadRefs = selectedUnassignedLeads.map(buildLeadRef);
+  const assignedLeadRefs = selectedAssignableLeads.map(buildLeadRef);
   const assignResult = await assignLeadsOnServer(assignedLeadRefs, counselor);
   if (!assignResult || assignResult.ok === false) {
     showToast(assignResult?.message || "Failed to assign selected leads.", true);
@@ -2631,9 +2849,11 @@ async function assignSelectedUnassignedLeads(leads) {
   mergeScopedLeadUpdates(assignResult.leads);
 
   const summary = formatLeadAssignmentResult(assignResult, assignedLeadRefs.length, counselor);
-  const skippedAssignedCount = selectedLeads.length - selectedUnassignedLeads.length;
+  const skippedAssignedCount = selectedLeads.length - selectedAssignableLeads.length;
   const skippedAssignedText = skippedAssignedCount
-    ? ` Skipped ${skippedAssignedCount} selected lead${skippedAssignedCount === 1 ? "" : "s"} that were already assigned.`
+    ? (filter.sopFilter === SOP_FILTER_BLOCKED
+      ? ` Skipped ${skippedAssignedCount} selected lead${skippedAssignedCount === 1 ? "" : "s"} that were not blocked.`
+      : ` Skipped ${skippedAssignedCount} selected lead${skippedAssignedCount === 1 ? "" : "s"} that were already assigned.`)
     : "";
 
   selectedLeadKeys = new Set();

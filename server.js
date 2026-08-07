@@ -11126,6 +11126,10 @@ function getLeadAssignmentResetPatch(lead, counselor, assignedAt) {
   const trackingConfig = getAdmissionSopTrackingConfig(lead);
   const hasProgress = Boolean(getAdmissionSopAnchorAt(lead, trackingConfig));
   patch.admissionSopLastProgressAt = hasProgress ? assignedAt : null;
+  patch.admissionSopDeadlineOverrideAt = "";
+  patch.admissionSopUnblockedAt = "";
+  patch.admissionSopUnblockedBy = "";
+  patch.admissionSopUnblockDays = "";
   return patch;
 }
 
@@ -14734,7 +14738,11 @@ app.get("/api/leads/scoped", async (req, res) => {
       () => leadsCollection.find(query).toArray(),
       { retries: 1, label: "Load scoped leads" }
     );
-    const leads = decorateLeadListForStorage(rawLeads || [])
+    const decoratedLeads = decorateLeadListForStorage(rawLeads || []);
+    const visibleLeads = section === "main-admission" && ["counselor", "manager"].includes(String(session.role || "").trim().toLowerCase())
+      ? decoratedLeads.filter((lead) => !deriveAdmissionSopState(lead)?.blocked)
+      : decoratedLeads;
+    const leads = visibleLeads
       .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
     const updatedAt = stateMeta?.updatedAt || new Date().toISOString();
     const response = {
