@@ -3364,13 +3364,10 @@ async function initMongo() {
             background: true,
             partialFilterExpression: {
               normalizedEmail: { $exists: true, $type: "string" },
-              $and: [
-                { leadPipeline: { $ne: "course-registration" } },
-                { leadPipeline: { $ne: MAIN_ADMISSION_PIPELINE } }
-              ]
+              leadPipeline: { $ne: "course-registration" }
             }
           }
-        ).catch(() => undefined);
+        ).catch((error) => console.error("Failed to create normalizedEmail_1 unique lead index:", error.message));
         await leadsCollection.createIndex(
           { normalizedPhone: 1 },
           {
@@ -3379,13 +3376,10 @@ async function initMongo() {
             background: true,
             partialFilterExpression: {
               normalizedPhone: { $exists: true, $type: "string" },
-              $and: [
-                { leadPipeline: { $ne: "course-registration" } },
-                { leadPipeline: { $ne: MAIN_ADMISSION_PIPELINE } }
-              ]
+              leadPipeline: { $ne: "course-registration" }
             }
           }
-        ).catch(() => undefined);
+        ).catch((error) => console.error("Failed to create normalizedPhone_1 unique lead index:", error.message));
         await leadsCollection.createIndex({ email: 1 }, { background: true }).catch(() => undefined);
         await leadsCollection.createIndex({ phone: 1 }, { background: true }).catch(() => undefined);
         await leadsCollection.createIndex({ counselor: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
@@ -10290,11 +10284,6 @@ function isAllowedRegisteredLeadDuplicateGroup(leads, owners) {
     return false;
   }
 
-  const mainAdmissionCount = groupedLeads.filter((lead) => isMainAdmissionLead(lead)).length;
-  if (mainAdmissionCount === 1) {
-    return true;
-  }
-
   const registeredCount = groupedLeads.filter((lead) => isPublicCourseRegistrationLead(lead)).length;
   if (registeredCount === 1) {
     return true;
@@ -10461,6 +10450,10 @@ function findDuplicateRegisteredLeadByEmailOrPhoneInSegment(leads, incomingLead,
     }
     return !!findDuplicateLeadByEmailOrPhone([lead], incomingLead);
   }) || null;
+}
+
+function isMongoDuplicateKeyError(error) {
+  return Number(error?.code) === 11000;
 }
 
 async function replaceWorkshopLeadWithFreshLead(existingLead, incomingLead, options = {}) {
@@ -12851,13 +12844,7 @@ function buildApprovedLeadFromCreationRequest(request = {}, nextId, approvedAt =
 }
 
 function findLeadCreationDuplicate(leads = [], incomingLead = {}) {
-  const isAdmission = isMainAdmissionLead(incomingLead);
-  return (Array.isArray(leads) ? leads : []).find((lead) => {
-    if (isAdmission) {
-      return isMainAdmissionLead(lead) && !!findDuplicateLeadByEmailOrPhone([lead], incomingLead);
-    }
-    return !isMainAdmissionLead(lead) && !isPublicCourseRegistrationLead(lead) && !!findDuplicateLeadByEmailOrPhone([lead], incomingLead);
-  }) || null;
+  return findDuplicateLeadByEmailOrPhone(leads, incomingLead);
 }
 
 async function touchStateUpdatedAt(now = new Date().toISOString()) {
@@ -14022,15 +14009,22 @@ app.post("/api/lead-creation-requests", async (req, res) => {
     const duplicateLead = findLeadCreationDuplicate(state.leads, leadDraft);
     if (duplicateLead) {
       return res.status(409).json({
-        message: "A matching lead already exists in this calling section.",
+        message: "A matching lead already exists.",
         leadId: duplicateLead.id || null
       });
     }
 
-    await withMongoRetry(
-      () => leadsCollection.insertOne(leadDraft),
-      { retries: 1, label: "Create counselor lead directly" }
-    );
+    try {
+      await withMongoRetry(
+        () => leadsCollection.insertOne(leadDraft),
+        { retries: 1, label: "Create counselor lead directly" }
+      );
+    } catch (error) {
+      if (isMongoDuplicateKeyError(error)) {
+        return res.status(409).json({ message: "A matching lead already exists.", leadId: null });
+      }
+      throw error;
+    }
     await recordActivity({
       leadId: leadDraft.id,
       leadName: leadDraft.name,
@@ -14107,15 +14101,22 @@ app.patch("/api/lead-creation-requests/:requestId/decision", async (req, res) =>
       const duplicateLead = findLeadCreationDuplicate(state.leads, leadDraft);
       if (duplicateLead) {
         return res.status(409).json({
-          message: "A matching lead already exists in this calling section.",
+          message: "A matching lead already exists.",
           leadId: duplicateLead.id || null
         });
       }
 
-      await withMongoRetry(
-        () => leadsCollection.insertOne(leadDraft),
-        { retries: 1, label: "Create approved lead request" }
-      );
+      try {
+        await withMongoRetry(
+          () => leadsCollection.insertOne(leadDraft),
+          { retries: 1, label: "Create approved lead request" }
+        );
+      } catch (error) {
+        if (isMongoDuplicateKeyError(error)) {
+          return res.status(409).json({ message: "A matching lead already exists.", leadId: null });
+        }
+        throw error;
+      }
       await recordActivity({
         leadId: leadDraft.id,
         leadName: leadDraft.name,

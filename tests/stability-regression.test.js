@@ -528,6 +528,7 @@ test("lead creation requests require counselor submission and admin approval bef
   const leadCreation = read("lead-creation.js");
   const leadCreationService = read("lead-creation-service.js");
   const layouts = read("layouts.js");
+  const leadCreationDuplicateSource = getNamedFunctionSource(server, "findLeadCreationDuplicate");
 
   assert.match(server, /leadCreationRequestsCollection/);
   assert.match(server, /app\.post\("\/api\/lead-creation-requests"/);
@@ -540,6 +541,10 @@ test("lead creation requests require counselor submission and admin approval bef
   assert.match(server, /getLeadCreationTargetLabel/);
   assert.match(server, /clearedByRequester: true/);
   assert.match(server, /clearedByAdmin: true/);
+  assert.match(leadCreationDuplicateSource, /return findDuplicateLeadByEmailOrPhone\(leads, incomingLead\);/);
+  assert.doesNotMatch(leadCreationDuplicateSource, /isMainAdmissionLead/);
+  assert.match(server, /isMongoDuplicateKeyError\(error\)/);
+  assert.match(server, /message: "A matching lead already exists\."/);
 
   assert.match(leadCreationHtml, /<h1>Lead Creation<\/h1>/);
   assert.match(leadCreationHtml, /leadCreationPipeline/);
@@ -550,6 +555,19 @@ test("lead creation requests require counselor submission and admin approval bef
   assert.match(leadCreation, /formPanel\?\.classList\.toggle\("hidden", isAdmin\(\)\)/);
   assert.match(leadCreationService, /\/api\/lead-creation-requests/);
   assert.match(layouts, /lead-creation\.html/);
+});
+
+test("main admission leads are protected by global duplicate guards", () => {
+  const server = read("server.js");
+  const leadCreationDuplicateSource = getNamedFunctionSource(server, "findLeadCreationDuplicate");
+  const allowedDuplicateSource = getNamedFunctionSource(server, "isAllowedRegisteredLeadDuplicateGroup");
+
+  assert.match(leadCreationDuplicateSource, /return findDuplicateLeadByEmailOrPhone\(leads, incomingLead\);/);
+  assert.doesNotMatch(leadCreationDuplicateSource, /isMainAdmissionLead/);
+  assert.doesNotMatch(allowedDuplicateSource, /mainAdmissionCount/);
+  assert.match(server, /normalizedEmail: \{ \$exists: true, \$type: "string" \},\s*leadPipeline: \{ \$ne: "course-registration" \}/);
+  assert.match(server, /normalizedPhone: \{ \$exists: true, \$type: "string" \},\s*leadPipeline: \{ \$ne: "course-registration" \}/);
+  assert.doesNotMatch(server, /\$and:\s*\[\s*\{\s*leadPipeline:\s*\{\s*\$ne:\s*"course-registration"\s*\}\s*\},\s*\{\s*leadPipeline:\s*\{\s*\$ne:\s*MAIN_ADMISSION_PIPELINE\s*\}\s*\}\s*\]/);
 });
 
 test("admin manual backup and restore controls exist on lead control management", () => {
