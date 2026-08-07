@@ -12868,7 +12868,7 @@ async function touchStateUpdatedAt(now = new Date().toISOString()) {
 
 function isCounselorLeadViewNotificationEligible(session) {
   const role = String(session?.role || "").trim().toLowerCase();
-  return role === "counselor";
+  return role === "counselor" || role === "manager";
 }
 
 function getNotificationInboxUserId(session) {
@@ -12894,7 +12894,7 @@ app.post("/api/leads/:leadId/view", async (req, res) => {
     }
 
     if (!isCounselorLeadViewNotificationEligible(session)) {
-      return res.json({ ok: true, notified: false, message: "Lead view notifications are only sent for counselor viewers." });
+      return res.json({ ok: true, notified: false, message: "Lead view notifications are only sent for counselor or manager viewers." });
     }
 
     const assignedCounselor = String(lead.counselor || "").trim();
