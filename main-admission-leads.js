@@ -12,6 +12,7 @@ import {
   bootstrapLocalState,
   getCounselors as getStoredCounselors,
   getLeads as getStoredLeads,
+  getTasks as getStoredTasks,
   getSession,
   loadLocalPreference,
   refreshState,
@@ -116,9 +117,46 @@ const DEFAULT_FILTER = {
   repeatEnquiryStatus: "",
   whatsappActivity: "",
   lsqLeads: "",
-  sopFilter: ""
+  sopFilter: "",
+  advanced: {
+    field: "",
+    operator: "",
+    value: ""
+  }
 };
+const ADVANCED_FILTER_DEFAULT = { field: "", operator: "", value: "" };
 const WHATSAPP_ACTIVITY_FILTER_OPTIONS = ["WhatsApp Read", "WhatsApp Clicked", "WhatsApp Replied"];
+const ADVANCED_FILTER_FIELDS = [
+  { value: "outboundCallCount", label: "Outbound Call Count", type: "number", defaultOperator: "lte", placeholder: "2" },
+  { value: "inboundCallCount", label: "Inbound Call Count", type: "number", defaultOperator: "gte", placeholder: "1" },
+  { value: "totalCallCount", label: "Total Call Attempts", type: "number", defaultOperator: "gte", placeholder: "3" },
+  { value: "connectedCallCount", label: "Connected Call Count", type: "number", defaultOperator: "eq", placeholder: "0" },
+  { value: "notPickedCallCount", label: "Not Picked Call Count", type: "number", defaultOperator: "gte", placeholder: "3" },
+  { value: "latestOutboundAgeDays", label: "Last Outbound Call Older Than", type: "days", defaultOperator: "gte", placeholder: "2" },
+  { value: "latestConnectedAgeDays", label: "Last Connected Call Older Than", type: "days", defaultOperator: "gte", placeholder: "3" },
+  { value: "leadAgeDays", label: "Lead Age", type: "days", defaultOperator: "gte", placeholder: "7" },
+  { value: "assignedUntouchedDays", label: "Assigned Without Activity", type: "days", defaultOperator: "gte", placeholder: "1" },
+  { value: "notesCount", label: "Notes Count", type: "number", defaultOperator: "eq", placeholder: "0" },
+  { value: "repeatEnquiryCount", label: "Repeat Enquiry Count", type: "number", defaultOperator: "gte", placeholder: "2" },
+  { value: "totalTalkTimeMinutes", label: "Total Talk Time", type: "minutes", defaultOperator: "gte", placeholder: "5" },
+  { value: "pendingTaskStatus", label: "Follow-Up Task", type: "choice", choices: [
+    { value: "none", label: "No Task Created" },
+    { value: "overdue", label: "Overdue" },
+    { value: "dueToday", label: "Due Today" },
+    { value: "dueNext2Days", label: "Due In Next 2 Days" }
+  ] },
+  { value: "campaignText", label: "Campaign / Ad / Form Contains", type: "text", defaultOperator: "contains", placeholder: "AIML" },
+  { value: "recordingStatus", label: "Call Recording", type: "choice", choices: [
+    { value: "has", label: "Has Recording" },
+    { value: "none", label: "No Recording" }
+  ] },
+  { value: "whatsappFollowupGap", label: "WhatsApp Follow-Up Gap", type: "choice", choices: [
+    { value: "sentNoReply", label: "Sent But No Reply" },
+    { value: "replyNoConnectedCall", label: "Replied But No Connected Call" },
+    { value: "readNoOutboundAfter", label: "Read/Clicked But No Outbound After" }
+  ] },
+  { value: "stageAgingDays", label: "Current Stage Age", type: "days", defaultOperator: "gte", placeholder: "5" }
+];
 const SOP_FILTER_BLOCKED = "blocked";
 const SOP_NEW_WINDOW_MS = 48 * 60 * 60 * 1000;
 const SOP_ACTIVE_WINDOW_DAYS = 15;
@@ -146,6 +184,7 @@ if (persistedFilter.latestActivity === "Inbound Received") {
   persistedFilter.latestActivity = "Inbound Not Picked";
 }
 let filter = { ...DEFAULT_FILTER, ...persistedFilter };
+filter.advanced = normalizeAdvancedFilter(filter.advanced);
 filter.leadOwner = ["all", "direct", "reassigned"].includes(String(filter.leadOwner || "").trim())
   ? String(filter.leadOwner || "").trim()
   : DEFAULT_FILTER.leadOwner;
@@ -167,6 +206,8 @@ let mainAdmissionActivityModalMode = "edit";
 let activeSegment = DEFAULT_SEGMENT;
 let locationSortDirection = "";
 let isCourseFilterOpen = false;
+let isAdvancedFilterOpen = false;
+let advancedFilterDraft = null;
 let scopedMainAdmissionLeads = null;
 let scopedCounselors = null;
 let scopedLoadActive = false;
@@ -345,6 +386,247 @@ function normalizeMultiValueFilter(value) {
   }
   const normalized = String(value || "").trim();
   return normalized ? [normalized] : [];
+}
+
+function getAdvancedFilterDefinition(field) {
+  return ADVANCED_FILTER_FIELDS.find((item) => item.value === field) || null;
+}
+
+function normalizeAdvancedFilter(value = {}) {
+  const field = String(value?.field || "").trim();
+  const definition = getAdvancedFilterDefinition(field);
+  if (!definition) {
+    return { ...ADVANCED_FILTER_DEFAULT };
+  }
+  const operator = String(value?.operator || definition.defaultOperator || "").trim();
+  const rawValue = String(value?.value ?? "").trim();
+  if (definition.type === "choice") {
+    const allowed = new Set((definition.choices || []).map((choice) => choice.value));
+    return {
+      field,
+      operator: "is",
+      value: allowed.has(rawValue) ? rawValue : ""
+    };
+  }
+  return {
+    field,
+    operator,
+    value: rawValue
+  };
+}
+
+function hasActiveAdvancedFilter() {
+  const advanced = normalizeAdvancedFilter(filter.advanced);
+  return Boolean(advanced.field && advanced.value);
+}
+
+function getAdvancedFilterSummary() {
+  const advanced = normalizeAdvancedFilter(filter.advanced);
+  if (!advanced.field || !advanced.value) {
+    return "Use Filter";
+  }
+  const definition = getAdvancedFilterDefinition(advanced.field);
+  if (!definition) {
+    return "Use Filter";
+  }
+  if (definition.type === "choice") {
+    const choiceLabel = definition.choices?.find((choice) => choice.value === advanced.value)?.label || advanced.value;
+    return `${definition.label}: ${choiceLabel}`;
+  }
+  const operatorLabels = {
+    lt: "<",
+    lte: "<=",
+    eq: "=",
+    gte: ">=",
+    gt: ">",
+    contains: "contains"
+  };
+  const suffix = definition.type === "days"
+    ? " days"
+    : definition.type === "minutes"
+      ? " min"
+      : "";
+  return `${definition.label} ${operatorLabels[advanced.operator] || advanced.operator} ${advanced.value}${suffix}`;
+}
+
+function renderAdvancedFilterControl() {
+  const active = hasActiveAdvancedFilter();
+  return `
+    <div class="filter-item filter-item--advanced">
+      <label for="mainAdmissionAdvancedFilterBtn">Advanced Filter</label>
+      <button
+        type="button"
+        id="mainAdmissionAdvancedFilterBtn"
+        class="${active ? "btn-primary" : "btn-ghost"} advanced-filter-trigger"
+        title="${escapeHtml(getAdvancedFilterSummary())}"
+      >
+        <span>${active ? "Active" : "Use Filter"}</span>
+      </button>
+    </div>
+  `;
+}
+
+function getAdvancedOperatorOptions(definition, selectedOperator) {
+  if (!definition || definition.type === "choice") {
+    return "";
+  }
+  if (definition.type === "text") {
+    return `<option value="contains" ${selectedOperator === "contains" ? "selected" : ""}>Contains</option>`;
+  }
+  return [
+    ["lt", "Less than"],
+    ["lte", "No more than"],
+    ["eq", "Equal to"],
+    ["gte", "At least"],
+    ["gt", "More than"]
+  ].map(([value, label]) => `<option value="${value}" ${selectedOperator === value ? "selected" : ""}>${label}</option>`).join("");
+}
+
+function renderAdvancedFilterValueControl(definition, draft) {
+  if (!definition) {
+    return `<input id="mainAdmissionAdvancedValue" type="text" value="" disabled />`;
+  }
+  if (definition.type === "choice") {
+    return `
+      <select id="mainAdmissionAdvancedValue">
+        <option value="">Choose Value</option>
+        ${(definition.choices || []).map((choice) => `
+          <option value="${escapeHtml(choice.value)}" ${draft.value === choice.value ? "selected" : ""}>${escapeHtml(choice.label)}</option>
+        `).join("")}
+      </select>
+    `;
+  }
+  const inputType = definition.type === "text" ? "text" : "number";
+  const step = definition.type === "minutes" ? "0.5" : "1";
+  return `
+    <input
+      id="mainAdmissionAdvancedValue"
+      type="${inputType}"
+      ${inputType === "number" ? `min="0" step="${step}"` : ""}
+      placeholder="${escapeHtml(definition.placeholder || "")}"
+      value="${escapeHtml(draft.value)}"
+    />
+  `;
+}
+
+function renderAdvancedFilterPanel() {
+  const draft = normalizeAdvancedFilter(advancedFilterDraft || filter.advanced);
+  const definition = getAdvancedFilterDefinition(draft.field);
+  const valueLabel = definition?.type === "days"
+    ? "Days"
+    : definition?.type === "minutes"
+      ? "Minutes"
+      : "Value";
+  return `
+    <div id="mainAdmissionAdvancedFilterModal" class="modal advanced-filter-modal" role="dialog" aria-modal="true" aria-labelledby="mainAdmissionAdvancedFilterTitle">
+      <div class="modal-content advanced-filter-panel">
+        <div class="advanced-filter-panel__header">
+          <div>
+            <h3 id="mainAdmissionAdvancedFilterTitle">Advanced Filter</h3>
+            <p class="block-help">Use one focused condition with the normal filters already selected on the page.</p>
+          </div>
+          <button type="button" id="mainAdmissionAdvancedCloseBtn" class="btn-ghost">Close</button>
+        </div>
+        <div class="advanced-filter-grid">
+          <div class="modal-row">
+            <label for="mainAdmissionAdvancedField">Filter Type</label>
+            <select id="mainAdmissionAdvancedField">
+              <option value="">Choose Advanced Filter</option>
+              ${ADVANCED_FILTER_FIELDS.map((item) => `
+                <option value="${escapeHtml(item.value)}" ${draft.field === item.value ? "selected" : ""}>${escapeHtml(item.label)}</option>
+              `).join("")}
+            </select>
+          </div>
+          <div class="modal-row">
+            <label for="mainAdmissionAdvancedOperator">Condition</label>
+            <select id="mainAdmissionAdvancedOperator" ${definition?.type === "choice" ? "disabled" : ""}>
+              ${definition ? getAdvancedOperatorOptions(definition, draft.operator || definition.defaultOperator) : `<option value="">Choose Filter Type</option>`}
+            </select>
+          </div>
+          <div class="modal-row">
+            <label for="mainAdmissionAdvancedValue">${escapeHtml(valueLabel)}</label>
+            ${renderAdvancedFilterValueControl(definition, draft)}
+          </div>
+        </div>
+        <div class="advanced-filter-examples">
+          <strong>Useful examples</strong>
+          <span>Outbound Call Count: No more than 2</span>
+          <span>Assigned Without Activity: At least 1 day</span>
+          <span>Follow-Up Task: Overdue</span>
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="mainAdmissionAdvancedClearBtn" class="btn-ghost">Clear</button>
+          <button type="button" id="mainAdmissionAdvancedApplyBtn" class="btn-primary">Apply Filter</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function openAdvancedFilterPanel() {
+  advancedFilterDraft = normalizeAdvancedFilter(filter.advanced);
+  isAdvancedFilterOpen = true;
+  void renderAll();
+}
+
+function closeAdvancedFilterPanel() {
+  isAdvancedFilterOpen = false;
+  advancedFilterDraft = null;
+  void renderAll();
+}
+
+function applyAdvancedFilterFromPanel() {
+  const field = String(document.getElementById("mainAdmissionAdvancedField")?.value || "").trim();
+  const definition = getAdvancedFilterDefinition(field);
+  if (!definition) {
+    showToast("Choose an advanced filter type.", true);
+    return;
+  }
+  const operator = definition.type === "choice"
+    ? "is"
+    : String(document.getElementById("mainAdmissionAdvancedOperator")?.value || definition.defaultOperator || "").trim();
+  const value = String(document.getElementById("mainAdmissionAdvancedValue")?.value || "").trim();
+  if (!value) {
+    showToast("Enter a value for the advanced filter.", true);
+    return;
+  }
+  filter.advanced = normalizeAdvancedFilter({ field, operator, value });
+  advancedFilterDraft = null;
+  isAdvancedFilterOpen = false;
+  persistFilters();
+  currentPage = 1;
+  void renderAll();
+}
+
+function clearAdvancedFilter() {
+  filter.advanced = { ...ADVANCED_FILTER_DEFAULT };
+  advancedFilterDraft = { ...ADVANCED_FILTER_DEFAULT };
+  isAdvancedFilterOpen = false;
+  persistFilters();
+  currentPage = 1;
+  void renderAll();
+}
+
+function bindAdvancedFilterPanel() {
+  document.getElementById("mainAdmissionAdvancedFilterBtn")?.addEventListener("click", openAdvancedFilterPanel);
+  if (!isAdvancedFilterOpen) {
+    return;
+  }
+  document.getElementById("mainAdmissionAdvancedFilterModal")?.addEventListener("click", (event) => {
+    if (event.target?.id === "mainAdmissionAdvancedFilterModal") {
+      closeAdvancedFilterPanel();
+    }
+  });
+  document.getElementById("mainAdmissionAdvancedCloseBtn")?.addEventListener("click", closeAdvancedFilterPanel);
+  document.getElementById("mainAdmissionAdvancedApplyBtn")?.addEventListener("click", applyAdvancedFilterFromPanel);
+  document.getElementById("mainAdmissionAdvancedClearBtn")?.addEventListener("click", clearAdvancedFilter);
+  document.getElementById("mainAdmissionAdvancedField")?.addEventListener("change", (event) => {
+    const definition = getAdvancedFilterDefinition(event.target.value);
+    advancedFilterDraft = definition
+      ? { field: definition.value, operator: definition.type === "choice" ? "is" : definition.defaultOperator, value: "" }
+      : { ...ADVANCED_FILTER_DEFAULT };
+    void renderAll();
+  });
 }
 
 function getActivityLabel(activity = {}) {
@@ -900,6 +1182,240 @@ function isRepeatEnquiryLead(lead) {
   return !Number.isFinite(latestActivityAt) || repeatAt >= latestActivityAt;
 }
 
+function getMcubeHistory(lead = {}) {
+  return Array.isArray(lead?.mcubeCallHistory) ? lead.mcubeCallHistory : [];
+}
+
+function getCallDirection(entry = {}) {
+  return String(entry?.direction || entry?.callMetadata?.callDirection || entry?.callMetadata?.direction || "").trim().toLowerCase();
+}
+
+function isOutboundCallEntry(entry = {}) {
+  return getCallDirection(entry) === "outbound";
+}
+
+function isInboundCallEntry(entry = {}) {
+  return getCallDirection(entry) === "inbound";
+}
+
+function isConnectedCallEntry(entry = {}) {
+  const status = String(
+    entry?.normalizedStatus
+    || entry?.disposition
+    || entry?.rawStatus
+    || entry?.eventType
+    || entry?.callMetadata?.normalizedCallStatus
+    || entry?.callMetadata?.callStatus
+    || ""
+  ).trim();
+  return /(connect|connected|answer|answered|completed|success|picked)/i.test(status)
+    && !isNotPickedCallActivity(entry);
+}
+
+function getCallTimestamp(entry = {}) {
+  return getEntryTimestamp(entry?.at || entry?.timestamp || entry);
+}
+
+function getLatestCallEntry(lead = {}, predicate = () => true) {
+  return getMcubeHistory(lead)
+    .filter(predicate)
+    .reduce((latest, entry) => {
+      if (!latest) return entry;
+      return getCallTimestamp(entry) >= getCallTimestamp(latest) ? entry : latest;
+    }, null);
+}
+
+function getAgeInDays(timestamp) {
+  if (!Number.isFinite(timestamp)) {
+    return Number.NaN;
+  }
+  return Math.max(0, (Date.now() - timestamp) / (24 * 60 * 60 * 1000));
+}
+
+function getLeadTasks(lead = {}) {
+  const leadId = String(lead?.id || "").trim();
+  if (!leadId) {
+    return [];
+  }
+  return getStoredTasks().filter((task) => (
+    String(task?.leadId || "").trim() === leadId
+    && String(task?.category || "").trim() === TASK_CATEGORY.mainAdmission
+  ));
+}
+
+function parseTaskDueTimestamp(task = {}) {
+  const timestamp = new Date(String(task?.dueDate || "")).getTime();
+  return Number.isFinite(timestamp) ? timestamp : Number.NaN;
+}
+
+function getAdvancedTaskStatus(lead = {}) {
+  const tasks = getLeadTasks(lead);
+  if (!tasks.length) {
+    return "none";
+  }
+  const now = Date.now();
+  const todayKey = toKolkataDateKey();
+  const twoDaysFromNow = now + (2 * 24 * 60 * 60 * 1000);
+  if (tasks.some((task) => {
+    const dueAt = parseTaskDueTimestamp(task);
+    return Number.isFinite(dueAt) && dueAt < now;
+  })) {
+    return "overdue";
+  }
+  if (tasks.some((task) => {
+    const dueAt = parseTaskDueTimestamp(task);
+    return Number.isFinite(dueAt) && toKolkataDateKey(new Date(dueAt)) === todayKey;
+  })) {
+    return "dueToday";
+  }
+  if (tasks.some((task) => {
+    const dueAt = parseTaskDueTimestamp(task);
+    return Number.isFinite(dueAt) && dueAt <= twoDaysFromNow;
+  })) {
+    return "dueNext2Days";
+  }
+  return "scheduled";
+}
+
+function getCallTalkTimeSeconds(entry = {}) {
+  const rawFields = entry?.rawFields && typeof entry.rawFields === "object" ? entry.rawFields : {};
+  const candidates = [
+    entry?.duration,
+    rawFields.duration,
+    rawFields.call_duration,
+    rawFields.callDuration,
+    rawFields.talktime,
+    rawFields.talk_time,
+    rawFields.talkTime,
+    rawFields.recording_duration
+  ];
+  for (const candidate of candidates) {
+    const numeric = Number(candidate);
+    if (Number.isFinite(numeric)) {
+      return Math.max(0, numeric);
+    }
+  }
+  return 0;
+}
+
+function leadHasCallRecording(lead = {}) {
+  return getMcubeHistory(lead).some((entry) => String(entry?.recordingUrl || entry?.callMetadata?.recordingUrl || "").trim());
+}
+
+function getLeadCampaignSearchText(lead = {}) {
+  const extraFields = getLeadExtraFields(lead);
+  return [
+    lead.metaCampaignName,
+    lead.metaAdsetName,
+    lead.metaAdName,
+    lead.elementorFormName,
+    lead.elementorPageUrl,
+    extraFields.utm_campaign,
+    extraFields.utm_source,
+    extraFields.utm_medium,
+    extraFields.campaign,
+    extraFields.campaign_name,
+    extraFields.ad_name,
+    extraFields.adset_name,
+    extraFields.form_name,
+    extraFields.page_url
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function getLatestWhatsappTimestamp(lead = {}, pattern) {
+  const history = Array.isArray(lead?.mainAdmissionActivityHistory) ? lead.mainAdmissionActivityHistory : [];
+  const matching = history.filter((entry) => pattern.test(getActivityLabel(entry)));
+  return getEntryTimestamp(getLatestHistoryEntry(matching));
+}
+
+function getAdvancedMetricValue(lead = {}, field) {
+  const calls = getMcubeHistory(lead);
+  if (field === "outboundCallCount") return calls.filter(isOutboundCallEntry).length;
+  if (field === "inboundCallCount") return calls.filter(isInboundCallEntry).length;
+  if (field === "totalCallCount") return calls.length;
+  if (field === "connectedCallCount") return calls.filter(isConnectedCallEntry).length;
+  if (field === "notPickedCallCount") return calls.filter(isNotPickedCallActivity).length;
+  if (field === "latestOutboundAgeDays") return getAgeInDays(getCallTimestamp(getLatestCallEntry(lead, isOutboundCallEntry)));
+  if (field === "latestConnectedAgeDays") return getAgeInDays(getCallTimestamp(getLatestCallEntry(lead, isConnectedCallEntry)));
+  if (field === "leadAgeDays") return getAgeInDays(getLeadImportTimestamp(lead));
+  if (field === "assignedUntouchedDays") {
+    if (getLeadActivityUpdateCount(lead) > 0 || calls.length > 0) return 0;
+    return getAgeInDays(getEntryTimestamp(resolveSopBaseTimestamp(lead)));
+  }
+  if (field === "notesCount") return Array.isArray(lead?.leadNotes) ? lead.leadNotes.length : 0;
+  if (field === "repeatEnquiryCount") return getRepeatEnquiryCount(lead);
+  if (field === "totalTalkTimeMinutes") return calls.reduce((sum, entry) => sum + getCallTalkTimeSeconds(entry), 0) / 60;
+  if (field === "stageAgingDays") {
+    const stageFields = ["mainAdmissionAdmissionStatus", "mainAdmissionCourseStatus", "mainAdmissionCallStatus"];
+    const latestStageEntry = (Array.isArray(lead?.mainAdmissionActivityHistory) ? lead.mainAdmissionActivityHistory : [])
+      .filter((entry) => {
+        const updates = entry?.updates && typeof entry.updates === "object" ? entry.updates : {};
+        return stageFields.some((fieldName) => Object.prototype.hasOwnProperty.call(updates, fieldName));
+      })
+      .reduce((latest, entry) => !latest || getEntryTimestamp(entry) >= getEntryTimestamp(latest) ? entry : latest, null);
+    return getAgeInDays(getEntryTimestamp(latestStageEntry || lead?.updatedAt || lead?.createdAtExact || lead?.createdAt));
+  }
+  return Number.NaN;
+}
+
+function compareAdvancedMetric(actual, operator, expected) {
+  if (!Number.isFinite(actual) || !Number.isFinite(expected)) {
+    return false;
+  }
+  if (operator === "lt") return actual < expected;
+  if (operator === "lte") return actual <= expected;
+  if (operator === "eq") return actual === expected;
+  if (operator === "gt") return actual > expected;
+  return actual >= expected;
+}
+
+function leadMatchesWhatsappFollowupGap(lead = {}, value) {
+  const latestReplyAt = getLatestWhatsappTimestamp(lead, /whatsapp replied/i);
+  const latestSentAt = getLatestWhatsappTimestamp(lead, /whatsapp sent/i);
+  const latestReadOrClickAt = getLatestWhatsappTimestamp(lead, /whatsapp (read|clicked)/i);
+  const latestConnectedCallAt = getCallTimestamp(getLatestCallEntry(lead, isConnectedCallEntry));
+  const latestOutboundAt = getCallTimestamp(getLatestCallEntry(lead, isOutboundCallEntry));
+  if (value === "sentNoReply") {
+    return Number.isFinite(latestSentAt) && (!Number.isFinite(latestReplyAt) || latestReplyAt < latestSentAt);
+  }
+  if (value === "replyNoConnectedCall") {
+    return Number.isFinite(latestReplyAt) && (!Number.isFinite(latestConnectedCallAt) || latestConnectedCallAt < latestReplyAt);
+  }
+  if (value === "readNoOutboundAfter") {
+    return Number.isFinite(latestReadOrClickAt) && (!Number.isFinite(latestOutboundAt) || latestOutboundAt < latestReadOrClickAt);
+  }
+  return false;
+}
+
+function leadMatchesAdvancedFilter(lead = {}) {
+  const advanced = normalizeAdvancedFilter(filter.advanced);
+  if (!advanced.field || !advanced.value) {
+    return true;
+  }
+  const definition = getAdvancedFilterDefinition(advanced.field);
+  if (!definition) {
+    return true;
+  }
+  if (advanced.field === "pendingTaskStatus") {
+    return getAdvancedTaskStatus(lead) === advanced.value;
+  }
+  if (advanced.field === "campaignText") {
+    return getLeadCampaignSearchText(lead).includes(advanced.value.toLowerCase());
+  }
+  if (advanced.field === "recordingStatus") {
+    const hasRecording = leadHasCallRecording(lead);
+    return advanced.value === "has" ? hasRecording : !hasRecording;
+  }
+  if (advanced.field === "whatsappFollowupGap") {
+    return leadMatchesWhatsappFollowupGap(lead, advanced.value);
+  }
+  const expected = Number(advanced.value);
+  if (!Number.isFinite(expected)) {
+    return true;
+  }
+  return compareAdvancedMetric(getAdvancedMetricValue(lead, advanced.field), advanced.operator, expected);
+}
+
 function renderRepeatEnquiryBadge(lead) {
   if (!isRepeatEnquiryLead(lead)) {
     return "";
@@ -1415,6 +1931,7 @@ function renderFilters(leads) {
           </select>
         </div>
         ` : ""}
+        ${renderAdvancedFilterControl()}
       </div>
     </div>
 
@@ -1601,7 +2118,10 @@ function renderFilters(leads) {
         </div>
       </div>
     </div>
+    ${isAdvancedFilterOpen ? renderAdvancedFilterPanel() : ""}
   `;
+
+  bindAdvancedFilterPanel();
 
   document.getElementById("mainAdmissionTimelineSelect").onchange = (event) => {
     filter.timeline = event.target.value;
@@ -1777,8 +2297,11 @@ function renderFilters(leads) {
   };
   document.getElementById("mainAdmissionResetFiltersBtn").onclick = () => {
     filter = { ...DEFAULT_FILTER };
+    filter.advanced = { ...ADVANCED_FILTER_DEFAULT };
     draftMainAdmissionSearch = filter.search;
     isCourseFilterOpen = false;
+    isAdvancedFilterOpen = false;
+    advancedFilterDraft = null;
     persistFilters();
     currentPage = 1;
     void renderAll();
@@ -1952,6 +2475,7 @@ function filterLeads(leads) {
     if (filter.whatsappActivity && !leadMatchesWhatsappActivityFilter(lead)) return false;
     if (filter.lsqLeads === "only" && !isLsqImportedLead(lead)) return false;
     if (filter.lsqLeads === "hide" && isLsqImportedLead(lead)) return false;
+    if (!leadMatchesAdvancedFilter(lead)) return false;
     return true;
   });
 
