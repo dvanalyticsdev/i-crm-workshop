@@ -722,19 +722,22 @@ function isMainAdmissionPipelineValue(value) {
     || pipeline === "main-admission-calling";
 }
 
-function getMainAdmissionLeadMongoQuery({ includeLsqImported = true } = {}) {
+function getMainAdmissionLeadMongoQuery({ includeLsqImported = true, includeArchived = false } = {}) {
   const pipelineQuery = { leadPipeline: { $in: [MAIN_ADMISSION_PIPELINE, "admission", "main-admission-calling"] } };
   if (!includeLsqImported) {
     return pipelineQuery;
   }
+  const lsqImportedQuery = { lsqImported: true };
+  if (!includeArchived) {
+    Object.assign(lsqImportedQuery, {
+      lsqArchivedLead: { $ne: true },
+      counselor: { $ne: LSQ_ARCHIVED_COUNSELOR }
+    });
+  }
   return {
     $or: [
       pipelineQuery,
-      {
-        lsqImported: true,
-        lsqArchivedLead: { $ne: true },
-        counselor: { $ne: LSQ_ARCHIVED_COUNSELOR }
-      }
+      lsqImportedQuery
     ]
   };
 }
@@ -3068,7 +3071,7 @@ function buildScopedLeadBaseMongoQuery(section, session = {}, counselors = []) {
       }
     : section === "registered-candidates"
       ? { leadPipeline: "course-registration" }
-      : getMainAdmissionLeadMongoQuery();
+      : getMainAdmissionLeadMongoQuery({ includeArchived: canUseLostLeadCounselorFilter(session) });
 
   const sessionRole = String(session.role || "").trim().toLowerCase();
   if (sessionRole === "counselor") {
@@ -3079,7 +3082,7 @@ function buildScopedLeadBaseMongoQuery(section, session = {}, counselors = []) {
     query.counselor = String(counselorMatch?.name || session.name || "").trim();
   }
 
-  if (!isAdminLikeSession(session)) {
+  if (sessionRole === "counselor") {
     Object.assign(query, appendMongoAnd(query, {
       $or: [
         { lsqArchivedLead: { $ne: true } },
@@ -3122,7 +3125,7 @@ function buildScopedLeadMongoQuery(section, requestQuery = {}, session = {}, cou
     }
   }
 
-  if (section === "main-admission" && counselorFilter !== LOST_LEADS_COUNSELOR_FILTER) {
+  if (section === "main-admission" && counselorFilter && counselorFilter !== LOST_LEADS_COUNSELOR_FILTER) {
     query = appendMongoAnd(query, { $nor: [buildLostLeadMongoQuery()] });
   }
 

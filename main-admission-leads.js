@@ -2717,7 +2717,7 @@ function filterLeads(leads) {
     if (filter.counselor === LOST_LEADS_COUNSELOR_FILTER) {
       if (!canUseLostLeadFilter || !isMainAdmissionLeadNotInterested(lead)) return false;
     } else {
-      if (isMainAdmissionLeadNotInterested(lead)) return false;
+      if (filter.counselor && isMainAdmissionLeadNotInterested(lead)) return false;
       if (filter.counselor && filter.counselor !== lead.counselor) return false;
     }
     if (activeSegment === DEFAULT_SEGMENT) {
