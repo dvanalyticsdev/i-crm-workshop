@@ -3,6 +3,7 @@ import { bindThemeControls, initThemeSystem } from "./theme.js";
 import { bootstrapLocalState, changeOwnPassword, getSession, getStateField, logout, refreshSession, refreshState, awaitPendingMutations } from "./state-sync.js";
 import { startPingMonitor, mountPingPill } from "./ping-monitor.js";
 import { formatKolkataDateTime } from "./date-utils.js";
+import { apiUrl } from "./api-client.js";
 const SYSTEM_UI_VERSION = "v2.0";
 if (localStorage.getItem("dv_crm_ui_version") !== SYSTEM_UI_VERSION) {
   localStorage.setItem("dv_crm_ui_version", SYSTEM_UI_VERSION);
@@ -1721,24 +1722,50 @@ function formatNotificationTime(dateString) {
 let currentClientVersion = null;
 let isUpdateModalShown = false;
 let isSystemUpdateAvailable = false;
+let versionCheckInFlight = false;
+const VERSION_CHECK_TIMEOUT_MS = 6000;
+const VERSION_DEPLOYMENT_STATUS_CODES = new Set([502, 503, 504]);
 
 async function checkSystemVersion() {
+  if (versionCheckInFlight || isSystemUpdateAvailable) {
+    return;
+  }
+  versionCheckInFlight = true;
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), VERSION_CHECK_TIMEOUT_MS);
   try {
-    const response = await fetch("/api/version", {
+    const response = await fetch(apiUrl("/api/version"), {
       credentials: "same-origin",
-      headers: { "Accept": "application/json" }
+      cache: "no-store",
+      headers: { "Accept": "application/json" },
+      signal: controller.signal
     });
-    if (response.ok) {
-      const data = await response.json();
-      const version = data.version;
-      if (!currentClientVersion) {
-        currentClientVersion = version;
-      } else if (version !== currentClientVersion && !isSystemUpdateAvailable) {
-        showUpdateAvailablePill();
+    if (!response.ok) {
+      if (!VERSION_DEPLOYMENT_STATUS_CODES.has(response.status)) {
+        console.warn("Failed to check system version:", response.status);
       }
+      return;
+    }
+    const data = await response.json().catch(() => ({}));
+    if (data.ready === false || data.ok === false) {
+      return;
+    }
+    const version = String(data.version || "").trim();
+    if (!version) {
+      return;
+    }
+    if (!currentClientVersion) {
+      currentClientVersion = version;
+    } else if (version !== currentClientVersion) {
+      showUpdateAvailablePill();
     }
   } catch (err) {
-    console.warn("Failed to check system version:", err);
+    if (err?.name !== "AbortError") {
+      console.warn("Failed to check system version:", err);
+    }
+  } finally {
+    window.clearTimeout(timeoutId);
+    versionCheckInFlight = false;
   }
 }
 
@@ -1793,10 +1820,10 @@ function showUpdateModal() {
         </svg>
       </div>
       <h2>System Update Available</h2>
-      <p>A new version of the CRM has been deployed. Please perform a hard refresh to apply the latest updates and avoid data sync conflicts.</p>
+      <p>A new version of the CRM is ready. Continue working, or reload once when convenient to switch to the latest version.</p>
       
       <div class="update-instructions">
-        <div class="update-instructions-title">Hard Refresh Shortcuts</div>
+        <div class="update-instructions-title">Manual Reload Shortcuts</div>
         <ul class="update-instructions-list">
           <li>
             <span>Windows / Linux</span>
@@ -1809,7 +1836,7 @@ function showUpdateModal() {
         </ul>
       </div>
       
-      <button class="btn-update-reload" id="btn-update-reload">Reload CRM</button>
+      <button class="btn-update-reload" id="btn-update-reload">Reload CRM Now</button>
     </div>
   `;
 
@@ -1834,5 +1861,8 @@ function startVersionCheck() {
     if (document.visibilityState === "visible") {
       void checkSystemVersion();
     }
+  });
+  window.addEventListener("dv:network-recovered", () => {
+    void checkSystemVersion();
   });
 }

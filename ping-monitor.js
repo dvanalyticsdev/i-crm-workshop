@@ -15,12 +15,15 @@ const PING_INTERVAL_MS        = 8000;   // measure every 8 s (was 5 s — reduce
 const WARN_PING_THRESHOLD_MS  = 300;    // ms — informational only
 const PING_REQUEST_TIMEOUT_MS = 8000;   // abort if server doesn't respond in 8 s
 const CONSECUTIVE_FAILURES_TO_BLOCK = 2;
+const DEPLOYMENT_FAILURES_TO_BLOCK = 8;
 const GOOD_STREAK_TO_UNBLOCK  = 2;
+const DEPLOYMENT_STATUS_CODES = new Set([502, 503, 504]);
 
 let pingTimer     = null;
 let blocked       = false;
 let goodStreak    = 0;
 let failedStreak  = 0;
+let lastFailureKind = "";
 
 function emitConnectivityEvent(name, detail = {}) {
   if (typeof window === "undefined") {
@@ -63,10 +66,24 @@ function setBlockedState(nextBlocked) {
   const overlay = getOverlayEl();
   if (!overlay) return;
   if (nextBlocked) {
+    setOverlayMode(lastFailureKind);
     overlay.classList.remove("hidden");
   } else {
     overlay.classList.add("hidden");
   }
+}
+
+function setOverlayMode(kind = "network") {
+  const title = document.getElementById("dvPingOverlayTitle");
+  const desc = document.getElementById("dvPingOverlayDesc");
+  if (!title || !desc) return;
+  if (kind === "deployment") {
+    title.textContent = "CRM Update In Progress";
+    desc.innerHTML = "The server is reconnecting after a deployment.<br>Actions will resume automatically when the update is ready.";
+    return;
+  }
+  title.textContent = "Network Connection Lost";
+  desc.innerHTML = "We couldn't reach the server reliably.<br>Actions are temporarily paused until the connection recovers.";
 }
 
 // ─── Measurement ──────────────────────────────────────────────────────────────
@@ -75,6 +92,7 @@ async function measurePing() {
   if (typeof navigator !== "undefined" && navigator.onLine === false) {
     failedStreak = CONSECUTIVE_FAILURES_TO_BLOCK;
     goodStreak = 0;
+    lastFailureKind = "network";
     setPillState(null, "bad");
     setBlockedState(true);
     setOverlayPing(null);
@@ -86,6 +104,8 @@ async function measurePing() {
   let ping  = null;
   let state = "idle";
   let requestFailed = false;
+  let failureKind = "";
+  let failureStatus = 0;
   const wasBlocked = blocked;
   const hadFailures = failedStreak > 0;
 
@@ -105,13 +125,16 @@ async function measurePing() {
       ping  = Math.round(performance.now() - start);
       state = ping < WARN_PING_THRESHOLD_MS ? "good" : "warn";
     } else {
-      state = "bad";
       requestFailed = true;
+      failureStatus = response.status;
+      failureKind = DEPLOYMENT_STATUS_CODES.has(response.status) ? "deployment" : "network";
+      state = failureKind === "deployment" ? "warn" : "bad";
     }
   } catch (_err) {
     // Network failure or abort — treat as worst-case latency.
     state = "bad";
     requestFailed = true;
+    failureKind = "network";
   }
 
   setPillState(ping, state);
@@ -119,15 +142,20 @@ async function measurePing() {
   if (requestFailed) {
     failedStreak++;
     goodStreak = 0;
-    emitConnectivityEvent("dv:network-degraded", { failedStreak });
-    if (failedStreak >= CONSECUTIVE_FAILURES_TO_BLOCK) {
+    lastFailureKind = failureKind || "network";
+    const blockThreshold = lastFailureKind === "deployment"
+      ? DEPLOYMENT_FAILURES_TO_BLOCK
+      : CONSECUTIVE_FAILURES_TO_BLOCK;
+    emitConnectivityEvent("dv:network-degraded", { failedStreak, failureKind: lastFailureKind, status: failureStatus });
+    if (failedStreak >= blockThreshold) {
       setBlockedState(true);
       setOverlayPing(ping);
-      emitConnectivityEvent("dv:network-lost", { reason: "ping-failed", failedStreak });
+      emitConnectivityEvent("dv:network-lost", { reason: "ping-failed", failedStreak, failureKind: lastFailureKind, status: failureStatus });
     }
   } else {
     failedStreak = 0;
     goodStreak++;
+    lastFailureKind = "";
     if (goodStreak >= GOOD_STREAK_TO_UNBLOCK) {
       setBlockedState(false);
     } else {
@@ -172,8 +200,8 @@ function buildOverlayEl() {
           <line x1="12" y1="17" x2="12.01" y2="17"/>
         </svg>
       </div>
-      <h3 class="ping-overlay__title">Network Connection Lost</h3>
-      <p class="ping-overlay__desc">
+      <h3 class="ping-overlay__title" id="dvPingOverlayTitle">Network Connection Lost</h3>
+      <p class="ping-overlay__desc" id="dvPingOverlayDesc">
         We couldn't reach the server reliably.<br>
         Actions are temporarily paused until the connection recovers.
       </p>
@@ -254,6 +282,7 @@ export function startPingMonitor() {
   function handleOffline() {
     failedStreak = CONSECUTIVE_FAILURES_TO_BLOCK;
     goodStreak = 0;
+    lastFailureKind = "network";
     setPillState(null, "bad");
     setBlockedState(true);
     setOverlayPing(null);

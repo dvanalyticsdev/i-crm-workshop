@@ -47,10 +47,25 @@ cd '$AppDir'
 git fetch '$Remote' '$Branch'
 git checkout '$Branch'
 git pull --ff-only '$Remote' '$Branch'
-npm install --omit=dev
-pm2 restart '$Pm2Name' --update-env
+DEPLOY_VERSION=`$(git rev-parse --short=12 HEAD)
+printf "%s\n" "`$DEPLOY_VERSION" > .version
+npm ci --omit=dev || npm install --omit=dev
+if pm2 describe '$Pm2Name' >/dev/null 2>&1; then
+  pm2 reload '$Pm2Name' --update-env
+else
+  pm2 start server.js --name '$Pm2Name' --update-env
+fi
 pm2 save
-curl -fsS http://127.0.0.1:3000/api/ping
+for i in `$(seq 1 30); do
+  if curl -fsS http://127.0.0.1:3000/healthz >/dev/null; then
+    curl -fsS http://127.0.0.1:3000/api/version
+    exit 0
+  fi
+  sleep 1
+done
+echo "CRM did not become healthy after deploy." >&2
+pm2 status '$Pm2Name'
+exit 1
 "@
 
 Write-Host "Updating CRM on VPS..." -ForegroundColor Cyan

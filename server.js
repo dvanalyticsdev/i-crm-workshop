@@ -10,6 +10,7 @@ const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const ROOT_DIR = __dirname;
 const VERSION_FILE = path.join(ROOT_DIR, ".version");
+const APP_STARTED_AT = new Date().toISOString();
 
 const MONGODB_URI = process.env.MONGODB_URI;
 const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || "i-crm-workshop";
@@ -256,6 +257,46 @@ app.get("/api/ping", (_req, res) => {
   res.setHeader("Content-Type", "application/json");
   res.setHeader("Cache-Control", "no-store");
   res.end('{"ok":true}');
+});
+
+function sendHealthResponse(res, status, details = {}) {
+  res.status(status);
+  res.setHeader("Cache-Control", "no-store");
+  return res.json({
+    ok: status >= 200 && status < 300,
+    ready: status >= 200 && status < 300,
+    version: getAppVersion(),
+    startedAt: APP_STARTED_AT,
+    ...details
+  });
+}
+
+app.get("/healthz", async (_req, res) => {
+  try {
+    await initMongo();
+    await stateCollection.findOne(
+      { _id: STATE_DOC_ID },
+      { projection: { _id: 1 } }
+    ).catch(() => null);
+    return sendHealthResponse(res, 200);
+  } catch (error) {
+    return sendHealthResponse(res, 503, {
+      message: "CRM is starting.",
+      details: error?.message || "Health check failed."
+    });
+  }
+});
+
+app.get("/api/healthz", async (_req, res) => {
+  try {
+    await initMongo();
+    return sendHealthResponse(res, 200);
+  } catch (error) {
+    return sendHealthResponse(res, 503, {
+      message: "CRM is starting.",
+      details: error?.message || "Health check failed."
+    });
+  }
 });
 
 app.get("/api/warm", async (_req, res) => {
@@ -17309,7 +17350,12 @@ function getAppVersion() {
 
 app.get("/api/version", (_req, res) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-  res.json({ version: getAppVersion() });
+  res.json({
+    ok: true,
+    ready: true,
+    version: getAppVersion(),
+    startedAt: APP_STARTED_AT
+  });
 });
 
 app.get("/", (_req, res) => {
