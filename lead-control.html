@@ -109,6 +109,24 @@
 
         <div class="allocation-block">
           <div class="card-head">
+            <h4>Admission SOP Master Control</h4>
+            <p>Turn admission SOP enforcement on or off across CRM lead update and assignment flows.</p>
+          </div>
+          <label class="allocation-row" style="align-items:center;grid-template-columns:minmax(220px,1fr) auto;">
+            <span>
+              <strong>Standard Admission SOP</strong>
+              <span class="block-help" id="sopToggleStatus">Loading SOP status...</span>
+            </span>
+            <input id="admissionSopToggle" type="checkbox" />
+          </label>
+          <div class="allocation-actions">
+            <button id="saveSopSettingsBtn" type="button" class="btn-ghost">Save SOP Setting</button>
+          </div>
+          <p id="sopSettingsMessage" class="message" aria-live="polite"></p>
+        </div>
+
+        <div class="allocation-block">
+          <div class="card-head">
             <h4>Manual Backup & Recovery</h4>
             <p>Download a full admin backup snapshot and restore the CRM to that exact saved state when needed.</p>
           </div>

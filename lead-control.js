@@ -7,14 +7,14 @@ import {
   getCounselors as getStoredCounselors,
   getLeads as getStoredLeads,
   getSession,
+  getStateSnapshot,
   replaceStateSnapshot,
   saveAllocation as persistAllocation,
   saveLeads as persistLeads,
-  startStatePolling,
   syncStateFromLocalAndVerify
 } from "./state-sync.js";
 import { createRenderScheduler, withButtonBusy } from "./ui-feedback.js";
-await bootstrapLocalState();
+await bootstrapLocalState({ skipStateRefresh: true });
 
 const adminImportPanel = document.getElementById("adminImportPanel");
 const leadImportFile = document.getElementById("leadImportFile");
@@ -28,8 +28,13 @@ const exportBackupBtn = document.getElementById("exportBackupBtn");
 const restoreBackupFile = document.getElementById("restoreBackupFile");
 const restoreBackupBtn = document.getElementById("restoreBackupBtn");
 const backupMessage = document.getElementById("backupMessage");
+const admissionSopToggle = document.getElementById("admissionSopToggle");
+const saveSopSettingsBtn = document.getElementById("saveSopSettingsBtn");
+const sopToggleStatus = document.getElementById("sopToggleStatus");
+const sopSettingsMessage = document.getElementById("sopSettingsMessage");
 const session = getSession();
 const isAdmin = session?.role === "admin" || session?.role === "super_admin";
+const isSuperAdmin = session?.role === "super_admin";
 
 const DEFAULT_ALLOCATION = [];
 
@@ -216,6 +221,99 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 4000) {
   }
 }
 
+async function loadLeadControlDirectory() {
+  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/account-directory"), {
+    method: "GET",
+    headers: { Accept: "application/json" }
+  }, 8000);
+
+  if (!response.ok) {
+    throw new Error(json?.message || "Could not load account directory.");
+  }
+
+  replaceStateSnapshot({
+    ...getStateSnapshot(),
+    counselors: Array.isArray(json?.counselors) ? json.counselors : [],
+    allocation: Array.isArray(json?.allocation) ? json.allocation : [],
+    adminUsers: Array.isArray(json?.adminUsers) ? json.adminUsers : [],
+    marketingUsers: Array.isArray(json?.marketingUsers) ? json.marketingUsers : [],
+    admissionSopEnabled: json?.admissionSopEnabled !== false,
+    updatedAt: json?.updatedAt || new Date().toISOString(),
+    clearedAt: json?.clearedAt || null
+  });
+  applySopSettingsToUi(json || {});
+}
+
+async function loadLeadControlWorkshopLeads() {
+  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/leads?monitoringSubsection=workshop-calling"), {
+    method: "GET",
+    headers: { Accept: "application/json" }
+  }, 12000);
+
+  if (!response.ok) {
+    throw new Error(json?.message || "Could not load current workshop leads.");
+  }
+
+  replaceStateSnapshot({
+    ...getStateSnapshot(),
+    leads: Array.isArray(json) ? json : []
+  });
+}
+
+function applySopSettingsToUi(settings = {}) {
+  if (!admissionSopToggle) {
+    return;
+  }
+  const enabled = settings.admissionSopEnabled !== false;
+  admissionSopToggle.checked = enabled;
+  if (sopToggleStatus) {
+    sopToggleStatus.textContent = enabled
+      ? "SOP enforcement is currently ON."
+      : "SOP enforcement is currently OFF.";
+  }
+}
+
+async function loadSopSettings() {
+  if (!isSuperAdmin || !admissionSopToggle) {
+    return;
+  }
+  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/admin/sop-settings"), {
+    method: "GET",
+    headers: { Accept: "application/json" }
+  }, 8000);
+  if (!response.ok || json?.ok === false) {
+    throw new Error(json?.message || "Could not load SOP settings.");
+  }
+  applySopSettingsToUi(json || {});
+}
+
+async function saveSopSettings() {
+  if (!isSuperAdmin || !admissionSopToggle) {
+    return { ok: false, message: "Only Super Admin can update SOP settings." };
+  }
+  const enabled = admissionSopToggle.checked;
+  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/admin/sop-settings"), {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    },
+    body: JSON.stringify({ admissionSopEnabled: enabled })
+  }, 10000);
+  if (!response.ok || json?.ok === false) {
+    return { ok: false, message: json?.message || "Failed to save SOP setting." };
+  }
+  replaceStateSnapshot({
+    ...getStateSnapshot(),
+    admissionSopEnabled: json.admissionSopEnabled !== false,
+    admissionSopEnabledAt: json.admissionSopEnabledAt || null,
+    admissionSopUpdatedBy: json.admissionSopUpdatedBy || "",
+    updatedAt: json.updatedAt || new Date().toISOString()
+  });
+  applySopSettingsToUi(json || {});
+  return { ok: true };
+}
+
 async function verifyAssignedCounselorsOnBackend(importedRecords) {
   const recordsToVerify = importedRecords
     .map(({ lead }) => ({
@@ -228,7 +326,7 @@ async function verifyAssignedCounselorsOnBackend(importedRecords) {
     return { ok: true };
   }
 
-  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/state"), {
+  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/leads?monitoringSubsection=workshop-calling"), {
     method: "GET",
     headers: { Accept: "application/json" }
   }, 4000);
@@ -237,7 +335,7 @@ async function verifyAssignedCounselorsOnBackend(importedRecords) {
     return { ok: false, message: "Could not confirm counselor assignment from the backend." };
   }
 
-  const backendLeads = Array.isArray(json?.leads) ? json.leads : [];
+  const backendLeads = Array.isArray(json) ? json : [];
   const backendById = new Map(backendLeads.map((lead) => [String(lead.id), lead]));
 
   const mismatchedLead = recordsToVerify.find((record) => {
@@ -283,7 +381,7 @@ async function getCounselorNamesForAllocation() {
   }
 
   try {
-    const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/state"), {
+    const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/account-directory"), {
       method: "GET",
       headers: { Accept: "application/json" }
     }, 4000);
@@ -627,6 +725,13 @@ async function handleLeadImport() {
     return;
   }
 
+  try {
+    await loadLeadControlWorkshopLeads();
+  } catch (error) {
+    setMessage(importMessage, error?.message || "Could not load current leads before import.", true);
+    return;
+  }
+
   const nextLeads = getAllLeads();
   const leadIndexByEmail = new Map();
   const leadIndexByPhone = new Map();
@@ -899,10 +1004,29 @@ function setupAdminPanel() {
     };
   }
 
+  if (saveSopSettingsBtn) {
+    saveSopSettingsBtn.onclick = async (event) => {
+      const result = await withButtonBusy(event.currentTarget, "Saving SOP...", () => saveSopSettings());
+      if (!result || result.ok === false) {
+        setMessage(sopSettingsMessage, result?.message || "Failed to save SOP setting.", true);
+        return;
+      }
+      setMessage(sopSettingsMessage, "SOP setting saved successfully.", false);
+      showToast("SOP setting saved successfully.", false);
+    };
+  }
+
 }
 
 function initLeadControlPage() {
   setupAdminPanel();
+}
+
+try {
+  await loadLeadControlDirectory();
+  await loadSopSettings();
+} catch (error) {
+  console.warn("[lead-control] directory load failed:", error?.message || error);
 }
 
 initLeadControlPage();
@@ -916,7 +1040,22 @@ const scheduleRenderAll = createRenderScheduler(renderAll);
 
 renderAll();
 window.__dvMarkRouteViewReady?.();
-const stopStatePolling = startStatePolling(() => {
-  scheduleRenderAll();
-});
+let leadControlPollingStopped = false;
+let leadControlPollingActive = false;
+const leadControlPollingId = setInterval(async () => {
+  if (leadControlPollingStopped || leadControlPollingActive || document.visibilityState === "hidden") return;
+  leadControlPollingActive = true;
+  try {
+    await loadLeadControlDirectory();
+    scheduleRenderAll();
+  } catch (error) {
+    console.warn("[lead-control] directory polling failed:", error?.message || error);
+  } finally {
+    leadControlPollingActive = false;
+  }
+}, 15000);
+const stopStatePolling = () => {
+  leadControlPollingStopped = true;
+  clearInterval(leadControlPollingId);
+};
 registerPageCleanup(stopStatePolling);

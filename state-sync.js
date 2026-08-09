@@ -314,6 +314,15 @@ async function refreshStateVersion() {
     lastStateETag = etag;
   }
 
+  currentState = {
+    ...currentState,
+    updatedAt: nextUpdatedAt || currentState?.updatedAt || null,
+    clearedAt: payload?.clearedAt ?? currentState?.clearedAt ?? null,
+    admissionSopEnabled: payload?.admissionSopEnabled !== false,
+    admissionSopEnabledAt: payload?.admissionSopEnabledAt ?? currentState?.admissionSopEnabledAt ?? null,
+    admissionSopUpdatedBy: payload?.admissionSopUpdatedBy ?? currentState?.admissionSopUpdatedBy ?? ""
+  };
+
   return {
     changed,
     updatedAt: nextUpdatedAt

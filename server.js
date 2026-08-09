@@ -648,6 +648,9 @@ function normalizeStateDoc(state = {}) {
     marketingUsers: Array.isArray(state.marketingUsers) ? state.marketingUsers : [],
     allocation: Array.isArray(state.allocation) ? state.allocation : [],
     tasks: Array.isArray(state.tasks) ? state.tasks : [],
+    admissionSopEnabled: state.admissionSopEnabled !== false,
+    admissionSopEnabledAt: state.admissionSopEnabledAt || null,
+    admissionSopUpdatedBy: state.admissionSopUpdatedBy || "",
     createdAt: state.createdAt || new Date().toISOString(),
     updatedAt: state.updatedAt || new Date().toISOString(),
     clearedAt: state.clearedAt || null
@@ -704,6 +707,9 @@ function buildStateResponse(state, options = {}) {
     marketingUsers: normalized.marketingUsers,
     allocation: normalized.allocation,
     tasks: normalized.tasks,
+    admissionSopEnabled: normalized.admissionSopEnabled,
+    admissionSopEnabledAt: normalized.admissionSopEnabledAt,
+    admissionSopUpdatedBy: normalized.admissionSopUpdatedBy,
     updatedAt: normalized.updatedAt || null,
     clearedAt: normalized.clearedAt || null
   };
@@ -724,7 +730,8 @@ function buildStateVersionResponse(state) {
       counselors: Array.isArray(normalized.counselors) ? normalized.counselors.length : 0,
       adminUsers: Array.isArray(normalized.adminUsers) ? normalized.adminUsers.length : 0,
       tasks: Array.isArray(normalized.tasks) ? normalized.tasks.length : 0,
-      allocation: Array.isArray(normalized.allocation) ? normalized.allocation.length : 0
+      allocation: Array.isArray(normalized.allocation) ? normalized.allocation.length : 0,
+      admissionSopEnabled: normalized.admissionSopEnabled
     }
   };
 }
@@ -2583,7 +2590,7 @@ function hasScopedRuntimeFilters(query = {}) {
   ].some((key) => String(query[key] || "").trim() && !["all", "overall"].includes(String(query[key] || "").trim().toLowerCase()));
 }
 
-function leadMatchesScopedRuntimeFilters(lead = {}, section = "", query = {}, session = {}) {
+function leadMatchesScopedRuntimeFilters(lead = {}, section = "", query = {}, session = {}, options = {}) {
   const timelineRange = getScopedTimelineRange(query);
   if (timelineRange && !scopedDateInRange(lead.leadOwnerTimelineAt || lead.counselorAssignedAt || lead.createdAtExact || lead.createdAt, timelineRange)) return false;
   if (!leadMatchesScopedCounselorActivityDate(lead, section, query)) return false;
@@ -2612,8 +2619,9 @@ function leadMatchesScopedRuntimeFilters(lead = {}, section = "", query = {}, se
 
   if (!scopedLeadMatchesWhatsappActivity(lead, section, query.whatsappActivity)) return false;
 
-  if (String(query.sopFilter || "").trim() === "blocked" && (!isAdminLikeSession(session) || !deriveAdmissionSopState(lead)?.blocked)) return false;
-  if (section === "main-admission" && String(query.sopFilter || "").trim() !== "blocked" && deriveAdmissionSopState(lead)?.blocked) return false;
+  const sopState = deriveAdmissionSopState(lead, Date.now(), { enabled: options?.admissionSopEnabled !== false });
+  if (String(query.sopFilter || "").trim() === "blocked" && (!isAdminLikeSession(session) || !sopState?.blocked)) return false;
+  if (section === "main-admission" && String(query.sopFilter || "").trim() !== "blocked" && sopState?.blocked) return false;
 
   return true;
 }
@@ -2948,6 +2956,45 @@ function buildMonitoringLeadProjection(subsection = "") {
   };
 }
 
+function appendMonitoringRangeMongoQuery(query = {}, subsection = "", range = null) {
+  if (!range?.start || !range?.end) {
+    return query;
+  }
+  const key = String(subsection || "").trim().toLowerCase();
+  const startIso = range.start.toISOString();
+  const endIso = range.end.toISOString();
+  const startKey = toKolkataDateKey(range.start);
+  const endKey = toKolkataDateKey(range.end);
+  const commonDateFilters = [
+    { leadOwnerTimelineAt: { $gte: startIso, $lte: endIso } },
+    { counselorAssignedAt: { $gte: startIso, $lte: endIso } },
+    { createdAtExact: { $gte: startIso, $lte: endIso } },
+    { createdAt: { $gte: startKey, $lte: endKey } },
+    { createdAt: { $gte: startIso, $lte: endIso } }
+  ];
+  const historyFiltersBySubsection = {
+    "workshop-calling": [{ "workshopActivityHistory.at": { $gte: startIso, $lte: endIso } }],
+    "admission-calling": [{ "admissionActivityHistory.at": { $gte: startIso, $lte: endIso } }],
+    "main-admission": [{ "mainAdmissionActivityHistory.at": { $gte: startIso, $lte: endIso } }],
+    "registered-candidates": [{ "registeredCourseActivityHistory.at": { $gte: startIso, $lte: endIso } }],
+    "crash-course": [{ "registeredCourseActivityHistory.at": { $gte: startIso, $lte: endIso } }],
+    "mcube-main": [
+      { "mcubeCallHistory.at": { $gte: startIso, $lte: endIso } },
+      { "mcubeCallHistory.receivedAt": { $gte: startIso, $lte: endIso } },
+      { "mcubeCallHistory.startTime": { $gte: startIso, $lte: endIso } },
+      { "mcubeCallHistory.callStartTime": { $gte: startIso, $lte: endIso } }
+    ]
+  };
+  const historyFilters = historyFiltersBySubsection[key] || [
+    { "workshopActivityHistory.at": { $gte: startIso, $lte: endIso } },
+    { "admissionActivityHistory.at": { $gte: startIso, $lte: endIso } },
+    { "registeredCourseActivityHistory.at": { $gte: startIso, $lte: endIso } },
+    { "mainAdmissionActivityHistory.at": { $gte: startIso, $lte: endIso } },
+    { "mcubeCallHistory.receivedAt": { $gte: startIso, $lte: endIso } }
+  ];
+  return appendMongoAnd(query, { $or: [...commonDateFilters, ...historyFilters] });
+}
+
 function getLeadInflowRange(query = {}) {
   const type = String(query.timelineType || query.type || "today").trim().toLowerCase();
   if (type === "overall") return null;
@@ -2994,14 +3041,23 @@ function getLeadInflowSection(lead = {}) {
 }
 
 function getLeadInflowLeadMongoQuery(section = "workshop", range = null) {
+  const ignoredLeadExclusion = {
+    ignored: { $ne: true },
+    integrationIgnored: { $ne: true },
+    inflowIgnored: { $ne: true },
+    leadInflowIgnored: { $ne: true },
+    importStatus: { $ne: "ignored" }
+  };
   const sectionQuery = section === "admission"
     ? {
+        ...ignoredLeadExclusion,
         $or: [
           getMainAdmissionLeadMongoQuery(),
           { leadPipeline: "course-registration" }
         ]
       }
     : {
+        ...ignoredLeadExclusion,
         leadPipeline: { $nin: [MAIN_ADMISSION_PIPELINE, "admission", "main-admission-calling", "course-registration"] },
         lsqImported: { $ne: true }
       };
@@ -9682,7 +9738,14 @@ function resolveAdmissionSopBaseTimestamp(lead) {
   return null;
 }
 
-function deriveAdmissionSopState(lead, nowValue = Date.now()) {
+function isAdmissionSopEnabledInState(state = {}) {
+  return state?.admissionSopEnabled !== false;
+}
+
+function deriveAdmissionSopState(lead, nowValue = Date.now(), options = {}) {
+  if (options?.enabled === false) {
+    return null;
+  }
   if (!isAdmissionSopScopedLead(lead)) {
     return null;
   }
@@ -11577,7 +11640,7 @@ function getLeadMutationRestrictionMessage(session, state, lead) {
     return "Only the assigned counselor can update this lead.";
   }
 
-  const sopState = deriveAdmissionSopState(lead);
+  const sopState = deriveAdmissionSopState(lead, Date.now(), { enabled: isAdmissionSopEnabledInState(state) });
   if (sopState?.blocked) {
     return "This admission lead is blocked by the SOP timer and must be reassigned by an admin before further edits.";
   }
@@ -13998,11 +14061,19 @@ async function assignLeadsHandler(req, res) {
     let skippedProtectedCount = 0;
     let skippedInterestedCount = 0;
     let skippedBlockedSameCounselorCount = 0;
+    const sopSettings = await withMongoRetry(
+      () => stateCollection.findOne(
+        { _id: STATE_DOC_ID },
+        { projection: { admissionSopEnabled: 1 } }
+      ),
+      { retries: 1, label: "Load SOP assignment settings" }
+    );
+    const admissionSopEnabled = isAdmissionSopEnabledInState(sopSettings || {});
 
     leadsToUpdate.forEach((lead) => {
       const skipReason = getLeadBulkAssignmentSkipReason(lead);
       if (!skipReason) {
-        const sopState = deriveAdmissionSopState(lead);
+        const sopState = deriveAdmissionSopState(lead, Date.now(), { enabled: admissionSopEnabled });
         const isBlockedSameCounselor = Boolean(
           sopState?.blocked &&
           isAdmissionSopScopedLead(lead) &&
@@ -14197,7 +14268,14 @@ app.post("/api/leads/:leadId/take-sop", async (req, res) => {
       return res.status(400).json({ message: "Only admission SOP leads can be taken by a manager." });
     }
 
-    const sopState = deriveAdmissionSopState(lead);
+    const sopSettings = await withMongoRetry(
+      () => stateCollection.findOne(
+        { _id: STATE_DOC_ID },
+        { projection: { admissionSopEnabled: 1 } }
+      ),
+      { retries: 1, label: "Load SOP take settings" }
+    );
+    const sopState = deriveAdmissionSopState(lead, Date.now(), { enabled: isAdmissionSopEnabledInState(sopSettings || {}) });
     if (!sopState?.blocked) {
       return res.status(409).json({ message: "This lead is not currently out of SOP." });
     }
@@ -14272,11 +14350,22 @@ app.post("/api/leads/sop-unblock", async (req, res) => {
       return res.status(400).json({ message: "Valid lead references are required." });
     }
 
-    const leadsToReview = decorateLeadListForStorage(
-      await leadsCollection.find({ $or: identityMatchConditions }).toArray()
-    );
+    const [leadsToReview, sopSettings] = await Promise.all([
+      withMongoRetry(
+        () => leadsCollection.find({ $or: identityMatchConditions }).toArray(),
+        { retries: 1, label: "Load SOP unblock leads" }
+      ).then((leads) => decorateLeadListForStorage(leads || [])),
+      withMongoRetry(
+        () => stateCollection.findOne(
+          { _id: STATE_DOC_ID },
+          { projection: { admissionSopEnabled: 1 } }
+        ),
+        { retries: 1, label: "Load SOP unblock settings" }
+      )
+    ]);
+    const admissionSopEnabled = isAdmissionSopEnabledInState(sopSettings || {});
     const blockedSopLeads = leadsToReview.filter((lead) => (
-      isAdmissionSopScopedLead(lead) && deriveAdmissionSopState(lead)?.blocked
+      isAdmissionSopScopedLead(lead) && deriveAdmissionSopState(lead, Date.now(), { enabled: admissionSopEnabled })?.blocked
     ));
 
     if (!blockedSopLeads.length) {
@@ -14308,7 +14397,7 @@ app.post("/api/leads/sop-unblock", async (req, res) => {
           counselorName: lead.counselor || "",
           activityType: "SOP Unblocked",
           actionDescription: `SOP block removed by Super Admin with ${days} day deadline`,
-          previousValue: deriveAdmissionSopState(lead)?.deadlineAt || "Blocked",
+          previousValue: deriveAdmissionSopState(lead, Date.now(), { enabled: admissionSopEnabled })?.deadlineAt || "Blocked",
           newValue: customDeadlineAt,
           session
         });
@@ -15098,14 +15187,15 @@ app.get("/api/state", async (req, res) => {
 
 app.get("/api/account-directory", async (req, res) => {
   try {
-    const session = await requireRole(req, res, ["admin", "super_admin"]);
+    const session = await requireRole(req, res, ["admin", "super_admin", "counselor", "manager"]);
     if (!session) return;
+    const canViewAdminDirectory = isAdminLikeSession(session);
 
     const [stateMeta, counselors, allocation] = await Promise.all([
       withMongoRetry(
         () => stateCollection.findOne(
           { _id: STATE_DOC_ID },
-          { projection: { adminUsers: 1, marketingUsers: 1, updatedAt: 1, clearedAt: 1 } }
+          { projection: { adminUsers: 1, marketingUsers: 1, admissionSopEnabled: 1, admissionSopEnabledAt: 1, admissionSopUpdatedBy: 1, updatedAt: 1, clearedAt: 1 } }
         ),
         { retries: 1, label: "Load account directory metadata" }
       ),
@@ -15123,14 +15213,78 @@ app.get("/api/account-directory", async (req, res) => {
     res.setHeader("Cache-Control", "no-cache");
     return res.json({
       counselors: Array.isArray(counselors) ? counselors : [],
-      adminUsers: Array.isArray(normalizedMeta.adminUsers) ? normalizedMeta.adminUsers : [],
-      marketingUsers: Array.isArray(normalizedMeta.marketingUsers) ? normalizedMeta.marketingUsers : [],
+      adminUsers: canViewAdminDirectory && Array.isArray(normalizedMeta.adminUsers) ? normalizedMeta.adminUsers : [],
+      marketingUsers: canViewAdminDirectory && Array.isArray(normalizedMeta.marketingUsers) ? normalizedMeta.marketingUsers : [],
       allocation: Array.isArray(allocation) ? allocation : [],
+      admissionSopEnabled: normalizedMeta.admissionSopEnabled,
+      admissionSopEnabledAt: normalizedMeta.admissionSopEnabledAt,
+      admissionSopUpdatedBy: canViewAdminDirectory ? normalizedMeta.admissionSopUpdatedBy : "",
       updatedAt: normalizedMeta.updatedAt || null,
       clearedAt: normalizedMeta.clearedAt || null
     });
   } catch (error) {
     return res.status(500).json({ message: "Failed to fetch account directory", details: error.message });
+  }
+});
+
+app.get("/api/admin/sop-settings", async (req, res) => {
+  try {
+    const session = await requireSuperAdmin(req, res);
+    if (!session) return;
+
+    const stateMeta = await withMongoRetry(
+      () => stateCollection.findOne(
+        { _id: STATE_DOC_ID },
+        { projection: { admissionSopEnabled: 1, admissionSopEnabledAt: 1, admissionSopUpdatedBy: 1, updatedAt: 1 } }
+      ),
+      { retries: 1, label: "Load SOP settings" }
+    );
+    const normalizedMeta = normalizeStateDoc(stateMeta || {});
+    return res.json({
+      ok: true,
+      admissionSopEnabled: normalizedMeta.admissionSopEnabled,
+      admissionSopEnabledAt: normalizedMeta.admissionSopEnabledAt,
+      admissionSopUpdatedBy: normalizedMeta.admissionSopUpdatedBy,
+      updatedAt: normalizedMeta.updatedAt || null
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch SOP settings", details: error.message });
+  }
+});
+
+app.put("/api/admin/sop-settings", async (req, res) => {
+  try {
+    const session = await requireSuperAdmin(req, res);
+    if (!session) return;
+
+    const enabled = req.body?.admissionSopEnabled !== false;
+    const now = new Date().toISOString();
+    const updatedBy = String(session.name || session.email || session.role || "").trim();
+    await stateCollection.updateOne(
+      { _id: STATE_DOC_ID },
+      {
+        $set: {
+          admissionSopEnabled: enabled,
+          admissionSopEnabledAt: now,
+          admissionSopUpdatedBy: updatedBy,
+          updatedAt: now
+        },
+        $setOnInsert: { createdAt: now }
+      },
+      { upsert: true }
+    );
+    cachedStateDoc = null;
+    cachedStateDocAt = 0;
+    res.setHeader("ETag", buildStateEtag({ updatedAt: now }));
+    return res.json({
+      ok: true,
+      admissionSopEnabled: enabled,
+      admissionSopEnabledAt: now,
+      admissionSopUpdatedBy: updatedBy,
+      updatedAt: now
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to update SOP settings", details: error.message });
   }
 });
 
@@ -15146,6 +15300,9 @@ app.get("/api/state/version", async (req, res) => {
           projection: {
             updatedAt: 1,
             clearedAt: 1,
+            admissionSopEnabled: 1,
+            admissionSopEnabledAt: 1,
+            admissionSopUpdatedBy: 1,
             adminUsers: 1,
             allocation: 1
           }
@@ -15183,6 +15340,9 @@ app.get("/api/state/version", async (req, res) => {
     const version = {
       updatedAt: normalizedMeta.updatedAt || null,
       clearedAt: normalizedMeta.clearedAt || null,
+      admissionSopEnabled: normalizedMeta.admissionSopEnabled,
+      admissionSopEnabledAt: normalizedMeta.admissionSopEnabledAt,
+      admissionSopUpdatedBy: normalizedMeta.admissionSopUpdatedBy,
       etag,
       counts: {
         leads: leadCount || 0,
@@ -15221,7 +15381,10 @@ app.get("/api/leads/scoped", async (req, res) => {
 
     const [stateMeta, counselors] = await Promise.all([
       withMongoRetry(
-        () => stateCollection.findOne({ _id: STATE_DOC_ID }),
+        () => stateCollection.findOne(
+          { _id: STATE_DOC_ID },
+          { projection: { updatedAt: 1, clearedAt: 1, admissionSopEnabled: 1, admissionSopEnabledAt: 1, admissionSopUpdatedBy: 1 } }
+        ),
         { retries: 1, label: "Load scoped state metadata" }
       ),
       withMongoRetry(
@@ -15230,6 +15393,36 @@ app.get("/api/leads/scoped", async (req, res) => {
       )
     ]);
 
+    const admissionSopEnabled = isAdmissionSopEnabledInState(stateMeta || {});
+    if (section === "admission-sop" && !admissionSopEnabled) {
+      const response = {
+        section,
+        leads: [],
+        counselors: Array.isArray(counselors) ? counselors : [],
+        counts: {
+          total: 0,
+          assigned: 0,
+          unassigned: 0,
+          interested: 0,
+          enrolled: 0,
+          won: 0
+        },
+        admissionSopEnabled,
+        admissionSopEnabledAt: stateMeta?.admissionSopEnabledAt || null,
+        admissionSopUpdatedBy: stateMeta?.admissionSopUpdatedBy || "",
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          totalPages: 1,
+          returned: 0
+        },
+        updatedAt: stateMeta?.updatedAt || new Date().toISOString(),
+        clearedAt: stateMeta?.clearedAt || null
+      };
+      res.setHeader("ETag", buildStateEtag(response));
+      return res.json(response);
+    }
     const query = buildScopedLeadMongoQuery(section, req.query || {}, session, counselors);
     const shouldIncludeFacets = String(req.query?.includeFacets || "").trim() === "1";
     const [rawLeads, totalCount, assignedCount, unassignedCount, interestedCount, enrolledCount, wonCount, facets] = runtimeFiltersActive
@@ -15310,12 +15503,12 @@ app.get("/api/leads/scoped", async (req, res) => {
         return false;
       }
       if (section === "main-admission" && ["counselor", "manager"].includes(sessionRole)) {
-        return !deriveAdmissionSopState(lead)?.blocked;
+        return !deriveAdmissionSopState(lead, Date.now(), { enabled: admissionSopEnabled })?.blocked;
       }
       return true;
     });
     const runtimeFilteredLeads = runtimeFiltersActive
-      ? visibleLeads.filter((lead) => leadMatchesScopedRuntimeFilters(lead, section, req.query || {}, session))
+      ? visibleLeads.filter((lead) => leadMatchesScopedRuntimeFilters(lead, section, req.query || {}, session, { admissionSopEnabled }))
       : visibleLeads;
     const sortedLeads = runtimeFilteredLeads
       .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
@@ -15351,6 +15544,9 @@ app.get("/api/leads/scoped", async (req, res) => {
         won: effectiveWonCount
       },
       ...(facets ? { facets } : {}),
+      admissionSopEnabled,
+      admissionSopEnabledAt: stateMeta?.admissionSopEnabledAt || null,
+      admissionSopUpdatedBy: stateMeta?.admissionSopUpdatedBy || "",
       pagination: {
         page,
         limit,
@@ -15623,7 +15819,21 @@ app.get("/api/monitoring-report", async (req, res) => {
       startDate: req.query?.startDate,
       endDate: req.query?.endDate
     });
-    const leadQuery = buildMonitoringLeadMongoQuery(subsection);
+    const stateMeta = await withMongoRetry(
+      () => stateCollection.findOne(
+        { _id: STATE_DOC_ID },
+        { projection: { updatedAt: 1 } }
+      ),
+      { retries: 1, label: "Load monitoring report metadata" }
+    );
+    const reportEtag = `"monitoring:${subsection}:${String(req.query?.timelineType || "week")}:${range?.start?.toISOString?.() || ""}:${range?.end?.toISOString?.() || ""}:${stateMeta?.updatedAt || "init"}"`.replace(/\s/g, "_");
+    res.setHeader("ETag", reportEtag);
+    res.setHeader("Cache-Control", "no-cache");
+    if (req.headers["if-none-match"] === reportEtag) {
+      return res.status(304).end();
+    }
+
+    const leadQuery = appendMonitoringRangeMongoQuery(buildMonitoringLeadMongoQuery(subsection), subsection, range);
     const leadProjection = buildMonitoringLeadProjection(subsection);
     const [rawLeads, counselors] = await Promise.all([
       withMongoRetry(

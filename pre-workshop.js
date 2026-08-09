@@ -8,11 +8,11 @@ import {
   getCounselors as getStoredCounselors,
   getLeads as getStoredLeads,
   getSession,
+  getStateSnapshot,
   loadLocalPreference,
   replaceStateSnapshot,
   saveAllocation as persistAllocation,
   saveLocalPreference,
-  startStatePolling,
   syncStateFromLocalAndVerify
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
@@ -36,7 +36,7 @@ import {
 } from "./lead-service.js";
 import { exportLeadRowsToExcel } from "./lead-export.js";
 
-await bootstrapLocalState();
+await bootstrapLocalState({ skipStateRefresh: true });
 
 const preKpiSection = document.getElementById("preKpiSection");
 const preFilterBar = document.getElementById("preFilterBar");
@@ -92,6 +92,39 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 4000) {
   }
 }
 
+async function loadPreWorkshopData() {
+  const [leadResult, directoryResult] = await Promise.all([
+    fetchJsonWithTimeout(apiUrl("/api/leads?scope=assigned-or-touched&monitoringSubsection=workshop-calling"), {
+      method: "GET",
+      headers: { Accept: "application/json" }
+    }, 12000),
+    fetchJsonWithTimeout(apiUrl("/api/account-directory"), {
+      method: "GET",
+      headers: { Accept: "application/json" }
+    }, 8000)
+  ]);
+
+  if (!leadResult.response.ok) {
+    throw new Error(leadResult.json?.message || "Could not load workshop leads.");
+  }
+  if (!directoryResult.response.ok) {
+    throw new Error(directoryResult.json?.message || "Could not load counselor directory.");
+  }
+
+  const directory = directoryResult.json || {};
+  replaceStateSnapshot({
+    ...getStateSnapshot(),
+    leads: Array.isArray(leadResult.json) ? leadResult.json : [],
+    counselors: Array.isArray(directory.counselors) ? directory.counselors : [],
+    allocation: Array.isArray(directory.allocation) ? directory.allocation : [],
+    adminUsers: Array.isArray(directory.adminUsers) ? directory.adminUsers : [],
+    marketingUsers: Array.isArray(directory.marketingUsers) ? directory.marketingUsers : [],
+    admissionSopEnabled: directory.admissionSopEnabled !== false,
+    updatedAt: directory.updatedAt || new Date().toISOString(),
+    clearedAt: directory.clearedAt || null
+  });
+}
+
 async function verifyAssignedCounselorsOnBackend(importedRecords) {
   const recordsToVerify = importedRecords
     .map(({ lead }) => ({
@@ -104,7 +137,7 @@ async function verifyAssignedCounselorsOnBackend(importedRecords) {
     return { ok: true };
   }
 
-  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/state"), {
+  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/leads?scope=assigned-or-touched&monitoringSubsection=workshop-calling"), {
     method: "GET",
     headers: { Accept: "application/json" }
   }, 4000);
@@ -113,7 +146,7 @@ async function verifyAssignedCounselorsOnBackend(importedRecords) {
     return { ok: false, message: "Could not confirm counselor assignment from the backend." };
   }
 
-  const backendLeads = Array.isArray(json?.leads) ? json.leads : [];
+  const backendLeads = Array.isArray(json) ? json : [];
   const backendById = new Map(backendLeads.map((lead) => [String(lead.id), lead]));
 
   const mismatchedLead = recordsToVerify.find((record) => {
@@ -1267,7 +1300,7 @@ async function getCounselorNamesForAllocation() {
   }
 
   try {
-    const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/state"), {
+    const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/account-directory"), {
       method: "GET",
       headers: { Accept: "application/json" }
     }, 4000);
@@ -2589,6 +2622,12 @@ function initPreWorkshopPage() {
 
 }
 
+try {
+  await loadPreWorkshopData();
+} catch (error) {
+  console.warn("[pre-workshop] lightweight data load failed:", error?.message || error);
+}
+
 initPreWorkshopPage();
 
 function renderAll() {
@@ -2620,7 +2659,22 @@ function renderAll() {
 const scheduleRenderAll = createRenderScheduler(renderAll);
 
 renderAll();
-const stopStatePolling = startStatePolling(() => {
-  scheduleRenderAll();
-});
+let preWorkshopPollingStopped = false;
+let preWorkshopPollingActive = false;
+const preWorkshopPollingId = setInterval(async () => {
+  if (preWorkshopPollingStopped || preWorkshopPollingActive || document.visibilityState === "hidden") return;
+  preWorkshopPollingActive = true;
+  try {
+    await loadPreWorkshopData();
+    scheduleRenderAll();
+  } catch (error) {
+    console.warn("[pre-workshop] polling failed:", error?.message || error);
+  } finally {
+    preWorkshopPollingActive = false;
+  }
+}, 15000);
+const stopStatePolling = () => {
+  preWorkshopPollingStopped = true;
+  clearInterval(preWorkshopPollingId);
+};
 registerPageCleanup(stopStatePolling);

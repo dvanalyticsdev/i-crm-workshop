@@ -32,6 +32,7 @@ let monitoringKpiRenderToken = 0;
 let monitoringLeads = [];
 let monitoringCounselors = [];
 let monitoringReport = null;
+const monitoringDataCache = new Map();
 
 const TIMELINE_STORAGE_KEY = "dvWorkshopMonitoringTimeline";
 const VIEW_STORAGE_KEY = "dvMonitoringActiveView";
@@ -488,18 +489,56 @@ function getAllLeads() {
   return leads;
 }
 
+function getMonitoringCacheKey() {
+  return [
+    activeView.group,
+    activeView.subsection,
+    timelineFilter.type || "week",
+    timelineFilter.startDate || "",
+    timelineFilter.endDate || ""
+  ].join("|");
+}
+
+function applyMonitoringCache(cacheKey = getMonitoringCacheKey()) {
+  const cached = monitoringDataCache.get(cacheKey);
+  if (!cached) {
+    return false;
+  }
+  monitoringReport = cached.report || null;
+  monitoringLeads = Array.isArray(cached.leads) ? cached.leads : [];
+  monitoringCounselors = Array.isArray(cached.counselors) ? cached.counselors : [];
+  return true;
+}
+
+function storeMonitoringCache(cacheKey, payload = {}) {
+  monitoringDataCache.set(cacheKey, {
+    ...payload,
+    storedAt: Date.now()
+  });
+}
+
 async function loadMonitoringData() {
+  const cacheKey = getMonitoringCacheKey();
   if (!isAdminMonitoringView()) {
     const reportUrl = new URL(apiUrl("/api/monitoring-report"), window.location.origin);
     reportUrl.searchParams.set("subsection", activeView.subsection);
     reportUrl.searchParams.set("timelineType", timelineFilter.type || "week");
     if (timelineFilter.startDate) reportUrl.searchParams.set("startDate", timelineFilter.startDate);
     if (timelineFilter.endDate) reportUrl.searchParams.set("endDate", timelineFilter.endDate);
+    const cached = monitoringDataCache.get(cacheKey);
+    const headers = { Accept: "application/json" };
+    if (cached?.etag) {
+      headers["If-None-Match"] = cached.etag;
+    }
     try {
       const response = await fetch(reportUrl.toString(), {
         credentials: "same-origin",
-        headers: { Accept: "application/json" }
+        headers
       });
+      if (response.status === 304 && cached) {
+        applyMonitoringCache(cacheKey);
+        return;
+      }
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload?.ok === false) {
         throw new Error(payload?.message || "Failed to load monitoring report.");
@@ -507,6 +546,12 @@ async function loadMonitoringData() {
       monitoringReport = payload;
       monitoringLeads = [];
       monitoringCounselors = [];
+      storeMonitoringCache(cacheKey, {
+        report: monitoringReport,
+        leads: [],
+        counselors: [],
+        etag: response.headers.get("etag") || ""
+      });
       return;
     } catch (error) {
       console.warn("[monitoring] server report failed, falling back to client calculations:", error?.message || error);
@@ -543,6 +588,12 @@ async function loadMonitoringData() {
   monitoringCounselors = Array.isArray(counselorPayload) ? counselorPayload : [];
   counselorDirectoryCacheKey = "";
   normalizeLeadFields(monitoringLeads);
+  storeMonitoringCache(cacheKey, {
+    report: null,
+    leads: monitoringLeads,
+    counselors: monitoringCounselors,
+    etag: ""
+  });
 }
 
 function startMonitoringPolling(onRefresh, intervalMs = 15000) {
@@ -1926,6 +1977,9 @@ function renderSectionNav() {
         subsection: firstSubsection
       };
       persistActiveView();
+      if (applyMonitoringCache()) {
+        renderAll();
+      }
       void loadMonitoringData().finally(() => renderAll());
     };
   });
@@ -1978,6 +2032,9 @@ function renderSubsectionNav() {
         subsection: nextSubsection
       };
       persistActiveView();
+      if (applyMonitoringCache()) {
+        renderAll();
+      }
       void loadMonitoringData().finally(() => renderAll());
     };
   });
