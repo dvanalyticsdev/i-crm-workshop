@@ -37,6 +37,7 @@ const session = getSession();
 const isAdmin = session?.role === "admin" || session?.role === "super_admin";
 const isSuperAdmin = session?.role === "super_admin";
 const LSQ_IMPORT_CHUNK_SIZE = 500;
+const LSQ_IMPORT_CHUNK_RETRIES = 3;
 
 const DEFAULT_ALLOCATION = [];
 
@@ -656,6 +657,29 @@ async function postLsqImportChunk(rows, sourceFileName) {
   return { response, json };
 }
 
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function postLsqImportChunkWithRetry(rows, sourceFileName, chunkNumber) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= LSQ_IMPORT_CHUNK_RETRIES; attempt += 1) {
+    try {
+      if (attempt > 1) {
+        setMessage(lsqImportMessage, `Retrying LSQ chunk ${chunkNumber}, attempt ${attempt} of ${LSQ_IMPORT_CHUNK_RETRIES}...`, false);
+      }
+      return await postLsqImportChunk(rows, sourceFileName);
+    } catch (error) {
+      lastError = error;
+      if (attempt < LSQ_IMPORT_CHUNK_RETRIES) {
+        await wait(attempt * 2500);
+      }
+    }
+  }
+
+  throw lastError || new Error("Failed to import LSQ leads.");
+}
+
 async function handleLsqLeadImport() {
   if (!isSuperAdmin) {
     setMessage(lsqImportMessage, "Only Super Admin can import LSQ leads.", true);
@@ -700,7 +724,7 @@ async function handleLsqLeadImport() {
     setMessage(lsqImportMessage, `Importing LSQ leads ${offset + 1}-${Math.min(offset + chunk.length, rows.length)} of ${rows.length}...`, false);
 
     try {
-      const { response, json } = await postLsqImportChunk(chunk, file.name);
+      const { response, json } = await postLsqImportChunkWithRetry(chunk, file.name, chunkNumber);
       mergeLsqSummary(totalSummary, json.summary);
       updateLsqImportSummary(totalSummary);
       latestStatePayload = json.state || latestStatePayload;
