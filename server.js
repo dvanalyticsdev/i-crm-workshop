@@ -667,10 +667,19 @@ function cacheStateDoc(state) {
   return cachedStateDoc;
 }
 
-function buildStateResponse(state) {
+function shouldExposeLeadInStateResponse(lead) {
+  const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
+  return pipeline !== MAIN_ADMISSION_PIPELINE && pipeline !== "course-registration";
+}
+
+function buildStateResponse(state, options = {}) {
   const normalized = normalizeStateDoc(state);
+  const trimAdmissionPipelines = options?.trimAdmissionPipelines === true;
+  const leads = trimAdmissionPipelines
+    ? normalized.leads.filter(shouldExposeLeadInStateResponse)
+    : normalized.leads;
   return {
-    leads: normalized.leads,
+    leads,
     counselors: normalized.counselors,
     adminUsers: normalized.adminUsers,
     marketingUsers: normalized.marketingUsers,
@@ -2969,20 +2978,31 @@ const SCOPED_LEAD_LIST_PROJECTION = {
   metaCampaignName: 1,
   metaAdsetName: 1,
   metaAdName: 1,
+  metaExtraFields: 1,
+  elementorExtraFields: 1,
+  elementorPageUrl: 1,
   elementorFormName: 1,
   importSourceSheet: 1,
   importSourceFiles: 1,
+  leadNotes: 1,
+  mcubeCallHistory: 1,
   lsqImported: 1,
   lsqArchivedLead: 1,
   lsqOwner: 1,
   lsqStage: 1,
   lsqLeadSource: 1,
+  repeatEnquiryCount: 1,
+  repeatEnquirySources: 1,
+  lastRepeatEnquiryAt: 1,
+  lastWorkshopMigrationAt: 1,
+  workshopMigrationHistory: 1,
   mainAdmissionDialed: 1,
   mainAdmissionCoursePitched: 1,
   mainAdmissionCourseStatus: 1,
   mainAdmissionAdmissionStatus: 1,
   mainAdmissionCallStatus: 1,
   mainAdmissionActivityUpdated: 1,
+  mainAdmissionActivityTouchedByAssignee: 1,
   mainAdmissionActivityUpdates: 1,
   mainAdmissionActivityHistory: 1,
   registeredDialed: 1,
@@ -2991,9 +3011,266 @@ const SCOPED_LEAD_LIST_PROJECTION = {
   registeredAdmissionStatus: 1,
   registeredCallStatus: 1,
   registeredActivityUpdated: 1,
+  registeredActivityTouchedByAssignee: 1,
   registeredCourseActivityUpdates: 1,
   registeredCourseActivityHistory: 1
 };
+
+function getScopedEntryTimestamp(value) {
+  const candidate = String(
+    value?.at
+    || value?.timestamp
+    || value?.createdAt
+    || value?.updatedAt
+    || value?.migratedAt
+    || value
+    || ""
+  ).trim();
+  if (!candidate) return Number.NaN;
+  return new Date(candidate).getTime();
+}
+
+function getScopedLatestHistoryEntry(history) {
+  if (!Array.isArray(history) || !history.length) return null;
+  return history.reduce((latest, entry) => (
+    !latest || getScopedEntryTimestamp(entry) >= getScopedEntryTimestamp(latest) ? entry : latest
+  ), null);
+}
+
+function getScopedActivityLabel(activity = {}) {
+  return String(
+    activity?.activityType
+    || activity?.type
+    || activity?.eventType
+    || activity?.actionType
+    || activity?.label
+    || ""
+  ).trim();
+}
+
+function isScopedInboundCallActivity(activity = {}) {
+  const text = String([
+    activity?.direction,
+    activity?.callDirection,
+    activity?.callType,
+    activity?.source,
+    activity?.actionDescription,
+    activity?.remarks
+  ].filter(Boolean).join(" ")).trim();
+  return /inbound|incoming/i.test(text);
+}
+
+function isScopedNotPickedCallActivity(activity = {}) {
+  const text = String([
+    activity?.callStatus,
+    activity?.status,
+    activity?.disposition,
+    activity?.callDisposition,
+    activity?.newValue,
+    activity?.actionDescription,
+    activity?.remarks
+  ].filter(Boolean).join(" ")).trim();
+  return /(cancel|missed|no\s*answer|unanswered|busy|failed|reject|declin|timeout|not\s*reachable|switched\s*off|\bdnp\b|\bcnc\b)/i.test(text);
+}
+
+function isScopedLatestInboundNotPicked(history) {
+  const latest = getScopedLatestHistoryEntry(history);
+  return Boolean(latest && getScopedActivityLabel(latest) === "Call Made" && isScopedInboundCallActivity(latest) && isScopedNotPickedCallActivity(latest));
+}
+
+function scopedHasAssigneeActivityHistory(history) {
+  if (!Array.isArray(history)) return false;
+  return history.some((entry) => {
+    const by = String(entry?.by || "").trim().toLowerCase();
+    const source = String(entry?.source || "").trim().toLowerCase();
+    return Boolean(by) && !["reachout webhook", "system"].includes(by) && source !== "reachout webhook";
+  });
+}
+
+function getScopedLeadActivityUpdateCount(lead = {}, section = "") {
+  if (section === "registered-candidates") {
+    if (typeof lead.registeredActivityTouchedByAssignee === "boolean") return lead.registeredActivityTouchedByAssignee ? 1 : 0;
+    if (typeof lead.registeredActivityUpdated === "boolean") return lead.registeredActivityUpdated ? 1 : 0;
+    return scopedHasAssigneeActivityHistory(lead.registeredCourseActivityHistory) ? 1 : 0;
+  }
+  if (typeof lead.mainAdmissionActivityTouchedByAssignee === "boolean") return lead.mainAdmissionActivityTouchedByAssignee ? 1 : 0;
+  if (typeof lead.mainAdmissionActivityUpdated === "boolean") return lead.mainAdmissionActivityUpdated ? 1 : 0;
+  return scopedHasAssigneeActivityHistory(lead.mainAdmissionActivityHistory) ? 1 : 0;
+}
+
+function getScopedLatestRepeatEnquiryTimestamp(lead = {}) {
+  const candidates = [
+    getScopedEntryTimestamp(lead.lastRepeatEnquiryAt),
+    getScopedEntryTimestamp(lead.lastWorkshopMigrationAt)
+  ];
+  if (Array.isArray(lead.workshopMigrationHistory)) {
+    candidates.push(...lead.workshopMigrationHistory.map(getScopedEntryTimestamp));
+  }
+  const valid = candidates.filter(Number.isFinite);
+  return valid.length ? Math.max(...valid) : Number.NaN;
+}
+
+function isScopedRepeatEnquiryLead(lead = {}, section = "") {
+  const explicitCount = Number(lead.repeatEnquiryCount || 0);
+  if (Number.isFinite(explicitCount) && explicitCount > 0) return true;
+  const repeatAt = getScopedLatestRepeatEnquiryTimestamp(lead);
+  if (!Number.isFinite(repeatAt)) return false;
+  const historyField = section === "registered-candidates" ? "registeredCourseActivityHistory" : "mainAdmissionActivityHistory";
+  const latestActivityAt = getScopedEntryTimestamp(getScopedLatestHistoryEntry(lead[historyField]));
+  return !Number.isFinite(latestActivityAt) || repeatAt >= latestActivityAt;
+}
+
+function scopedLeadMatchesWhatsappActivity(lead = {}, section = "", value = "") {
+  const selected = String(value || "").trim();
+  if (!selected) return true;
+  const historyField = section === "registered-candidates" ? "registeredCourseActivityHistory" : "mainAdmissionActivityHistory";
+  const latest = getScopedLatestHistoryEntry(Array.isArray(lead[historyField]) ? lead[historyField] : []);
+  return getScopedActivityLabel(latest) === selected;
+}
+
+function getScopedLeadSourceFilterValue(lead = {}) {
+  const extraFields = lead?.metaExtraFields && typeof lead.metaExtraFields === "object" ? lead.metaExtraFields : {};
+  const text = [
+    extraFields.source_type,
+    extraFields.platform,
+    extraFields.utm_source,
+    extraFields.referrer,
+    extraFields.lead_source,
+    extraFields.source,
+    lead.metaAdName,
+    lead.metaAdsetName,
+    lead.metaCampaignName,
+    lead.elementorPageUrl,
+    lead.elementorFormName,
+    lead.source,
+    lead.name,
+    lead.email
+  ].map((value) => String(value || "").trim().toLowerCase()).filter(Boolean).join(" ");
+  if (/\b(mcube)\b/.test(text) || /^mcube\s+(caller|lead)(\s+\S+)?$/i.test(String(lead.name || "").trim()) || /^mcube-[^@\s]+@noemail\.lead$/i.test(String(lead.email || "").trim().toLowerCase())) return "mcube";
+  if (String(lead.elementorPageUrl || "").trim() || /\b(elementor|website|web|landing page|site|public course)\b/.test(text)) return "elementor";
+  if (/\b(meta)\b/.test(text)) return "meta";
+  return "";
+}
+
+function getScopedTimelineRange(query = {}) {
+  const timeline = String(query.timeline || "").trim().toLowerCase();
+  if (!timeline || timeline === "overall") return null;
+  if (timeline === "today") {
+    const day = toKolkataDateKey();
+    return { start: new Date(`${day}T00:00:00.000+05:30`), end: new Date(`${day}T23:59:59.999+05:30`) };
+  }
+  if (timeline === "yesterday") {
+    const day = toKolkataDateKey(new Date(Date.now() - 24 * 60 * 60 * 1000));
+    return { start: new Date(`${day}T00:00:00.000+05:30`), end: new Date(`${day}T23:59:59.999+05:30`) };
+  }
+  if (timeline === "week") {
+    const endDay = toKolkataDateKey();
+    const startDay = toKolkataDateKey(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000));
+    return { start: new Date(`${startDay}T00:00:00.000+05:30`), end: new Date(`${endDay}T23:59:59.999+05:30`) };
+  }
+  if (timeline === "custom") {
+    const start = String(query.startDate || "").trim();
+    const end = String(query.endDate || "").trim();
+    if (!start || !end) return null;
+    return { start: new Date(`${start}T00:00:00.000+05:30`), end: new Date(`${end}T23:59:59.999+05:30`) };
+  }
+  return null;
+}
+
+function getScopedCounselorActivityRange(query = {}) {
+  return getScopedTimelineRange({
+    timeline: query.counselorActivityTimeline,
+    startDate: query.counselorActivityStartDate,
+    endDate: query.counselorActivityEndDate
+  });
+}
+
+function scopedDateInRange(value, range) {
+  if (!range?.start || !range?.end) return true;
+  const timestamp = getScopedEntryTimestamp(value);
+  return Number.isFinite(timestamp) && timestamp >= range.start.getTime() && timestamp <= range.end.getTime();
+}
+
+function isScopedCounselorActivityEntry(entry = {}, allowedFields = []) {
+  const by = String(entry?.by || "").trim().toLowerCase();
+  const source = String(entry?.source || "").trim().toLowerCase();
+  if (!entry || typeof entry !== "object" || ["reachout webhook", "system"].includes(by) || ["reachout webhook", "system"].includes(source) || by.startsWith("system:") || source.startsWith("system:")) {
+    return false;
+  }
+  const activityType = getScopedActivityLabel(entry);
+  const description = String(entry?.actionDescription || entry?.description || "").trim();
+  if (["Lead Created", "Lead Assigned", "Lead Reassigned", "Counselor Changed", "Lead Viewed"].includes(activityType) || /whatsapp|reachout/i.test(`${activityType} ${description}`)) {
+    return false;
+  }
+  const updates = entry?.updates && typeof entry.updates === "object" ? entry.updates : null;
+  if (!updates) return Boolean(activityType || by);
+  const allowed = new Set(allowedFields);
+  return Object.keys(updates).some((field) => {
+    if (/whatsapp/i.test(field)) return false;
+    return !allowed.size || allowed.has(field);
+  });
+}
+
+function leadMatchesScopedCounselorActivityDate(lead = {}, section = "", query = {}) {
+  const range = getScopedCounselorActivityRange(query);
+  if (!range?.start || !range?.end) return true;
+  const historyField = section === "registered-candidates" ? "registeredCourseActivityHistory" : "mainAdmissionActivityHistory";
+  const allowedFields = section === "registered-candidates"
+    ? ["registeredDialed", "registeredCoursePitched", "registeredCourseStatus", "registeredAdmissionStatus", "registeredCallStatus"]
+    : ["mainAdmissionDialed", "mainAdmissionCoursePitched", "mainAdmissionCourseStatus", "mainAdmissionAdmissionStatus", "mainAdmissionCallStatus"];
+  const history = Array.isArray(lead[historyField]) ? lead[historyField] : [];
+  return history.some((entry) => isScopedCounselorActivityEntry(entry, allowedFields) && scopedDateInRange(entry, range));
+}
+
+function hasScopedRuntimeFilters(query = {}) {
+  return [
+    "timeline",
+    "counselorActivityTimeline",
+    "leadOwner",
+    "location",
+    "leadSource",
+    "activityStatus",
+    "latestActivity",
+    "repeatEnquiryStatus",
+    "whatsappActivity",
+    "sopFilter"
+  ].some((key) => String(query[key] || "").trim() && !["all", "overall"].includes(String(query[key] || "").trim().toLowerCase()));
+}
+
+function leadMatchesScopedRuntimeFilters(lead = {}, section = "", query = {}, session = {}) {
+  const timelineRange = getScopedTimelineRange(query);
+  if (timelineRange && !scopedDateInRange(lead.leadOwnerTimelineAt || lead.counselorAssignedAt || lead.createdAtExact || lead.createdAt, timelineRange)) return false;
+  if (!leadMatchesScopedCounselorActivityDate(lead, section, query)) return false;
+
+  const owner = String(query.leadOwner || "").trim().toLowerCase();
+  if (owner === "direct" && String(lead.leadOwnerType || "direct").trim().toLowerCase() === "reassigned") return false;
+  if (owner === "reassigned" && String(lead.leadOwnerType || "").trim().toLowerCase() !== "reassigned") return false;
+
+  const location = normalizeScopedLocationLabel(query.location);
+  if (location && getScopedLeadLocationFacet(lead) !== location) return false;
+
+  const leadSource = String(query.leadSource || "").trim().toLowerCase();
+  if (leadSource && getScopedLeadSourceFilterValue(lead) !== leadSource) return false;
+
+  const activityStatus = String(query.activityStatus || "").trim();
+  const touchCount = getScopedLeadActivityUpdateCount(lead, section);
+  if (activityStatus === "Untouched" && touchCount > 0) return false;
+  if (activityStatus === "Updated" && touchCount === 0) return false;
+
+  const historyField = section === "registered-candidates" ? "registeredCourseActivityHistory" : "mainAdmissionActivityHistory";
+  if (String(query.latestActivity || "").trim() === "Inbound Not Picked" && !isScopedLatestInboundNotPicked(lead[historyField])) return false;
+
+  const repeat = String(query.repeatEnquiryStatus || "").trim();
+  if (repeat === "Repeat Enquiry" && !isScopedRepeatEnquiryLead(lead, section)) return false;
+  if (repeat === "First Time" && isScopedRepeatEnquiryLead(lead, section)) return false;
+
+  if (!scopedLeadMatchesWhatsappActivity(lead, section, query.whatsappActivity)) return false;
+
+  if (String(query.sopFilter || "").trim() === "blocked" && (!isAdminLikeSession(session) || !deriveAdmissionSopState(lead)?.blocked)) return false;
+  if (section === "main-admission" && String(query.sopFilter || "").trim() !== "blocked" && deriveAdmissionSopState(lead)?.blocked) return false;
+
+  return true;
+}
 
 function parseBoundedPositiveInt(value, fallback, min = 1, max = 500) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
@@ -3022,7 +3299,7 @@ function appendMongoAnd(query = {}, condition = {}) {
   };
 }
 
-function buildScopedLeadMongoQuery(section, requestQuery = {}, session = {}, counselors = []) {
+function buildScopedLeadBaseMongoQuery(section, session = {}, counselors = []) {
   const query = section === "admission-sop"
     ? { leadPipeline: { $in: [MAIN_ADMISSION_PIPELINE, "course-registration"] } }
     : section === "registered-candidates"
@@ -3036,8 +3313,6 @@ function buildScopedLeadMongoQuery(section, requestQuery = {}, session = {}, cou
       (item) => String(item.email || "").trim().toLowerCase() === sessionEmail
     );
     query.counselor = String(counselorMatch?.name || session.name || "").trim();
-  } else {
-    addOptionalExactQuery(query, "counselor", requestQuery.counselor);
   }
 
   if (!isAdminLikeSession(session)) {
@@ -3049,6 +3324,32 @@ function buildScopedLeadMongoQuery(section, requestQuery = {}, session = {}, cou
     }));
   }
 
+  return query;
+}
+
+function applyScopedRegisteredSegmentQuery(query = {}, segmentValue = "") {
+  const segment = String(segmentValue || PUBLIC_COURSE_DEFAULT_SEGMENT).trim().toLowerCase();
+  if (segment === PUBLIC_COURSE_CRASH_SEGMENT) {
+    return appendMongoAnd(query, {
+      $or: [
+        { publicCourseSegment: PUBLIC_COURSE_CRASH_SEGMENT },
+        { courseId: "days7_genai" }
+      ]
+    });
+  }
+  let nextQuery = appendMongoAnd(query, { publicCourseSegment: { $ne: PUBLIC_COURSE_CRASH_SEGMENT } });
+  nextQuery = appendMongoAnd(nextQuery, { courseId: { $ne: "days7_genai" } });
+  return nextQuery;
+}
+
+function buildScopedLeadMongoQuery(section, requestQuery = {}, session = {}, counselors = []) {
+  let query = buildScopedLeadBaseMongoQuery(section, session, counselors);
+
+  const sessionRole = String(session.role || "").trim().toLowerCase();
+  if (sessionRole !== "counselor") {
+    addOptionalExactQuery(query, "counselor", requestQuery.counselor);
+  }
+
   const lsqFilter = String(requestQuery.lsqLeads || "").trim().toLowerCase();
   if (lsqFilter === "only") {
     query.lsqImported = true;
@@ -3057,6 +3358,7 @@ function buildScopedLeadMongoQuery(section, requestQuery = {}, session = {}, cou
   }
 
   if (section === "registered-candidates") {
+    query = applyScopedRegisteredSegmentQuery(query, requestQuery.segment);
     addOptionalExactQuery(query, "registeredDialed", requestQuery.registeredDialed);
     addOptionalExactQuery(query, "registeredCourseStatus", requestQuery.registeredCourseStatus);
     addOptionalExactQuery(query, "registeredAdmissionStatus", requestQuery.registeredAdmissionStatus);
@@ -3076,19 +3378,121 @@ function buildScopedLeadMongoQuery(section, requestQuery = {}, session = {}, cou
   const search = String(requestQuery.search || "").trim();
   if (search) {
     const regex = new RegExp(escapeMongoRegex(search), "i");
-    query.$or = [
-      { name: regex },
-      { email: regex },
-      { phone: regex },
-      { courseName: regex },
-      { counselor: regex },
-      { country: regex },
-      { state: regex },
-      { city: regex }
-    ];
+    query = appendMongoAnd(query, {
+      $or: [
+        { name: regex },
+        { email: regex },
+        { phone: regex },
+        { courseName: regex },
+        { counselor: regex },
+        { country: regex },
+        { state: regex },
+        { city: regex }
+      ]
+    });
   }
 
   return query;
+}
+
+function normalizeScopedFacetValue(value) {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function normalizeScopedLocationLabel(value) {
+  const cleaned = normalizeScopedFacetValue(value);
+  if (!cleaned) return "";
+  return cleaned.toLowerCase().replace(/\b[a-z]/g, (match) => match.toUpperCase());
+}
+
+function getScopedLeadLocationFacet(lead = {}) {
+  const extraFields = lead?.metaExtraFields && typeof lead.metaExtraFields === "object" ? lead.metaExtraFields : {};
+  return normalizeScopedLocationLabel(
+    extraFields.city
+    || extraFields.current_city
+    || extraFields.city_name
+    || extraFields.town
+    || extraFields.location
+    || lead.city
+    || lead.state
+    || lead.country
+  );
+}
+
+function getScopedMainAdmissionCourseFacet(lead = {}) {
+  const identity = buildCourseIdentity(lead?.courseRawName || lead?.courseName || lead?.courseCode, lead);
+  return isKnownPublicCourseIdentity(identity) ? identity.label : "Others";
+}
+
+async function buildScopedLeadFacets(section, session = {}, counselors = [], requestQuery = {}) {
+  let query = buildScopedLeadBaseMongoQuery(section, session, counselors);
+  if (section === "registered-candidates") {
+    query = applyScopedRegisteredSegmentQuery(query, requestQuery.segment);
+  }
+  const rawLeads = await withMongoRetry(
+    () => leadsCollection.find(query, {
+      projection: {
+        counselor: 1,
+        courseName: 1,
+        courseRawName: 1,
+        courseCode: 1,
+        courseId: 1,
+        country: 1,
+        state: 1,
+        city: 1,
+        metaExtraFields: 1,
+        metaAdName: 1,
+        metaAdsetName: 1,
+        metaCampaignName: 1,
+        elementorFormName: 1,
+        elementorPageUrl: 1
+      }
+    }).toArray(),
+    { retries: 1, label: "Load scoped lead facets" }
+  );
+  const leads = decorateLeadListForStorage(rawLeads || []);
+  const values = (getter) => [...new Set(leads.map(getter).map(normalizeScopedFacetValue).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+  const courseValues = section === "main-admission"
+    ? [...new Set(leads.map(getScopedMainAdmissionCourseFacet).filter(Boolean))]
+    : values((lead) => lead.courseName);
+
+  return {
+    counselors: values((lead) => lead.counselor),
+    courses: courseValues.sort((a, b) => {
+      if (a === "Others") return 1;
+      if (b === "Others") return -1;
+      return a.localeCompare(b);
+    }),
+    locations: values(getScopedLeadLocationFacet)
+  };
+}
+
+function buildScopedLeadClearQuery(section, requestQuery = {}) {
+  const normalizedSection = String(section || "").trim().toLowerCase();
+  if (normalizedSection === "main-admission") {
+    return { leadPipeline: MAIN_ADMISSION_PIPELINE };
+  }
+  if (normalizedSection !== "registered-candidates") {
+    return null;
+  }
+
+  const segment = String(requestQuery.segment || PUBLIC_COURSE_DEFAULT_SEGMENT).trim().toLowerCase();
+  if (segment === PUBLIC_COURSE_CRASH_SEGMENT) {
+    return {
+      leadPipeline: "course-registration",
+      $or: [
+        { publicCourseSegment: PUBLIC_COURSE_CRASH_SEGMENT },
+        { courseId: "days7_genai" }
+      ]
+    };
+  }
+
+  return {
+    leadPipeline: "course-registration",
+    publicCourseSegment: { $ne: PUBLIC_COURSE_CRASH_SEGMENT },
+    courseId: { $ne: "days7_genai" }
+  };
 }
 
 function buildMonitoringLeadMongoQuery(subsection = "") {
@@ -3917,26 +4321,22 @@ async function initMongo() {
           { normalizedEmail: 1 },
           {
             name: "normalizedEmail_1",
-            unique: true,
             background: true,
             partialFilterExpression: {
-              normalizedEmail: { $exists: true, $type: "string" },
-              leadPipeline: { $ne: "course-registration" }
+              normalizedEmail: { $exists: true, $type: "string" }
             }
           }
-        ).catch((error) => console.error("Failed to create normalizedEmail_1 unique lead index:", error.message));
+        ).catch((error) => console.error("Failed to create normalizedEmail_1 lead index:", error.message));
         await leadsCollection.createIndex(
           { normalizedPhone: 1 },
           {
             name: "normalizedPhone_1",
-            unique: true,
             background: true,
             partialFilterExpression: {
-              normalizedPhone: { $exists: true, $type: "string" },
-              leadPipeline: { $ne: "course-registration" }
+              normalizedPhone: { $exists: true, $type: "string" }
             }
           }
-        ).catch((error) => console.error("Failed to create normalizedPhone_1 unique lead index:", error.message));
+        ).catch((error) => console.error("Failed to create normalizedPhone_1 lead index:", error.message));
         await leadsCollection.createIndex({ email: 1 }, { background: true }).catch(() => undefined);
         await leadsCollection.createIndex({ phone: 1 }, { background: true }).catch(() => undefined);
         await leadsCollection.createIndex({ counselor: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
@@ -7122,9 +7522,9 @@ async function processMcubeWebhookPayload(req, body, options = {}) {
   }
 
   let state = await getStateDoc();
-  let lead = event.leadId ? findLeadById(state, event.leadId) : null;
+  let lead = event.leadId ? await findLeadByIdentityFromCollection(event.leadId) : null;
   if (!lead && event.phone) {
-    lead = findLeadByPhone(state, event.phone);
+    lead = await findLeadByContactFromCollection({ phone: event.phone });
   }
 
   if (!lead && config.enableAutoLeadCreate && event.phone) {
@@ -8233,8 +8633,7 @@ app.get("/api/mcube/lookup", async (req, res) => {
       return res.status(400).json({ message: "Phone is required." });
     }
 
-    const state = await getStateDoc();
-    const lead = findLeadByPhone(state, phone);
+    const lead = await findLeadByContactFromCollection({ phone });
     return res.json({
       ok: true,
       found: !!lead,
@@ -8332,12 +8731,15 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
     const leadId = String(req.body?.leadId || "").trim();
     const phone = String(req.body?.phone || "").trim();
     const state = await getStateDoc();
-    const lead = leadId ? findLeadById(state, leadId) : (phone ? findLeadByPhone(state, phone) : null);
+    const lead = leadId
+      ? await findLeadByIdentityFromCollection(leadId)
+      : (phone ? await findLeadByContactFromCollection({ phone }) : null);
     const targetPhone = normalizeMcubeDialNumber(phone || lead?.phone || "");
     if (!targetPhone) {
       return res.status(400).json({ message: "A target phone number is required." });
     }
-    if (isCounselorLikeSession(session) && lead && !canMutateLead(session, state, lead)) {
+    const accessState = lead ? await buildLeadActionState(lead) : state;
+    if (isCounselorLikeSession(session) && lead && !canMutateLead(session, accessState, lead)) {
       return res.status(403).json({ message: "Only the assigned counselor can call this lead." });
     }
 
@@ -8880,13 +9282,9 @@ app.post("/api/reachout/whatsapp/webhook", async (req, res) => {
   try {
     await initMongo();
     const normalized = normalizeReachoutWebhookEvent(req.body || {});
-    const state = await getStateDoc();
     const lead =
-      (normalized.leadId ? findLeadByIdentity(state, normalized.leadId, normalized.leadEmail) : null)
-      || ((Array.isArray(state?.leads) ? state.leads : []).find((item) => (
-        normalized.leadEmail && String(item?.email || "").trim().toLowerCase() === normalized.leadEmail
-      )) || null)
-      || (normalized.phone ? findLeadByPhone(state, normalized.phone) : null);
+      (normalized.leadId ? await findLeadByIdentityFromCollection(normalized.leadId, normalized.leadEmail) : null)
+      || await findLeadByContactFromCollection({ email: normalized.leadEmail, phone: normalized.phone });
 
     if (!lead) {
       return res.status(202).json({
@@ -11113,11 +11511,8 @@ async function getStateDoc() {
     { retries: 1, label: "Load state metadata" }
   );
 
-  const legacyStateLeadQuery = {
-    leadPipeline: { $nin: [MAIN_ADMISSION_PIPELINE, "course-registration"] }
-  };
   const [leads, counselors, tasks, allocation] = await Promise.all([
-    withMongoRetry(() => leadsCollection.find(legacyStateLeadQuery).toArray(), { retries: 1, label: "Load leads" }),
+    withMongoRetry(() => leadsCollection.find({}).toArray(), { retries: 1, label: "Load leads" }),
     withMongoRetry(() => counselorsCollection.find({}).toArray(), { retries: 1, label: "Load counselors" }),
     withMongoRetry(() => tasksCollection.find({}).toArray(), { retries: 1, label: "Load tasks" }),
     withMongoRetry(() => allocationCollection.find({}).toArray(), { retries: 1, label: "Load allocation" })
@@ -11651,6 +12046,40 @@ async function findLeadByIdentityFromCollection(leadId, leadEmail = "") {
   return decorateLeadForStorage(rawLead);
 }
 
+async function findLeadByContactFromCollection({ email = "", phone = "" } = {}) {
+  const normalizedEmail = normalizeLeadEmail(email);
+  const normalizedPhone = normalizeLeadPhone(phone);
+  const conditions = [];
+  if (normalizedEmail) {
+    conditions.push({ normalizedEmail });
+    conditions.push({ email: normalizedEmail });
+  }
+  if (normalizedPhone) {
+    conditions.push({ normalizedPhone });
+  }
+  if (!conditions.length) {
+    return null;
+  }
+  const matches = await withMongoRetry(
+    () => leadsCollection.find({ $or: conditions }).limit(12).toArray(),
+    { retries: 1, label: "Load lead by contact" }
+  );
+  const decoratedMatches = decorateLeadListForStorage(matches || []);
+  if (!decoratedMatches.length) {
+    return null;
+  }
+  return [...decoratedMatches].sort((left, right) => {
+    const leftAssigned = shouldTreatLeadAsAssigned(left?.counselor) ? 1 : 0;
+    const rightAssigned = shouldTreatLeadAsAssigned(right?.counselor) ? 1 : 0;
+    if (leftAssigned !== rightAssigned) {
+      return rightAssigned - leftAssigned;
+    }
+    const leftUpdatedAt = Date.parse(String(left?.updatedAt || left?.createdAtExact || left?.createdAt || ""));
+    const rightUpdatedAt = Date.parse(String(right?.updatedAt || right?.createdAtExact || right?.createdAt || ""));
+    return (Number.isFinite(rightUpdatedAt) ? rightUpdatedAt : 0) - (Number.isFinite(leftUpdatedAt) ? leftUpdatedAt : 0);
+  })[0] || null;
+}
+
 async function buildLeadActionState(lead) {
   const counselors = await withMongoRetry(
     () => counselorsCollection.find({}).toArray(),
@@ -11660,6 +12089,39 @@ async function buildLeadActionState(lead) {
     leads: lead ? [lead] : [],
     counselors: Array.isArray(counselors) ? counselors : []
   };
+}
+
+async function getRelatedLeadIdsForActivityQuery(lead) {
+  if (!lead?.id) {
+    return [];
+  }
+
+  const relatedIds = [String(lead.id)];
+  const email = String(lead.email || "").trim().toLowerCase();
+  const phone = String(lead.phone || "").trim();
+  const relatedQuery = [];
+  if (email) {
+    relatedQuery.push({ email });
+  }
+  if (phone) {
+    relatedQuery.push({ phone });
+  }
+  if (relatedQuery.length) {
+    const relatedLeads = await withMongoRetry(
+      () => leadsCollection.find(
+        { $or: relatedQuery },
+        { projection: { id: 1 } }
+      ).toArray(),
+      { retries: 1, label: "Load related lead ids for activity" }
+    );
+    (Array.isArray(relatedLeads) ? relatedLeads : []).forEach((item) => {
+      if (item?.id) {
+        relatedIds.push(String(item.id));
+      }
+    });
+  }
+
+  return [...new Set(relatedIds)];
 }
 
 function getSessionCounselorName(state, session) {
@@ -15172,7 +15634,7 @@ app.patch("/api/lead-claims/:claimId/decision", async (req, res) => {
     let transferredLead = null;
 
     if (shouldTransfer) {
-      const lead = findLeadByIdentity(state, claim.leadId, claim.leadEmail);
+      const lead = await findLeadByIdentityFromCollection(claim.leadId, claim.leadEmail);
       if (!lead) {
         return res.status(404).json({ message: "The claimed lead no longer exists." });
       }
@@ -15464,7 +15926,7 @@ app.get("/api/state", async (req, res) => {
     if (req.headers["if-none-match"] === etag) {
       return res.status(304).end();
     }
-    res.json(buildStateResponse(state));
+    res.json(buildStateResponse(state, { trimAdmissionPipelines: true }));
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch state", details: error.message });
   }
@@ -15506,6 +15968,7 @@ app.get("/api/leads/scoped", async (req, res) => {
     const page = parseBoundedPositiveInt(req.query?.page, 1, 1, 100000);
     const limit = parseBoundedPositiveInt(req.query?.limit, 50, 1, 500);
     const skip = (page - 1) * limit;
+    const runtimeFiltersActive = hasScopedRuntimeFilters(req.query || {});
 
     const [stateMeta, counselors] = await Promise.all([
       withMongoRetry(
@@ -15519,7 +15982,25 @@ app.get("/api/leads/scoped", async (req, res) => {
     ]);
 
     const query = buildScopedLeadMongoQuery(section, req.query || {}, session, counselors);
-    const [rawLeads, totalCount, assignedCount, unassignedCount, interestedCount, enrolledCount, wonCount] = await Promise.all([
+    const shouldIncludeFacets = String(req.query?.includeFacets || "").trim() === "1";
+    const [rawLeads, totalCount, assignedCount, unassignedCount, interestedCount, enrolledCount, wonCount, facets] = runtimeFiltersActive
+      ? await Promise.all([
+        withMongoRetry(
+          () => leadsCollection
+            .find(query, { projection: SCOPED_LEAD_LIST_PROJECTION })
+            .sort({ createdAt: -1, _id: -1 })
+            .toArray(),
+          { retries: 1, label: "Load runtime-filtered scoped leads" }
+        ),
+        Promise.resolve(null),
+        Promise.resolve(null),
+        Promise.resolve(null),
+        Promise.resolve(null),
+        Promise.resolve(null),
+        Promise.resolve(null),
+        shouldIncludeFacets ? buildScopedLeadFacets(section, session, counselors, req.query || {}) : Promise.resolve(null)
+      ])
+      : await Promise.all([
       withMongoRetry(
         () => leadsCollection
           .find(query, { projection: SCOPED_LEAD_LIST_PROJECTION })
@@ -15570,7 +16051,8 @@ app.get("/api/leads/scoped", async (req, res) => {
           [section === "registered-candidates" ? "registeredAdmissionStatus" : "mainAdmissionAdmissionStatus"]: "Won"
         }),
         { retries: 1, label: "Count won scoped leads" }
-      )
+      ),
+      shouldIncludeFacets ? buildScopedLeadFacets(section, session, counselors, req.query || {}) : Promise.resolve(null)
     ]);
     const decoratedLeads = decorateLeadListForStorage(rawLeads || []);
     const sessionRole = String(session.role || "").trim().toLowerCase();
@@ -15583,22 +16065,43 @@ app.get("/api/leads/scoped", async (req, res) => {
       }
       return true;
     });
-    const leads = visibleLeads
+    const runtimeFilteredLeads = runtimeFiltersActive
+      ? visibleLeads.filter((lead) => leadMatchesScopedRuntimeFilters(lead, section, req.query || {}, session))
+      : visibleLeads;
+    const sortedLeads = runtimeFilteredLeads
       .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+    const leads = runtimeFiltersActive ? sortedLeads.slice(skip, skip + limit) : sortedLeads;
     const updatedAt = stateMeta?.updatedAt || new Date().toISOString();
-    const safeTotal = Math.max(0, totalCount || 0);
+    const safeTotal = Math.max(0, runtimeFiltersActive ? sortedLeads.length : (totalCount || 0));
+    const countSource = runtimeFiltersActive ? sortedLeads : null;
+    const effectiveAssignedCount = runtimeFiltersActive
+      ? countSource.filter((lead) => shouldTreatLeadAsAssigned(lead?.counselor)).length
+      : assignedCount || 0;
+    const effectiveUnassignedCount = runtimeFiltersActive
+      ? countSource.filter((lead) => !shouldTreatLeadAsAssigned(lead?.counselor)).length
+      : unassignedCount || 0;
+    const effectiveInterestedCount = runtimeFiltersActive
+      ? countSource.filter((lead) => (section === "registered-candidates" ? lead.registeredCourseStatus : lead.mainAdmissionCourseStatus) === "Interested").length
+      : interestedCount || 0;
+    const effectiveEnrolledCount = runtimeFiltersActive
+      ? countSource.filter((lead) => (section === "registered-candidates" ? lead.registeredAdmissionStatus : lead.mainAdmissionAdmissionStatus) === "Enrolled").length
+      : enrolledCount || 0;
+    const effectiveWonCount = runtimeFiltersActive
+      ? countSource.filter((lead) => (section === "registered-candidates" ? lead.registeredAdmissionStatus : lead.mainAdmissionAdmissionStatus) === "Won").length
+      : wonCount || 0;
     const response = {
       section,
       leads,
       counselors: Array.isArray(counselors) ? counselors : [],
       counts: {
         total: safeTotal,
-        assigned: assignedCount || 0,
-        unassigned: unassignedCount || 0,
-        interested: interestedCount || 0,
-        enrolled: enrolledCount || 0,
-        won: wonCount || 0
+        assigned: effectiveAssignedCount,
+        unassigned: effectiveUnassignedCount,
+        interested: effectiveInterestedCount,
+        enrolled: effectiveEnrolledCount,
+        won: effectiveWonCount
       },
+      ...(facets ? { facets } : {}),
       pagination: {
         page,
         limit,
@@ -15614,6 +16117,36 @@ app.get("/api/leads/scoped", async (req, res) => {
     return res.json(response);
   } catch (error) {
     return res.status(500).json({ message: "Failed to fetch scoped leads", details: error.message });
+  }
+});
+
+app.delete("/api/leads/scoped", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, "admin");
+    if (!session) return;
+
+    const section = String(req.query?.section || "").trim().toLowerCase();
+    if (!["main-admission", "registered-candidates"].includes(section)) {
+      return res.status(400).json({ message: "Unsupported scoped lead section." });
+    }
+
+    const query = buildScopedLeadClearQuery(section, req.query || {});
+    if (!query) {
+      return res.status(400).json({ message: "Unsupported scoped lead section." });
+    }
+
+    const result = await leadsCollection.deleteMany(query);
+    const now = new Date().toISOString();
+    await touchStateUpdatedAt(now);
+    res.setHeader("ETag", buildStateEtag({ updatedAt: now }));
+    return res.json({
+      ok: true,
+      section,
+      deletedCount: result.deletedCount || 0,
+      updatedAt: now
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to clear scoped leads", details: error.message });
   }
 });
 
@@ -16221,28 +16754,16 @@ app.get("/api/activity-logs", async (req, res) => {
 
     const targetLeadId = String(req.query.leadId || "").trim();
     let leadIdsToQuery = null;
+    let targetLead = null;
+    let targetLeadActionState = null;
 
     if (targetLeadId) {
-      const lead = findLeadByIdentity(state, targetLeadId);
-      if (!lead) {
+      targetLead = await findLeadByIdentityFromCollection(targetLeadId, String(req.query.leadEmail || "").trim().toLowerCase());
+      if (!targetLead) {
         leadIdsToQuery = [targetLeadId];
       } else {
-        const relatedIds = [lead.id];
-        const email = String(lead.email || "").trim().toLowerCase();
-        const phone = String(lead.phone || "").trim();
-        const allLeads = Array.isArray(state?.leads) ? state.leads : [];
-        allLeads.forEach((otherLead) => {
-          if (otherLead && otherLead.id && otherLead.id !== lead.id) {
-            const otherEmail = String(otherLead.email || "").trim().toLowerCase();
-            const otherPhone = String(otherLead.phone || "").trim();
-            const emailMatch = email && otherEmail && email === otherEmail;
-            const phoneMatch = phone && otherPhone && phone === otherPhone;
-            if (emailMatch || phoneMatch) {
-              relatedIds.push(otherLead.id);
-            }
-          }
-        });
-        leadIdsToQuery = [...new Set(relatedIds.map((id) => String(id)))];
+        targetLeadActionState = await buildLeadActionState(targetLead);
+        leadIdsToQuery = await getRelatedLeadIdsForActivityQuery(targetLead);
       }
     }
 
@@ -16252,8 +16773,8 @@ app.get("/api/activity-logs", async (req, res) => {
       const isLeadBrowseActivityRead = String(req.query.scope || "").trim().toLowerCase() === "lead-browse"
         && getSessionPagePermissions(session).leadBrowse;
       if (targetLeadId) {
-        const lead = findLeadByIdentity(state, targetLeadId);
-        if (!lead || (!isLeadBrowseActivityRead && !canViewLeadActivity(session, state, lead))) {
+        const accessState = targetLeadActionState || state;
+        if (!targetLead || (!isLeadBrowseActivityRead && !canViewLeadActivity(session, accessState, targetLead))) {
           return res.status(403).json({ message: "Access denied. You can only view activity logs of leads assigned to you." });
         }
         query.leadId = { $in: leadIdsToQuery };

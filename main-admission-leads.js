@@ -15,7 +15,6 @@ import {
   getTasks as getStoredTasks,
   getSession,
   loadLocalPreference,
-  refreshState,
   saveLocalPreference
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
@@ -212,6 +211,7 @@ let scopedMainAdmissionLeads = null;
 let scopedCounselors = null;
 let scopedPagination = null;
 let scopedCounts = null;
+let scopedFacets = null;
 let scopedLoadActive = false;
 let mainAdmissionAssignmentBusy = false;
 let initialMainAdmissionLoadPending = true;
@@ -278,13 +278,30 @@ async function loadScopedMainAdmissionLeads() {
       page: String(currentPage),
       limit: String(pageSize)
     });
+    if (!scopedFacets) {
+      params.set("includeFacets", "1");
+    }
     [
       "search",
+      "timeline",
+      "startDate",
+      "endDate",
+      "counselorActivityTimeline",
+      "counselorActivityStartDate",
+      "counselorActivityEndDate",
+      "leadOwner",
       "counselor",
+      "location",
+      "leadSource",
       "mainAdmissionDialed",
       "mainAdmissionCourseStatus",
       "mainAdmissionAdmissionStatus",
       "mainAdmissionCallStatus",
+      "activityStatus",
+      "latestActivity",
+      "repeatEnquiryStatus",
+      "whatsappActivity",
+      "sopFilter",
       "lsqLeads"
     ].forEach((key) => {
       const value = String(filter?.[key] || "").trim();
@@ -307,6 +324,7 @@ async function loadScopedMainAdmissionLeads() {
     scopedCounselors = Array.isArray(payload?.counselors) ? payload.counselors : [];
     scopedPagination = payload?.pagination || null;
     scopedCounts = payload?.counts || null;
+    scopedFacets = payload?.facets || scopedFacets || null;
     scopedLoadActive = true;
     normalizeLeadFields(scopedMainAdmissionLeads);
     recordMainAdmissionPerformance({
@@ -324,6 +342,7 @@ async function loadScopedMainAdmissionLeads() {
     scopedCounselors = null;
     scopedPagination = null;
     scopedCounts = null;
+    scopedFacets = null;
     recordMainAdmissionPerformance({
       phase: "data-fetch",
       subsection: "scoped-leads",
@@ -1038,7 +1057,8 @@ function getFixedCourseFilterOptions(leads = []) {
 }
 
 function sanitizeFixedCourseFilter(leads = []) {
-  const available = new Set(getFixedCourseFilterOptions(leads));
+  const facetCourses = Array.isArray(scopedFacets?.courses) ? scopedFacets.courses : null;
+  const available = new Set(facetCourses || getFixedCourseFilterOptions(leads));
   const currentValues = normalizeMultiValueFilter(filter.courseName);
   const nextValues = currentValues.filter((value) => available.has(value));
   if (nextValues.length !== currentValues.length) {
@@ -1998,46 +2018,38 @@ function renderRegisteredRoutingPanel() {
 
 async function clearRegisteredCandidateData() {
   const segmentConfig = getSegmentConfig();
-  const registeredLeads = getAllRegisteredCandidateLeads().filter((lead) => getLeadSegment(lead) === activeSegment);
+  const currentTotal = scopedCounts?.total ?? getAllRegisteredCandidateLeads().filter((lead) => getLeadSegment(lead) === activeSegment).length;
   const confirmed = window.confirm(`Clear only ${segmentConfig.label} data?`);
   if (!confirmed) {
     return;
   }
 
-  if (scopedLoadActive) {
-    await refreshState();
-    scopedLoadActive = false;
-    scopedMainAdmissionLeads = null;
-    scopedCounselors = null;
-  }
-
-  const remainingLeads = getStoredLeads().filter((lead) => {
-    if (!isRegisteredCandidateLead(lead)) {
-      return true;
-    }
-    return getLeadSegment(lead) !== activeSegment;
-  });
   const saveResult = await withButtonBusy(
     clearMainAdmissionLeadDataBtn,
     "Clearing data...",
-    () => persistLeads(remainingLeads)
+    async () => {
+      const response = await fetch(apiUrl("/api/leads/scoped?section=main-admission"), {
+        method: "DELETE",
+        credentials: "same-origin",
+        headers: { Accept: "application/json" }
+      });
+      const payload = await response.json().catch(() => ({}));
+      return response.ok ? { ok: true, ...payload } : { ok: false, message: payload?.message || "Failed to clear Main Admission Lead data." };
+    }
   );
   if (!saveResult || saveResult.ok === false) {
     setRoutingMessage(saveResult?.message || "Failed to clear Main Admission Lead data.", true);
     return;
   }
 
-  const syncResult = await syncStateFromLocalAndVerify();
-  if (!syncResult.ok) {
-    setRoutingMessage(syncResult.message || "Main Admission Lead data was updated locally, but backend verification failed.", true);
-    return;
-  }
-
   selectedLeadKeys = new Set();
   currentPage = 1;
+  scopedFacets = null;
+  await loadScopedMainAdmissionLeads();
   renderRegisteredRoutingPanel();
   renderAll();
-  setRoutingMessage(`Cleared ${registeredLeads.length} ${segmentConfig.clearLabel} lead${registeredLeads.length === 1 ? "" : "s"}.`);
+  const deletedCount = Number(saveResult.deletedCount ?? currentTotal) || 0;
+  setRoutingMessage(`Cleared ${deletedCount} ${segmentConfig.clearLabel} lead${deletedCount === 1 ? "" : "s"}.`);
   showToast(`${segmentConfig.label} data cleared.`);
 }
 
@@ -2070,9 +2082,12 @@ function renderKpis(leads) {
 
 function renderFilters(leads) {
   const segmentConfig = getSegmentConfig();
-  const counselors = getUniqueValues(leads, "counselor");
-  const courses = getFixedCourseFilterOptions(leads);
-  const locations = [...new Set(leads.map((lead) => getLeadLocation(lead)).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const facetCounselors = Array.isArray(scopedFacets?.counselors) ? scopedFacets.counselors : null;
+  const facetCourses = Array.isArray(scopedFacets?.courses) ? scopedFacets.courses : null;
+  const facetLocations = Array.isArray(scopedFacets?.locations) ? scopedFacets.locations : null;
+  const counselors = facetCounselors || getUniqueValues(leads, "counselor");
+  const courses = facetCourses || getFixedCourseFilterOptions(leads);
+  const locations = facetLocations || [...new Set(leads.map((lead) => getLeadLocation(lead)).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   const selectedCourses = normalizeMultiValueFilter(filter.courseName);
   const allCoursesSelected = courses.length > 0 && selectedCourses.length === courses.length;
   const courseTriggerLabel = !selectedCourses.length

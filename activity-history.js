@@ -324,6 +324,7 @@ async function fetchActivityLogs() {
   const search = document.getElementById("historySearchInput").value;
 
   let query = `?leadId=${encodeURIComponent(currentLeadId)}&page=${currentPage}&limit=10`;
+  if (currentLeadEmail) query += `&leadEmail=${encodeURIComponent(currentLeadEmail)}`;
   if (currentScope) query += `&scope=${encodeURIComponent(currentScope)}`;
   if (type) query += `&activityType=${encodeURIComponent(type)}`;
   if (start) query += `&startDate=${encodeURIComponent(start)}`;

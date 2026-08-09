@@ -13,7 +13,6 @@ import {
   getLeads as getStoredLeads,
   getSession,
   loadLocalPreference,
-  refreshState,
   saveLocalPreference,
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
@@ -129,6 +128,7 @@ let scopedRegisteredCandidateLeads = null;
 let scopedRegisteredCandidateCounselors = null;
 let scopedRegisteredPagination = null;
 let scopedRegisteredCounts = null;
+let scopedRegisteredFacets = null;
 let scopedRegisteredCandidateActive = false;
 let draftRegisteredSearch = filter.search;
 let scopedRegisteredReloadTimer = null;
@@ -192,16 +192,32 @@ async function loadScopedRegisteredCandidates() {
   try {
     const params = new URLSearchParams({
       section: "registered-candidates",
+      segment: activeSegment,
       page: String(currentPage),
       limit: String(pageSize)
     });
+    if (!scopedRegisteredFacets) {
+      params.set("includeFacets", "1");
+    }
     [
       "search",
+      "timeline",
+      "startDate",
+      "endDate",
+      "counselorActivityTimeline",
+      "counselorActivityStartDate",
+      "counselorActivityEndDate",
+      "leadOwner",
       "counselor",
+      "location",
       "registeredDialed",
       "registeredCourseStatus",
       "registeredAdmissionStatus",
-      "registeredCallStatus"
+      "registeredCallStatus",
+      "activityStatus",
+      "latestActivity",
+      "repeatEnquiryStatus",
+      "whatsappActivity"
     ].forEach((key) => {
       const value = String(filter?.[key] || "").trim();
       if (value) params.set(key, value);
@@ -221,6 +237,7 @@ async function loadScopedRegisteredCandidates() {
     scopedRegisteredCandidateCounselors = Array.isArray(payload?.counselors) ? payload.counselors : [];
     scopedRegisteredPagination = payload?.pagination || null;
     scopedRegisteredCounts = payload?.counts || null;
+    scopedRegisteredFacets = payload?.facets || scopedRegisteredFacets || null;
     scopedRegisteredCandidateActive = true;
     normalizeLeadFields(scopedRegisteredCandidateLeads);
     return true;
@@ -230,6 +247,7 @@ async function loadScopedRegisteredCandidates() {
     scopedRegisteredCandidateCounselors = null;
     scopedRegisteredPagination = null;
     scopedRegisteredCounts = null;
+    scopedRegisteredFacets = null;
     scopedRegisteredCandidateActive = false;
     return false;
   }
@@ -1060,26 +1078,28 @@ async function saveRegisteredRoutingConfig() {
 
 async function clearRegisteredCandidateData() {
   const segmentConfig = getSegmentConfig();
-  const registeredLeads = getAllRegisteredCandidateLeads().filter((lead) => getLeadSegment(lead) === activeSegment);
+  const currentTotal = scopedRegisteredCounts?.total ?? getAllRegisteredCandidateLeads().filter((lead) => getLeadSegment(lead) === activeSegment).length;
   const confirmed = window.confirm(`Clear only ${segmentConfig.label} data and reset its routing setup?`);
   if (!confirmed) {
     return;
   }
 
-  scopedRegisteredCandidateLeads = null;
-  scopedRegisteredCandidateCounselors = null;
-  scopedRegisteredCandidateActive = false;
-  await refreshState();
-  const remainingLeads = getStoredLeads().filter((lead) => {
-    if (!isRegisteredCandidateLead(lead)) {
-      return true;
-    }
-    return getLeadSegment(lead) !== activeSegment;
-  });
   const saveResult = await withButtonBusy(
     clearRegisteredCandidateDataBtn,
     "Clearing data...",
-    () => persistLeads(remainingLeads)
+    async () => {
+      const params = new URLSearchParams({
+        section: "registered-candidates",
+        segment: activeSegment
+      });
+      const response = await fetch(apiUrl(`/api/leads/scoped?${params.toString()}`), {
+        method: "DELETE",
+        credentials: "same-origin",
+        headers: { Accept: "application/json" }
+      });
+      const payload = await response.json().catch(() => ({}));
+      return response.ok ? { ok: true, ...payload } : { ok: false, message: payload?.message || "Failed to clear Registered Candidate data." };
+    }
   );
   if (!saveResult || saveResult.ok === false) {
     setRoutingMessage(saveResult?.message || "Failed to clear Registered Candidate data.", true);
@@ -1106,18 +1126,15 @@ async function clearRegisteredCandidateData() {
     return;
   }
 
-  const syncResult = await syncStateFromLocalAndVerify();
-  if (!syncResult.ok) {
-    setRoutingMessage(syncResult.message || "Registered Candidate data was updated locally, but backend verification failed.", true);
-    return;
-  }
-
   registeredRoutingConfig = { selectedCounselors: [], isConfigured: false };
   selectedLeadKeys = new Set();
   currentPage = 1;
+  scopedRegisteredFacets = null;
+  await loadScopedRegisteredCandidates();
   renderRegisteredRoutingPanel();
   renderAll();
-  setRoutingMessage(`Cleared ${registeredLeads.length} ${segmentConfig.clearLabel} lead${registeredLeads.length === 1 ? "" : "s"}.`);
+  const deletedCount = Number(saveResult.deletedCount ?? currentTotal) || 0;
+  setRoutingMessage(`Cleared ${deletedCount} ${segmentConfig.clearLabel} lead${deletedCount === 1 ? "" : "s"}.`);
   showToast(`${segmentConfig.label} data cleared.`);
 }
 
@@ -1150,9 +1167,12 @@ function renderKpis(leads) {
 
 function renderFilters(leads) {
   const segmentConfig = getSegmentConfig();
-  const counselors = getUniqueValues(leads, "counselor");
-  const courses = getUniqueValues(leads, "courseName");
-  const locations = getUniqueValues(leads, "country");
+  const facetCounselors = Array.isArray(scopedRegisteredFacets?.counselors) ? scopedRegisteredFacets.counselors : null;
+  const facetCourses = Array.isArray(scopedRegisteredFacets?.courses) ? scopedRegisteredFacets.courses : null;
+  const facetLocations = Array.isArray(scopedRegisteredFacets?.locations) ? scopedRegisteredFacets.locations : null;
+  const counselors = facetCounselors || getUniqueValues(leads, "counselor");
+  const courses = facetCourses || getUniqueValues(leads, "courseName");
+  const locations = facetLocations || getUniqueValues(leads, "country");
 
   registeredFilterBar.innerHTML = `
     <div class="filter-section">
