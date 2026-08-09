@@ -646,9 +646,32 @@ test("monitoring attributes activity to real counselors instead of current lead 
   assert.match(monitoring, /function resolveCounselorActivityActor\(/);
   assert.match(monitoring, /function getCounselorActivityLeadRecords\(/);
   assert.match(monitoring, /entry\?\.by/);
-  assert.match(monitoring, /normalizeText\(name\) !== "unassigned"/);
-  assert.match(monitoring, /getMonitoringCounselorNames\(rawLeads\)/);
+  assert.match(monitoring, /resolveCounselorActivityActor\(entry\?\.by\) === counselorName/);
+  assert.match(monitoring, /function getMonitoringCounselorNames\(\)/);
+  assert.match(monitoring, /return names;/);
+  assert.doesNotMatch(monitoring, /fallbackNames/);
   assert.doesNotMatch(monitoring, /return names.length \? names : \["Unassigned"\]/);
+});
+
+test("removing a counselor preserves lead ownership tags but removes active roster entries", () => {
+  const management = read("counselor-management.js");
+  const monitoring = read("monitoring.js");
+  const server = read("server.js");
+
+  const removeCounselorSource = getNamedFunctionSource(management, "removeCounselor");
+  const monitoringNamesSource = getNamedFunctionSource(monitoring, "getMonitoringCounselorNames");
+  const serverNamesSource = getNamedFunctionSource(server, "getMonitoringCounselorNamesFromData");
+
+  assert.match(removeCounselorSource, /saveCounselors\(nextCounselors\)/);
+  assert.match(removeCounselorSource, /syncAllocationWithCounselors\(nextCounselors\)/);
+  assert.match(removeCounselorSource, /saveAllocation\(rebalanceAllocation\(filteredAllocation\)\)/);
+  assert.doesNotMatch(removeCounselorSource, /saveLeads/);
+  assert.doesNotMatch(removeCounselorSource, /counselor:\s*"Unassigned"/);
+  assert.doesNotMatch(removeCounselorSource, /failed to unassign leads/i);
+  assert.match(monitoringNamesSource, /const \{ names \} = getCounselorDirectory\(\)/);
+  assert.doesNotMatch(monitoringNamesSource, /lead\?\.counselor/);
+  assert.match(serverNamesSource, /const names = new Set/);
+  assert.doesNotMatch(serverNamesSource, /lead\?\.counselor/);
 });
 
 test("monitoring uses assignment-based lead counts and consistent labels across tabs", () => {

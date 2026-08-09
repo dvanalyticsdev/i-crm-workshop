@@ -4,12 +4,10 @@ import {
   getAdminUsers as getStoredAdminUsers,
   getAllocation as getStoredAllocation,
   getCounselors as getStoredCounselors,
-  getLeads as getStoredLeads,
   getSession,
   saveAdminUsers as persistAdminUsers,
   saveAllocation as persistAllocation,
   saveCounselors as persistCounselors,
-  saveLeads as persistLeads,
   startStatePolling,
   syncStateFromLocalAndVerify
 } from "./state-sync.js";
@@ -302,10 +300,6 @@ function getAdminUsers() {
   }));
 }
 
-function getLeads() {
-  return getStoredLeads();
-}
-
 function getAllocation() {
   return getStoredAllocation();
 }
@@ -320,10 +314,6 @@ function saveAdminUsers(adminUsers) {
 
 function saveAllocation(allocation) {
   return persistAllocation(allocation);
-}
-
-function saveLeads(leads) {
-  return persistLeads(leads);
 }
 
 function getRoleConfig(role) {
@@ -607,27 +597,6 @@ async function removeCounselor(counselorId) {
     return;
   }
   await syncAllocationWithCounselors(nextCounselors);
-
-  const leads = getLeads();
-  let changed = false;
-  const updatedLeads = leads.map((lead) => {
-    if (String(lead.counselor || "").toLowerCase() === target.name.toLowerCase()) {
-      changed = true;
-      return {
-        ...lead,
-        counselor: "Unassigned"
-      };
-    }
-    return lead;
-  });
-
-  if (changed) {
-    const saveLeadsResult = await saveLeads(updatedLeads);
-    if (!saveLeadsResult || saveLeadsResult.ok === false) {
-      setCounselorMessage(saveLeadsResult?.message || "Counselor removed but failed to unassign leads. Please reload and retry.", true);
-      return;
-    }
-  }
 
   const allocation = getAllocation();
   const filteredAllocation = allocation.filter(

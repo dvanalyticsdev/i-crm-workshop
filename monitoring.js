@@ -844,33 +844,16 @@ function sortRowsByPriority(rows) {
   });
 }
 
-function getMonitoringCounselorNames(leads = []) {
+function getMonitoringCounselorNames() {
   const { names } = getCounselorDirectory();
-  const fallbackNames = [...new Set(
-    leads.flatMap((lead) => [
-      resolveCounselorName(lead?.counselor),
-      ...MONITORING_ACTIVITY_HISTORY_FIELDS.map((historyField) =>
-        Array.isArray(lead?.[historyField])
-          ? lead[historyField].map((entry) => resolveCounselorActivityActor(entry?.by))
-          : []
-      ).flat(),
-      ...getHistoryEntriesInRange(lead?.mcubeCallHistory, null).flatMap((entry) => [
-        resolveCounselorName(entry?.agentName),
-        resolveCounselorName(entry?.counselor)
-      ])
-    ])
-      .flat()
-      .filter((name) => name && normalizeText(name) !== "unassigned")
-  )].sort((a, b) => a.localeCompare(b));
 
   if (isCounselorSession()) {
     const counselorName = getCounselorIdentity();
-    const matched = [...names, ...fallbackNames].find((name) => normalizeText(name) === counselorName);
+    const matched = names.find((name) => normalizeText(name) === counselorName);
     return matched ? [matched] : [];
   }
 
-  const merged = [...new Set([...names, ...fallbackNames])].sort((a, b) => a.localeCompare(b));
-  return merged;
+  return names;
 }
 
 function getLeadOwnershipDate(lead) {
@@ -2325,14 +2308,14 @@ function renderActiveMonitoringView() {
 
   if (activeView.subsection === "reporting") {
     const rawLeads = getManagementReportMainAdmissionLeads(rawAllLeads, range);
-    const counselors = getMonitoringCounselorNames(rawLeads);
+    const counselors = getMonitoringCounselorNames();
     renderReportingView(counselors, rawLeads, range);
     return;
   }
 
   if (activeView.subsection === "lead-assignment") {
     const rawLeads = rawAllLeads.filter(isMainAdmissionLead);
-    const counselors = getMonitoringCounselorNames(rawLeads);
+    const counselors = getMonitoringCounselorNames();
     renderLeadAssignmentView(counselors, rawLeads, range);
     return;
   }
@@ -2340,7 +2323,7 @@ function renderActiveMonitoringView() {
   if (activeView.subsection === "workshop-calling") {
     const leads = legacyNonMainAdmissionTimelineLeads.filter((lead) => !isNonWorkshopPipelineLead(lead) && !isLostLead(lead));
     const rawLeads = legacyNonMainAdmissionRawLeads.filter((lead) => !isNonWorkshopPipelineLead(lead) && !isLostLead(lead));
-    const counselors = getMonitoringCounselorNames(rawLeads);
+    const counselors = getMonitoringCounselorNames();
     renderWorkshopCallingView(counselors, leads, rawLeads, range);
     return;
   }
@@ -2348,7 +2331,7 @@ function renderActiveMonitoringView() {
   if (activeView.subsection === "admission-calling") {
     const leads = legacyNonMainAdmissionTimelineLeads.filter((lead) => !isNonWorkshopPipelineLead(lead));
     const rawLeads = legacyNonMainAdmissionRawLeads.filter((lead) => !isNonWorkshopPipelineLead(lead));
-    const counselors = getMonitoringCounselorNames(rawLeads);
+    const counselors = getMonitoringCounselorNames();
     renderAdmissionCallingView(counselors, leads, rawLeads, range);
     return;
   }
@@ -2356,7 +2339,7 @@ function renderActiveMonitoringView() {
   if (activeView.subsection === "main-admission") {
     const leads = timelineLeads.filter(isMainAdmissionLead);
     const rawLeads = rawAllLeads.filter(isMainAdmissionLead);
-    const counselors = getMonitoringCounselorNames(rawLeads);
+    const counselors = getMonitoringCounselorNames();
     renderMainAdmissionView(counselors, leads, rawLeads, range);
     return;
   }
@@ -2364,7 +2347,7 @@ function renderActiveMonitoringView() {
   if (activeView.subsection === "registered-candidates") {
     const leads = timelineLeads.filter(isStandardRegisteredLead);
     const rawLeads = rawAllLeads.filter(isStandardRegisteredLead);
-    const counselors = getMonitoringCounselorNames(rawLeads);
+    const counselors = getMonitoringCounselorNames();
     renderRegisteredView(counselors, leads, rawLeads, range);
     return;
   }
@@ -2376,7 +2359,7 @@ function renderActiveMonitoringView() {
 
   const leads = timelineLeads.filter(isCrashCourseRegistrationLead);
   const rawLeads = rawAllLeads.filter(isCrashCourseRegistrationLead);
-  const counselors = getMonitoringCounselorNames(rawLeads);
+  const counselors = getMonitoringCounselorNames();
   renderRegisteredView(counselors, leads, rawLeads, range);
 }
 

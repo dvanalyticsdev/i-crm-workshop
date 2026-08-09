@@ -2099,20 +2099,6 @@ function getMonitoringCounselorNamesFromData(leads = [], counselors = [], sessio
   const names = new Set(directory?.names || (Array.isArray(counselors) ? counselors : [])
     .map((counselor) => String(counselor?.name || "").trim())
     .filter(Boolean));
-  leads.forEach((lead) => {
-    const assigned = resolveMonitoringCounselorName(lead?.counselor, directory, true);
-    if (assigned && normalizeMonitoringText(assigned) !== "unassigned") names.add(assigned);
-    ["workshopActivityHistory", "admissionActivityHistory", "registeredCourseActivityHistory", "mainAdmissionActivityHistory"].forEach((field) => {
-      (Array.isArray(lead?.[field]) ? lead[field] : []).forEach((entry) => {
-        const actor = resolveMonitoringCounselorName(entry?.by, directory, false);
-        if (actor && normalizeMonitoringText(actor) !== "system") names.add(actor);
-      });
-    });
-    (Array.isArray(lead?.mcubeCallHistory) ? lead.mcubeCallHistory : []).forEach((entry) => {
-      const actor = resolveMonitoringCounselorName(entry?.agentName || entry?.counselor, directory, false);
-      if (actor) names.add(actor);
-    });
-  });
   if (session.role === "counselor") {
     const own = getMonitoringSessionIdentity(session, directory);
     return [...names].filter((name) => normalizeMonitoringText(name) === own);

@@ -1,0 +1,4 @@
+
+⚠️ MongoDB connection failed: connect EACCES 34.14.221.30:27017
+⚠️ Falling back to local file-based mock database in the ./tmp/ directory.
+
