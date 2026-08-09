@@ -2942,6 +2942,155 @@ const DASHBOARD_LEAD_SUMMARY_PROJECTION = {
   courseStatus: 1
 };
 
+const SCOPED_LEAD_LIST_PROJECTION = {
+  id: 1,
+  name: 1,
+  email: 1,
+  phone: 1,
+  createdAt: 1,
+  createdAtExact: 1,
+  updatedAt: 1,
+  counselor: 1,
+  assignedFromCounselor: 1,
+  leadOwnerType: 1,
+  leadOwnerTimelineAt: 1,
+  counselorAssignedAt: 1,
+  courseName: 1,
+  courseCode: 1,
+  courseRawName: 1,
+  country: 1,
+  state: 1,
+  city: 1,
+  location: 1,
+  leadPipeline: 1,
+  publicCourseSegment: 1,
+  source: 1,
+  leadSource: 1,
+  metaCampaignName: 1,
+  metaAdsetName: 1,
+  metaAdName: 1,
+  elementorFormName: 1,
+  importSourceSheet: 1,
+  importSourceFiles: 1,
+  lsqImported: 1,
+  lsqArchivedLead: 1,
+  lsqOwner: 1,
+  lsqStage: 1,
+  lsqLeadSource: 1,
+  mainAdmissionDialed: 1,
+  mainAdmissionCoursePitched: 1,
+  mainAdmissionCourseStatus: 1,
+  mainAdmissionAdmissionStatus: 1,
+  mainAdmissionCallStatus: 1,
+  mainAdmissionActivityUpdated: 1,
+  mainAdmissionActivityUpdates: 1,
+  mainAdmissionActivityHistory: 1,
+  registeredDialed: 1,
+  registeredCoursePitched: 1,
+  registeredCourseStatus: 1,
+  registeredAdmissionStatus: 1,
+  registeredCallStatus: 1,
+  registeredActivityUpdated: 1,
+  registeredCourseActivityUpdates: 1,
+  registeredCourseActivityHistory: 1
+};
+
+function parseBoundedPositiveInt(value, fallback, min = 1, max = 500) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function escapeMongoRegex(value = "") {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function addOptionalExactQuery(query, field, value) {
+  const normalized = String(value || "").trim();
+  if (normalized && normalized.toLowerCase() !== "all") {
+    query[field] = normalized;
+  }
+}
+
+function appendMongoAnd(query = {}, condition = {}) {
+  return {
+    ...query,
+    $and: [
+      ...(Array.isArray(query.$and) ? query.$and : []),
+      condition
+    ]
+  };
+}
+
+function buildScopedLeadMongoQuery(section, requestQuery = {}, session = {}, counselors = []) {
+  const query = section === "admission-sop"
+    ? { leadPipeline: { $in: [MAIN_ADMISSION_PIPELINE, "course-registration"] } }
+    : section === "registered-candidates"
+      ? { leadPipeline: "course-registration" }
+      : { leadPipeline: MAIN_ADMISSION_PIPELINE };
+
+  const sessionRole = String(session.role || "").trim().toLowerCase();
+  if (sessionRole === "counselor") {
+    const sessionEmail = String(session.email || "").trim().toLowerCase();
+    const counselorMatch = (Array.isArray(counselors) ? counselors : []).find(
+      (item) => String(item.email || "").trim().toLowerCase() === sessionEmail
+    );
+    query.counselor = String(counselorMatch?.name || session.name || "").trim();
+  } else {
+    addOptionalExactQuery(query, "counselor", requestQuery.counselor);
+  }
+
+  if (!isAdminLikeSession(session)) {
+    Object.assign(query, appendMongoAnd(query, {
+      $or: [
+        { lsqArchivedLead: { $ne: true } },
+        { counselor: { $ne: "Archived Leads" } }
+      ]
+    }));
+  }
+
+  const lsqFilter = String(requestQuery.lsqLeads || "").trim().toLowerCase();
+  if (lsqFilter === "only") {
+    query.lsqImported = true;
+  } else if (lsqFilter === "hide") {
+    query.lsqImported = { $ne: true };
+  }
+
+  if (section === "registered-candidates") {
+    addOptionalExactQuery(query, "registeredDialed", requestQuery.registeredDialed);
+    addOptionalExactQuery(query, "registeredCourseStatus", requestQuery.registeredCourseStatus);
+    addOptionalExactQuery(query, "registeredAdmissionStatus", requestQuery.registeredAdmissionStatus);
+    addOptionalExactQuery(query, "registeredCallStatus", requestQuery.registeredCallStatus);
+  } else {
+    addOptionalExactQuery(query, "mainAdmissionDialed", requestQuery.mainAdmissionDialed);
+    addOptionalExactQuery(query, "mainAdmissionCourseStatus", requestQuery.mainAdmissionCourseStatus);
+    addOptionalExactQuery(query, "mainAdmissionAdmissionStatus", requestQuery.mainAdmissionAdmissionStatus);
+    addOptionalExactQuery(query, "mainAdmissionCallStatus", requestQuery.mainAdmissionCallStatus);
+  }
+
+  const courseName = String(requestQuery.courseName || "").trim();
+  if (courseName) {
+    query.courseName = courseName;
+  }
+
+  const search = String(requestQuery.search || "").trim();
+  if (search) {
+    const regex = new RegExp(escapeMongoRegex(search), "i");
+    query.$or = [
+      { name: regex },
+      { email: regex },
+      { phone: regex },
+      { courseName: regex },
+      { counselor: regex },
+      { country: regex },
+      { state: regex },
+      { city: regex }
+    ];
+  }
+
+  return query;
+}
+
 function buildMonitoringLeadMongoQuery(subsection = "") {
   const key = String(subsection || "").trim().toLowerCase();
   const legacyPipelineQuery = {
@@ -3792,6 +3941,14 @@ async function initMongo() {
         await leadsCollection.createIndex({ phone: 1 }, { background: true }).catch(() => undefined);
         await leadsCollection.createIndex({ counselor: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
         await leadsCollection.createIndex({ leadPipeline: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
+        await leadsCollection.createIndex({ leadPipeline: 1, counselor: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
+        await leadsCollection.createIndex({ leadPipeline: 1, lsqImported: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
+        await leadsCollection.createIndex({ leadPipeline: 1, mainAdmissionCourseStatus: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
+        await leadsCollection.createIndex({ leadPipeline: 1, mainAdmissionAdmissionStatus: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
+        await leadsCollection.createIndex({ leadPipeline: 1, mainAdmissionCallStatus: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
+        await leadsCollection.createIndex({ leadPipeline: 1, registeredCourseStatus: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
+        await leadsCollection.createIndex({ leadPipeline: 1, registeredAdmissionStatus: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
+        await leadsCollection.createIndex({ leadPipeline: 1, registeredCallStatus: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
         await leadsCollection.createIndex({ createdAt: -1 }, { background: true }).catch(() => undefined);
         await leadsCollection.createIndex({ counselor: 1, leadPipeline: 1 }, { background: true }).catch(() => undefined);
         await tasksCollection.createIndex({ id: 1 }, { unique: true, background: true }).catch(() => undefined);
@@ -10956,8 +11113,11 @@ async function getStateDoc() {
     { retries: 1, label: "Load state metadata" }
   );
 
+  const legacyStateLeadQuery = {
+    leadPipeline: { $nin: [MAIN_ADMISSION_PIPELINE, "course-registration"] }
+  };
   const [leads, counselors, tasks, allocation] = await Promise.all([
-    withMongoRetry(() => leadsCollection.find({}).toArray(), { retries: 1, label: "Load leads" }),
+    withMongoRetry(() => leadsCollection.find(legacyStateLeadQuery).toArray(), { retries: 1, label: "Load leads" }),
     withMongoRetry(() => counselorsCollection.find({}).toArray(), { retries: 1, label: "Load counselors" }),
     withMongoRetry(() => tasksCollection.find({}).toArray(), { retries: 1, label: "Load tasks" }),
     withMongoRetry(() => allocationCollection.find({}).toArray(), { retries: 1, label: "Load allocation" })
@@ -15314,6 +15474,10 @@ app.get("/api/leads/scoped", async (req, res) => {
       return res.status(403).json({ message: "You do not have permission to view this lead section." });
     }
 
+    const page = parseBoundedPositiveInt(req.query?.page, 1, 1, 100000);
+    const limit = parseBoundedPositiveInt(req.query?.limit, 50, 1, 500);
+    const skip = (page - 1) * limit;
+
     const [stateMeta, counselors] = await Promise.all([
       withMongoRetry(
         () => stateCollection.findOne({ _id: STATE_DOC_ID }),
@@ -15325,23 +15489,60 @@ app.get("/api/leads/scoped", async (req, res) => {
       )
     ]);
 
-    const query = section === "admission-sop"
-      ? { leadPipeline: { $in: [MAIN_ADMISSION_PIPELINE, "course-registration"] } }
-      : section === "registered-candidates"
-        ? { leadPipeline: "course-registration" }
-        : { leadPipeline: MAIN_ADMISSION_PIPELINE };
-    if (session.role === "counselor") {
-      const sessionEmail = String(session.email || "").trim().toLowerCase();
-      const counselorMatch = (Array.isArray(counselors) ? counselors : []).find(
-        (item) => String(item.email || "").trim().toLowerCase() === sessionEmail
-      );
-      query.counselor = String(counselorMatch?.name || session.name || "").trim();
-    }
-
-    const rawLeads = await withMongoRetry(
-      () => leadsCollection.find(query).toArray(),
-      { retries: 1, label: "Load scoped leads" }
-    );
+    const query = buildScopedLeadMongoQuery(section, req.query || {}, session, counselors);
+    const [rawLeads, totalCount, assignedCount, unassignedCount, interestedCount, enrolledCount, wonCount] = await Promise.all([
+      withMongoRetry(
+        () => leadsCollection
+          .find(query, { projection: SCOPED_LEAD_LIST_PROJECTION })
+          .sort({ createdAt: -1, _id: -1 })
+          .skip(skip)
+          .limit(limit)
+          .toArray(),
+        { retries: 1, label: "Load scoped leads" }
+      ),
+      withMongoRetry(
+        () => leadsCollection.countDocuments(query),
+        { retries: 1, label: "Count scoped leads" }
+      ),
+      withMongoRetry(
+        () => leadsCollection.countDocuments(appendMongoAnd(query, {
+          counselor: { $exists: true, $nin: ["", "Unassigned", "unassigned"] }
+        })),
+        { retries: 1, label: "Count assigned scoped leads" }
+      ),
+      withMongoRetry(
+        () => leadsCollection.countDocuments(appendMongoAnd(query, {
+          $or: [
+            { counselor: { $exists: false } },
+            { counselor: "" },
+            { counselor: "Unassigned" },
+            { counselor: "unassigned" }
+          ]
+        })),
+        { retries: 1, label: "Count unassigned scoped leads" }
+      ),
+      withMongoRetry(
+        () => leadsCollection.countDocuments({
+          ...query,
+          [section === "registered-candidates" ? "registeredCourseStatus" : "mainAdmissionCourseStatus"]: "Interested"
+        }),
+        { retries: 1, label: "Count interested scoped leads" }
+      ),
+      withMongoRetry(
+        () => leadsCollection.countDocuments({
+          ...query,
+          [section === "registered-candidates" ? "registeredAdmissionStatus" : "mainAdmissionAdmissionStatus"]: "Enrolled"
+        }),
+        { retries: 1, label: "Count enrolled scoped leads" }
+      ),
+      withMongoRetry(
+        () => leadsCollection.countDocuments({
+          ...query,
+          [section === "registered-candidates" ? "registeredAdmissionStatus" : "mainAdmissionAdmissionStatus"]: "Won"
+        }),
+        { retries: 1, label: "Count won scoped leads" }
+      )
+    ]);
     const decoratedLeads = decorateLeadListForStorage(rawLeads || []);
     const sessionRole = String(session.role || "").trim().toLowerCase();
     const visibleLeads = decoratedLeads.filter((lead) => {
@@ -15356,17 +15557,25 @@ app.get("/api/leads/scoped", async (req, res) => {
     const leads = visibleLeads
       .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
     const updatedAt = stateMeta?.updatedAt || new Date().toISOString();
+    const safeTotal = Math.max(0, totalCount || 0);
     const response = {
       section,
       leads,
       counselors: Array.isArray(counselors) ? counselors : [],
       counts: {
-        total: leads.length,
-        assigned: leads.filter((lead) => String(lead?.counselor || "").trim().toLowerCase() !== "unassigned").length,
-        unassigned: leads.filter((lead) => String(lead?.counselor || "").trim().toLowerCase() === "unassigned").length,
-        interested: leads.filter((lead) => String(lead?.mainAdmissionCourseStatus || "").trim() === "Interested").length,
-        enrolled: leads.filter((lead) => String(lead?.mainAdmissionAdmissionStatus || "").trim() === "Enrolled").length,
-        won: leads.filter((lead) => String(lead?.mainAdmissionAdmissionStatus || "").trim() === "Won").length
+        total: safeTotal,
+        assigned: assignedCount || 0,
+        unassigned: unassignedCount || 0,
+        interested: interestedCount || 0,
+        enrolled: enrolledCount || 0,
+        won: wonCount || 0
+      },
+      pagination: {
+        page,
+        limit,
+        total: safeTotal,
+        totalPages: Math.max(1, Math.ceil(safeTotal / limit)),
+        returned: leads.length
       },
       updatedAt,
       clearedAt: stateMeta?.clearedAt || null

@@ -127,12 +127,20 @@ let registeredActivityModalMode = "edit";
 let activeSegment = normalizeSegment(window.location.hash.replace(/^#/, "")) || DEFAULT_SEGMENT;
 let scopedRegisteredCandidateLeads = null;
 let scopedRegisteredCandidateCounselors = null;
+let scopedRegisteredPagination = null;
 let scopedRegisteredCandidateActive = false;
 let draftRegisteredSearch = filter.search;
+let scopedRegisteredReloadTimer = null;
 populateCrmCourseSelect("modalRegisteredCoursePitched", { includeNo: true });
 
 function persistFilters() {
   void saveLocalPreference(FILTER_STORAGE_KEY, filter);
+  if (scopedRegisteredCandidateActive || Array.isArray(scopedRegisteredCandidateLeads)) {
+    window.clearTimeout(scopedRegisteredReloadTimer);
+    scopedRegisteredReloadTimer = window.setTimeout(() => {
+      void loadScopedRegisteredCandidates().then(() => renderAll());
+    }, 150);
+  }
 }
 
 function getRegisteredCandidateSourceLeads() {
@@ -181,7 +189,26 @@ function removeScopedRegisteredLeads(leads) {
 
 async function loadScopedRegisteredCandidates() {
   try {
-    const response = await fetch(apiUrl("/api/leads/scoped?section=registered-candidates"), {
+    const params = new URLSearchParams({
+      section: "registered-candidates",
+      page: String(currentPage),
+      limit: String(pageSize)
+    });
+    [
+      "search",
+      "counselor",
+      "registeredDialed",
+      "registeredCourseStatus",
+      "registeredAdmissionStatus",
+      "registeredCallStatus"
+    ].forEach((key) => {
+      const value = String(filter?.[key] || "").trim();
+      if (value) params.set(key, value);
+    });
+    if (activeSegment === DEFAULT_SEGMENT && filter.courseName) {
+      params.set("courseName", filter.courseName);
+    }
+    const response = await fetch(apiUrl(`/api/leads/scoped?${params.toString()}`), {
       credentials: "same-origin",
       headers: { Accept: "application/json" }
     });
@@ -191,15 +218,16 @@ async function loadScopedRegisteredCandidates() {
     }
     scopedRegisteredCandidateLeads = Array.isArray(payload?.leads) ? payload.leads : [];
     scopedRegisteredCandidateCounselors = Array.isArray(payload?.counselors) ? payload.counselors : [];
+    scopedRegisteredPagination = payload?.pagination || null;
     scopedRegisteredCandidateActive = true;
     normalizeLeadFields(scopedRegisteredCandidateLeads);
     return true;
   } catch (error) {
-    console.warn("[registered-candidates] Scoped loading failed, falling back to full state:", error?.message || error);
+    console.warn("[registered-candidates] Scoped loading failed:", error?.message || error);
     scopedRegisteredCandidateLeads = null;
     scopedRegisteredCandidateCounselors = null;
+    scopedRegisteredPagination = null;
     scopedRegisteredCandidateActive = false;
-    await refreshState();
     return false;
   }
 }
@@ -214,11 +242,7 @@ function startRegisteredCandidatePolling(onRefresh, intervalMs = 15000) {
     }
     activePoll = true;
     try {
-      if (scopedRegisteredCandidateActive) {
-        await loadScopedRegisteredCandidates();
-      } else {
-        await refreshState();
-      }
+      await loadScopedRegisteredCandidates();
       await onRefresh();
     } catch (error) {
       console.warn("[registered-candidates] polling failed:", error?.message || error);
@@ -1517,9 +1541,12 @@ function renderActivityPanel(lead) {
 
 function renderLeadTable(leads) {
   const isCrashSegment = activeSegment === CRASH_SEGMENT;
-  const totalPages = Math.ceil(leads.length / pageSize) || 1;
+  const serverTotal = scopedRegisteredPagination?.total;
+  const serverTotalPages = scopedRegisteredPagination?.totalPages;
+  const totalLeadCount = Number.isFinite(serverTotal) ? serverTotal : leads.length;
+  const totalPages = Number.isFinite(serverTotalPages) ? serverTotalPages : (Math.ceil(leads.length / pageSize) || 1);
   if (currentPage > totalPages) currentPage = totalPages;
-  const pageLeads = leads.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const pageLeads = scopedRegisteredCandidateActive && scopedRegisteredPagination ? leads : leads.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   syncSelectedLeadIds(leads);
   const selectedCount = isAdmin ? getSelectedLeadCount(leads) : 0;
   const allSelected = isAdmin && pageLeads.length > 0 && pageLeads.every(isLeadSelected);
@@ -1636,7 +1663,7 @@ function renderLeadTable(leads) {
     };
   }
 
-  renderPagination(totalPages, leads.length);
+  renderPagination(totalPages, totalLeadCount);
 }
 
 function renderPagination(totalPages, totalLeads) {
@@ -1653,11 +1680,19 @@ function renderPagination(totalPages, totalLeads) {
 
   document.getElementById("registeredPrevPageBtn").onclick = () => {
     currentPage -= 1;
-    renderAll();
+    if (scopedRegisteredCandidateActive) {
+      void loadScopedRegisteredCandidates().then(() => renderAll());
+    } else {
+      renderAll();
+    }
   };
   document.getElementById("registeredNextPageBtn").onclick = () => {
     currentPage += 1;
-    renderAll();
+    if (scopedRegisteredCandidateActive) {
+      void loadScopedRegisteredCandidates().then(() => renderAll());
+    } else {
+      renderAll();
+    }
   };
 }
 

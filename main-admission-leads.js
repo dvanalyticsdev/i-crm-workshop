@@ -210,11 +210,13 @@ let isAdvancedFilterOpen = false;
 let advancedFilterDraft = null;
 let scopedMainAdmissionLeads = null;
 let scopedCounselors = null;
+let scopedPagination = null;
 let scopedLoadActive = false;
 let mainAdmissionAssignmentBusy = false;
 let initialMainAdmissionLoadPending = true;
 let draftMainAdmissionSearch = filter.search;
 let initialMainAdmissionLoadFailed = false;
+let scopedReloadTimer = null;
 populateCrmCourseSelect("modalMainAdmissionCoursePitched", { includeNo: true });
 
 function getScopedCounselors() {
@@ -270,7 +272,28 @@ function recordMainAdmissionPerformance({ phase, subsection = "", durationMs = n
 async function loadScopedMainAdmissionLeads() {
   const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
   try {
-    const response = await fetch(apiUrl("/api/leads/scoped?section=main-admission"), {
+    const params = new URLSearchParams({
+      section: "main-admission",
+      page: String(currentPage),
+      limit: String(pageSize)
+    });
+    [
+      "search",
+      "counselor",
+      "mainAdmissionDialed",
+      "mainAdmissionCourseStatus",
+      "mainAdmissionAdmissionStatus",
+      "mainAdmissionCallStatus",
+      "lsqLeads"
+    ].forEach((key) => {
+      const value = String(filter?.[key] || "").trim();
+      if (value) params.set(key, value);
+    });
+    const selectedCourses = normalizeMultiValueFilter(filter.courseName);
+    if (selectedCourses.length === 1 && selectedCourses[0] !== OTHER_COURSE_FILTER_LABEL) {
+      params.set("courseName", selectedCourses[0]);
+    }
+    const response = await fetch(apiUrl(`/api/leads/scoped?${params.toString()}`), {
       credentials: "same-origin",
       headers: { Accept: "application/json" }
     });
@@ -281,6 +304,7 @@ async function loadScopedMainAdmissionLeads() {
 
     scopedMainAdmissionLeads = Array.isArray(payload?.leads) ? payload.leads : [];
     scopedCounselors = Array.isArray(payload?.counselors) ? payload.counselors : [];
+    scopedPagination = payload?.pagination || null;
     scopedLoadActive = true;
     normalizeLeadFields(scopedMainAdmissionLeads);
     recordMainAdmissionPerformance({
@@ -292,17 +316,17 @@ async function loadScopedMainAdmissionLeads() {
     });
     return true;
   } catch (error) {
-    console.warn("[main-admission] Scoped loading failed, falling back to full state:", error?.message || error);
+    console.warn("[main-admission] Scoped loading failed:", error?.message || error);
     scopedLoadActive = false;
     scopedMainAdmissionLeads = null;
     scopedCounselors = null;
-    await refreshState();
+    scopedPagination = null;
     recordMainAdmissionPerformance({
       phase: "data-fetch",
-      subsection: "full-state-fallback",
+      subsection: "scoped-leads",
       durationMs: Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt),
       success: false,
-      message: error?.message || "full-state-fallback",
+      message: error?.message || "scoped-loading-failed",
       count: getAllLeads().length
     });
     return false;
@@ -319,11 +343,7 @@ function startMainAdmissionPolling(onRefresh, intervalMs = 15000) {
     }
     activePoll = true;
     try {
-      if (scopedLoadActive) {
-        await loadScopedMainAdmissionLeads();
-      } else {
-        await refreshState();
-      }
+      await loadScopedMainAdmissionLeads();
       await onRefresh();
     } catch (error) {
       console.warn("[main-admission] polling failed:", error?.message || error);
@@ -352,6 +372,12 @@ function startMainAdmissionPolling(onRefresh, intervalMs = 15000) {
 
 function persistFilters() {
   void saveLocalPreference(FILTER_STORAGE_KEY, filter);
+  if (scopedLoadActive || Array.isArray(scopedMainAdmissionLeads)) {
+    window.clearTimeout(scopedReloadTimer);
+    scopedReloadTimer = window.setTimeout(() => {
+      void loadScopedMainAdmissionLeads().then(() => renderAll());
+    }, 150);
+  }
 }
 
 function escapeHtml(value) {
@@ -2988,9 +3014,12 @@ function renderActivityPanel(lead) {
 
 function renderLeadTable(leads) {
   const isCrashSegment = false;
-  const totalPages = Math.ceil(leads.length / pageSize) || 1;
+  const serverTotal = scopedPagination?.total;
+  const serverTotalPages = scopedPagination?.totalPages;
+  const totalLeadCount = Number.isFinite(serverTotal) ? serverTotal : leads.length;
+  const totalPages = Number.isFinite(serverTotalPages) ? serverTotalPages : (Math.ceil(leads.length / pageSize) || 1);
   if (currentPage > totalPages) currentPage = totalPages;
-  const pageLeads = leads.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const pageLeads = scopedLoadActive && scopedPagination ? leads : leads.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   syncSelectedLeadIds(leads);
   const selectedCount = isAdmin ? getSelectedLeadCount(leads) : 0;
   const selectedUnassignedCount = isAdmin ? getSelectedUnassignedLeads(leads).length : 0;
@@ -3078,7 +3107,7 @@ function renderLeadTable(leads) {
     </div>
   `;
 
-  renderPagination(totalPages, leads.length);
+  renderPagination(totalPages, totalLeadCount);
 }
 
 function renderPagination(totalPages, totalLeads) {
@@ -3223,11 +3252,19 @@ mainAdmissionLeadTableSection.addEventListener("change", (event) => {
 mainAdmissionPaginationSection.addEventListener("click", (event) => {
   if (event.target.id === "mainAdmissionPrevPageBtn" && currentPage > 1) {
     currentPage -= 1;
-    renderAll();
+    if (scopedLoadActive) {
+      void loadScopedMainAdmissionLeads().then(() => renderAll());
+    } else {
+      renderAll();
+    }
   }
   if (event.target.id === "mainAdmissionNextPageBtn") {
     currentPage += 1;
-    renderAll();
+    if (scopedLoadActive) {
+      void loadScopedMainAdmissionLeads().then(() => renderAll());
+    } else {
+      renderAll();
+    }
   }
 });
 
