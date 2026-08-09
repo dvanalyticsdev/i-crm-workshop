@@ -74,8 +74,9 @@ const PUBLIC_COURSE_SEGMENT_CONFIG = {
 const MAIN_ADMISSION_PIPELINE = "main-admission";
 const MAIN_ADMISSION_ROUND_ROBIN_FIELD = "mainAdmissionRoundRobinIndex";
 const LSQ_ARCHIVED_COUNSELOR = "Archived Leads";
-const LSQ_BACKGROUND_BATCH_SIZE = 1000;
+const LSQ_BACKGROUND_BATCH_SIZE = 250;
 const LSQ_BACKGROUND_TIME_BUDGET_MS = 25000;
+const LSQ_BACKGROUND_BATCH_PAUSE_MS = 1500;
 const KOLKATA_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const LOST_LEAD_ARCHIVE_AFTER_MS = 24 * 60 * 60 * 1000;
 const ADMISSION_SOP_NEW_WINDOW_MS = 48 * 60 * 60 * 1000;
@@ -2292,6 +2293,8 @@ async function processLsqImportJob(jobId, session = null) {
       if (nextIndex >= Number(chunk.endIndex || 0)) {
         await lsqImportChunksCollection.deleteOne({ _id: chunk._id });
       }
+
+      await new Promise((resolve) => setTimeout(resolve, LSQ_BACKGROUND_BATCH_PAUSE_MS));
     }
 
     const latest = await lsqImportJobsCollection.findOne({ _id: normalizedJobId });
