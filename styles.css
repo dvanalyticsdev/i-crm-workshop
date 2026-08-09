@@ -2854,6 +2854,12 @@ tbody tr:hover {
   color: var(--heading);
 }
 
+.import-summary__details {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
 .allocation-actions {
   display: flex;
   justify-content: flex-end;

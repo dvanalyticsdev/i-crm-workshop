@@ -1025,11 +1025,59 @@ async function parseImportFile(file) {
   });
 }
 
-function updateImportSummary(total, success, failed) {
+function incrementSummaryBucket(summary, key, amount = 1) {
+  summary[key] = (Number(summary[key]) || 0) + amount;
+}
+
+function classifyImportIssue(message = "") {
+  const text = String(message || "").toLowerCase();
+  if (text.includes("duplicate") && text.includes("file")) return "duplicateInFile";
+  if (text.includes("already exists in crm")) return "duplicateInCrm";
+  if (text.includes("course is not recognized")) return "unknownCourse";
+  if (text.includes("workshop category is not recognized")) return "unknownWorkshop";
+  if (text.includes("required") || text.includes("valid email")) return "missingData";
+  return "other";
+}
+
+function buildImportIssueLabel(key) {
+  return {
+    duplicateInFile: "Repeated inside this file",
+    duplicateInCrm: "Already exists in CRM",
+    unknownCourse: "Course not in CRM list",
+    unknownWorkshop: "Workshop category not in CRM list",
+    missingData: "Missing or invalid required data",
+    unassigned: "Imported but left unassigned",
+    other: "Other rows needing review"
+  }[key] || "Rows needing review";
+}
+
+function updateImportSummary(summary = {}) {
+  const total = Number(summary.totalRows) || 0;
+  const success = Number(summary.savedCount) || 0;
+  const notImported = Number(summary.notImportedCount) || 0;
+  const assignedCount = Math.max(0, success - (Number(summary.unassigned) || 0));
+  const reviewItems = [
+    "duplicateInFile",
+    "duplicateInCrm",
+    "unknownCourse",
+    "unknownWorkshop",
+    "missingData",
+    "unassigned",
+    "other"
+  ]
+    .map((key) => [key, Number(summary[key]) || 0])
+    .filter(([, count]) => count > 0);
+
   importSummary.innerHTML = `
-    <p>Total Leads Imported: ${total}</p>
-    <p>Successful Imports: ${success}</p>
-    <p>Failed Entries: ${failed}</p>
+    <p>Rows checked: ${total}</p>
+    <p>New leads added: ${success}</p>
+    <p>Assigned to counselors: ${assignedCount}</p>
+    <p>Rows not imported: ${notImported}</p>
+    ${reviewItems.length ? `
+      <div class="import-summary__details">
+        ${reviewItems.map(([key, count]) => `<p>${buildImportIssueLabel(key)}: ${count}</p>`).join("")}
+      </div>
+    ` : ""}
   `;
 }
 
@@ -1066,7 +1114,7 @@ async function handleLeadImport() {
 
   if (!rows.length) {
     setMessage(importMessage, "No rows found in the uploaded file.", true);
-    updateImportSummary(0, 0, 0);
+    updateImportSummary({ totalRows: 0, savedCount: 0, notImportedCount: 0 });
     return;
   }
 
@@ -1076,6 +1124,7 @@ async function handleLeadImport() {
   const importedRecords = [];
   const failed = [];
   const assignmentMisses = [];
+  const summaryBuckets = {};
   let createdCount = 0;
   let tempId = Date.now();
 
@@ -1083,6 +1132,7 @@ async function handleLeadImport() {
     const { lead, error } = buildLeadFromImportRow(row, tempId, row.__workshopName, row.__importSourceFile);
     if (error) {
       failed.push(`Row ${idx + 2}: ${error}`);
+      incrementSummaryBucket(summaryBuckets, classifyImportIssue(error));
       return;
     }
 
@@ -1095,7 +1145,9 @@ async function handleLeadImport() {
       duplicateReasons.push("phone number");
     }
     if (duplicateReasons.length) {
-      failed.push(`Row ${idx + 2}: Duplicate ${duplicateReasons.join(" and ")} already exists in this file.`);
+      const message = `Duplicate ${duplicateReasons.join(" and ")} already exists in this file.`;
+      failed.push(`Row ${idx + 2}: ${message}`);
+      incrementSummaryBucket(summaryBuckets, classifyImportIssue(message));
       return;
     }
 
@@ -1136,12 +1188,24 @@ async function handleLeadImport() {
 
   const savedCount = Number(importSaveResult.createdCount) || 0;
   const skippedCount = Number(importSaveResult.skippedCount) || 0;
-  updateImportSummary(rows.length, savedCount, failed.length + skippedCount);
+  const serverSkippedLeads = Array.isArray(importSaveResult.skippedLeads) ? importSaveResult.skippedLeads : [];
+  serverSkippedLeads.forEach((item) => {
+    incrementSummaryBucket(summaryBuckets, classifyImportIssue(item?.reason || ""));
+  });
+  if (assignmentMisses.length) {
+    incrementSummaryBucket(summaryBuckets, "unassigned", assignmentMisses.length);
+  }
+  updateImportSummary({
+    totalRows: rows.length,
+    savedCount,
+    notImportedCount: failed.length + skippedCount,
+    ...summaryBuckets
+  });
 
   if (failed.length) {
-    setMessage(importMessage, `Imported with ${failed.length} failures. Example: ${failed[0]}`, true);
+    setMessage(importMessage, `Import finished. ${savedCount} new lead${savedCount === 1 ? "" : "s"} added; ${failed.length + skippedCount} row${failed.length + skippedCount === 1 ? "" : "s"} not imported. First row to review: ${failed[0]}`, true);
   } else if (skippedCount) {
-    setMessage(importMessage, `Imported ${savedCount}; skipped ${skippedCount} duplicate lead${skippedCount === 1 ? "" : "s"} already in CRM.`, true);
+    setMessage(importMessage, `Import finished. ${savedCount} new lead${savedCount === 1 ? "" : "s"} added; ${skippedCount} duplicate row${skippedCount === 1 ? "" : "s"} safely skipped.`, false);
   } else if (assignmentMisses.length) {
     setMessage(importMessage, `Imported ${savedCount}. ${assignmentMisses.length} lead${assignmentMisses.length === 1 ? "" : "s"} stayed Unassigned because no matching routing rule was enabled.`, true);
   } else {
