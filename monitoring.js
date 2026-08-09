@@ -32,6 +32,7 @@ let monitoringKpiRenderToken = 0;
 let monitoringLeads = [];
 let monitoringCounselors = [];
 let monitoringReport = null;
+let monitoringLoading = false;
 const monitoringDataCache = new Map();
 
 const TIMELINE_STORAGE_KEY = "dvWorkshopMonitoringTimeline";
@@ -519,6 +520,10 @@ function storeMonitoringCache(cacheKey, payload = {}) {
 
 async function loadMonitoringData() {
   const cacheKey = getMonitoringCacheKey();
+  monitoringLoading = true;
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 18000);
+  try {
   if (!isAdminMonitoringView() || ["reporting", "lead-assignment"].includes(activeView.subsection)) {
     const reportUrl = new URL(apiUrl("/api/monitoring-report"), window.location.origin);
     reportUrl.searchParams.set("subsection", activeView.subsection);
@@ -533,7 +538,8 @@ async function loadMonitoringData() {
     try {
       const response = await fetch(reportUrl.toString(), {
         credentials: "same-origin",
-        headers
+        headers,
+        signal: controller.signal
       });
       if (response.status === 304 && cached) {
         applyMonitoringCache(cacheKey);
@@ -567,11 +573,13 @@ async function loadMonitoringData() {
   const [leadResponse, counselorResponse] = await Promise.all([
     fetch(apiUrl(leadsPath), {
       credentials: "same-origin",
-      headers: { Accept: "application/json" }
+      headers: { Accept: "application/json" },
+      signal: controller.signal
     }),
     fetch(apiUrl("/api/counselors"), {
       credentials: "same-origin",
-      headers: { Accept: "application/json" }
+      headers: { Accept: "application/json" },
+      signal: controller.signal
     })
   ]);
   const [leadPayload, counselorPayload] = await Promise.all([
@@ -594,6 +602,10 @@ async function loadMonitoringData() {
     counselors: monitoringCounselors,
     etag: ""
   });
+  } finally {
+    window.clearTimeout(timeoutId);
+    monitoringLoading = false;
+  }
 }
 
 function startMonitoringPolling(onRefresh, intervalMs = 15000) {
@@ -2369,6 +2381,20 @@ function renderActiveMonitoringView() {
     return;
   }
 
+  if (monitoringLoading && !getAllLeads().length) {
+    const subsectionConfig = getActiveSubsectionConfig();
+    monitoringActiveTitle.textContent = subsectionConfig.title;
+    monitoringActiveDescription.textContent = "Loading focused monitoring data...";
+    buildMetricCards([]);
+    monitoringActiveTable.innerHTML = `
+      <div class="empty-state">
+        <h3>Loading monitoring report</h3>
+        <p>This view is fetching a scoped report. You can switch sections while it loads.</p>
+      </div>
+    `;
+    return;
+  }
+
   const range = getTimelineRange();
   const rawAllLeads = getScopedLeads(getAllLeads());
   const timelineLeads = getScopedLeads(applyTimelineFilter(getAllLeads()));
@@ -2466,10 +2492,10 @@ function renderAll() {
 }
 
 bindTimelineControls();
-await loadMonitoringData().catch((error) => {
-  console.warn("[monitoring] initial loading failed:", error?.message || error);
-});
 renderAll();
+void loadMonitoringData().catch((error) => {
+  console.warn("[monitoring] initial loading failed:", error?.message || error);
+}).finally(() => renderAll());
 const stopStatePolling = startMonitoringPolling(() => {
   renderAll();
 });

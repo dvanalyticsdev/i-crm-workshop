@@ -1022,13 +1022,6 @@ function initLeadControlPage() {
   setupAdminPanel();
 }
 
-try {
-  await loadLeadControlDirectory();
-  await loadSopSettings();
-} catch (error) {
-  console.warn("[lead-control] directory load failed:", error?.message || error);
-}
-
 initLeadControlPage();
 
 function renderAll() {
@@ -1040,6 +1033,11 @@ const scheduleRenderAll = createRenderScheduler(renderAll);
 
 renderAll();
 window.__dvMarkRouteViewReady?.();
+void loadLeadControlDirectory().then(() => {
+  renderAll();
+}).catch((error) => {
+  console.warn("[lead-control] directory load failed:", error?.message || error);
+});
 let leadControlPollingStopped = false;
 let leadControlPollingActive = false;
 const leadControlPollingId = setInterval(async () => {

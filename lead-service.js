@@ -71,6 +71,13 @@ export function addLeadNote(leadId, text, leadEmail = "") {
   });
 }
 
+export function fetchLeadNotes(leadId, leadEmail = "") {
+  const leadEmailQuery = leadEmail ? `?leadEmail=${encodeURIComponent(leadEmail)}` : "";
+  return requestJson(`/api/leads/${encodeURIComponent(leadId)}/notes${leadEmailQuery}`, {
+    method: "GET"
+  });
+}
+
 export function deleteLeadNote(leadId, noteIndex, leadEmail = "") {
   const leadEmailQuery = leadEmail ? `?leadEmail=${encodeURIComponent(leadEmail)}` : "";
   return requestJson(

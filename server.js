@@ -2546,6 +2546,64 @@ const REACHOUT_LEAD_LIST_PROJECTION = {
   importSourceSheet: 1
 };
 
+const WORKFLOW_LEAD_LIST_PROJECTION = {
+  id: 1,
+  name: 1,
+  email: 1,
+  phone: 1,
+  createdAt: 1,
+  createdAtExact: 1,
+  updatedAt: 1,
+  counselor: 1,
+  assignedFromCounselor: 1,
+  leadOwnerType: 1,
+  leadOwnerTimelineAt: 1,
+  counselorAssignedAt: 1,
+  courseName: 1,
+  courseCode: 1,
+  courseRawName: 1,
+  country: 1,
+  state: 1,
+  city: 1,
+  location: 1,
+  branch: 1,
+  source: 1,
+  leadSource: 1,
+  metaCampaignName: 1,
+  metaAdsetName: 1,
+  metaAdName: 1,
+  elementorFormName: 1,
+  importSourceSheet: 1,
+  leadPipeline: 1,
+  publicCourseSegment: 1,
+  repeatEnquiryCount: 1,
+  repeatEnquirySources: 1,
+  lastRepeatEnquiryAt: 1,
+  workshop: 1,
+  workshopName: 1,
+  admissionWorkshop: 1,
+  admissionWorkshopName: 1,
+  admissionWorkshopDateLabel: 1,
+  dialed: 1,
+  callStatus: 1,
+  wsStatus: 1,
+  whatsappInvite: 1,
+  whatsappGroupStatus: 1,
+  postDialed: 1,
+  coursePitched: 1,
+  courseStatus: 1,
+  admissionStatus: 1,
+  postCallStatus: 1,
+  workshopJoiningStatus: 1,
+  postStatusUpdated: 1,
+  preActivityUpdates: 1,
+  postActivityUpdates: 1,
+  workshopActivityTouchedByAssignee: 1,
+  admissionActivityTouchedByAssignee: 1,
+  workshopActivityHistory: 1,
+  admissionActivityHistory: 1
+};
+
 const SCOPED_LEAD_LIST_PROJECTION = {
   id: 1,
   name: 1,
@@ -13052,11 +13110,57 @@ app.get("/api/lost-leads", async (req, res) => {
       return res.status(403).json({ message: "You do not have permission to view lost leads." });
     }
 
-    const query = buildLostLeadMongoQuery();
-    const [rawLeads, counselors] = await Promise.all([
+    let query = buildLostLeadMongoQuery();
+    const page = parseBoundedPositiveInt(req.query?.page, 1, 1, 100000);
+    const limit = parseBoundedPositiveInt(req.query?.limit, 100, 1, 250);
+    const skip = (page - 1) * limit;
+    const search = String(req.query?.search || "").trim();
+    if (search) {
+      const regex = new RegExp(escapeMongoRegex(search), "i");
+      query = appendMongoAnd(query, {
+        $or: [
+          { name: regex },
+          { email: regex },
+          { phone: regex },
+          { counselor: regex },
+          { courseName: regex },
+          { courseCode: regex },
+          { coursePitched: regex },
+          { mainAdmissionCoursePitched: regex },
+          { registeredCoursePitched: regex },
+          { workshop: regex },
+          { admissionWorkshop: regex }
+        ]
+      });
+    }
+    const courseNameFilter = normalizeArchivedCourseName(req.query?.courseName);
+    if (courseNameFilter) {
+      const regex = new RegExp(escapeMongoRegex(courseNameFilter), "i");
+      query = appendMongoAnd(query, {
+        $or: [
+          { courseName: regex },
+          { courseCode: regex },
+          { coursePitched: regex },
+          { mainAdmissionCoursePitched: regex },
+          { registeredCoursePitched: regex },
+          { workshop: regex },
+          { admissionWorkshop: regex }
+        ]
+      });
+    }
+    const [rawLeads, totalCount, counselors] = await Promise.all([
       withMongoRetry(
-        () => leadsCollection.find(query, { projection: LOST_LEAD_LIST_PROJECTION }).toArray(),
+        () => leadsCollection
+          .find(query, { projection: LOST_LEAD_LIST_PROJECTION })
+          .sort({ updatedAt: -1, createdAtExact: -1, createdAt: -1, _id: -1 })
+          .skip(skip)
+          .limit(limit)
+          .toArray(),
         { retries: 1, label: "Load scoped lost leads" }
+      ),
+      withMongoRetry(
+        () => leadsCollection.countDocuments(query),
+        { retries: 1, label: "Count scoped lost leads" }
       ),
       withMongoRetry(
         () => counselorsCollection.find({}).toArray(),
@@ -13081,6 +13185,13 @@ app.get("/api/lost-leads", async (req, res) => {
     return res.json({
       ok: true,
       leads,
+      pagination: {
+        page,
+        limit,
+        total: totalCount || 0,
+        totalPages: Math.max(1, Math.ceil((totalCount || 0) / limit)),
+        returned: leads.length
+      },
       counselors: Array.isArray(counselors) ? counselors : [],
       updatedAt: new Date().toISOString()
     });
@@ -13869,6 +13980,46 @@ app.post("/api/leads/:leadId/view", async (req, res) => {
     return res.json({ ok: true, notified: true });
   } catch (error) {
     return res.status(500).json({ message: "Failed to record lead view", details: error.message });
+  }
+});
+
+app.get("/api/leads/:leadId/notes", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "counselor", "manager"]);
+    if (!session) return;
+
+    const leadId = req.params.leadId;
+    const leadEmail = String(req.query?.leadEmail || "").trim().toLowerCase();
+    const query = { id: { $in: getLeadIdCandidates(leadId) } };
+    if (leadEmail) {
+      query.email = leadEmail;
+    }
+
+    const rawLead = await withMongoRetry(
+      () => leadsCollection.findOne(query, {
+        projection: {
+          id: 1,
+          name: 1,
+          email: 1,
+          phone: 1,
+          counselor: 1,
+          leadNotes: 1,
+          updatedAt: 1
+        }
+      }),
+      { retries: 1, label: "Load lead notes" }
+    );
+
+    if (!rawLead) {
+      return res.status(404).json({ message: "Lead not found." });
+    }
+
+    const lead = decorateLeadForStorage(rawLead);
+    const updatedAt = lead?.updatedAt || new Date().toISOString();
+    res.setHeader("ETag", buildStateEtag({ updatedAt }));
+    return res.json({ ok: true, lead, updatedAt });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load notes", details: error.message });
   }
 });
 
@@ -16690,9 +16841,14 @@ app.get("/api/leads", async (req, res) => {
     }
     const monitoringSubsection = String(req.query?.monitoringSubsection || "").trim().toLowerCase();
     const leadQuery = monitoringSubsection ? buildMonitoringLeadMongoQuery(monitoringSubsection) : {};
-    const findOptions = scope === "reachout"
-      ? { projection: REACHOUT_LEAD_LIST_PROJECTION }
-      : undefined;
+    const listProjection = scope === "reachout"
+      ? REACHOUT_LEAD_LIST_PROJECTION
+      : scope === "assigned-or-touched" && !monitoringSubsection
+        ? buildMonitoringLeadProjection("")
+      : monitoringSubsection
+        ? WORKFLOW_LEAD_LIST_PROJECTION
+        : null;
+    const findOptions = listProjection ? { projection: listProjection } : undefined;
     const [rawLeads, counselors] = await Promise.all([
       withMongoRetry(
         () => leadsCollection.find(leadQuery, findOptions).toArray(),

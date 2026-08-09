@@ -38,8 +38,7 @@ async function loadAccountDirectory() {
 }
 
 await loadAccountDirectory().catch(async (error) => {
-  console.warn("[counselor-management] Account directory loading failed, falling back to full state:", error?.message || error);
-  await bootstrapLocalState().catch(() => undefined);
+  console.warn("[counselor-management] Account directory loading failed:", error?.message || error);
 });
 
 const COUNSELOR_FALLBACK_PERMISSIONS = {

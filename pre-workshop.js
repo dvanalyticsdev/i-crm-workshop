@@ -30,6 +30,7 @@ import {
   assignLeads as assignLeadsOnServer,
   deleteLeads as deleteLeadsOnServer,
   deleteLeadNote,
+  fetchLeadNotes,
   formatLeadAssignmentResult,
   trackLeadView,
   updateLeadActivity as updateLeadActivityOnServer
@@ -2373,7 +2374,7 @@ function canEditLeadNotes(lead) {
   return owner === getCounselorIdentity();
 }
 
-function openNotesModal(leadId, leadEmail = "") {
+async function openNotesModal(leadId, leadEmail = "") {
   notesLeadId = leadId;
   notesLeadEmail = leadEmail || "";
   const allLeads = getAllLeads();
@@ -2381,6 +2382,16 @@ function openNotesModal(leadId, leadEmail = "") {
   if (!lead) {
     showToast("Could not open this lead's notes. Please refresh and try again.", true);
     return;
+  }
+
+  if (!lead._notesLoaded && (!Array.isArray(lead.leadNotes) || !lead.leadNotes.length)) {
+    const notesResult = await fetchLeadNotes(leadId, leadEmail || lead.email || "");
+    if (notesResult?.lead) {
+      Object.assign(lead, notesResult.lead);
+      lead._notesLoaded = true;
+    } else if (notesResult && notesResult.ok === false) {
+      showToast(notesResult.message || "Could not load notes for this lead.", true);
+    }
   }
 
   const notes = Array.isArray(lead.leadNotes) ? lead.leadNotes : [];
@@ -2622,12 +2633,6 @@ function initPreWorkshopPage() {
 
 }
 
-try {
-  await loadPreWorkshopData();
-} catch (error) {
-  console.warn("[pre-workshop] lightweight data load failed:", error?.message || error);
-}
-
 initPreWorkshopPage();
 
 function renderAll() {
@@ -2659,6 +2664,11 @@ function renderAll() {
 const scheduleRenderAll = createRenderScheduler(renderAll);
 
 renderAll();
+void loadPreWorkshopData().then(() => {
+  scheduleRenderAll();
+}).catch((error) => {
+  console.warn("[pre-workshop] lightweight data load failed:", error?.message || error);
+});
 let preWorkshopPollingStopped = false;
 let preWorkshopPollingActive = false;
 const preWorkshopPollingId = setInterval(async () => {

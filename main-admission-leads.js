@@ -24,6 +24,7 @@ import {
   assignLeads as assignLeadsOnServer,
   deleteLeadNote,
   deleteLeads as deleteLeadsOnServer,
+  fetchLeadNotes,
   formatLeadAssignmentResult,
   trackLeadView,
   updateLeadActivity as updateLeadActivityOnServer,
@@ -3614,11 +3615,22 @@ function canEditLeadNotes(lead) {
   return String(lead?.counselor || "").trim().toLowerCase() === getCounselorIdentity();
 }
 
-function openNotesModal(leadKey) {
+async function openNotesModal(leadKey) {
   const lead = getAllLeads().find((item) => buildLeadKey(item) === leadKey);
   if (!lead) return;
 
   notesLeadRef = buildLeadRef(lead);
+  if (!lead._notesLoaded && (!Array.isArray(lead.leadNotes) || !lead.leadNotes.length)) {
+    const notesResult = await fetchLeadNotes(lead.id, lead.email || "");
+    if (notesResult?.lead) {
+      mergeScopedLeadUpdates(notesResult.lead);
+      Object.assign(lead, notesResult.lead);
+      lead._notesLoaded = true;
+    } else if (notesResult && notesResult.ok === false) {
+      showToast(notesResult.message || "Could not load notes for this lead.", true);
+    }
+  }
+
   const listSection = document.getElementById("mainAdmissionNotesListSection");
   const canEdit = canEditLeadNotes(lead);
   listSection.innerHTML = lead.leadNotes.length
