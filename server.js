@@ -662,7 +662,33 @@ function cacheStateDoc(state) {
 
 function shouldExposeLeadInStateResponse(lead) {
   const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
-  return pipeline !== MAIN_ADMISSION_PIPELINE && pipeline !== "course-registration";
+  return !isMainAdmissionPipelineValue(pipeline)
+    && pipeline !== "course-registration"
+    && !isLeadSquaredImportedLead(lead);
+}
+
+function isMainAdmissionPipelineValue(value) {
+  const pipeline = String(value || "").trim().toLowerCase();
+  return pipeline === MAIN_ADMISSION_PIPELINE
+    || pipeline === "admission"
+    || pipeline === "main-admission-calling";
+}
+
+function getMainAdmissionLeadMongoQuery({ includeLsqImported = true } = {}) {
+  const pipelineQuery = { leadPipeline: { $in: [MAIN_ADMISSION_PIPELINE, "admission", "main-admission-calling"] } };
+  if (!includeLsqImported) {
+    return pipelineQuery;
+  }
+  return {
+    $or: [
+      pipelineQuery,
+      {
+        lsqImported: true,
+        lsqArchivedLead: { $ne: true },
+        counselor: { $ne: LSQ_ARCHIVED_COUNSELOR }
+      }
+    ]
+  };
 }
 
 function buildStateResponse(state, options = {}) {
@@ -2545,7 +2571,6 @@ function leadMatchesScopedCounselorActivityDate(lead = {}, section = "", query =
 
 function hasScopedRuntimeFilters(query = {}) {
   return [
-    "timeline",
     "counselorActivityTimeline",
     "leadOwner",
     "location",
@@ -2610,6 +2635,25 @@ function addOptionalExactQuery(query, field, value) {
   }
 }
 
+function appendScopedTimelineMongoQuery(query = {}, requestQuery = {}) {
+  const range = getScopedTimelineRange(requestQuery);
+  if (!range?.start || !range?.end) {
+    return query;
+  }
+  const startIso = range.start.toISOString();
+  const endIso = range.end.toISOString();
+  const startKey = toKolkataDateKey(range.start);
+  const endKey = toKolkataDateKey(range.end);
+  return appendMongoAnd(query, {
+    $or: [
+      { leadOwnerTimelineAt: { $gte: startIso, $lte: endIso } },
+      { counselorAssignedAt: { $gte: startIso, $lte: endIso } },
+      { createdAtExact: { $gte: startIso, $lte: endIso } },
+      { createdAt: { $gte: startKey, $lte: endKey } }
+    ]
+  });
+}
+
 function appendMongoAnd(query = {}, condition = {}) {
   return {
     ...query,
@@ -2622,10 +2666,15 @@ function appendMongoAnd(query = {}, condition = {}) {
 
 function buildScopedLeadBaseMongoQuery(section, session = {}, counselors = []) {
   const query = section === "admission-sop"
-    ? { leadPipeline: { $in: [MAIN_ADMISSION_PIPELINE, "course-registration"] } }
+    ? {
+        leadPipeline: { $in: [MAIN_ADMISSION_PIPELINE, "course-registration"] },
+        lsqImported: { $ne: true },
+        lsqSourceSnapshot: { $exists: false },
+        source: { $not: /leadsquared/i }
+      }
     : section === "registered-candidates"
       ? { leadPipeline: "course-registration" }
-      : { leadPipeline: MAIN_ADMISSION_PIPELINE };
+      : getMainAdmissionLeadMongoQuery();
 
   const sessionRole = String(session.role || "").trim().toLowerCase();
   if (sessionRole === "counselor") {
@@ -2665,6 +2714,7 @@ function applyScopedRegisteredSegmentQuery(query = {}, segmentValue = "") {
 
 function buildScopedLeadMongoQuery(section, requestQuery = {}, session = {}, counselors = []) {
   let query = buildScopedLeadBaseMongoQuery(section, session, counselors);
+  query = appendScopedTimelineMongoQuery(query, requestQuery);
 
   const sessionRole = String(session.role || "").trim().toLowerCase();
   if (sessionRole !== "counselor") {
@@ -2792,7 +2842,7 @@ async function buildScopedLeadFacets(section, session = {}, counselors = [], req
 function buildScopedLeadClearQuery(section, requestQuery = {}) {
   const normalizedSection = String(section || "").trim().toLowerCase();
   if (normalizedSection === "main-admission") {
-    return { leadPipeline: MAIN_ADMISSION_PIPELINE };
+    return getMainAdmissionLeadMongoQuery();
   }
   if (normalizedSection !== "registered-candidates") {
     return null;
@@ -2825,7 +2875,7 @@ function buildMonitoringLeadMongoQuery(subsection = "") {
       { leadPipeline: null }
     ]
   };
-  if (key === "main-admission") return { leadPipeline: MAIN_ADMISSION_PIPELINE };
+  if (key === "main-admission") return getMainAdmissionLeadMongoQuery();
   if (key === "admission-calling") {
     return {
       leadPipeline: { $nin: ["course-registration", MAIN_ADMISSION_PIPELINE] }
@@ -2943,6 +2993,71 @@ function getLeadInflowSection(lead = {}) {
   return isLeadInflowAdmissionLead(lead) ? "admission" : "workshop";
 }
 
+function getLeadInflowLeadMongoQuery(section = "workshop", range = null) {
+  const sectionQuery = section === "admission"
+    ? {
+        $or: [
+          getMainAdmissionLeadMongoQuery(),
+          { leadPipeline: "course-registration" }
+        ]
+      }
+    : {
+        leadPipeline: { $nin: [MAIN_ADMISSION_PIPELINE, "admission", "main-admission-calling", "course-registration"] },
+        lsqImported: { $ne: true }
+      };
+
+  if (!range?.start || !range?.end) {
+    return sectionQuery;
+  }
+
+  const startIso = range.start.toISOString();
+  const endIso = range.end.toISOString();
+  const startKey = toKolkataDateKey(range.start);
+  const endKey = toKolkataDateKey(range.end);
+  return appendMongoAnd(sectionQuery, {
+    $or: [
+      { createdAtExact: { $gte: startIso, $lte: endIso } },
+      { approvedAt: { $gte: startIso, $lte: endIso } },
+      { createdAt: { $gte: startKey, $lte: endKey } }
+    ]
+  });
+}
+
+function getLeadInflowDuplicateLogMongoQuery(range = null) {
+  const query = {
+    $or: [
+      { type: "updated" },
+      {
+        type: { $ne: "ignored" },
+        message: /duplicate/i
+      }
+    ]
+  };
+  if (!range?.start || !range?.end) {
+    return query;
+  }
+  return appendMongoAnd(query, {
+    receivedAt: {
+      $gte: range.start.toISOString(),
+      $lte: range.end.toISOString()
+    }
+  });
+}
+
+function getLeadInflowEventMongoQuery(range = null) {
+  const query = { eventType: "duplicate" };
+  if (!range?.start || !range?.end) {
+    return query;
+  }
+  return {
+    ...query,
+    receivedAt: {
+      $gte: range.start.toISOString(),
+      $lte: range.end.toISOString()
+    }
+  };
+}
+
 function getLeadInflowSource(lead = {}) {
   const source = String(lead?.source || "").trim();
   const normalizedSource = source.toLowerCase();
@@ -2974,7 +3089,7 @@ function getLeadInflowCampaign(lead = {}) {
 function isDuplicateInflowLog(log = {}) {
   const type = String(log?.type || "").trim().toLowerCase();
   const message = String(log?.message || "").trim().toLowerCase();
-  return type === "updated" || type === "ignored" || message.includes("duplicate");
+  return type === "updated" || (type !== "ignored" && message.includes("duplicate"));
 }
 
 function buildLeadInflowEventId(event = {}) {
@@ -3071,6 +3186,17 @@ function buildLeadInflowEventFromLog(source, log = {}, leadById = new Map()) {
     message: log?.message || "",
     receivedAt: log?.receivedAt || new Date().toISOString()
   };
+}
+
+function dedupeLeadInflowEvents(events = []) {
+  const seen = new Set();
+  return (Array.isArray(events) ? events : []).filter((event) => {
+    if (!event) return false;
+    const key = String(event.eventId || buildLeadInflowEventId(event)).trim();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 async function persistDuplicateLeadInflowLogs(source, logs = [], leadById = new Map()) {
@@ -9313,7 +9439,11 @@ function isPublicCourseRegistrationLead(lead) {
 }
 
 function isMainAdmissionLead(lead) {
-  return String(lead?.leadPipeline || "").trim().toLowerCase() === MAIN_ADMISSION_PIPELINE;
+  return isMainAdmissionPipelineValue(lead?.leadPipeline)
+    || (
+      Boolean(lead?.lsqImported)
+      && !isLsqArchivedLead(lead)
+    );
 }
 
 function isCrashCourseRegistrationLead(lead) {
@@ -9322,7 +9452,8 @@ function isCrashCourseRegistrationLead(lead) {
 }
 
 function isAdmissionSopScopedLead(lead) {
-  return isMainAdmissionLead(lead) || isPublicCourseRegistrationLead(lead);
+  return !isLeadSquaredImportedLead(lead)
+    && (isMainAdmissionPipelineValue(lead?.leadPipeline) || isPublicCourseRegistrationLead(lead));
 }
 
 function getKolkataShiftedDate(value) {
@@ -14965,6 +15096,44 @@ app.get("/api/state", async (req, res) => {
   }
 });
 
+app.get("/api/account-directory", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "super_admin"]);
+    if (!session) return;
+
+    const [stateMeta, counselors, allocation] = await Promise.all([
+      withMongoRetry(
+        () => stateCollection.findOne(
+          { _id: STATE_DOC_ID },
+          { projection: { adminUsers: 1, marketingUsers: 1, updatedAt: 1, clearedAt: 1 } }
+        ),
+        { retries: 1, label: "Load account directory metadata" }
+      ),
+      withMongoRetry(
+        () => counselorsCollection.find({}).toArray(),
+        { retries: 1, label: "Load account directory counselors" }
+      ),
+      withMongoRetry(
+        () => allocationCollection.find({}).toArray(),
+        { retries: 1, label: "Load account directory allocation" }
+      )
+    ]);
+
+    const normalizedMeta = normalizeStateDoc(stateMeta || {});
+    res.setHeader("Cache-Control", "no-cache");
+    return res.json({
+      counselors: Array.isArray(counselors) ? counselors : [],
+      adminUsers: Array.isArray(normalizedMeta.adminUsers) ? normalizedMeta.adminUsers : [],
+      marketingUsers: Array.isArray(normalizedMeta.marketingUsers) ? normalizedMeta.marketingUsers : [],
+      allocation: Array.isArray(allocation) ? allocation : [],
+      updatedAt: normalizedMeta.updatedAt || null,
+      clearedAt: normalizedMeta.clearedAt || null
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch account directory", details: error.message });
+  }
+});
+
 app.get("/api/state/version", async (req, res) => {
   try {
     const session = await requireSession(req, res);
@@ -15552,17 +15721,21 @@ app.get("/api/lead-inflow-report", async (req, res) => {
       formId: 1
     };
 
+    const leadQuery = getLeadInflowLeadMongoQuery(section, range);
+    const duplicateLogQuery = getLeadInflowDuplicateLogMongoQuery(range);
+    const inflowEventQuery = getLeadInflowEventMongoQuery(range);
+
     const [rawLeads, metaLogs, elementorLogs] = await Promise.all([
       withMongoRetry(
-        () => leadsCollection.find({}, { projection: leadProjection }).toArray(),
+        () => leadsCollection.find(leadQuery, { projection: leadProjection }).toArray(),
         { retries: 1, label: "Load lead inflow leads" }
       ),
       withMongoRetry(
-        () => metaLogsCollection.find({}, { projection: logProjection }).toArray(),
+        () => metaLogsCollection.find(duplicateLogQuery, { projection: logProjection }).toArray(),
         { retries: 1, label: "Load lead inflow Meta logs" }
       ),
       withMongoRetry(
-        () => elementorLogsCollection.find({}, { projection: logProjection }).toArray(),
+        () => elementorLogsCollection.find(duplicateLogQuery, { projection: logProjection }).toArray(),
         { retries: 1, label: "Load lead inflow Elementor logs" }
       )
     ]);
@@ -15570,13 +15743,22 @@ app.get("/api/lead-inflow-report", async (req, res) => {
     const leadById = new Map(leads.map((lead) => [String(lead?.id || "").trim(), lead]));
     const clearedAt = await getLeadInflowClearedAt();
     const reportLeads = filterLeadInflowLeadsAfterClear(leads, clearedAt);
-    await persistDuplicateLeadInflowLogs("Meta", filterLeadInflowLogsAfterClear(metaLogs, clearedAt), leadById);
-    await persistDuplicateLeadInflowLogs("Elementor", filterLeadInflowLogsAfterClear(elementorLogs, clearedAt), leadById);
     const inflowEvents = await withMongoRetry(
-      () => leadInflowCollection.find({}, { projection: { _id: 0 } }).toArray(),
+      () => leadInflowCollection.find(inflowEventQuery, { projection: { _id: 0 } }).toArray(),
       { retries: 1, label: "Load durable lead inflow events" }
     );
-    const reportInflowEvents = filterLeadInflowLogsAfterClear(inflowEvents, clearedAt);
+    const transientLogEvents = [
+      ...filterLeadInflowLogsAfterClear(metaLogs, clearedAt)
+        .map((log) => buildLeadInflowEventFromLog("Meta", log, leadById))
+        .filter(Boolean),
+      ...filterLeadInflowLogsAfterClear(elementorLogs, clearedAt)
+        .map((log) => buildLeadInflowEventFromLog("Elementor", log, leadById))
+        .filter(Boolean)
+    ];
+    const reportInflowEvents = dedupeLeadInflowEvents([
+      ...filterLeadInflowLogsAfterClear(inflowEvents, clearedAt),
+      ...transientLogEvents
+    ]);
 
     const report = buildLeadInflowReport({
       leads: reportLeads,
@@ -16515,15 +16697,6 @@ async function processMetaLeadRecord({ leadgenId, formId, pageId, metaLead, retr
       );
     }
     await saveMetaLog({ type: "ignored", message: "Duplicate lead (already imported)", leadgenId });
-    await saveLeadInflowEvent({
-      eventType: "duplicate",
-      source: "Meta",
-      section: isAdmissionLead ? "admission" : "workshop",
-      campaign: newLead.metaCampaignName || newLead.metaAdsetName || newLead.metaAdName || "Unspecified Campaign",
-      leadId: nextId,
-      sourceEventId: leadgenId,
-      message: "Duplicate lead (already imported)"
-    });
     return;
   }
 
@@ -16788,15 +16961,6 @@ async function processElementorLeadRecord(payload, config, options = {}) {
       formId,
       formName,
       pageUrl
-    });
-    await saveLeadInflowEvent({
-      eventType: "duplicate",
-      source: "Elementor",
-      section: isAdmissionLead ? "admission" : "workshop",
-      campaign: newLead.elementorFormName || newLead.elementorFormId || "Unspecified Campaign",
-      leadId: nextId,
-      sourceEventId: [formId, formName, pageUrl, email, phone].join("|"),
-      message: "Duplicate lead (already imported)"
     });
     return;
   }

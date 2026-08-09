@@ -1,19 +1,46 @@
 import { registerPageCleanup } from "./page-runtime.js";
+import { apiUrl } from "./api-client.js";
 import {
   bootstrapLocalState,
   getAdminUsers as getStoredAdminUsers,
   getAllocation as getStoredAllocation,
   getCounselors as getStoredCounselors,
+  getStateSnapshot,
   getSession,
+  replaceStateSnapshot,
   saveAdminUsers as persistAdminUsers,
   saveAllocation as persistAllocation,
   saveCounselors as persistCounselors,
-  startStatePolling,
   syncStateFromLocalAndVerify
 } from "./state-sync.js";
 import { PUBLIC_COURSES } from "./course-catalog.js";
 
-await bootstrapLocalState();
+await bootstrapLocalState({ skipStateRefresh: true });
+
+async function loadAccountDirectory() {
+  const response = await fetch(apiUrl("/api/account-directory"), {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.message || "Failed to load account directory.");
+  }
+  replaceStateSnapshot({
+    ...getStateSnapshot(),
+    counselors: Array.isArray(payload?.counselors) ? payload.counselors : [],
+    adminUsers: Array.isArray(payload?.adminUsers) ? payload.adminUsers : [],
+    marketingUsers: Array.isArray(payload?.marketingUsers) ? payload.marketingUsers : [],
+    allocation: Array.isArray(payload?.allocation) ? payload.allocation : [],
+    updatedAt: payload?.updatedAt || null,
+    clearedAt: payload?.clearedAt || null
+  });
+}
+
+await loadAccountDirectory().catch(async (error) => {
+  console.warn("[counselor-management] Account directory loading failed, falling back to full state:", error?.message || error);
+  await bootstrapLocalState().catch(() => undefined);
+});
 
 const COUNSELOR_FALLBACK_PERMISSIONS = {
   dashboard: true,
@@ -1495,16 +1522,25 @@ if (adminSearchInput) {
   });
 }
 
-renderManagementSummary();
-renderCounselorList();
-renderAdminList();
-renderPermissionControlPanel();
-
-const stopStatePolling = startStatePolling(() => {
+function renderAccountDirectory() {
   renderManagementSummary();
   renderCounselorList();
   renderAdminList();
-});
+  renderPermissionControlPanel();
+}
+
+renderAccountDirectory();
+
+const directoryPollTimer = window.setInterval(() => {
+  if (document.visibilityState === "hidden") {
+    return;
+  }
+  void loadAccountDirectory()
+    .then(renderAccountDirectory)
+    .catch((error) => console.warn("[counselor-management] directory polling failed:", error?.message || error));
+}, 15000);
+
+const stopStatePolling = () => window.clearInterval(directoryPollTimer);
 
 registerPageCleanup(stopStatePolling);
 window.__dvMarkRouteViewReady?.();

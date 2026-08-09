@@ -97,7 +97,7 @@ const SEGMENT_CONFIG = {
   }
 };
 const DEFAULT_FILTER = {
-  timeline: isCounselorSession() ? "overall" : "week",
+  timeline: "overall",
   startDate: "",
   endDate: "",
   ...COUNSELOR_ACTIVITY_DATE_DEFAULTS,
@@ -178,6 +178,9 @@ const SOP_ACTIVITY_OPTIONS_BY_HISTORY_FIELD = {
 const persistedFilter = await loadLocalPreference(FILTER_STORAGE_KEY, {});
 if (persistedFilter.timeline === "daily") {
   persistedFilter.timeline = "today";
+}
+if (persistedFilter.timeline === "week") {
+  persistedFilter.timeline = "overall";
 }
 if (persistedFilter.latestActivity === "Inbound Received") {
   persistedFilter.latestActivity = "Inbound Not Picked";
@@ -1083,7 +1086,15 @@ function getCounselorIdentity() {
 }
 
 function isRegisteredCandidateLead(lead) {
-  return String(lead?.leadPipeline || "").trim().toLowerCase() === "main-admission";
+  const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
+  return pipeline === "main-admission"
+    || pipeline === "admission"
+    || pipeline === "main-admission-calling"
+    || (
+      isLsqImportedLead(lead)
+      && !lead?.lsqArchivedLead
+      && String(lead?.counselor || "").trim().toLowerCase() !== "archived leads"
+    );
 }
 
 function normalizeSegment(segment) {

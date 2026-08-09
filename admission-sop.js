@@ -356,6 +356,7 @@ function getLatestHistoryTimestamp(lead, config) {
 
 function deriveSopState(lead) {
   if (!isAdmissionScopedLead(lead)) return null;
+  if (isLeadSquaredImportedLead(lead) || lead?.sopExcluded) return null;
   const config = getTrackingConfig(lead);
   if (!config) return null;
 
@@ -439,7 +440,13 @@ function deriveSopState(lead) {
 }
 
 function getAdmissionLeadsForView() {
-  const all = getAdmissionSopSourceLeads().filter((lead) => lead && !lead.isDeleted && isAdmissionScopedLead(lead));
+  const all = getAdmissionSopSourceLeads().filter((lead) => (
+    lead
+    && !lead.isDeleted
+    && isAdmissionScopedLead(lead)
+    && !isLeadSquaredImportedLead(lead)
+    && !lead.sopExcluded
+  ));
   if (canViewAllAdmissionLeads()) return all;
   const counselorName = getSessionCounselorName();
   return all.filter((lead) => normalize(lead?.counselor) === counselorName);
