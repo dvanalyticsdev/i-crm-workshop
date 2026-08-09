@@ -74,7 +74,7 @@ const PUBLIC_COURSE_SEGMENT_CONFIG = {
 const MAIN_ADMISSION_PIPELINE = "main-admission";
 const MAIN_ADMISSION_ROUND_ROBIN_FIELD = "mainAdmissionRoundRobinIndex";
 const LSQ_ARCHIVED_COUNSELOR = "Archived Leads";
-const LSQ_BACKGROUND_BATCH_SIZE = 500;
+const LSQ_BACKGROUND_BATCH_SIZE = 1000;
 const LSQ_BACKGROUND_TIME_BUDGET_MS = 25000;
 const KOLKATA_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const LOST_LEAD_ARCHIVE_AFTER_MS = 24 * 60 * 60 * 1000;
@@ -1640,9 +1640,101 @@ function mergeLsqImportSummary(total = {}, next = {}) {
   return merged;
 }
 
+function setLsqLookupValue(map, key, lead) {
+  const normalizedKey = String(key || "").trim();
+  if (normalizedKey && !map.has(normalizedKey)) {
+    map.set(normalizedKey, lead);
+  }
+}
+
+function addLeadToLsqLookup(lookup, lead = {}) {
+  if (!lookup || !lead) {
+    return;
+  }
+  const email = normalizeLeadEmail(lead.email);
+  const phone = normalizeLeadPhone(lead.phone);
+  const snapshot = lead?.lsqSourceSnapshot && typeof lead.lsqSourceSnapshot === "object"
+    ? lead.lsqSourceSnapshot
+    : {};
+  setLsqLookupValue(lookup.byEmail, email, lead);
+  setLsqLookupValue(lookup.byPhone, phone, lead);
+  setLsqLookupValue(lookup.byProspectId, normalizeLsqValue(snapshot.prospectId), lead);
+  setLsqLookupValue(lookup.byLeadNumber, normalizeLsqValue(snapshot.leadNumber), lead);
+}
+
+function buildLsqLeadLookup(leads = []) {
+  const lookup = {
+    byEmail: new Map(),
+    byPhone: new Map(),
+    byProspectId: new Map(),
+    byLeadNumber: new Map()
+  };
+  (Array.isArray(leads) ? leads : []).forEach((lead) => addLeadToLsqLookup(lookup, lead));
+  return lookup;
+}
+
+function findDuplicateLsqLeadFromLookup(lookup, record = {}) {
+  if (!lookup) {
+    return null;
+  }
+  const email = normalizeLeadEmail(record.email);
+  const phone = normalizeLeadPhone(record.phone);
+  const prospectId = normalizeLsqValue(record?.sourceSnapshot?.prospectId);
+  const leadNumber = normalizeLsqValue(record?.sourceSnapshot?.leadNumber);
+  return (email && lookup.byEmail.get(email))
+    || (phone && lookup.byPhone.get(phone))
+    || (prospectId && lookup.byProspectId.get(prospectId))
+    || (leadNumber && lookup.byLeadNumber.get(leadNumber))
+    || null;
+}
+
+async function reserveMetaLeadIds(count = 0) {
+  const safeCount = Math.max(0, Number(count) || 0);
+  if (!safeCount) {
+    return [];
+  }
+  await syncLeadSequence();
+  const result = await withMongoRetry(
+    () => metaConfigCollection.findOneAndUpdate(
+      { _id: META_CONFIG_DOC_ID },
+      { $inc: { leadSequence: safeCount } },
+      { returnDocument: "after", upsert: true }
+    ),
+    { retries: 1, label: "Reserve LSQ lead ids" }
+  );
+  const endId = Number(result?.leadSequence) || Date.now();
+  const startId = endId - safeCount + 1;
+  return Array.from({ length: safeCount }, (_, index) => startId + index);
+}
+
+async function executeLsqLeadWrites(operations = []) {
+  const safeOperations = Array.isArray(operations) ? operations.filter(Boolean) : [];
+  if (!safeOperations.length) {
+    return;
+  }
+  if (typeof leadsCollection.bulkWrite === "function") {
+    await withMongoRetry(
+      () => leadsCollection.bulkWrite(safeOperations, { ordered: false }),
+      { retries: 1, label: "Bulk write LSQ leads" }
+    );
+    return;
+  }
+
+  for (const operation of safeOperations) {
+    if (operation.insertOne?.document) {
+      await leadsCollection.insertOne(operation.insertOne.document);
+    } else if (operation.replaceOne) {
+      await leadsCollection.updateOne(
+        operation.replaceOne.filter,
+        { $set: operation.replaceOne.replacement },
+        { upsert: Boolean(operation.replaceOne.upsert) }
+      );
+    }
+  }
+}
+
 async function processLsqImportRows(rows = [], sourceFileName = "", session = null) {
   const safeRows = Array.isArray(rows) ? rows : [];
-  const state = await getStateDoc();
   const dedupedRecords = new Map();
 
   safeRows.forEach((row) => {
@@ -1665,9 +1757,27 @@ async function processLsqImportRows(rows = [], sourceFileName = "", session = nu
 
   const summary = createEmptyLsqImportSummary(safeRows.length);
   summary.deduped = dedupedRecords.size;
+  const [storedLeads, counselors] = await Promise.all([
+    withMongoRetry(
+      () => leadsCollection.find({}).toArray(),
+      { retries: 1, label: "Load leads for LSQ batch" }
+    ),
+    withMongoRetry(
+      () => counselorsCollection.find({}).toArray(),
+      { retries: 1, label: "Load counselors for LSQ batch" }
+    )
+  ]);
+  const state = {
+    leads: decorateLeadListForStorage(storedLeads || []),
+    counselors: Array.isArray(counselors) ? counselors : []
+  };
+  const leadLookup = buildLsqLeadLookup(state.leads);
+  const leadWrites = [];
+  const activityEntries = [];
+  const recordsToCreate = [];
 
   for (const record of dedupedRecords.values()) {
-    const existingLead = findDuplicateLsqLead(state.leads, record);
+    const existingLead = findDuplicateLsqLeadFromLookup(leadLookup, record);
     const counselorName = resolveLsqCounselorName(state, record, "all");
     const archivedCounselor = isResolvedLsqCounselorArchived(counselorName);
     if (archivedCounselor) {
@@ -1682,21 +1792,21 @@ async function processLsqImportRows(rows = [], sourceFileName = "", session = nu
     let wasCreated = false;
     if (existingLead) {
       nextLead = buildLsqUpdatedLead(existingLead, record, counselorName);
-      await replaceLeadDocument(nextLead);
+      leadWrites.push({
+        replaceOne: {
+          filter: { id: { $in: getLeadIdCandidates(nextLead?.id) } },
+          replacement: decorateLeadForStorage(nextLead),
+          upsert: false
+        }
+      });
       summary.updated += 1;
     } else {
-      const nextId = await getNextMetaLeadId();
-      nextLead = buildLsqImportedLead(record, nextId, counselorName);
-      await withMongoRetry(
-        () => leadsCollection.insertOne(nextLead),
-        { retries: 1, label: "Create LSQ imported lead" }
-      );
+      recordsToCreate.push({ record, counselorName });
       summary.created += 1;
-      wasCreated = true;
-      state.leads.push(nextLead);
+      continue;
     }
 
-    await recordActivity({
+    activityEntries.push({
       leadId: nextLead.id,
       leadName: nextLead.name,
       counselorName: nextLead.counselor || "",
@@ -1708,6 +1818,30 @@ async function processLsqImportRows(rows = [], sourceFileName = "", session = nu
     });
   }
 
+  if (recordsToCreate.length) {
+    const reservedIds = await reserveMetaLeadIds(recordsToCreate.length);
+    recordsToCreate.forEach(({ record, counselorName }, index) => {
+      const nextLead = buildLsqImportedLead(record, reservedIds[index], counselorName);
+      const storedLead = decorateLeadForStorage(nextLead);
+      leadWrites.push({ insertOne: { document: storedLead } });
+      addLeadToLsqLookup(leadLookup, storedLead);
+      activityEntries.push({
+        leadId: nextLead.id,
+        leadName: nextLead.name,
+        counselorName: nextLead.counselor || "",
+        activityType: "Lead Created",
+        actionDescription: `Lead created from LeadSquared import${record.admissionStatus ? ` with ${record.admissionStatus} status` : ""}`,
+        previousValue: "Created from LSQ import",
+        newValue: record.updatedAt || new Date().toISOString(),
+        session
+      });
+    });
+  }
+
+  if (leadWrites.length) {
+    await executeLsqLeadWrites(leadWrites);
+  }
+  await recordActivities(activityEntries);
   await touchStateUpdatedAt();
   return summary;
 }
