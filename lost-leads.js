@@ -42,6 +42,14 @@ let lostLeadPageData = {
   startIndex: 0,
   endIndex: 0
 };
+let archivedLeadPageData = {
+  page: 1,
+  totalPages: 1,
+  totalItems: 0,
+  rows: [],
+  startIndex: 0,
+  endIndex: 0
+};
 
 if (lostSearchInput) {
   lostSearchInput.value = searchQuery;
@@ -527,7 +535,18 @@ async function refreshArchivedLeads() {
   }
 
   try {
-    const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/lost-leads/archive?limit=10000"), {
+    const params = new URLSearchParams({
+      page: String(archivedPage),
+      limit: String(PAGE_SIZE)
+    });
+    const courseName = normalizeCourseFilterValue(selectedCourseFilter);
+    if (courseName !== "all") {
+      params.set("courseName", courseName);
+    }
+    if (searchQuery) {
+      params.set("search", searchQuery);
+    }
+    const { response, json } = await fetchJsonWithTimeout(apiUrl(`/api/lost-leads/archive?${params.toString()}`), {
       method: "GET",
       headers: { Accept: "application/json" }
     }, 15000);
@@ -546,17 +565,39 @@ async function refreshArchivedLeads() {
     archivedLeadTotalCount = Number.isFinite(Number(json?.totalCount))
       ? Number(json.totalCount)
       : archivedLeads.length;
+    const pagination = json?.pagination || {};
+    const page = Number(pagination.page) || archivedPage;
+    archivedLeadPageData = {
+      page,
+      totalPages: Math.max(1, Number(pagination.totalPages) || 1),
+      totalItems: Number(pagination.total) || archivedLeadTotalCount,
+      rows: archivedLeads,
+      startIndex: archivedLeads.length ? ((page - 1) * PAGE_SIZE) + 1 : 0,
+      endIndex: ((page - 1) * PAGE_SIZE) + archivedLeads.length
+    };
+    archivedPage = page;
   } catch {
     archivedLeads = [];
     archivedLeadTotalCount = 0;
+    archivedLeadPageData = {
+      page: 1,
+      totalPages: 1,
+      totalItems: 0,
+      rows: [],
+      startIndex: 0,
+      endIndex: 0
+    };
   }
 }
 
 function renderKpi(lostLeads, archivedRows) {
+  const activeLostCount = Number.isFinite(Number(lostLeadPageData.totalItems))
+    ? Number(lostLeadPageData.totalItems)
+    : lostLeads.length;
   lostKpiSection.innerHTML = `
     <article class="card kpi-card">
       <p>Active Lost Leads</p>
-      <h2>${lostLeads.length}</h2>
+      <h2>${activeLostCount}</h2>
     </article>
     <article class="card kpi-card">
       <p>Archived Leads</p>
@@ -572,7 +613,8 @@ function renderCourseFilterOptions(lostLeads, archivedRows) {
 
   const courseNames = [...new Set([
     ...lostLeads.map((lead) => getLostProgramName(lead)),
-    ...archivedRows.map((lead) => String(lead?.courseName || "").trim())
+    ...archivedRows.map((lead) => String(lead?.courseName || "").trim()),
+    normalizeCourseFilterValue(selectedCourseFilter) === "all" ? "" : selectedCourseFilter
   ].map((value) => String(value || "").trim()).filter(Boolean))].sort((left, right) => left.localeCompare(right));
 
   const nextValue = courseNames.includes(selectedCourseFilter) ? selectedCourseFilter : "all";
@@ -649,6 +691,8 @@ function renderPagination(container, pageData, sectionKey) {
       const targetSection = button.getAttribute("data-page-section");
       if (targetSection === "archived") {
         archivedPage = action === "next" ? archivedPage + 1 : archivedPage - 1;
+        void refreshArchivedLeads().then(() => renderAll());
+        return;
       } else {
         lostPage = action === "next" ? lostPage + 1 : lostPage - 1;
         void loadLostLeadData().then(() => renderAll());
@@ -762,7 +806,13 @@ function renderArchivedTable(rows) {
     return;
   }
 
-  const pageData = getPageSlice(rows, archivedPage);
+  const pageData = {
+    ...archivedLeadPageData,
+    rows,
+    page: archivedPage,
+    totalPages: Math.max(1, archivedLeadPageData.totalPages || 1),
+    totalItems: Number(archivedLeadPageData.totalItems) || archivedLeadTotalCount || rows.length
+  };
   archivedPage = pageData.page;
   let html = `
     <div class="table-scroll">
@@ -854,8 +904,8 @@ function renderAll() {
     filteredArchivedLeads = filteredArchivedLeads.filter((lead) => String(lead?.courseName || "").trim() === selectedCourseFilter);
   }
 
-  lostPage = clampPage(lostPage, lostLeads.length);
-  archivedPage = clampPage(archivedPage, filteredArchivedLeads.length);
+  lostPage = clampPage(lostPage, Number(lostLeadPageData.totalItems) || lostLeads.length);
+  archivedPage = clampPage(archivedPage, Number(archivedLeadPageData.totalItems) || filteredArchivedLeads.length);
   renderSubsectionNav();
   renderSectionVisibility();
   renderLostTable(lostLeads);
@@ -876,7 +926,10 @@ if (lostSearchInput) {
     lostPage = 1;
     archivedPage = 1;
     persistSearchQuery();
-    void loadLostLeadData().then(() => renderAll());
+    void Promise.all([
+      loadLostLeadData(),
+      refreshArchivedLeads()
+    ]).then(() => renderAll());
   };
 }
 
@@ -893,7 +946,10 @@ if (resetLostSearch) {
     lostPage = 1;
     archivedPage = 1;
     persistSearchQuery();
-    void loadLostLeadData().then(() => renderAll());
+    void Promise.all([
+      loadLostLeadData(),
+      refreshArchivedLeads()
+    ]).then(() => renderAll());
   };
 }
 
@@ -902,7 +958,10 @@ if (lostCourseFilter) {
     selectedCourseFilter = normalizeCourseFilterValue(lostCourseFilter.value);
     lostPage = 1;
     archivedPage = 1;
-    void loadLostLeadData().then(() => renderAll());
+    void Promise.all([
+      loadLostLeadData(),
+      refreshArchivedLeads()
+    ]).then(() => renderAll());
   };
 }
 
@@ -945,7 +1004,7 @@ const stopStatePolling = (() => {
   }
   const timer = window.setInterval(() => {
     void poll();
-  }, 15000);
+  }, 60000);
   const onVisible = () => {
     if (document.visibilityState === "visible") void poll();
   };

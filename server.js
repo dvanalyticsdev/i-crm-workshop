@@ -13027,13 +13027,39 @@ app.get("/api/lost-leads/archive", async (req, res) => {
     if (!session) return;
 
     const syncResult = await syncStaleLostLeadsToArchive();
-    const limit = Math.min(Math.max(Number(req.query.limit) || 5000, 1), 10000);
-    const rows = await lsqArchiveCollection.find({}).sort({ _id: -1 }).limit(limit).toArray();
-    const totalCount = await lsqArchiveCollection.countDocuments({});
+    const page = parseBoundedPositiveInt(req.query?.page, 1, 1, 100000);
+    const limit = parseBoundedPositiveInt(req.query?.limit, 100, 1, 250);
+    const skip = (page - 1) * limit;
+    const courseName = normalizeArchivedCourseName(req.query?.courseName);
+    let query = courseName ? { courseName: new RegExp(escapeMongoRegex(courseName), "i") } : {};
+    const search = String(req.query?.search || "").trim();
+    if (search) {
+      const regex = new RegExp(escapeMongoRegex(search), "i");
+      query = appendMongoAnd(query, {
+        $or: [
+          { name: regex },
+          { email: regex },
+          { phone: regex },
+          { courseName: regex },
+          { counselor: regex }
+        ]
+      });
+    }
+    const [rows, totalCount] = await Promise.all([
+      lsqArchiveCollection.find(query).sort({ _id: -1 }).skip(skip).limit(limit).toArray(),
+      lsqArchiveCollection.countDocuments(query)
+    ]);
     const response = {
       ok: true,
       movedCount: Number(syncResult?.movedCount) || 0,
       totalCount,
+      pagination: {
+        page,
+        limit,
+        total: totalCount || 0,
+        totalPages: Math.max(1, Math.ceil((totalCount || 0) / limit)),
+        returned: rows.length
+      },
       rows: normalizeArchivedLeadDocs(rows)
     };
 

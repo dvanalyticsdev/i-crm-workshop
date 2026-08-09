@@ -1051,7 +1051,7 @@ const leadControlPollingId = setInterval(async () => {
   } finally {
     leadControlPollingActive = false;
   }
-}, 15000);
+}, 60000);
 const stopStatePolling = () => {
   leadControlPollingStopped = true;
   clearInterval(leadControlPollingId);

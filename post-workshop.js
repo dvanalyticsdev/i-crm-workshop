@@ -2494,7 +2494,7 @@ const postWorkshopPollingId = setInterval(async () => {
   } finally {
     postWorkshopPollingActive = false;
   }
-}, 15000);
+}, 60000);
 const stopStatePolling = () => {
   postWorkshopPollingStopped = true;
   clearInterval(postWorkshopPollingId);

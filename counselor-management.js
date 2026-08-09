@@ -18,13 +18,21 @@ import { PUBLIC_COURSES } from "./course-catalog.js";
 await bootstrapLocalState({ skipStateRefresh: true });
 
 async function loadAccountDirectory() {
-  const response = await fetch(apiUrl("/api/account-directory"), {
-    credentials: "same-origin",
-    headers: { Accept: "application/json" }
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload?.message || "Failed to load account directory.");
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 8000);
+  let payload;
+  try {
+    const response = await fetch(apiUrl("/api/account-directory"), {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+      signal: controller.signal
+    });
+    payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.message || "Failed to load account directory.");
+    }
+  } finally {
+    window.clearTimeout(timeoutId);
   }
   replaceStateSnapshot({
     ...getStateSnapshot(),
@@ -36,10 +44,6 @@ async function loadAccountDirectory() {
     clearedAt: payload?.clearedAt || null
   });
 }
-
-await loadAccountDirectory().catch(async (error) => {
-  console.warn("[counselor-management] Account directory loading failed:", error?.message || error);
-});
 
 const COUNSELOR_FALLBACK_PERMISSIONS = {
   dashboard: true,
@@ -1529,6 +1533,9 @@ function renderAccountDirectory() {
 }
 
 renderAccountDirectory();
+void loadAccountDirectory()
+  .then(renderAccountDirectory)
+  .catch((error) => console.warn("[counselor-management] Account directory loading failed:", error?.message || error));
 
 const directoryPollTimer = window.setInterval(() => {
   if (document.visibilityState === "hidden") {
@@ -1537,7 +1544,7 @@ const directoryPollTimer = window.setInterval(() => {
   void loadAccountDirectory()
     .then(renderAccountDirectory)
     .catch((error) => console.warn("[counselor-management] directory polling failed:", error?.message || error));
-}, 15000);
+}, 60000);
 
 const stopStatePolling = () => window.clearInterval(directoryPollTimer);
 

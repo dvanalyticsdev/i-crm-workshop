@@ -33,6 +33,8 @@ let monitoringLeads = [];
 let monitoringCounselors = [];
 let monitoringReport = null;
 let monitoringLoading = false;
+let monitoringLoadController = null;
+let monitoringLoadSequence = 0;
 const monitoringDataCache = new Map();
 
 const TIMELINE_STORAGE_KEY = "dvWorkshopMonitoringTimeline";
@@ -520,8 +522,11 @@ function storeMonitoringCache(cacheKey, payload = {}) {
 
 async function loadMonitoringData() {
   const cacheKey = getMonitoringCacheKey();
+  monitoringLoadController?.abort();
+  const loadSequence = ++monitoringLoadSequence;
   monitoringLoading = true;
   const controller = new AbortController();
+  monitoringLoadController = controller;
   const timeoutId = window.setTimeout(() => controller.abort(), 18000);
   try {
   if (!isAdminMonitoringView() || ["reporting", "lead-assignment"].includes(activeView.subsection)) {
@@ -549,6 +554,7 @@ async function loadMonitoringData() {
       if (!response.ok || payload?.ok === false) {
         throw new Error(payload?.message || "Failed to load monitoring report.");
       }
+      if (loadSequence !== monitoringLoadSequence) return;
       monitoringReport = payload;
       monitoringLeads = [];
       monitoringCounselors = [];
@@ -592,6 +598,7 @@ async function loadMonitoringData() {
   if (!counselorResponse.ok) {
     throw new Error(counselorPayload?.message || "Failed to load monitoring counselors.");
   }
+  if (loadSequence !== monitoringLoadSequence) return;
   monitoringLeads = Array.isArray(leadPayload) ? leadPayload : [];
   monitoringCounselors = Array.isArray(counselorPayload) ? counselorPayload : [];
   counselorDirectoryCacheKey = "";
@@ -604,11 +611,14 @@ async function loadMonitoringData() {
   });
   } finally {
     window.clearTimeout(timeoutId);
-    monitoringLoading = false;
+    if (loadSequence === monitoringLoadSequence) {
+      monitoringLoading = false;
+      monitoringLoadController = null;
+    }
   }
 }
 
-function startMonitoringPolling(onRefresh, intervalMs = 15000) {
+function startMonitoringPolling(onRefresh, intervalMs = 60000) {
   let destroyed = false;
   let activePoll = false;
   async function poll() {

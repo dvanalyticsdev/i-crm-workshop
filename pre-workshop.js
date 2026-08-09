@@ -2682,7 +2682,7 @@ const preWorkshopPollingId = setInterval(async () => {
   } finally {
     preWorkshopPollingActive = false;
   }
-}, 15000);
+}, 60000);
 const stopStatePolling = () => {
   preWorkshopPollingStopped = true;
   clearInterval(preWorkshopPollingId);
