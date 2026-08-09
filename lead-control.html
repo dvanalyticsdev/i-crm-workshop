@@ -72,14 +72,14 @@
 
       <section class="card admin-panel hidden" id="adminImportPanel" data-admin-only="true">
         <div class="card-head">
-          <h3>Workshop Lead Import & Counselor Allocation</h3>
-          <p>Upload workshop leads and auto-assign counselors using percentage allocation.</p>
+          <h3>Universal Lead Import & Counselor Routing</h3>
+          <p>Upload mixed workshop and admission leads, then auto-assign counselors using saved routing rules.</p>
         </div>
 
         <div class="import-grid">
           <div class="import-block">
-            <h4>Workshop Lead Import</h4>
-            <p class="block-help">Supported formats: .xlsx, .csv</p>
+            <h4>Universal Lead Import</h4>
+            <p class="block-help">Supported formats: .xlsx, .csv. Minimum row: Lead Name, Phone Number, and Workshop / Course Name.</p>
             <input id="leadImportFile" type="file" accept=".xlsx,.csv" />
             <button id="importLeadsBtn" type="button" class="btn-primary">Import Leads</button>
           </div>
@@ -97,12 +97,12 @@
 
         <div class="allocation-block">
           <div class="card-head">
-            <h4>Counselor Allocation</h4>
-            <p>Total allocation must be 100%</p>
+            <h4>Counselor Routing Rules</h4>
+            <p>Enable course routes for admission leads and Workshop for workshop leads. Distribution is round-robin within each route.</p>
           </div>
           <div id="allocationRows" class="allocation-rows"></div>
           <div class="allocation-actions">
-            <button id="saveAllocationBtn" type="button" class="btn-ghost">Save Allocation</button>
+            <button id="saveAllocationBtn" type="button" class="btn-ghost">Save Routing Rules</button>
           </div>
           <p id="allocationMessage" class="message" aria-live="polite"></p>
         </div>

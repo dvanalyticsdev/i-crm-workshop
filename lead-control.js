@@ -1,16 +1,17 @@
 import { registerPageCleanup } from "./page-runtime.js";
 import { apiUrl } from "./api-client.js";
 import {
+  CRM_FIXED_COURSE_OPTIONS,
+  getCanonicalPublicCourseIdentity
+} from "./course-catalog.js";
+import {
   bootstrapLocalState,
   acceptServerState,
   getAllocation as getStoredAllocation,
   getCounselors as getStoredCounselors,
-  getLeads as getStoredLeads,
   getSession,
   getStateSnapshot,
   replaceStateSnapshot,
-  saveAllocation as persistAllocation,
-  saveLeads as persistLeads,
   syncStateFromLocalAndVerify
 } from "./state-sync.js";
 import { createRenderScheduler, withButtonBusy } from "./ui-feedback.js";
@@ -37,6 +38,20 @@ const isAdmin = session?.role === "admin" || session?.role === "super_admin";
 const isSuperAdmin = session?.role === "super_admin";
 
 const DEFAULT_ALLOCATION = [];
+const ROUTING_META_TYPE = "routing-meta";
+const ROUTING_COURSES = CRM_FIXED_COURSE_OPTIONS.map((course) => ({
+  id: course.id,
+  label: course.label
+}));
+const WORKSHOP_IMPORT_CATEGORIES = [
+  { id: "excel", label: "Excel", pattern: /\bexcel\b/i },
+  { id: "power-bi", label: "Power BI", pattern: /\bpower\s*bi\b|\bpowerbi\b|\bpbi\b/i },
+  { id: "sql", label: "SQL", pattern: /\bsql\b/i },
+  { id: "python", label: "Python", pattern: /\bpython\b/i },
+  { id: "gen-ai", label: "Gen AI", pattern: /\bgen\s*ai\b|\bgenai\b|\bgenerative\s*ai\b|\bagentic\b/i },
+  { id: "cyber-ai", label: "Cyber AI", pattern: /\bcyber\s*ai\b|\bcyberai\b|\bcyber\s*security\b|\bcybersecurity\b|\bapcs\b/i },
+  { id: "master-class", label: "Master Class", pattern: /\bmaster\s*class\b|\bmasterclass\b/i }
+];
 
 function toIsoDate(date = new Date()) {
   const year = date.getFullYear();
@@ -109,20 +124,12 @@ function isPostWorkshopLead(lead) {
   return lead.wsStatus === "Interested" && lead.whatsappInvite === "Yes";
 }
 
-function getAllLeads() {
-  const leads = getStoredLeads();
-  normalizeLeadFields(leads);
-  return leads;
-}
-
-function saveAllLeads(leads) {
-  return persistLeads(leads);
-}
-
 function normalizeLeadFields(leads) {
   leads.forEach((lead) => {
     lead.name = lead.name || "";
     lead.email = (lead.email || "").toLowerCase();
+    lead.normalizedEmail = lead.normalizedEmail || lead.email;
+    lead.normalizedPhone = lead.normalizedPhone || normalizeDuplicatePhone(lead.phone);
     lead.workshop = lead.workshop || "";
     lead.createdAt = lead.createdAt || toIsoDate();
     lead.importSourceFiles = getLeadImportSourceFiles(lead);
@@ -354,20 +361,99 @@ async function verifyAssignedCounselorsOnBackend(importedRecords) {
   return { ok: true };
 }
 
-function saveAllocation(allocation) {
-  return persistAllocation(allocation);
+async function saveUniversalImportedLeads(leads, allocationWithMeta) {
+  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/leads/universal-import"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    },
+    credentials: "same-origin",
+    body: JSON.stringify({
+      leads,
+      allocation: allocationWithMeta
+    })
+  }, 60000);
+
+  if (!response.ok || json?.ok === false) {
+    return { ok: false, message: json?.message || "Failed to save imported leads." };
+  }
+
+  if (json?.state) {
+    acceptServerState(json.state, response.headers.get("etag"));
+  }
+
+  return { ok: true, ...json };
 }
 
-function getAllocation() {
+async function saveAllocation(allocation) {
+  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/allocation"), {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    },
+    credentials: "same-origin",
+    body: JSON.stringify(Array.isArray(allocation) ? allocation : [])
+  }, 10000);
+
+  if (!response.ok || json?.ok === false) {
+    return { ok: false, message: json?.message || "Failed to save routing rules." };
+  }
+
+  replaceStateSnapshot({
+    ...getStateSnapshot(),
+    allocation: Array.isArray(allocation) ? allocation : [],
+    updatedAt: json?.updatedAt || new Date().toISOString()
+  });
+  return { ok: true };
+}
+
+function getRawAllocation() {
   const allocation = getStoredAllocation();
   if (!Array.isArray(allocation) || !allocation.length) {
     return structuredClone(DEFAULT_ALLOCATION);
   }
 
-  return allocation.map((item) => ({
-    name: String(item.name || "").trim(),
-    percentage: Number(item.percentage || 0)
-  }));
+  return allocation;
+}
+
+function isRoutingMeta(item) {
+  return item?.type === ROUTING_META_TYPE;
+}
+
+function getRoutingMeta(allocation = getRawAllocation()) {
+  const meta = allocation.find(isRoutingMeta);
+  return {
+    type: ROUTING_META_TYPE,
+    routeCounters: {
+      workshop: Number(meta?.routeCounters?.workshop) || 0,
+      courses: meta?.routeCounters?.courses && typeof meta.routeCounters.courses === "object"
+        ? { ...meta.routeCounters.courses }
+        : {}
+    }
+  };
+}
+
+function getAllocation() {
+  const allocation = getRawAllocation().filter((item) => !isRoutingMeta(item));
+  return allocation
+    .map((item) => {
+      const coursePermissions = item.coursePermissions && typeof item.coursePermissions === "object"
+        ? item.coursePermissions
+        : item.admissionCoursePermissions && typeof item.admissionCoursePermissions === "object"
+          ? item.admissionCoursePermissions
+          : {};
+      return {
+        name: String(item.name || "").trim(),
+        workshopEnabled: item.workshopEnabled !== false && item.roundRobinEnabled !== false,
+        coursePermissions: Object.fromEntries(ROUTING_COURSES.map((course) => [
+          course.id,
+          Boolean(coursePermissions[course.id])
+        ]))
+      };
+    })
+    .filter((item) => item.name);
 }
 
 async function getCounselorNamesForAllocation() {
@@ -405,12 +491,15 @@ async function getCounselorNamesForAllocation() {
 
 function mergeAllocationNames(names, existingAllocation) {
   const byName = new Map(
-    existingAllocation.map((item) => [String(item.name || "").trim().toLowerCase(), Number(item.percentage || 0)])
+    existingAllocation.map((item) => [String(item.name || "").trim().toLowerCase(), item])
   );
 
   return names.map((name) => ({
     name,
-    percentage: byName.get(name.toLowerCase()) || 0
+    workshopEnabled: byName.get(name.toLowerCase())?.workshopEnabled === true,
+    coursePermissions: {
+      ...(byName.get(name.toLowerCase())?.coursePermissions || {})
+    }
   }));
 }
 
@@ -418,17 +507,24 @@ function validateAllocation(allocation) {
   const cleaned = allocation
     .map((item) => ({
       name: String(item.name || "").trim(),
-      percentage: Number(item.percentage || 0)
+      workshopEnabled: item.workshopEnabled === true,
+      coursePermissions: Object.fromEntries(ROUTING_COURSES.map((course) => [
+        course.id,
+        Boolean(item.coursePermissions?.[course.id])
+      ]))
     }))
-    .filter((item) => item.name && item.percentage > 0);
+    .filter((item) => item.name);
 
   if (!cleaned.length) {
-    return { ok: false, message: "Add at least one counselor with percentage greater than 0." };
+    return { ok: false, message: "Add at least one counselor routing rule." };
   }
 
-  const total = cleaned.reduce((sum, item) => sum + item.percentage, 0);
-  if (Math.abs(total - 100) > 0.01) {
-    return { ok: false, message: `Total allocation must be 100%. Current total: ${total.toFixed(2)}%.` };
+  const hasAnyRule = cleaned.some((item) => (
+    item.workshopEnabled ||
+    ROUTING_COURSES.some((course) => item.coursePermissions[course.id])
+  ));
+  if (!hasAnyRule) {
+    return { ok: false, message: "Enable Workshop or at least one course for one counselor." };
   }
 
   return { ok: true, cleaned };
@@ -445,9 +541,18 @@ function renderAllocationRows(allocation) {
   allocationRows.innerHTML = allocation
     .map(
       (item, index) => `
-        <div class="allocation-row" data-index="${index}">
-          <input type="text" class="allocation-name" value="${item.name}" placeholder="Counselor name" />
-          <input type="number" class="allocation-percentage" value="${item.percentage}" min="0" max="100" step="0.01" placeholder="%" />
+        <div class="allocation-row universal-routing-row" data-index="${index}" style="grid-template-columns:minmax(160px,1.2fr) repeat(${ROUTING_COURSES.length + 1}, minmax(86px, auto));align-items:center;overflow-x:auto;">
+          <input type="text" class="allocation-name" value="${escapeHtml(item.name)}" placeholder="Counselor name" />
+          ${ROUTING_COURSES.map((course) => `
+            <label class="routing-toggle" title="${escapeHtml(course.label)}">
+              <input type="checkbox" class="allocation-course-toggle" data-course-id="${escapeHtml(course.id)}" ${item.coursePermissions?.[course.id] ? "checked" : ""} />
+              <span>${escapeHtml(course.label)}</span>
+            </label>
+          `).join("")}
+          <label class="routing-toggle" title="Workshop leads">
+            <input type="checkbox" class="allocation-workshop-toggle" ${item.workshopEnabled ? "checked" : ""} />
+            <span>Workshop</span>
+          </label>
         </div>
       `
     )
@@ -456,59 +561,50 @@ function renderAllocationRows(allocation) {
 
 function readAllocationFromForm() {
   const names = Array.from(document.querySelectorAll(".allocation-name"));
-  const percentages = Array.from(document.querySelectorAll(".allocation-percentage"));
 
-  return names.map((nameInput, index) => ({
-    name: nameInput.value,
-    percentage: percentages[index]?.value || 0
-  }));
+  return names.map((nameInput) => {
+    const row = nameInput.closest(".allocation-row");
+    const coursePermissions = {};
+    row?.querySelectorAll(".allocation-course-toggle").forEach((input) => {
+      const courseId = input.getAttribute("data-course-id");
+      if (courseId) {
+        coursePermissions[courseId] = input.checked;
+      }
+    });
+    return {
+      name: nameInput.value,
+      workshopEnabled: Boolean(row?.querySelector(".allocation-workshop-toggle")?.checked),
+      coursePermissions
+    };
+  });
 }
 
-function createCounselorAssignments(totalLeads, allocation) {
-  if (!totalLeads) {
-    return [];
+function getEligibleCounselorsForLead(lead, allocation) {
+  if (lead.leadPipeline === "main-admission") {
+    const courseId = String(lead.courseId || "").trim();
+    return allocation.filter((rule) => Boolean(rule.coursePermissions?.[courseId]));
+  }
+  return allocation.filter((rule) => rule.workshopEnabled);
+}
+
+function assignLeadByRoundRobin(lead, allocation, meta) {
+  const eligible = getEligibleCounselorsForLead(lead, allocation);
+  if (!eligible.length) {
+    return "Unassigned";
   }
 
-  if (!allocation.length) {
-    return new Array(totalLeads).fill("Unassigned");
+  if (lead.leadPipeline === "main-admission") {
+    const courseId = String(lead.courseId || "unknown").trim() || "unknown";
+    const current = Number(meta.routeCounters.courses[courseId]) || 0;
+    const counselor = eligible[current % eligible.length]?.name || "Unassigned";
+    meta.routeCounters.courses[courseId] = current + 1;
+    return counselor;
   }
 
-  const targets = allocation.map((item) => ({
-    name: item.name,
-    floor: Math.floor((totalLeads * item.percentage) / 100),
-    frac: (totalLeads * item.percentage) / 100 - Math.floor((totalLeads * item.percentage) / 100)
-  }));
-
-  let assigned = targets.reduce((sum, item) => sum + item.floor, 0);
-  let remaining = totalLeads - assigned;
-
-  targets
-    .sort((a, b) => b.frac - a.frac)
-    .forEach((item) => {
-      if (remaining > 0) {
-        item.floor += 1;
-        remaining -= 1;
-      }
-    });
-
-  const balanced = [];
-  let active = true;
-  while (active) {
-    active = false;
-    targets.forEach((item) => {
-      if (item.floor > 0) {
-        balanced.push(item.name);
-        item.floor -= 1;
-        active = true;
-      }
-    });
-  }
-
-  while (balanced.length < totalLeads) {
-    balanced.push(allocation[0].name);
-  }
-
-  return balanced.slice(0, totalLeads);
+  const current = Number(meta.routeCounters.workshop) || 0;
+  const counselor = eligible[current % eligible.length]?.name || "Unassigned";
+  meta.routeCounters.workshop = current + 1;
+  return counselor;
 }
 
 function normalizeHeader(key) {
@@ -566,8 +662,167 @@ function normalizeCreatedAt(value) {
   return toIsoDate();
 }
 
+function getYearFromIsoDate(value) {
+  const match = String(value || "").match(/^(\d{4})-/);
+  return match ? Number(match[1]) : new Date().getFullYear();
+}
+
+function normalizeTwoDigitYear(value) {
+  const year = Number(value);
+  if (!Number.isFinite(year)) return new Date().getFullYear();
+  if (year < 100) return 2000 + year;
+  return year;
+}
+
+function buildIsoDateFromParts(day, month, year) {
+  const safeDay = Number(day);
+  const safeMonth = Number(month);
+  const safeYear = normalizeTwoDigitYear(year);
+  const date = new Date(safeYear, safeMonth - 1, safeDay);
+  if (
+    Number.isNaN(date.getTime()) ||
+    date.getFullYear() !== safeYear ||
+    date.getMonth() !== safeMonth - 1 ||
+    date.getDate() !== safeDay
+  ) {
+    return "";
+  }
+  return toIsoDate(date);
+}
+
+function formatWorkshopDateLabel(isoDate) {
+  const parsed = new Date(`${isoDate}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toLocaleDateString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  });
+}
+
+function getMonthNumber(value) {
+  const key = String(value || "").trim().toLowerCase().slice(0, 3);
+  return {
+    jan: 1,
+    feb: 2,
+    mar: 3,
+    apr: 4,
+    may: 5,
+    jun: 6,
+    jul: 7,
+    aug: 8,
+    sep: 9,
+    oct: 10,
+    nov: 11,
+    dec: 12
+  }[key] || 0;
+}
+
+function extractWorkshopDateFromName(value, fallbackYear) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return { cleanName: "", dateKey: "", dateLabel: "", rawDateText: "" };
+  }
+
+  const year = Number(fallbackYear) || new Date().getFullYear();
+  const matchers = [
+    {
+      pattern: /\b([0-3]?\d)(?:st|nd|rd|th)?[\s._/-]+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:[\s,._/-]+(\d{2,4}))?\b/i,
+      build: (match) => buildIsoDateFromParts(match[1], getMonthNumber(match[2]), match[3] || year)
+    },
+    {
+      pattern: /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)[\s._/-]+([0-3]?\d)(?:st|nd|rd|th)?(?:[\s,._/-]+(\d{2,4}))?\b/i,
+      build: (match) => buildIsoDateFromParts(match[2], getMonthNumber(match[1]), match[3] || year)
+    },
+    {
+      pattern: /\b([0-3]?\d)[/-]([01]?\d)(?:[/-](\d{2,4}))?\b/,
+      build: (match) => buildIsoDateFromParts(match[1], match[2], match[3] || year)
+    }
+  ];
+
+  for (const matcher of matchers) {
+    const match = text.match(matcher.pattern);
+    if (!match) continue;
+    const dateKey = matcher.build(match);
+    if (!dateKey) continue;
+    const cleanName = text
+      .replace(match[0], " ")
+      .replace(/\b(on|date|dated)\b/gi, " ")
+      .replace(/[\s._/-]+$/g, "")
+      .replace(/^[\s._/-]+/g, "")
+      .replace(/[\s._/-]{2,}/g, " ")
+      .trim();
+    return {
+      cleanName: cleanName || text,
+      dateKey,
+      dateLabel: formatWorkshopDateLabel(dateKey),
+      rawDateText: match[0]
+    };
+  }
+
+  return { cleanName: text, dateKey: "", dateLabel: "", rawDateText: "" };
+}
+
 function normalizeDuplicatePhone(value) {
-  return String(value || "").replace(/\D+/g, "").trim();
+  const raw = String(value || "").trim();
+  if (/^\d+(\.\d+)?e\+?\d+$/i.test(raw)) {
+    const numeric = Number(raw);
+    if (Number.isFinite(numeric)) {
+      return String(Math.trunc(numeric)).replace(/\D+/g, "").trim();
+    }
+  }
+  return raw.replace(/\.0+$/, "").replace(/\D+/g, "").trim();
+}
+
+function normalizeImportedPhone(value) {
+  const normalized = normalizeDuplicatePhone(value);
+  if (!normalized) return "";
+  if (normalized.length === 10) return normalized;
+  if (normalized.length > 10 && normalized.startsWith("91")) return normalized.slice(-10);
+  return normalized;
+}
+
+function getImportDescriptor(row, sheetName = "") {
+  return String(pickValue(row, [
+    "form",
+    "workshop",
+    "workshopname",
+    "course",
+    "coursename",
+    "program",
+    "programname",
+    "sourceform"
+  ]) || sheetName || "").trim();
+}
+
+function normalizeImportDescriptorText(value) {
+  return String(value || "")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/[()]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isWorkshopImportDescriptor(value) {
+  const text = normalizeImportDescriptorText(value).toLowerCase();
+  return /\bworkshop\b|\bmaster\s*class\b|\bwebinar\b|\bbootcamp\b/.test(text);
+}
+
+function getCourseIdentityFromImport(value) {
+  const identity = getCanonicalPublicCourseIdentity(value);
+  const matchedFixedCourse = ROUTING_COURSES.find((course) => course.id === identity.id);
+  return {
+    id: matchedFixedCourse?.id || "",
+    label: matchedFixedCourse?.label || ""
+  };
+}
+
+function getWorkshopCategoryFromImport(value) {
+  const descriptor = normalizeImportDescriptorText(value);
+  if (!descriptor) return null;
+  return WORKSHOP_IMPORT_CATEGORIES.find((category) => category.pattern.test(descriptor)) || null;
 }
 
 function mergeImportedLead(existingLead, importedLead) {
@@ -610,29 +865,92 @@ function mergeImportedLead(existingLead, importedLead) {
 function buildLeadFromImportRow(row, id, workshopName, sourceFileName) {
   const name = String(pickValue(row, ["studentname", "fullname", "leadname", "name"])).trim();
   const email = String(pickValue(row, ["emailaddress", "emailid", "mail", "email"])).trim().toLowerCase();
-  const workshop = String(workshopName || "").trim();
+  const phone = normalizeImportedPhone(pickValue(row, ["phone", "phonenumber", "number", "mobile", "contact", "contactnumber"]));
+  const descriptor = getImportDescriptor(row, workshopName);
+  const createdAt = normalizeCreatedAt(pickValue(row, ["created", "createdat", "date", "leadcreated", "createdon"]));
+  const isWorkshopLead = isWorkshopImportDescriptor(descriptor);
 
   if (!name) {
     return { error: "Name is required." };
   }
 
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return { error: "Valid email is required." };
+  if (!phone) {
+    return { error: "Phone Number is required." };
   }
 
-  if (!workshop) {
-    return { error: "Workshop Name is required." };
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { error: "Valid email is required when provided." };
   }
 
+  if (!descriptor) {
+    return { error: "Workshop or Course Name is required." };
+  }
+
+  if (!isWorkshopLead) {
+    const course = getCourseIdentityFromImport(descriptor);
+    if (!course.id) {
+      return { error: `Course is not recognized for admission routing: ${descriptor}` };
+    }
+    return {
+      lead: {
+        id,
+        name,
+        email,
+        phone,
+        normalizedEmail: email,
+        normalizedPhone: normalizeDuplicatePhone(phone),
+        courseName: course.label,
+        courseId: course.id,
+        courseCode: course.label,
+        leadPipeline: "main-admission",
+        publicCourseSegment: course.id === "days7_genai" ? "crash-course" : "standard",
+        createdAt,
+        createdAtExact: new Date().toISOString(),
+        counselor: "Unassigned",
+        mainAdmissionDialed: "",
+        mainAdmissionCoursePitched: course.label,
+        mainAdmissionCourseStatus: "",
+        mainAdmissionAdmissionStatus: "",
+        mainAdmissionCallStatus: "",
+        mainAdmissionActivityUpdated: false,
+        mainAdmissionActivityUpdates: 0,
+        mainAdmissionActivityTouchedByAssignee: false,
+        mainAdmissionActivityHistory: [],
+        leadNotes: [],
+        importSourceFiles: [String(sourceFileName || "").trim()].filter(Boolean),
+        importSourceSheets: [String(workshopName || "").trim()].filter(Boolean),
+        importSourceSheet: String(workshopName || "").trim(),
+        elementorFormName: descriptor,
+        source: "Universal Import",
+        leadSource: "Universal Import"
+      }
+    };
+  }
+
+  const parsedWorkshop = extractWorkshopDateFromName(descriptor, getYearFromIsoDate(createdAt));
+  const workshopCategory = getWorkshopCategoryFromImport(parsedWorkshop.cleanName || descriptor);
+  if (!workshopCategory) {
+    return { error: `Workshop category is not recognized: ${descriptor}` };
+  }
+
+  const workshop = workshopCategory.label;
   const lead = {
     id,
     name,
     email,
-    phone: String(pickValue(row, ["phone", "phonenumber", "number", "mobile", "contact"]))
-      .trim(),
+    phone,
+    normalizedEmail: email,
+    normalizedPhone: normalizeDuplicatePhone(phone),
     workshop,
+    workshopName: workshop,
+    workshopCategoryId: workshopCategory.id,
+    workshopRawName: descriptor,
+    workshopDateKey: parsedWorkshop.dateKey,
+    workshopDateLabel: parsedWorkshop.dateLabel,
+    workshopDateRawText: parsedWorkshop.rawDateText,
     status: normalizeLeadStatus(pickValue(row, ["status"])),
-    createdAt: toIsoDate(),
+    createdAt,
+    createdAtExact: new Date().toISOString(),
     dialed: "",
     callStatus: "",
     wsStatus: "",
@@ -652,7 +970,11 @@ function buildLeadFromImportRow(row, id, workshopName, sourceFileName) {
     whatsappGroupStatus: "",
     leadNotes: [],
     importSourceFiles: [String(sourceFileName || "").trim()].filter(Boolean),
-    importSourceSheets: [String(row.__workshopName || "").trim()].filter(Boolean)
+    importSourceSheets: [String(row.__workshopName || "").trim()].filter(Boolean),
+    importSourceSheet: String(row.__workshopName || "").trim(),
+    elementorFormName: descriptor,
+    source: "Universal Import",
+    leadSource: "Universal Import"
   };
 
   return { lead };
@@ -725,34 +1047,17 @@ async function handleLeadImport() {
     return;
   }
 
-  try {
-    await loadLeadControlWorkshopLeads();
-  } catch (error) {
-    setMessage(importMessage, error?.message || "Could not load current leads before import.", true);
-    return;
-  }
-
-  const nextLeads = getAllLeads();
   const leadIndexByEmail = new Map();
   const leadIndexByPhone = new Map();
-  nextLeads.forEach((lead, index) => {
-    const email = String(lead.email || "").trim().toLowerCase();
-    const phone = normalizeDuplicatePhone(lead.phone);
-    if (email && !leadIndexByEmail.has(email)) {
-      leadIndexByEmail.set(email, index);
-    }
-    if (phone && !leadIndexByPhone.has(phone)) {
-      leadIndexByPhone.set(phone, index);
-    }
-  });
 
   const importedRecords = [];
   const failed = [];
+  const assignmentMisses = [];
   let createdCount = 0;
-  let nextId = Math.max(...nextLeads.map((lead) => Number(lead.id) || 0), 0) + 1;
+  let tempId = Date.now();
 
   rows.forEach((row, idx) => {
-    const { lead, error } = buildLeadFromImportRow(row, nextId, row.__workshopName, row.__importSourceFile);
+    const { lead, error } = buildLeadFromImportRow(row, tempId, row.__workshopName, row.__importSourceFile);
     if (error) {
       failed.push(`Row ${idx + 2}: ${error}`);
       return;
@@ -767,60 +1072,59 @@ async function handleLeadImport() {
       duplicateReasons.push("phone number");
     }
     if (duplicateReasons.length) {
-      failed.push(`Row ${idx + 2}: Duplicate ${duplicateReasons.join(" and ")} already exists.`);
+      failed.push(`Row ${idx + 2}: Duplicate ${duplicateReasons.join(" and ")} already exists in this file.`);
       return;
     }
 
-    nextLeads.push(lead);
-    importedRecords.push({ index: nextLeads.length - 1, lead });
-    leadIndexByEmail.set(lead.email, nextLeads.length - 1);
+    importedRecords.push({ lead });
+    if (lead.email) {
+      leadIndexByEmail.set(lead.email, importedRecords.length - 1);
+    }
     if (normalizedPhone) {
-      leadIndexByPhone.set(normalizedPhone, nextLeads.length - 1);
+      leadIndexByPhone.set(normalizedPhone, importedRecords.length - 1);
     }
     createdCount += 1;
-    nextId += 1;
+    tempId += 1;
   });
 
+  const routingMeta = getRoutingMeta();
   const recordsNeedingAssignment = importedRecords.filter(({ lead }) => {
     const counselor = String(lead.counselor || "").trim().toLowerCase();
     return !counselor || counselor === "unassigned";
   });
 
-  const assignments = createCounselorAssignments(recordsNeedingAssignment.length, allocationValidation.cleaned);
-  const fallbackCounselor = allocationValidation.cleaned[0].name;
-  recordsNeedingAssignment.forEach((record, index) => {
-    const assignedCounselor = assignments[index] || fallbackCounselor;
+  recordsNeedingAssignment.forEach((record) => {
+    const assignedCounselor = assignLeadByRoundRobin(record.lead, allocationValidation.cleaned, routingMeta);
     record.lead.counselor = assignedCounselor;
-    nextLeads[record.index] = record.lead;
+    if (assignedCounselor === "Unassigned") {
+      assignmentMisses.push(record.lead.name);
+    }
   });
 
-  normalizeLeadFields(nextLeads);
-  const importSaveResult = await saveAllLeads(nextLeads);
+  const importedLeads = importedRecords.map(({ lead }) => lead);
+  const importSaveResult = await saveUniversalImportedLeads(importedLeads, [
+    ...allocationValidation.cleaned,
+    routingMeta
+  ]);
   if (!importSaveResult || importSaveResult.ok === false) {
     setMessage(importMessage, importSaveResult?.message || "Failed to save imported leads. Please check your connection and try again.", true);
     return;
   }
 
-  const syncResult = await syncStateFromLocalAndVerify();
-  if (!syncResult.ok) {
-    setMessage(importMessage, syncResult.message || "Backend confirmation failed after import.", true);
-    return;
-  }
-
-  const assignmentResult = await verifyAssignedCounselorsOnBackend(importedRecords);
-  if (!assignmentResult.ok) {
-    setMessage(importMessage, assignmentResult.message || "Counselor assignment could not be verified.", true);
-    return;
-  }
-
-  updateImportSummary(rows.length, importedRecords.length, failed.length);
+  const savedCount = Number(importSaveResult.createdCount) || 0;
+  const skippedCount = Number(importSaveResult.skippedCount) || 0;
+  updateImportSummary(rows.length, savedCount, failed.length + skippedCount);
 
   if (failed.length) {
     setMessage(importMessage, `Imported with ${failed.length} failures. Example: ${failed[0]}`, true);
+  } else if (skippedCount) {
+    setMessage(importMessage, `Imported ${savedCount}; skipped ${skippedCount} duplicate lead${skippedCount === 1 ? "" : "s"} already in CRM.`, true);
+  } else if (assignmentMisses.length) {
+    setMessage(importMessage, `Imported ${savedCount}. ${assignmentMisses.length} lead${assignmentMisses.length === 1 ? "" : "s"} stayed Unassigned because no matching routing rule was enabled.`, true);
   } else {
     const messageParts = [];
-    if (createdCount) {
-      messageParts.push(`created ${createdCount}`);
+    if (savedCount) {
+      messageParts.push(`created ${savedCount}`);
     }
     if (recordsNeedingAssignment.length) {
       setMessage(importMessage, "Counselor Assigned Successfully.", false);
@@ -977,15 +1281,18 @@ function setupAdminPanel() {
 
     const allocResult = await withButtonBusy(
       event.currentTarget,
-      "Saving allocation...",
-      () => saveAllocation(validation.cleaned)
+      "Saving rules...",
+      () => saveAllocation([
+        ...validation.cleaned,
+        getRoutingMeta()
+      ])
     );
     if (!allocResult || allocResult.ok === false) {
-      setMessage(allocationMessage, allocResult?.message || "Failed to save allocation. Please check your connection.", true);
+      setMessage(allocationMessage, allocResult?.message || "Failed to save routing rules. Please check your connection.", true);
       return;
     }
     renderAllocationRows(validation.cleaned);
-    setMessage(allocationMessage, "Counselor allocation saved successfully.", false);
+    setMessage(allocationMessage, "Counselor routing rules saved successfully.", false);
   };
 
   importLeadsBtn.onclick = (event) => {
@@ -1025,8 +1332,7 @@ function initLeadControlPage() {
 initLeadControlPage();
 
 function renderAll() {
-  const allLeads = getAllLeads();
-  normalizeLeadFields(allLeads);
+  // Lead & Data Control only needs directory/routing state; avoid touching the full lead cache here.
 }
 
 const scheduleRenderAll = createRenderScheduler(renderAll);

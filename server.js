@@ -14919,6 +14919,119 @@ async function assignLeadsHandler(req, res) {
   }
 }
 
+app.post("/api/leads/universal-import", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "super_admin"]);
+    if (!session) return;
+
+    const incomingLeads = Array.isArray(req.body?.leads) ? req.body.leads : [];
+    const allocation = Array.isArray(req.body?.allocation) ? req.body.allocation : null;
+    if (!incomingLeads.length) {
+      return res.status(400).json({ message: "No leads were provided for import." });
+    }
+
+    const now = new Date().toISOString();
+    const createdLeads = [];
+    const skippedLeads = [];
+    const preparedLeads = [];
+    const seenEmail = new Set();
+    const seenPhone = new Set();
+
+    for (const draft of incomingLeads) {
+      const normalizedDraft = decorateLeadForStorage({
+        ...draft,
+        id: undefined,
+        importedBy: session.name || session.email || session.role || "Admin",
+        importedAt: now,
+        updatedAt: now
+      });
+      const email = normalizeLeadEmail(normalizedDraft.email);
+      const phone = normalizeLeadPhone(normalizedDraft.phone);
+
+      if ((!email && !phone) || (email && seenEmail.has(email)) || (phone && seenPhone.has(phone))) {
+        skippedLeads.push({ name: normalizedDraft.name || "", reason: "Missing or duplicate contact in import batch." });
+        continue;
+      }
+
+      if (email) seenEmail.add(email);
+      if (phone) seenPhone.add(phone);
+      preparedLeads.push({ lead: normalizedDraft, email, phone });
+    }
+
+    const emailValues = [...seenEmail];
+    const phoneValues = [...seenPhone];
+    const duplicateConditions = [];
+    if (emailValues.length) {
+      duplicateConditions.push({ normalizedEmail: { $in: emailValues } }, { email: { $in: emailValues } });
+    }
+    if (phoneValues.length) {
+      duplicateConditions.push({ normalizedPhone: { $in: phoneValues } });
+    }
+
+    const existingLeads = duplicateConditions.length
+      ? await withMongoRetry(
+        () => leadsCollection
+          .find({ $or: duplicateConditions }, { projection: { id: 1, name: 1, email: 1, phone: 1, normalizedEmail: 1, normalizedPhone: 1 } })
+          .toArray(),
+        { retries: 1, label: "Check universal import duplicates" }
+      )
+      : [];
+    const existingEmails = new Set(existingLeads.map((lead) => normalizeLeadEmail(lead.normalizedEmail || lead.email)).filter(Boolean));
+    const existingPhones = new Set(existingLeads.map((lead) => normalizeLeadPhone(lead.normalizedPhone || lead.phone)).filter(Boolean));
+    const existingByEmail = new Map(existingLeads.map((lead) => [normalizeLeadEmail(lead.normalizedEmail || lead.email), lead]).filter(([key]) => key));
+    const existingByPhone = new Map(existingLeads.map((lead) => [normalizeLeadPhone(lead.normalizedPhone || lead.phone), lead]).filter(([key]) => key));
+
+    const importableLeads = [];
+    for (const prepared of preparedLeads) {
+      if ((prepared.email && existingEmails.has(prepared.email)) || (prepared.phone && existingPhones.has(prepared.phone))) {
+        const duplicate = existingByEmail.get(prepared.email) || existingByPhone.get(prepared.phone);
+        skippedLeads.push({ name: prepared.lead.name || "", reason: "Duplicate already exists in CRM.", existingId: duplicate?.id });
+        continue;
+      }
+      importableLeads.push(prepared.lead);
+    }
+
+    const reservedIds = await reserveMetaLeadIds(importableLeads.length);
+    importableLeads.forEach((lead, index) => {
+      lead.id = reservedIds[index] || Date.now() + index;
+      createdLeads.push(decorateLeadForStorage(lead));
+    });
+
+    if (createdLeads.length) {
+      await withMongoRetry(
+        () => leadsCollection.insertMany(createdLeads, { ordered: false }),
+        { retries: 1, label: "Insert universal imported leads" }
+      );
+    }
+
+    if (allocation) {
+      await allocationCollection.deleteMany({});
+      if (allocation.length) {
+        await allocationCollection.insertMany(allocation);
+      }
+    }
+
+    await stateCollection.updateOne(
+      { _id: STATE_DOC_ID },
+      { $set: { updatedAt: now } },
+      { upsert: true }
+    );
+    cachedStateDoc = null;
+    cachedStateDocAt = 0;
+    res.setHeader("ETag", buildStateEtag({ updatedAt: now }));
+    return res.json({
+      ok: true,
+      createdCount: createdLeads.length,
+      skippedCount: skippedLeads.length,
+      skippedLeads,
+      leads: createdLeads,
+      updatedAt: now
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to import universal leads", details: error.message });
+  }
+});
+
 app.patch("/api/leads/assignment", assignLeadsHandler);
 app.post("/api/leads/assignment", assignLeadsHandler);
 
@@ -17311,7 +17424,6 @@ app.put("/api/allocation", async (req, res) => {
       return res.status(400).json({ message: "Allocation payload must be an array." });
     }
 
-    const currentState = await getStateDoc();
     const now = new Date().toISOString();
     await allocationCollection.deleteMany({});
     if (req.body.length) {
@@ -17324,7 +17436,7 @@ app.put("/api/allocation", async (req, res) => {
     );
     cachedStateDoc = null;
     cachedStateDocAt = 0;
-    return res.json({ ok: true });
+    return res.json({ ok: true, updatedAt: now });
   } catch (error) {
     return res.status(500).json({ message: "Failed to save allocation", details: error.message });
   }
@@ -17445,6 +17557,32 @@ async function getNextMetaLeadId() {
 
   const nextId = Number(result?.leadSequence) || 0;
   return nextId > 0 ? nextId : Date.now();
+}
+
+async function reserveMetaLeadIds(count) {
+  const total = Math.max(0, Number(count) || 0);
+  if (!total) {
+    return [];
+  }
+
+  await syncLeadSequence();
+  const result = await withMongoRetry(
+    () => metaConfigCollection.findOneAndUpdate(
+      { _id: META_CONFIG_DOC_ID },
+      { $inc: { leadSequence: total } },
+      { returnDocument: "after", upsert: true }
+    ),
+    { retries: 1, label: "Reserve Meta lead IDs" }
+  );
+
+  const endId = Number(result?.leadSequence) || 0;
+  if (endId <= 0) {
+    const fallbackStart = Date.now();
+    return Array.from({ length: total }, (_, index) => fallbackStart + index);
+  }
+
+  const startId = endId - total + 1;
+  return Array.from({ length: total }, (_, index) => startId + index);
 }
 
 function getMetaRetryBackoffMs(attempts) {
