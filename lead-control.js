@@ -26,6 +26,10 @@ const lsqImportFile = document.getElementById("lsqImportFile");
 const importLsqLeadsBtn = document.getElementById("importLsqLeadsBtn");
 const lsqImportSummary = document.getElementById("lsqImportSummary");
 const lsqImportMessage = document.getElementById("lsqImportMessage");
+const lsqJobSummary = document.getElementById("lsqJobSummary");
+const refreshLsqJobBtn = document.getElementById("refreshLsqJobBtn");
+const runLsqJobBtn = document.getElementById("runLsqJobBtn");
+const lsqJobMessage = document.getElementById("lsqJobMessage");
 const allocationRows = document.getElementById("allocationRows");
 const saveAllocationBtn = document.getElementById("saveAllocationBtn");
 const allocationMessage = document.getElementById("allocationMessage");
@@ -43,6 +47,7 @@ const LSQ_RESUME_STORAGE_PREFIX = "dvLsqImportResume:";
 const LSQ_SEEDED_RESUME_POINTS = {
   "LSQ history data as on 1st Aug 2026.csv": 50500
 };
+let currentLsqJobId = "";
 
 const DEFAULT_ALLOCATION = [];
 
@@ -638,6 +643,41 @@ function updateLsqImportSummary(summary = createEmptyLsqSummary()) {
   `;
 }
 
+function getLsqJobSummary(job = {}) {
+  return {
+    ...createEmptyLsqSummary(),
+    ...(job.summary && typeof job.summary === "object" ? job.summary : {}),
+    scanned: Number(job.nextRowIndex) || Number(job.summary?.scanned) || 0
+  };
+}
+
+function renderLsqJobSummary(job = null) {
+  if (!lsqJobSummary) {
+    return;
+  }
+
+  if (!job?.id) {
+    currentLsqJobId = "";
+    lsqJobSummary.innerHTML = `<p>No LSQ job loaded.</p>`;
+    return;
+  }
+
+  currentLsqJobId = job.id;
+  const summary = getLsqJobSummary(job);
+  const totalRows = Number(job.totalRows) || 0;
+  const processedRows = Number(job.nextRowIndex) || summary.scanned || 0;
+  const percent = totalRows ? Math.min(100, (processedRows / totalRows) * 100).toFixed(1) : "0.0";
+  lsqJobSummary.innerHTML = `
+    <p>File: ${escapeHtml(job.sourceFileName || "LSQ import")}</p>
+    <p>Status: ${escapeHtml(job.status || "unknown")}</p>
+    <p>Processed: ${processedRows} of ${totalRows} (${percent}%)</p>
+    <p>Created: ${summary.created}</p>
+    <p>Updated: ${summary.updated}</p>
+    <p>Archived Leads: ${summary.archivedCounselor || summary.archived}</p>
+    ${job.error ? `<p>Error: ${escapeHtml(job.error)}</p>` : ""}
+  `;
+}
+
 function getLsqResumeKey(fileName = "") {
   return `${LSQ_RESUME_STORAGE_PREFIX}${String(fileName || "").trim().toLowerCase()}`;
 }
@@ -771,18 +811,17 @@ async function fetchLsqImportJob(jobId) {
   }, 30000);
 }
 
-function getLsqJobSummary(job = {}) {
-  return {
-    ...createEmptyLsqSummary(),
-    ...(job.summary && typeof job.summary === "object" ? job.summary : {}),
-    scanned: Number(job.nextRowIndex) || Number(job.summary?.scanned) || 0
-  };
+async function fetchLatestLsqImportJob() {
+  return requestLsqJob("/api/admin/lsq-import-jobs", {
+    method: "GET"
+  }, 30000);
 }
 
 async function pollLsqImportJob(jobId, fileName) {
   while (true) {
     await wait(LSQ_JOB_POLL_INTERVAL_MS);
     const { job } = await fetchLsqImportJob(jobId);
+    renderLsqJobSummary(job);
     const summary = getLsqJobSummary(job);
     updateLsqImportSummary(summary);
     saveLsqResumePoint(fileName, Number(job?.nextRowIndex) || summary.scanned || 0, {
@@ -808,6 +847,40 @@ async function pollLsqImportJob(jobId, fileName) {
     }
 
     setMessage(lsqImportMessage, `LSQ background import ${job.status || "running"}: processed ${Number(job.nextRowIndex) || 0} of ${Number(job.totalRows) || 0}.`, false);
+  }
+}
+
+async function refreshLatestLsqJobStatus() {
+  if (!isSuperAdmin) {
+    return;
+  }
+
+  try {
+    const { job } = await fetchLatestLsqImportJob();
+    renderLsqJobSummary(job);
+    if (!job) {
+      setMessage(lsqJobMessage, "No LSQ background job found.", false);
+      return;
+    }
+    setMessage(lsqJobMessage, `Latest LSQ job is ${job.status || "unknown"}.`, job.status === "failed");
+  } catch (error) {
+    setMessage(lsqJobMessage, `Could not load LSQ job: ${error.message}`, true);
+  }
+}
+
+async function resumeCurrentLsqJob() {
+  if (!currentLsqJobId) {
+    setMessage(lsqJobMessage, "No LSQ job is selected.", true);
+    return;
+  }
+
+  try {
+    const { job } = await runLsqImportJob(currentLsqJobId);
+    renderLsqJobSummary(job);
+    setMessage(lsqJobMessage, "LSQ job resumed. Progress will refresh here.", false);
+    await pollLsqImportJob(currentLsqJobId, job?.sourceFileName || "LSQ import");
+  } catch (error) {
+    setMessage(lsqJobMessage, `Could not resume LSQ job: ${error.message}`, true);
   }
 }
 
@@ -872,6 +945,7 @@ async function handleLsqLeadImport() {
     setMessage(lsqImportMessage, "Could not create LSQ background job.", true);
     return;
   }
+  renderLsqJobSummary(jobPayload.job);
 
   for (let offset = startOffset; offset < rows.length; offset += LSQ_IMPORT_CHUNK_SIZE) {
     const chunk = rows.slice(offset, offset + LSQ_IMPORT_CHUNK_SIZE);
@@ -1155,6 +1229,9 @@ function setupAdminPanel() {
   if (lsqImportBlock) {
     lsqImportBlock.classList.toggle("hidden", !isSuperAdmin);
   }
+  if (isSuperAdmin) {
+    void refreshLatestLsqJobStatus();
+  }
 
   const hydrateAllocationPanel = async () => {
     const names = await getCounselorNamesForAllocation();
@@ -1204,6 +1281,18 @@ function setupAdminPanel() {
   if (importLsqLeadsBtn) {
     importLsqLeadsBtn.onclick = (event) => {
       void withButtonBusy(event.currentTarget, "Importing LSQ...", () => handleLsqLeadImport());
+    };
+  }
+
+  if (refreshLsqJobBtn) {
+    refreshLsqJobBtn.onclick = (event) => {
+      void withButtonBusy(event.currentTarget, "Refreshing...", () => refreshLatestLsqJobStatus());
+    };
+  }
+
+  if (runLsqJobBtn) {
+    runLsqJobBtn.onclick = (event) => {
+      void withButtonBusy(event.currentTarget, "Resuming...", () => resumeCurrentLsqJob());
     };
   }
 

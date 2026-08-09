@@ -12609,6 +12609,24 @@ app.get("/api/admin/lsq-import-jobs/:jobId", async (req, res) => {
   }
 });
 
+app.get("/api/admin/lsq-import-jobs", async (req, res) => {
+  try {
+    const session = await requireSuperAdmin(req, res);
+    if (!session) return;
+
+    const jobs = await lsqImportJobsCollection.find({}).toArray();
+    const latestJob = jobs
+      .sort((left, right) => String(right.updatedAt || right.createdAt || "").localeCompare(String(left.updatedAt || left.createdAt || "")))[0] || null;
+    if (!latestJob) {
+      return res.json({ ok: true, job: null });
+    }
+
+    return res.json({ ok: true, job: normalizeLsqImportJob(latestJob) });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch LSQ import jobs", details: error.message });
+  }
+});
+
 app.post("/api/admin/lsq-import", async (req, res) => {
   try {
     const session = await requireSuperAdmin(req, res);

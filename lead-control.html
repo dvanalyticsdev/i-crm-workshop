@@ -130,6 +130,20 @@
               <p id="lsqImportMessage" class="message" aria-live="polite"></p>
             </div>
           </div>
+          <div class="import-block">
+            <div class="card-head">
+              <h4>Current LSQ Job</h4>
+              <p>Track the latest saved background import after refresh.</p>
+            </div>
+            <div class="import-summary" id="lsqJobSummary">
+              <p>No LSQ job loaded.</p>
+            </div>
+            <div class="allocation-actions">
+              <button id="refreshLsqJobBtn" type="button" class="btn-ghost">Refresh Job Status</button>
+              <button id="runLsqJobBtn" type="button" class="btn-ghost">Resume Job</button>
+            </div>
+            <p id="lsqJobMessage" class="message" aria-live="polite"></p>
+          </div>
         </div>
 
         <div class="allocation-block">
