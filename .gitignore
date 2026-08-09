@@ -1,4 +1,7 @@
 node_modules/
 .env
+.version
 npm-debug.log*
 outputs/
+tmp/db_*.json
+tmp/*.log

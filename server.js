@@ -9,6 +9,7 @@ const { MongoClient } = require("mongodb");
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const ROOT_DIR = __dirname;
+const VERSION_FILE = path.join(ROOT_DIR, ".version");
 
 const MONGODB_URI = process.env.MONGODB_URI;
 const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || "i-crm-workshop";
@@ -15711,10 +15712,27 @@ app.put("/api/allocation", async (req, res) => {
   }
 });
 
+function getAppVersion() {
+  try {
+    const fileVersion = fs.readFileSync(VERSION_FILE, "utf8").trim();
+    if (fileVersion) {
+      return fileVersion;
+    }
+  } catch {
+    // The VPS deploy script writes this file; local development may not have it.
+  }
+
+  return process.env.APP_VERSION
+    || process.env.GIT_COMMIT_SHA
+    || process.env.VERCEL_GIT_COMMIT_SHA
+    || process.env.VERCEL_DEPLOYMENT_ID
+    || process.env.VERCEL_URL
+    || "local-development";
+}
+
 app.get("/api/version", (_req, res) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-  const version = process.env.VERCEL_GIT_COMMIT_SHA || process.env.VERCEL_DEPLOYMENT_ID || process.env.VERCEL_URL || "local-development";
-  res.json({ version });
+  res.json({ version: getAppVersion() });
 });
 
 app.get("/", (_req, res) => {
