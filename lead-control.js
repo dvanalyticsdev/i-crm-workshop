@@ -36,7 +36,7 @@ const backupMessage = document.getElementById("backupMessage");
 const session = getSession();
 const isAdmin = session?.role === "admin" || session?.role === "super_admin";
 const isSuperAdmin = session?.role === "super_admin";
-const LSQ_IMPORT_CHUNK_SIZE = 2000;
+const LSQ_IMPORT_CHUNK_SIZE = 500;
 
 const DEFAULT_ALLOCATION = [];
 
@@ -648,7 +648,9 @@ async function postLsqImportChunk(rows, sourceFileName) {
   }, 120000);
 
   if (!response.ok || !json?.ok) {
-    throw new Error(json?.message || "Failed to import LSQ leads.");
+    const details = String(json?.details || "").trim();
+    const message = String(json?.message || "").trim() || "Failed to import LSQ leads.";
+    throw new Error(details ? `${message}: ${details}` : message);
   }
 
   return { response, json };
