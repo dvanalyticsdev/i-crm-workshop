@@ -36,6 +36,7 @@ const sopSettingsMessage = document.getElementById("sopSettingsMessage");
 const session = getSession();
 const isAdmin = session?.role === "admin" || session?.role === "super_admin";
 const isSuperAdmin = session?.role === "super_admin";
+let allocationPanelDirty = false;
 
 const DEFAULT_ALLOCATION = [];
 const ROUTING_META_TYPE = "routing-meta";
@@ -249,6 +250,7 @@ async function loadLeadControlDirectory() {
     clearedAt: json?.clearedAt || null
   });
   applySopSettingsToUi(json || {});
+  await hydrateAllocationPanel();
 }
 
 async function loadLeadControlWorkshopLeads() {
@@ -577,6 +579,27 @@ function readAllocationFromForm() {
       coursePermissions
     };
   });
+}
+
+async function hydrateAllocationPanel({ force = false } = {}) {
+  if (!allocationRows || !isAdmin) {
+    return;
+  }
+
+  if (allocationPanelDirty && !force) {
+    return;
+  }
+
+  const names = await getCounselorNamesForAllocation();
+  const existing = getAllocation();
+  const merged = mergeAllocationNames(names, existing);
+
+  if (!merged.length) {
+    renderAllocationRows([]);
+    return;
+  }
+
+  renderAllocationRows(merged);
 }
 
 function getEligibleCounselorsForLead(lead, allocation) {
@@ -1251,20 +1274,13 @@ function setupAdminPanel() {
     return;
   }
 
-  const hydrateAllocationPanel = async () => {
-    const names = await getCounselorNamesForAllocation();
-    const existing = getAllocation();
-    const merged = mergeAllocationNames(names, existing);
-
-    if (!merged.length) {
-      renderAllocationRows([]);
-      return;
-    }
-
-    renderAllocationRows(merged);
-  };
-
-  void hydrateAllocationPanel();
+  void hydrateAllocationPanel({ force: true });
+  allocationRows?.addEventListener("input", () => {
+    allocationPanelDirty = true;
+  });
+  allocationRows?.addEventListener("change", () => {
+    allocationPanelDirty = true;
+  });
 
   if (!saveAllocationBtn) {
     return;
@@ -1291,6 +1307,7 @@ function setupAdminPanel() {
       setMessage(allocationMessage, allocResult?.message || "Failed to save routing rules. Please check your connection.", true);
       return;
     }
+    allocationPanelDirty = false;
     renderAllocationRows(validation.cleaned);
     setMessage(allocationMessage, "Counselor routing rules saved successfully.", false);
   };
