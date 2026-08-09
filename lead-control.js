@@ -38,6 +38,10 @@ const isAdmin = session?.role === "admin" || session?.role === "super_admin";
 const isSuperAdmin = session?.role === "super_admin";
 const LSQ_IMPORT_CHUNK_SIZE = 500;
 const LSQ_IMPORT_CHUNK_RETRIES = 3;
+const LSQ_RESUME_STORAGE_PREFIX = "dvLsqImportResume:";
+const LSQ_SEEDED_RESUME_POINTS = {
+  "LSQ history data as on 1st Aug 2026.csv": 44000
+};
 
 const DEFAULT_ALLOCATION = [];
 
@@ -633,6 +637,42 @@ function updateLsqImportSummary(summary = createEmptyLsqSummary()) {
   `;
 }
 
+function getLsqResumeKey(fileName = "") {
+  return `${LSQ_RESUME_STORAGE_PREFIX}${String(fileName || "").trim().toLowerCase()}`;
+}
+
+function readLsqResumePoint(fileName = "") {
+  const seeded = Number(LSQ_SEEDED_RESUME_POINTS[String(fileName || "").trim()]) || 0;
+  try {
+    const stored = JSON.parse(localStorage.getItem(getLsqResumeKey(fileName)) || "null");
+    const scanned = Number(stored?.scanned) || 0;
+    return Math.max(seeded, scanned);
+  } catch {
+    return seeded;
+  }
+}
+
+function saveLsqResumePoint(fileName = "", scanned = 0, extra = {}) {
+  try {
+    localStorage.setItem(getLsqResumeKey(fileName), JSON.stringify({
+      fileName,
+      scanned: Math.max(0, Number(scanned) || 0),
+      savedAt: new Date().toISOString(),
+      ...extra
+    }));
+  } catch {
+    // Local resume is a convenience; import should continue even if storage is full.
+  }
+}
+
+function clearLsqResumePoint(fileName = "") {
+  try {
+    localStorage.removeItem(getLsqResumeKey(fileName));
+  } catch {
+    // Ignore cleanup failures.
+  }
+}
+
 async function postLsqImportChunk(rows, sourceFileName) {
   const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/admin/lsq-import"), {
     method: "POST",
@@ -716,11 +756,27 @@ async function handleLsqLeadImport() {
   const totalSummary = createEmptyLsqSummary();
   let latestStatePayload = null;
   let latestEtag = "";
-  const totalChunks = Math.ceil(rows.length / LSQ_IMPORT_CHUNK_SIZE);
+  const resumePoint = Math.min(readLsqResumePoint(file.name), rows.length);
+  let startOffset = 0;
+  if (resumePoint > 0 && resumePoint < rows.length) {
+    const confirmed = window.confirm(
+      `Resume LSQ import for ${file.name} from row ${resumePoint + 1}? Press Cancel to start from row 1.`
+    );
+    startOffset = confirmed ? resumePoint : 0;
+  }
 
-  for (let offset = 0; offset < rows.length; offset += LSQ_IMPORT_CHUNK_SIZE) {
+  if (startOffset > 0) {
+    totalSummary.scanned = startOffset;
+    updateLsqImportSummary(totalSummary);
+  }
+
+  const totalChunks = Math.ceil((rows.length - startOffset) / LSQ_IMPORT_CHUNK_SIZE);
+  let processedChunks = 0;
+
+  for (let offset = startOffset; offset < rows.length; offset += LSQ_IMPORT_CHUNK_SIZE) {
     const chunk = rows.slice(offset, offset + LSQ_IMPORT_CHUNK_SIZE);
     const chunkNumber = Math.floor(offset / LSQ_IMPORT_CHUNK_SIZE) + 1;
+    processedChunks += 1;
     setMessage(lsqImportMessage, `Importing LSQ leads ${offset + 1}-${Math.min(offset + chunk.length, rows.length)} of ${rows.length}...`, false);
 
     try {
@@ -729,8 +785,10 @@ async function handleLsqLeadImport() {
       updateLsqImportSummary(totalSummary);
       latestStatePayload = json.state || latestStatePayload;
       latestEtag = response.headers.get("etag") || latestEtag;
-      setMessage(lsqImportMessage, `Processed chunk ${chunkNumber} of ${totalChunks}.`, false);
+      saveLsqResumePoint(file.name, offset + chunk.length, { lastCompletedChunk: chunkNumber });
+      setMessage(lsqImportMessage, `Processed ${processedChunks} of ${totalChunks} remaining chunks.`, false);
     } catch (error) {
+      saveLsqResumePoint(file.name, offset, { failedChunk: chunkNumber, error: error.message });
       setMessage(lsqImportMessage, `LSQ import stopped at chunk ${chunkNumber}: ${error.message}`, true);
       return;
     }
@@ -747,6 +805,7 @@ async function handleLsqLeadImport() {
   }
 
   lsqImportFile.value = "";
+  clearLsqResumePoint(file.name);
   setMessage(
     lsqImportMessage,
     `LSQ import completed. Created ${totalSummary.created}, updated ${totalSummary.updated}, archived-owner ${totalSummary.archivedCounselor || totalSummary.archived}.`,
