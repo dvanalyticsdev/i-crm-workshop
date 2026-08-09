@@ -26,6 +26,7 @@ import {
   deleteLeads as deleteLeadsOnServer,
   fetchLeadNotes,
   formatLeadAssignmentResult,
+  takeSopLead,
   trackLeadView,
   updateLeadActivity as updateLeadActivityOnServer,
   updateMainAdmissionLeadDetails
@@ -216,6 +217,7 @@ let scopedCounselors = null;
 let scopedPagination = null;
 let scopedCounts = null;
 let scopedFacets = null;
+let scopedAdmissionSopEnabled = true;
 let scopedLoadActive = false;
 let mainAdmissionAssignmentBusy = false;
 let initialMainAdmissionLoadPending = true;
@@ -329,6 +331,7 @@ async function loadScopedMainAdmissionLeads() {
     scopedPagination = payload?.pagination || null;
     scopedCounts = payload?.counts || null;
     scopedFacets = payload?.facets || scopedFacets || null;
+    scopedAdmissionSopEnabled = payload?.admissionSopEnabled !== false;
     scopedLoadActive = true;
     normalizeLeadFields(scopedMainAdmissionLeads);
     recordMainAdmissionPerformance({
@@ -347,6 +350,7 @@ async function loadScopedMainAdmissionLeads() {
     scopedPagination = null;
     scopedCounts = null;
     scopedFacets = null;
+    scopedAdmissionSopEnabled = true;
     recordMainAdmissionPerformance({
       phase: "data-fetch",
       subsection: "scoped-leads",
@@ -845,6 +849,15 @@ function isLsqImportedLead(lead = {}) {
     || (lead?.lsqSourceSnapshot && typeof lead.lsqSourceSnapshot === "object");
 }
 
+function isMainAdmissionLeadInterested(lead = {}) {
+  return String(lead?.mainAdmissionCourseStatus || "").trim().toLowerCase() === "interested";
+}
+
+function isProtectedMainAdmissionStatus(lead = {}) {
+  const status = String(lead?.mainAdmissionAdmissionStatus || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  return status === "inconversation" || status === "enrolled" || status === "won";
+}
+
 function getEntryTimestamp(value) {
   const candidate = String(
     value?.at
@@ -1073,6 +1086,10 @@ function sanitizeFixedCourseFilter(leads = []) {
 
 function isCounselorSession() {
   return session?.role === "counselor" || session?.role === "manager";
+}
+
+function isManagerSession() {
+  return session?.role === "manager";
 }
 
 function getCounselorIdentity() {
@@ -1350,6 +1367,13 @@ function isSopBlockedLead(lead) {
   const overrideDeadlineTs = new Date(String(lead?.admissionSopDeadlineOverrideAt || "")).getTime();
   const effectiveDeadlineTs = Number.isFinite(overrideDeadlineTs) ? overrideDeadlineTs : deadlineTs;
   return Number.isFinite(effectiveDeadlineTs) && effectiveDeadlineTs - Date.now() <= 0;
+}
+
+function canManagerTakeMainAdmissionLead(lead = {}) {
+  if (!isManagerSession()) return false;
+  if (String(lead?.counselor || "").trim().toLowerCase() === getCounselorIdentity()) return false;
+  return (scopedAdmissionSopEnabled && isSopBlockedLead(lead))
+    || (isLsqImportedLead(lead) && !isMainAdmissionLeadInterested(lead) && !isProtectedMainAdmissionStatus(lead));
 }
 
 function getRepeatEnquiryCount(lead) {
@@ -3030,6 +3054,16 @@ function renderActivityPanel(lead) {
   return `
     <div class="activity-panel">
       <div class="activity-panel__secondary">
+        ${canManagerTakeMainAdmissionLead(lead) ? `
+          <button
+            type="button"
+            class="btn-ghost activity-panel__take-lead"
+            data-main-admission-action="take-lead"
+            data-lead-key="${leadKey}"
+          >
+            Take Lead
+          </button>
+        ` : ""}
         <button
           type="button"
           class="${isTouched ? "btn-update-status btn-update-status--active" : "btn-primary"} activity-panel__open-tab"
@@ -3177,6 +3211,29 @@ mainAdmissionLeadTableSection.addEventListener("click", async (event) => {
       cacheLeadTabSnapshot(lead, "main-admission");
       window.open(targetUrl, "_blank", "noopener");
       void trackLeadView(lead.id, lead.email || "");
+      return;
+    }
+    if (action === "take-lead") {
+      const lead = getAllLeads().find((item) => buildLeadKey(item) === leadKey);
+      if (!lead) {
+        showToast("Could not find this lead. Please refresh and try again.", true);
+        return;
+      }
+      actionButton.disabled = true;
+      const originalText = actionButton.textContent;
+      actionButton.textContent = "Taking...";
+      const result = await takeSopLead(lead.id, lead.email || "");
+      if (!result?.ok) {
+        actionButton.disabled = false;
+        actionButton.textContent = originalText || "Take Lead";
+        showToast(result?.message || "Could not take this lead.", true);
+        return;
+      }
+      if (result.lead) {
+        mergeScopedLeadUpdates(result.lead);
+      }
+      renderAll();
+      showToast(result.message || "Lead assigned to you.", false);
       return;
     }
     if (action === "details") {

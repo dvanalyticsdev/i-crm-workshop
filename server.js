@@ -12290,6 +12290,16 @@ function isLeadProtectedFromBulkAssignment(lead) {
   return Boolean(getLeadBulkAssignmentSkipReason(lead));
 }
 
+function isManagerTakeEligibleLsqLead(lead) {
+  if (!isLeadSquaredImportedLead(lead)) {
+    return false;
+  }
+  if (getLeadBulkAssignmentSkipReason(lead) === "admissionProtected") {
+    return false;
+  }
+  return normalizeAssignmentWorkshopStatus(lead?.mainAdmissionCourseStatus) !== "interested";
+}
+
 function getLeadActivityAssigneePatch(stage, session) {
   if (!isCounselorLikeSession(session)) {
     return {};
@@ -15056,8 +15066,10 @@ app.post("/api/leads/:leadId/take-sop", async (req, res) => {
       return res.status(403).json({ message: "Manager account details are required to take SOP leads." });
     }
 
-    if (!isAdmissionSopScopedLead(lead)) {
-      return res.status(400).json({ message: "Only admission SOP leads can be taken by a manager." });
+    const isSopScopedLead = isAdmissionSopScopedLead(lead);
+    const isEligibleLsqLead = isManagerTakeEligibleLsqLead(lead);
+    if (!isSopScopedLead && !isEligibleLsqLead) {
+      return res.status(400).json({ message: "Only blocked SOP leads or non-interested LSQ admission leads can be taken by a manager." });
     }
 
     const sopSettings = await withMongoRetry(
@@ -15067,9 +15079,12 @@ app.post("/api/leads/:leadId/take-sop", async (req, res) => {
       ),
       { retries: 1, label: "Load SOP take settings" }
     );
-    const sopState = deriveAdmissionSopState(lead, Date.now(), { enabled: isAdmissionSopEnabledInState(sopSettings || {}) });
-    if (!sopState?.blocked) {
-      return res.status(409).json({ message: "This lead is not currently out of SOP." });
+    const sopState = isSopScopedLead
+      ? deriveAdmissionSopState(lead, Date.now(), { enabled: isAdmissionSopEnabledInState(sopSettings || {}) })
+      : null;
+    const canTakeLead = Boolean(sopState?.blocked) || isEligibleLsqLead;
+    if (!canTakeLead) {
+      return res.status(409).json({ message: "This lead is not eligible for manager takeover." });
     }
 
     const oldCounselor = String(lead.counselor || "").trim();
@@ -15096,8 +15111,8 @@ app.post("/api/leads/:leadId/take-sop", async (req, res) => {
       counselorName: managerName,
       activityType: hasOldCounselor ? "Lead Reassigned" : "Lead Assigned",
       actionDescription: hasOldCounselor
-        ? `SOP-blocked lead taken by manager ${managerName} from ${oldCounselor}`
-        : `SOP-blocked lead taken by manager ${managerName}`,
+        ? `${sopState?.blocked ? "SOP-blocked" : "LSQ non-interested"} lead taken by manager ${managerName} from ${oldCounselor}`
+        : `${sopState?.blocked ? "SOP-blocked" : "LSQ non-interested"} lead taken by manager ${managerName}`,
       previousValue: oldCounselor || "Unassigned",
       newValue: managerName,
       session
