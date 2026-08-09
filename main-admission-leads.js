@@ -45,6 +45,7 @@ await bootstrapLocalState({ skipStateRefresh: true });
 
 const session = getSession();
 const isAdmin = session?.role === "admin" || session?.role === "super_admin";
+const isManager = session?.role === "manager";
 const canUseLostLeadFilter = isAdmin || session?.role === "manager";
 const canFilterByCounselor = isAdmin || session?.role === "manager";
 const canUseLeadRowActions = !isAdmin;
@@ -2146,7 +2147,10 @@ function renderFilters(leads) {
     { value: "Unassigned", label: "Unassigned" },
     ...(canUseLostLeadFilter ? [{ value: LOST_LEADS_COUNSELOR_FILTER, label: "Lost Leads" }] : []),
     ...counselors
-      .filter((item) => item && item !== "Unassigned" && item !== LOST_LEADS_COUNSELOR_FILTER)
+      .filter((item) => item
+        && item !== "Unassigned"
+        && item !== LOST_LEADS_COUNSELOR_FILTER
+        && (!isManager || item !== "Archived Leads"))
       .map((item) => ({ value: item, label: item }))
   ];
   const courses = facetCourses || getFixedCourseFilterOptions(leads);

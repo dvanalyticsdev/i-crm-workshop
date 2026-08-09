@@ -3071,7 +3071,7 @@ function buildScopedLeadBaseMongoQuery(section, session = {}, counselors = []) {
       }
     : section === "registered-candidates"
       ? { leadPipeline: "course-registration" }
-      : getMainAdmissionLeadMongoQuery({ includeArchived: canUseLostLeadCounselorFilter(session) });
+      : getMainAdmissionLeadMongoQuery({ includeArchived: isAdminLikeSession(session) });
 
   const sessionRole = String(session.role || "").trim().toLowerCase();
   if (sessionRole === "counselor") {
@@ -3120,6 +3120,8 @@ function buildScopedLeadMongoQuery(section, requestQuery = {}, session = {}, cou
       query = appendMongoAnd(query, canUseLostLeadCounselorFilter(session)
         ? buildLostLeadMongoQuery()
         : { _id: "__lost_leads_filter_forbidden__" });
+    } else if (counselorFilter === LSQ_ARCHIVED_COUNSELOR && !isAdminLikeSession(session)) {
+      query = appendMongoAnd(query, { _id: "__archived_leads_filter_forbidden__" });
     } else {
       addOptionalExactQuery(query, "counselor", counselorFilter);
     }
