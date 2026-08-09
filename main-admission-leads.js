@@ -211,6 +211,7 @@ let advancedFilterDraft = null;
 let scopedMainAdmissionLeads = null;
 let scopedCounselors = null;
 let scopedPagination = null;
+let scopedCounts = null;
 let scopedLoadActive = false;
 let mainAdmissionAssignmentBusy = false;
 let initialMainAdmissionLoadPending = true;
@@ -305,6 +306,7 @@ async function loadScopedMainAdmissionLeads() {
     scopedMainAdmissionLeads = Array.isArray(payload?.leads) ? payload.leads : [];
     scopedCounselors = Array.isArray(payload?.counselors) ? payload.counselors : [];
     scopedPagination = payload?.pagination || null;
+    scopedCounts = payload?.counts || null;
     scopedLoadActive = true;
     normalizeLeadFields(scopedMainAdmissionLeads);
     recordMainAdmissionPerformance({
@@ -321,6 +323,7 @@ async function loadScopedMainAdmissionLeads() {
     scopedMainAdmissionLeads = null;
     scopedCounselors = null;
     scopedPagination = null;
+    scopedCounts = null;
     recordMainAdmissionPerformance({
       phase: "data-fetch",
       subsection: "scoped-leads",
@@ -2039,14 +2042,16 @@ async function clearRegisteredCandidateData() {
 }
 
 function renderKpis(leads) {
-  const interested = leads.filter((lead) => lead.mainAdmissionCourseStatus === "Interested").length;
-  const enrolled = leads.filter((lead) => lead.mainAdmissionAdmissionStatus === "Enrolled").length;
-  const won = leads.filter((lead) => lead.mainAdmissionAdmissionStatus === "Won").length;
+  const counts = scopedLoadActive && scopedCounts ? scopedCounts : null;
+  const total = counts ? Number(counts.total || 0) : leads.length;
+  const interested = counts ? Number(counts.interested || 0) : leads.filter((lead) => lead.mainAdmissionCourseStatus === "Interested").length;
+  const enrolled = counts ? Number(counts.enrolled || 0) : leads.filter((lead) => lead.mainAdmissionAdmissionStatus === "Enrolled").length;
+  const won = counts ? Number(counts.won || 0) : leads.filter((lead) => lead.mainAdmissionAdmissionStatus === "Won").length;
 
   mainAdmissionKpiSection.innerHTML = `
     <article class="card kpi-card">
       <p>Overall Leads</p>
-      <h2>${leads.length}</h2>
+      <h2>${total}</h2>
     </article>
     <article class="card kpi-card">
       <p>Interested Leads</p>

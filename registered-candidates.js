@@ -128,6 +128,7 @@ let activeSegment = normalizeSegment(window.location.hash.replace(/^#/, "")) || 
 let scopedRegisteredCandidateLeads = null;
 let scopedRegisteredCandidateCounselors = null;
 let scopedRegisteredPagination = null;
+let scopedRegisteredCounts = null;
 let scopedRegisteredCandidateActive = false;
 let draftRegisteredSearch = filter.search;
 let scopedRegisteredReloadTimer = null;
@@ -219,6 +220,7 @@ async function loadScopedRegisteredCandidates() {
     scopedRegisteredCandidateLeads = Array.isArray(payload?.leads) ? payload.leads : [];
     scopedRegisteredCandidateCounselors = Array.isArray(payload?.counselors) ? payload.counselors : [];
     scopedRegisteredPagination = payload?.pagination || null;
+    scopedRegisteredCounts = payload?.counts || null;
     scopedRegisteredCandidateActive = true;
     normalizeLeadFields(scopedRegisteredCandidateLeads);
     return true;
@@ -227,6 +229,7 @@ async function loadScopedRegisteredCandidates() {
     scopedRegisteredCandidateLeads = null;
     scopedRegisteredCandidateCounselors = null;
     scopedRegisteredPagination = null;
+    scopedRegisteredCounts = null;
     scopedRegisteredCandidateActive = false;
     return false;
   }
@@ -1119,14 +1122,16 @@ async function clearRegisteredCandidateData() {
 }
 
 function renderKpis(leads) {
-  const interested = leads.filter((lead) => lead.registeredCourseStatus === "Interested").length;
-  const enrolled = leads.filter((lead) => lead.registeredAdmissionStatus === "Enrolled").length;
-  const won = leads.filter((lead) => lead.registeredAdmissionStatus === "Won").length;
+  const counts = scopedRegisteredCandidateActive && scopedRegisteredCounts ? scopedRegisteredCounts : null;
+  const total = counts ? Number(counts.total || 0) : leads.length;
+  const interested = counts ? Number(counts.interested || 0) : leads.filter((lead) => lead.registeredCourseStatus === "Interested").length;
+  const enrolled = counts ? Number(counts.enrolled || 0) : leads.filter((lead) => lead.registeredAdmissionStatus === "Enrolled").length;
+  const won = counts ? Number(counts.won || 0) : leads.filter((lead) => lead.registeredAdmissionStatus === "Won").length;
 
   registeredKpiSection.innerHTML = `
     <article class="card kpi-card">
       <p>Overall Leads</p>
-      <h2>${leads.length}</h2>
+      <h2>${total}</h2>
     </article>
     <article class="card kpi-card">
       <p>Interested Leads</p>
