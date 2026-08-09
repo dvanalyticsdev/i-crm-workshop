@@ -21,6 +21,11 @@ const leadImportFile = document.getElementById("leadImportFile");
 const importLeadsBtn = document.getElementById("importLeadsBtn");
 const importSummary = document.getElementById("importSummary");
 const importMessage = document.getElementById("importMessage");
+const lsqImportBlock = document.getElementById("lsqImportBlock");
+const lsqImportFile = document.getElementById("lsqImportFile");
+const importLsqLeadsBtn = document.getElementById("importLsqLeadsBtn");
+const lsqImportSummary = document.getElementById("lsqImportSummary");
+const lsqImportMessage = document.getElementById("lsqImportMessage");
 const allocationRows = document.getElementById("allocationRows");
 const saveAllocationBtn = document.getElementById("saveAllocationBtn");
 const allocationMessage = document.getElementById("allocationMessage");
@@ -30,6 +35,8 @@ const restoreBackupBtn = document.getElementById("restoreBackupBtn");
 const backupMessage = document.getElementById("backupMessage");
 const session = getSession();
 const isAdmin = session?.role === "admin" || session?.role === "super_admin";
+const isSuperAdmin = session?.role === "super_admin";
+const LSQ_IMPORT_CHUNK_SIZE = 2000;
 
 const DEFAULT_ALLOCATION = [];
 
@@ -590,6 +597,139 @@ function updateImportSummary(total, success, failed) {
   `;
 }
 
+function createEmptyLsqSummary() {
+  return {
+    scanned: 0,
+    deduped: 0,
+    created: 0,
+    updated: 0,
+    archived: 0,
+    matchedCounselor: 0,
+    archivedCounselor: 0,
+    skippedByCounselorFilter: 0,
+    skippedByStageFilter: 0
+  };
+}
+
+function mergeLsqSummary(total, next = {}) {
+  Object.keys(total).forEach((key) => {
+    total[key] += Number(next?.[key]) || 0;
+  });
+  return total;
+}
+
+function updateLsqImportSummary(summary = createEmptyLsqSummary()) {
+  if (!lsqImportSummary) {
+    return;
+  }
+
+  lsqImportSummary.innerHTML = `
+    <p>Rows Scanned: ${summary.scanned}</p>
+    <p>Created: ${summary.created}</p>
+    <p>Updated: ${summary.updated}</p>
+    <p>Matched Counselors: ${summary.matchedCounselor}</p>
+    <p>Archived Leads: ${summary.archivedCounselor || summary.archived}</p>
+  `;
+}
+
+async function postLsqImportChunk(rows, sourceFileName) {
+  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/admin/lsq-import"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    },
+    body: JSON.stringify({
+      rows,
+      sourceFileName,
+      counselorFilter: "all",
+      stageFilter: "all"
+    })
+  }, 120000);
+
+  if (!response.ok || !json?.ok) {
+    throw new Error(json?.message || "Failed to import LSQ leads.");
+  }
+
+  return { response, json };
+}
+
+async function handleLsqLeadImport() {
+  if (!isSuperAdmin) {
+    setMessage(lsqImportMessage, "Only Super Admin can import LSQ leads.", true);
+    return;
+  }
+
+  const file = lsqImportFile?.files?.[0];
+  if (!file) {
+    setMessage(lsqImportMessage, "Please select the LSQ .csv or .xlsx file.", true);
+    return;
+  }
+
+  if (!/\.(csv|xlsx)$/i.test(file.name)) {
+    setMessage(lsqImportMessage, "Unsupported format. Please upload .csv or .xlsx.", true);
+    return;
+  }
+
+  setMessage(lsqImportMessage, "Reading LSQ file...", false);
+  updateLsqImportSummary(createEmptyLsqSummary());
+
+  let rows = [];
+  try {
+    rows = await parseImportFile(file);
+  } catch {
+    setMessage(lsqImportMessage, "Could not read the LSQ file. Check format and try again.", true);
+    return;
+  }
+
+  if (!rows.length) {
+    setMessage(lsqImportMessage, "No rows found in the LSQ file.", true);
+    return;
+  }
+
+  const totalSummary = createEmptyLsqSummary();
+  let latestStatePayload = null;
+  let latestEtag = "";
+  const totalChunks = Math.ceil(rows.length / LSQ_IMPORT_CHUNK_SIZE);
+
+  for (let offset = 0; offset < rows.length; offset += LSQ_IMPORT_CHUNK_SIZE) {
+    const chunk = rows.slice(offset, offset + LSQ_IMPORT_CHUNK_SIZE);
+    const chunkNumber = Math.floor(offset / LSQ_IMPORT_CHUNK_SIZE) + 1;
+    setMessage(lsqImportMessage, `Importing LSQ leads ${offset + 1}-${Math.min(offset + chunk.length, rows.length)} of ${rows.length}...`, false);
+
+    try {
+      const { response, json } = await postLsqImportChunk(chunk, file.name);
+      mergeLsqSummary(totalSummary, json.summary);
+      updateLsqImportSummary(totalSummary);
+      latestStatePayload = json.state || latestStatePayload;
+      latestEtag = response.headers.get("etag") || latestEtag;
+      setMessage(lsqImportMessage, `Processed chunk ${chunkNumber} of ${totalChunks}.`, false);
+    } catch (error) {
+      setMessage(lsqImportMessage, `LSQ import stopped at chunk ${chunkNumber}: ${error.message}`, true);
+      return;
+    }
+  }
+
+  if (latestStatePayload) {
+    acceptServerState(latestStatePayload, latestEtag);
+  }
+
+  const syncResult = await syncStateFromLocalAndVerify();
+  if (!syncResult.ok) {
+    setMessage(lsqImportMessage, syncResult.message || "LSQ import completed, but backend verification failed afterward.", true);
+    return;
+  }
+
+  lsqImportFile.value = "";
+  setMessage(
+    lsqImportMessage,
+    `LSQ import completed. Created ${totalSummary.created}, updated ${totalSummary.updated}, archived-owner ${totalSummary.archivedCounselor || totalSummary.archived}.`,
+    false
+  );
+  showToast("LSQ import completed.", false);
+  renderAll();
+}
+
 async function handleLeadImport() {
   if (!isAdmin) {
     setMessage(importMessage, "Only admin can import leads.", true);
@@ -842,6 +982,10 @@ function setupAdminPanel() {
     return;
   }
 
+  if (lsqImportBlock) {
+    lsqImportBlock.classList.toggle("hidden", !isSuperAdmin);
+  }
+
   const hydrateAllocationPanel = async () => {
     const names = await getCounselorNamesForAllocation();
     const existing = getAllocation();
@@ -886,6 +1030,12 @@ function setupAdminPanel() {
   importLeadsBtn.onclick = (event) => {
     void withButtonBusy(event.currentTarget, "Importing leads...", () => handleLeadImport());
   };
+
+  if (importLsqLeadsBtn) {
+    importLsqLeadsBtn.onclick = (event) => {
+      void withButtonBusy(event.currentTarget, "Importing LSQ...", () => handleLsqLeadImport());
+    };
+  }
 
   if (exportBackupBtn) {
     exportBackupBtn.onclick = (event) => {

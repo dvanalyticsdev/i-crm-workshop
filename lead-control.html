@@ -72,13 +72,13 @@
 
       <section class="card admin-panel hidden" id="adminImportPanel" data-admin-only="true">
         <div class="card-head">
-          <h3>Lead Import & Counselor Allocation</h3>
-          <p>Upload leads and auto-assign counselors using percentage allocation.</p>
+          <h3>Workshop Lead Import & Counselor Allocation</h3>
+          <p>Upload workshop leads and auto-assign counselors using percentage allocation.</p>
         </div>
 
         <div class="import-grid">
           <div class="import-block">
-            <h4>Lead Import</h4>
+            <h4>Workshop Lead Import</h4>
             <p class="block-help">Supported formats: .xlsx, .csv</p>
             <input id="leadImportFile" type="file" accept=".xlsx,.csv" />
             <button id="importLeadsBtn" type="button" class="btn-primary">Import Leads</button>
@@ -105,6 +105,31 @@
             <button id="saveAllocationBtn" type="button" class="btn-ghost">Save Allocation</button>
           </div>
           <p id="allocationMessage" class="message" aria-live="polite"></p>
+        </div>
+
+        <div class="allocation-block" id="lsqImportBlock" data-super-admin-only="true">
+          <div class="card-head">
+            <h4>LSQ Lead Import</h4>
+            <p>Import LeadSquared history into Main Admission Leads. Unmatched owners go to Archived Leads.</p>
+          </div>
+          <div class="import-grid">
+            <div class="import-block">
+              <h4>LeadSquared File</h4>
+              <p class="block-help">Supported formats: .csv, .xlsx. LSQ leads bypass SOP restrictions.</p>
+              <input id="lsqImportFile" type="file" accept=".csv,.xlsx" />
+              <button id="importLsqLeadsBtn" type="button" class="btn-primary">Import LSQ Leads</button>
+            </div>
+            <div class="import-block">
+              <h4>LSQ Import Summary</h4>
+              <div class="import-summary" id="lsqImportSummary">
+                <p>Rows Scanned: 0</p>
+                <p>Created: 0</p>
+                <p>Updated: 0</p>
+                <p>Archived Leads: 0</p>
+              </div>
+              <p id="lsqImportMessage" class="message" aria-live="polite"></p>
+            </div>
+          </div>
         </div>
 
         <div class="allocation-block">

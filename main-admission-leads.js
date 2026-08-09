@@ -1257,6 +1257,10 @@ function resolveSopBaseTimestamp(lead) {
 }
 
 function isSopBlockedLead(lead) {
+  if (isLsqImportedLead(lead) || lead?.sopExcluded) {
+    return false;
+  }
+
   if (!isRegisteredCandidateLead(lead)) {
     return false;
   }

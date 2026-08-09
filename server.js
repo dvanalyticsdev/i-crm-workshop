@@ -71,6 +71,7 @@ const PUBLIC_COURSE_SEGMENT_CONFIG = {
 };
 const MAIN_ADMISSION_PIPELINE = "main-admission";
 const MAIN_ADMISSION_ROUND_ROBIN_FIELD = "mainAdmissionRoundRobinIndex";
+const LSQ_ARCHIVED_COUNSELOR = "Archived Leads";
 const KOLKATA_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const LOST_LEAD_ARCHIVE_AFTER_MS = 24 * 60 * 60 * 1000;
 const ADMISSION_SOP_NEW_WINDOW_MS = 48 * 60 * 60 * 1000;
@@ -1480,6 +1481,15 @@ function normalizeLsqToken(value) {
   return normalizeLsqValue(value).toLowerCase().replace(/[_-]+/g, " ");
 }
 
+function normalizeLsqNameToken(value) {
+  return normalizeLsqValue(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function isLsqArchivedLead(lead = {}) {
+  return Boolean(lead?.lsqArchivedLead)
+    || String(lead?.counselor || "").trim().toLowerCase() === LSQ_ARCHIVED_COUNSELOR.toLowerCase();
+}
+
 function buildLsqSourceSnapshot(row = {}) {
   return {
     prospectId: normalizeLsqValue(row["Prospect ID"]),
@@ -1529,6 +1539,7 @@ function resolveLsqCounselorName(state = {}, record = {}, counselorFilter = "all
   const counselors = Array.isArray(state?.counselors) ? state.counselors : [];
   const ownerEmail = normalizeLsqValue(record?.sourceSnapshot?.ownerEmail).toLowerCase();
   const ownerName = normalizeLsqValue(record?.sourceSnapshot?.owner).toLowerCase();
+  const ownerNameToken = normalizeLsqNameToken(ownerName);
   const normalizedFilter = normalizeLsqValue(counselorFilter).toLowerCase();
 
   const byEmail = ownerEmail
@@ -1545,13 +1556,23 @@ function resolveLsqCounselorName(state = {}, record = {}, counselorFilter = "all
     return String(byName.name).trim();
   }
 
+  const byLooseName = ownerNameToken
+    ? counselors.find((item) => normalizeLsqNameToken(item?.name) === ownerNameToken)
+    : null;
+  if (byLooseName?.name) {
+    return String(byLooseName.name).trim();
+  }
+
   const fuzzyMatches = ownerName
     ? counselors.filter((item) => {
         const candidate = normalizeLsqValue(item?.name).toLowerCase();
+        const candidateToken = normalizeLsqNameToken(item?.name);
         if (!candidate) {
           return false;
         }
-        return candidate.includes(ownerName) || ownerName.includes(candidate);
+        return candidate.includes(ownerName)
+          || ownerName.includes(candidate)
+          || (candidateToken && ownerNameToken && (candidateToken.includes(ownerNameToken) || ownerNameToken.includes(candidateToken)));
       })
     : [];
   if (fuzzyMatches.length === 1 && fuzzyMatches[0]?.name) {
@@ -1569,7 +1590,11 @@ function resolveLsqCounselorName(state = {}, record = {}, counselorFilter = "all
     }
   }
 
-  return "Unassigned";
+  return LSQ_ARCHIVED_COUNSELOR;
+}
+
+function isResolvedLsqCounselorArchived(counselorName = "") {
+  return String(counselorName || "").trim().toLowerCase() === LSQ_ARCHIVED_COUNSELOR.toLowerCase();
 }
 
 function mapLsqAdmissionStatus(row = {}) {
@@ -1746,6 +1771,8 @@ function buildLsqUpdatedLead(existingLead, record = {}, counselorName = "") {
     leadPipeline: MAIN_ADMISSION_PIPELINE,
     publicCourseSegment: "",
     counselor: String(counselorName || existingLead.counselor || "Unassigned").trim() || "Unassigned",
+    lsqArchivedLead: isResolvedLsqCounselorArchived(counselorName),
+    sopExcluded: true,
     admissionSopLastProgressAt: record.updatedAt || existingLead.admissionSopLastProgressAt || "",
     lsqLastImportedAt: new Date().toISOString(),
     mainAdmissionActivityUpdates: existingHistory.length + 1,
@@ -1798,6 +1825,7 @@ function buildLsqImportedLead(record = {}, nextId, counselorName = "Unassigned")
   const callStatus = String(record.callStatus || "").trim();
   const admissionStatus = String(record.admissionStatus || "").trim();
   const courseStatus = String(record.courseStatus || "").trim();
+  const archivedLead = isResolvedLsqCounselorArchived(counselorName);
   const importedLead = {
     id: nextId,
     name: String(record.name || "Unknown").trim() || "Unknown",
@@ -1815,6 +1843,7 @@ function buildLsqImportedLead(record = {}, nextId, counselorName = "Unassigned")
     createdAtExact: now,
     createdAt: toKolkataDateKey(),
     counselor: counselorName,
+    counselorTag: archivedLead ? LSQ_ARCHIVED_COUNSELOR : "",
     dialed: "",
     callStatus: "",
     wsStatus: "",
@@ -1848,13 +1877,15 @@ function buildLsqImportedLead(record = {}, nextId, counselorName = "Unassigned")
         mainAdmissionCallStatus: callStatus
       }
     }],
-    admissionSopAssignedAt: shouldTreatLeadAsAssigned(counselorName) ? now : null,
+    admissionSopAssignedAt: shouldTreatLeadAsAssigned(counselorName) && !archivedLead ? now : null,
     admissionSopLastProgressAt: record.updatedAt || now,
+    sopExcluded: true,
     whatsappGroupStatus: "",
     leadNotes: [],
     importSourceFiles: [record.sourceFileName || "LeadSquared Import"].filter(Boolean),
     importSourceSheets: [],
     lsqImported: true,
+    lsqArchivedLead: archivedLead,
     lsqLastImportedAt: now,
     lsqSourceSnapshot: {
       ...(record.sourceSnapshot || {}),
@@ -9264,6 +9295,9 @@ function deriveAdmissionSopState(lead, nowValue = Date.now()) {
   if (!isAdmissionSopScopedLead(lead)) {
     return null;
   }
+  if (lead?.lsqImported || lead?.sopExcluded) {
+    return null;
+  }
 
   const trackingConfig = getAdmissionSopTrackingConfig(lead);
   if (!trackingConfig) {
@@ -10436,6 +10470,27 @@ function findDuplicateRegisteredLeadByEmailOrPhoneInSegment(leads, incomingLead,
       return false;
     }
     return !!findDuplicateLeadByEmailOrPhone([lead], incomingLead);
+  }) || null;
+}
+
+function findDuplicateLsqLead(leads, record = {}) {
+  const contactMatch = findDuplicateLeadByEmailOrPhone(leads, record);
+  if (contactMatch) {
+    return contactMatch;
+  }
+
+  const prospectId = normalizeLsqValue(record?.sourceSnapshot?.prospectId);
+  const leadNumber = normalizeLsqValue(record?.sourceSnapshot?.leadNumber);
+  if (!prospectId && !leadNumber) {
+    return null;
+  }
+
+  return (Array.isArray(leads) ? leads : []).find((lead) => {
+    const snapshot = lead?.lsqSourceSnapshot && typeof lead.lsqSourceSnapshot === "object"
+      ? lead.lsqSourceSnapshot
+      : {};
+    return (prospectId && normalizeLsqValue(snapshot.prospectId) === prospectId)
+      || (leadNumber && normalizeLsqValue(snapshot.leadNumber) === leadNumber);
   }) || null;
 }
 
@@ -12180,11 +12235,12 @@ app.post("/api/admin/lsq-import", async (req, res) => {
       updated: 0,
       created: 0,
       archived: 0,
+      matchedCounselor: 0,
+      archivedCounselor: 0,
       skippedByCounselorFilter: 0,
       skippedByStageFilter: 0,
       byReason: {}
     };
-    const archivedDocs = [];
 
     for (const record of dedupedRecords.values()) {
       if (!recordMatchesLsqCounselorFilter(record, counselorFilter)) {
@@ -12196,19 +12252,15 @@ app.post("/api/admin/lsq-import", async (req, res) => {
         continue;
       }
 
-      const existingLead = findDuplicateLeadByEmailOrPhone(state.leads, {
-        email: record.email,
-        phone: record.phone
-      });
+      const existingLead = findDuplicateLsqLead(state.leads, record);
       const counselorName = resolveLsqCounselorName(state, record, counselorFilter);
-      const sopDecision = evaluateLsqSop(existingLead, record);
-
-      if (!sopDecision.inSop) {
-        const archiveDoc = buildLsqArchiveDoc(record, sopDecision.reason, existingLead);
-        archivedDocs.push(archiveDoc);
+      const archivedCounselor = isResolvedLsqCounselorArchived(counselorName);
+      if (archivedCounselor) {
         summary.archived += 1;
-        summary.byReason[sopDecision.reason] = (summary.byReason[sopDecision.reason] || 0) + 1;
-        continue;
+        summary.archivedCounselor += 1;
+        summary.byReason["No matching CRM counselor"] = (summary.byReason["No matching CRM counselor"] || 0) + 1;
+      } else {
+        summary.matchedCounselor += 1;
       }
 
       let nextLead = null;
@@ -12240,10 +12292,6 @@ app.post("/api/admin/lsq-import", async (req, res) => {
       });
     }
 
-    if (archivedDocs.length) {
-      await lsqArchiveCollection.insertMany(archivedDocs, { ordered: false });
-    }
-
     await stateCollection.updateOne(
       { _id: STATE_DOC_ID },
       { $set: { updatedAt: new Date().toISOString() } },
@@ -12255,7 +12303,6 @@ app.post("/api/admin/lsq-import", async (req, res) => {
     return res.json({
       ok: true,
       summary,
-      archivedSample: normalizeBackupDocArray(archivedDocs.slice(0, 20)),
       state: buildStateResponse(nextState)
     });
   } catch (error) {
@@ -14727,9 +14774,16 @@ app.get("/api/leads/scoped", async (req, res) => {
       { retries: 1, label: "Load scoped leads" }
     );
     const decoratedLeads = decorateLeadListForStorage(rawLeads || []);
-    const visibleLeads = section === "main-admission" && ["counselor", "manager"].includes(String(session.role || "").trim().toLowerCase())
-      ? decoratedLeads.filter((lead) => !deriveAdmissionSopState(lead)?.blocked)
-      : decoratedLeads;
+    const sessionRole = String(session.role || "").trim().toLowerCase();
+    const visibleLeads = decoratedLeads.filter((lead) => {
+      if (!isAdminLikeSession(session) && isLsqArchivedLead(lead)) {
+        return false;
+      }
+      if (section === "main-admission" && ["counselor", "manager"].includes(sessionRole)) {
+        return !deriveAdmissionSopState(lead)?.blocked;
+      }
+      return true;
+    });
     const leads = visibleLeads
       .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
     const updatedAt = stateMeta?.updatedAt || new Date().toISOString();
@@ -14789,6 +14843,10 @@ app.get("/api/leads/:leadId/tab", async (req, res) => {
     }
 
     const permissions = getSessionPagePermissions(session);
+    if (!isAdminLikeSession(session) && isLsqArchivedLead(lead)) {
+      return res.status(403).json({ message: "You do not have access to this lead." });
+    }
+
     const requestedStage = String(req.query?.stage || "").trim().toLowerCase();
     const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
     const inferredStage = pipeline === MAIN_ADMISSION_PIPELINE
@@ -15309,7 +15367,10 @@ app.get("/api/leads", async (req, res) => {
     ]);
     const leads = decorateLeadListForStorage(rawLeads || []);
     if (session.role !== "counselor" || scope === "lead-browse") {
-      return res.json(leads);
+      const visibleLeads = isAdminLikeSession(session)
+        ? leads
+        : leads.filter((lead) => !isLsqArchivedLead(lead));
+      return res.json(visibleLeads);
     }
 
     const sessionEmail = String(session.email || "").trim().toLowerCase();
@@ -15325,11 +15386,14 @@ app.get("/api/leads", async (req, res) => {
       "mainAdmissionActivityHistory"
     ];
     return res.json(leads.filter((lead) => (
-      String(lead?.counselor || "").trim().toLowerCase() === counselorName
-      || (includeTouched && historyFields.some((field) => (
-        Array.isArray(lead?.[field])
-        && lead[field].some((entry) => String(entry?.by || "").trim().toLowerCase() === counselorName)
-      )))
+      !isLsqArchivedLead(lead)
+      && (
+        String(lead?.counselor || "").trim().toLowerCase() === counselorName
+        || (includeTouched && historyFields.some((field) => (
+          Array.isArray(lead?.[field])
+          && lead[field].some((entry) => String(entry?.by || "").trim().toLowerCase() === counselorName)
+        )))
+      )
     )));
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch leads", details: error.message });
