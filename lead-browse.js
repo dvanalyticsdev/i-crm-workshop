@@ -40,6 +40,16 @@ let duplicateGroups = [];
 let duplicateGroupsLoading = false;
 let duplicateGroupsLoaded = false;
 let leadBrowseLeads = [];
+let leadBrowsePagination = {
+  page: 1,
+  limit: PAGE_SIZE,
+  total: 0,
+  totalPages: 1
+};
+let leadBrowseFacets = {
+  counselors: [],
+  statuses: []
+};
 let draftLeadBrowseQuery = filter.query;
 let initialLeadBrowseLoadPending = true;
 let initialLeadBrowseLoadFailed = false;
@@ -210,16 +220,39 @@ function getAllLeads() {
   return leadBrowseLeads.filter((lead) => lead && !lead.isDeleted);
 }
 
-async function loadLeadBrowseData() {
-  const response = await fetch(apiUrl("/api/leads?scope=lead-browse"), {
+async function loadLeadBrowseData({ includeFacets = false } = {}) {
+  const params = new URLSearchParams({
+    category: filter.category === "admission" ? "admission" : "workshop",
+    admissionSection: filter.admissionSection || "all",
+    page: String(currentPage),
+    limit: String(PAGE_SIZE)
+  });
+  if (filter.query) params.set("search", filter.query);
+  if (filter.counselor) params.set("counselor", filter.counselor);
+  if (filter.status) params.set("status", filter.status);
+  if (includeFacets || !leadBrowseFacets.counselors.length) params.set("includeFacets", "1");
+
+  const response = await fetch(apiUrl(`/api/leads/browse?${params.toString()}`), {
     credentials: "same-origin",
     headers: { Accept: "application/json" }
   });
-  const payload = await response.json().catch(() => []);
+  const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(payload?.message || "Failed to load leads.");
   }
-  leadBrowseLeads = Array.isArray(payload) ? payload : [];
+  leadBrowseLeads = Array.isArray(payload?.leads) ? payload.leads : [];
+  leadBrowsePagination = payload?.pagination || {
+    page: currentPage,
+    limit: PAGE_SIZE,
+    total: leadBrowseLeads.length,
+    totalPages: Math.max(1, Math.ceil(leadBrowseLeads.length / PAGE_SIZE))
+  };
+  if (payload?.facets) {
+    leadBrowseFacets = {
+      counselors: Array.isArray(payload.facets.counselors) ? payload.facets.counselors : [],
+      statuses: Array.isArray(payload.facets.statuses) ? payload.facets.statuses : []
+    };
+  }
   return leadBrowseLeads;
 }
 
@@ -233,7 +266,9 @@ function startLeadBrowsePolling(onRefresh, intervalMs = 15000) {
     }
     activePoll = true;
     try {
-      await loadLeadBrowseData();
+      if (filter.category !== "duplicates") {
+        await loadLeadBrowseData();
+      }
       await onRefresh();
     } catch (error) {
       console.warn("[lead-browse] polling failed:", error?.message || error);
@@ -304,29 +339,7 @@ function getFilteredLeads() {
   if (filter.category === "duplicates") {
     return [];
   }
-  const categoryLeads = getCategoryLeads(getAllLeads());
-  const query = normalize(filter.query);
-  const counselor = normalize(filter.counselor);
-  const status = normalize(filter.status);
-
-  return categoryLeads.filter((lead) => {
-    if (counselor && normalize(lead.counselor || "Unassigned") !== counselor) return false;
-    if (status && normalize(getStatusLabel(lead)) !== status) return false;
-    if (!query) return true;
-
-    const haystack = [
-      lead.name,
-      lead.email,
-      lead.phone,
-      lead.workshop,
-      lead.courseName,
-      lead.source,
-      lead.counselor,
-      getStatusLabel(lead)
-    ].map((value) => normalize(value)).join(" ");
-
-    return haystack.includes(query);
-  });
+  return getAllLeads();
 }
 
 function getFilteredDuplicateGroups() {
@@ -392,6 +405,21 @@ function shouldAutoRefreshDuplicateCategory() {
   return false;
 }
 
+async function reloadLeadBrowsePage({ includeFacets = false } = {}) {
+  initialLeadBrowseLoadPending = true;
+  render();
+  try {
+    await loadLeadBrowseData({ includeFacets });
+    initialLeadBrowseLoadFailed = false;
+  } catch (error) {
+    initialLeadBrowseLoadFailed = true;
+    showLeadBrowseToast(error.message || "Could not load leads.", true);
+  } finally {
+    initialLeadBrowseLoadPending = false;
+    render();
+  }
+}
+
 async function mergeDuplicateGroup(group) {
   const keeperLeadId = selectedDuplicateKeeperByGroup.get(group.groupId) || String(group?.leads?.[0]?.id || "");
   const duplicateLeadIds = (group.leads || []).map((lead) => String(lead.id || "")).filter((id) => id && id !== keeperLeadId);
@@ -413,7 +441,7 @@ async function mergeDuplicateGroup(group) {
   if (!response.ok) {
     throw new Error(payload?.details || payload?.message || "Failed to merge duplicate leads.");
   }
-  await loadLeadBrowseData().catch(() => undefined);
+  await loadLeadBrowseData({ includeFacets: true }).catch(() => undefined);
   await fetchDuplicateGroups();
   showLeadBrowseToast("Duplicate leads merged successfully.");
 }
@@ -432,7 +460,7 @@ async function mergeAllDuplicateGroupsByOldest() {
   if (!response.ok) {
     throw new Error(payload?.details || payload?.message || "Failed to merge duplicate leads.");
   }
-  await loadLeadBrowseData().catch(() => undefined);
+  await loadLeadBrowseData({ includeFacets: true }).catch(() => undefined);
   await fetchDuplicateGroups();
   const mergedCount = Number(payload?.mergedGroups) || 0;
   const failedCount = Array.isArray(payload?.failedGroups) ? payload.failedGroups.length : 0;
@@ -447,9 +475,8 @@ async function mergeAllDuplicateGroupsByOldest() {
 }
 
 function renderControls() {
-  const categoryLeads = getCategoryLeads(getAllLeads());
-  const counselors = getUniqueValues(categoryLeads, (lead) => lead.counselor || "Unassigned");
-  const statuses = getUniqueValues(categoryLeads, getStatusLabel);
+  const counselors = Array.isArray(leadBrowseFacets.counselors) ? leadBrowseFacets.counselors : [];
+  const statuses = Array.isArray(leadBrowseFacets.statuses) ? leadBrowseFacets.statuses : [];
 
   controls.innerHTML = `
     <div class="lead-browse-tabs" role="tablist" aria-label="Lead categories">
@@ -519,7 +546,11 @@ function renderControls() {
       filter.counselor = "";
       filter.status = "";
       currentPage = 1;
-      render();
+      if (filter.category !== "duplicates") {
+        void reloadLeadBrowsePage({ includeFacets: true });
+      } else {
+        render();
+      }
       if (filter.category === "duplicates" && !duplicateGroupsLoaded) {
         void fetchDuplicateGroups();
       }
@@ -531,7 +562,7 @@ function renderControls() {
     admissionSection.addEventListener("change", (event) => {
       filter.admissionSection = event.target.value;
       currentPage = 1;
-      render();
+      void reloadLeadBrowsePage({ includeFacets: true });
     });
   }
 
@@ -547,17 +578,17 @@ function renderControls() {
     draftLeadBrowseQuery = event.target.value;
     filter.query = draftLeadBrowseQuery;
     currentPage = 1;
-    render();
+    void reloadLeadBrowsePage();
   });
   document.getElementById("leadBrowseCounselor")?.addEventListener("change", (event) => {
     filter.counselor = event.target.value;
     currentPage = 1;
-    render();
+    void reloadLeadBrowsePage();
   });
   document.getElementById("leadBrowseStatus")?.addEventListener("change", (event) => {
     filter.status = event.target.value;
     currentPage = 1;
-    render();
+    void reloadLeadBrowsePage();
   });
   document.getElementById("leadBrowseMergeAllDuplicatesBtn")?.addEventListener("click", async (event) => {
     const button = event.currentTarget;
@@ -610,9 +641,9 @@ function renderTable() {
     return;
   }
   const leads = getFilteredLeads();
-  const totalPages = Math.max(1, Math.ceil(leads.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Number(leadBrowsePagination.totalPages) || 1);
   currentPage = Math.min(currentPage, totalPages);
-  const pageLeads = leads.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const pageLeads = leads;
 
   if (!pageLeads.length) {
     const emptyStateTitle = initialLeadBrowseLoadPending
@@ -694,17 +725,17 @@ function renderTable() {
 
   pagination.innerHTML = `
     <button type="button" class="btn-ghost" id="leadBrowsePrev" ${currentPage <= 1 ? "disabled" : ""}>Prev</button>
-    <span>Page ${currentPage} of ${totalPages}</span>
+    <span>Page ${currentPage} of ${totalPages} | ${Number(leadBrowsePagination.total) || pageLeads.length} leads</span>
     <button type="button" class="btn-ghost" id="leadBrowseNext" ${currentPage >= totalPages ? "disabled" : ""}>Next</button>
   `;
 
   document.getElementById("leadBrowsePrev")?.addEventListener("click", () => {
     currentPage = Math.max(1, currentPage - 1);
-    render();
+    void reloadLeadBrowsePage();
   });
   document.getElementById("leadBrowseNext")?.addEventListener("click", () => {
     currentPage = Math.min(totalPages, currentPage + 1);
-    render();
+    void reloadLeadBrowsePage();
   });
 }
 
@@ -972,20 +1003,11 @@ render();
 window.__dvMarkRouteViewReady?.();
 
 void (async () => {
-  try {
-    await loadLeadBrowseData();
-    initialLeadBrowseLoadFailed = false;
-  } catch (error) {
-    initialLeadBrowseLoadFailed = true;
-    showLeadBrowseToast(error.message || "Could not load leads.", true);
-  } finally {
-    initialLeadBrowseLoadPending = false;
-  }
+  await reloadLeadBrowsePage({ includeFacets: true });
 
   if (isAdminSession()) {
     void fetchDuplicateGroups();
   }
-  render();
 })();
 
 const stopLeadBrowsePolling = startLeadBrowsePolling(() => {

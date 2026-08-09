@@ -519,7 +519,7 @@ function storeMonitoringCache(cacheKey, payload = {}) {
 
 async function loadMonitoringData() {
   const cacheKey = getMonitoringCacheKey();
-  if (!isAdminMonitoringView()) {
+  if (!isAdminMonitoringView() || ["reporting", "lead-assignment"].includes(activeView.subsection)) {
     const reportUrl = new URL(apiUrl("/api/monitoring-report"), window.location.origin);
     reportUrl.searchParams.set("subsection", activeView.subsection);
     reportUrl.searchParams.set("timelineType", timelineFilter.type || "week");
@@ -1876,7 +1876,23 @@ function getServerReportCell(row, label) {
     "Inbound Calls": "inboundCalls",
     "Call Picked": "callPicked",
     "Call Not Picked / Not Connected": "callNotPicked",
-    "Talk Time": "talkTimeLabel"
+    "Talk Time": "talkTimeLabel",
+    "Enrolled": "enrolled",
+    "PDE": "pde",
+    "CNC": "cnc",
+    "CBL": "cbl",
+    "NI": "ni",
+    "Pending Leads": "pendingLeads",
+    "APIDS": "apids",
+    "APIDA": "apida",
+    "DA": "da",
+    "AIML + GENAI": "aiml",
+    "7 DAYS GEN AI & AGENTIC AI": "days7Genai",
+    "GEN AI": "genai",
+    "APCS": "cyberSecurity",
+    "FDE": "fde",
+    "Unspecified": "unspecified",
+    "Total": "total"
   };
   const key = keyByLabel[label] || label;
   if (key === "entries") {

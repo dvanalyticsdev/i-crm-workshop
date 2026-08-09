@@ -2,14 +2,16 @@ import { registerPageCleanup } from "./page-runtime.js";
 import { openActivityHistory } from "./activity-history.js";
 import { exportLeadRowsToExcel } from "./lead-export.js";
 import { normalizeCrmCourseValue, populateCrmCourseSelect } from "./course-catalog.js";
+import { apiUrl } from "./api-client.js";
 import {
   bootstrapLocalState,
   getCounselors as getStoredCounselors,
   getLeads as getStoredLeads,
   getSession,
+  getStateSnapshot,
   loadLocalPreference,
+  replaceStateSnapshot,
   saveLocalPreference,
-  startStatePolling
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
@@ -31,7 +33,7 @@ import {
   updateLeadActivity as updateLeadActivityOnServer
 } from "./lead-service.js";
 
-await bootstrapLocalState();
+await bootstrapLocalState({ skipStateRefresh: true });
 
 const postKpiSection = document.getElementById("postKpiSection");
 const postFilterBar = document.getElementById("postFilterBar");
@@ -867,6 +869,56 @@ function getAllLeads() {
   const leads = getStoredLeads().filter((lead) => !isNonWorkshopPipelineLead(lead));
   normalizeLeadFields(leads);
   return leads;
+}
+
+async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 10000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    const contentType = response.headers.get("content-type") || "";
+    const json = contentType.includes("application/json")
+      ? await response.json().catch(() => null)
+      : null;
+    return { response, json };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function loadPostWorkshopData() {
+  const [leadResult, directoryResult] = await Promise.all([
+    fetchJsonWithTimeout(apiUrl("/api/leads?scope=assigned-or-touched&monitoringSubsection=admission-calling"), {
+      method: "GET",
+      headers: { Accept: "application/json" }
+    }, 12000),
+    fetchJsonWithTimeout(apiUrl("/api/account-directory"), {
+      method: "GET",
+      headers: { Accept: "application/json" }
+    }, 8000)
+  ]);
+
+  if (!leadResult.response.ok) {
+    throw new Error(leadResult.json?.message || "Could not load post-workshop leads.");
+  }
+  if (!directoryResult.response.ok) {
+    throw new Error(directoryResult.json?.message || "Could not load counselor directory.");
+  }
+
+  const directory = directoryResult.json || {};
+  replaceStateSnapshot({
+    ...getStateSnapshot(),
+    leads: Array.isArray(leadResult.json) ? leadResult.json : [],
+    counselors: Array.isArray(directory.counselors) ? directory.counselors : [],
+    allocation: Array.isArray(directory.allocation) ? directory.allocation : [],
+    adminUsers: Array.isArray(directory.adminUsers) ? directory.adminUsers : [],
+    marketingUsers: Array.isArray(directory.marketingUsers) ? directory.marketingUsers : [],
+    updatedAt: directory.updatedAt || new Date().toISOString(),
+    clearedAt: directory.clearedAt || null
+  });
 }
 
 function showToast(message, isError = false) {
@@ -2412,8 +2464,29 @@ async function renderAll() {
 
 const scheduleRenderAll = createRenderScheduler(renderAll);
 
+try {
+  await loadPostWorkshopData();
+} catch (error) {
+  console.warn("[post-workshop] lightweight data load failed:", error?.message || error);
+}
+
 void renderAll();
-const stopStatePolling = startStatePolling(() => {
-  void scheduleRenderAll();
-});
+let postWorkshopPollingStopped = false;
+let postWorkshopPollingActive = false;
+const postWorkshopPollingId = setInterval(async () => {
+  if (postWorkshopPollingStopped || postWorkshopPollingActive || document.visibilityState === "hidden") return;
+  postWorkshopPollingActive = true;
+  try {
+    await loadPostWorkshopData();
+    void scheduleRenderAll();
+  } catch (error) {
+    console.warn("[post-workshop] polling failed:", error?.message || error);
+  } finally {
+    postWorkshopPollingActive = false;
+  }
+}, 15000);
+const stopStatePolling = () => {
+  postWorkshopPollingStopped = true;
+  clearInterval(postWorkshopPollingId);
+};
 registerPageCleanup(stopStatePolling);

@@ -2208,9 +2208,250 @@ function buildMonitoringMcubeReport(rawLeads, range, session, directory) {
   };
 }
 
+function getServerReportingContexts(lead = {}) {
+  return [
+    {
+      historyField: "mainAdmissionActivityHistory",
+      coursePitchedField: "mainAdmissionCoursePitched",
+      courseStatusField: "mainAdmissionCourseStatus",
+      admissionStatusField: "mainAdmissionAdmissionStatus",
+      callStatusField: "mainAdmissionCallStatus"
+    }
+  ].map((context) => ({
+    ...context,
+    history: Array.isArray(lead?.[context.historyField]) ? lead[context.historyField] : []
+  }));
+}
+
+function isServerAdmissionReportingLead(lead = {}) {
+  return isMainAdmissionPipelineValue(lead?.leadPipeline)
+    || getServerReportingContexts(lead).some((context) =>
+      context.history.length
+      || String(lead?.[context.coursePitchedField] || "").trim()
+      || String(lead?.[context.courseStatusField] || "").trim()
+      || String(lead?.[context.admissionStatusField] || "").trim()
+      || String(lead?.[context.callStatusField] || "").trim()
+    );
+}
+
+function getServerReportingEventStatus(field, value) {
+  const normalized = normalizeMonitoringText(value);
+  const normalizedField = String(field || "").toLowerCase();
+  if (!normalized) return "";
+  if (normalizedField.includes("admissionstatus") && normalized === "enrolled") return "Enrolled";
+  if (normalizedField.includes("callstatus") && normalized === "cnc") return "CNC";
+  if (normalizedField.includes("callstatus") && normalized === "cbl") return "CBL";
+  if (normalizedField.includes("coursestatus") && (normalized === "not interested" || normalized === "ni")) return "NI";
+  return "";
+}
+
+function getServerReportingEventsForLead(lead = {}, range = null) {
+  const events = [];
+  getServerReportingContexts(lead).forEach((context) => {
+    context.history.forEach((entry) => {
+      const eventDate = parseMonitoringDate(entry?.at);
+      if (range && (!eventDate || eventDate < range.start || eventDate > range.end)) return;
+      const updates = entry?.updates && typeof entry.updates === "object" ? entry.updates : {};
+      Object.entries(updates).forEach(([field, value]) => {
+        if (![context.admissionStatusField, context.courseStatusField, context.callStatusField].includes(field)) return;
+        const bucket = getServerReportingEventStatus(field, value);
+        if (!bucket) return;
+        events.push({
+          bucket,
+          at: entry?.at || "",
+          counselor: entry?.by || entry?.counselor || lead?.counselor || ""
+        });
+      });
+    });
+  });
+  return events;
+}
+
+function getServerCurrentReportingBucketForLead(lead = {}) {
+  const contexts = getServerReportingContexts(lead);
+  if (contexts.some((context) => normalizeMonitoringText(lead?.[context.admissionStatusField]) === "enrolled")) {
+    return "Enrolled";
+  }
+  return contexts
+    .flatMap((context) => [
+      [context.callStatusField, lead?.[context.callStatusField]],
+      [context.courseStatusField, lead?.[context.courseStatusField]]
+    ])
+    .map(([field, value]) => getServerReportingEventStatus(field, value))
+    .find((bucket) => ["CNC", "CBL", "NI"].includes(bucket)) || "";
+}
+
+function hasServerCounselorAdmissionActivity(lead = {}, counselor = "") {
+  const normalizedCounselor = normalizeMonitoringText(counselor);
+  return getServerReportingContexts(lead).some((context) =>
+    context.history.some((entry) =>
+      normalizeMonitoringText(entry?.by || entry?.counselor) === normalizedCounselor
+      && isMonitoringActivityEntry(entry, MONITORING_ACTIVITY_OPTIONS_BY_HISTORY_FIELD[context.historyField])
+    )
+  );
+}
+
+function getServerAssignmentCourseValue(lead = {}) {
+  return String(lead?.mainAdmissionCoursePitched || lead?.courseName || lead?.courseCode || "").trim();
+}
+
+function getServerAssignmentCourseColumnKey(value = "") {
+  const text = String(value || "").trim();
+  if (!text || /^(select|n\/a|na|none|null|undefined)$/i.test(text)) return "unspecified";
+  if (/pre\s*workshop|post\s*workshop|workshop\s*calling/i.test(text)) return "unspecified";
+  const matched = [
+    { key: "apids", patterns: [/apids/i, /industrial\s+data\s+science/i] },
+    { key: "apida", patterns: [/apida/i, /industrial\s+data\s+analytics/i] },
+    { key: "da", patterns: [/^da$/i, /\bdas\b/i, /data\s+analytics\s+specialist/i] },
+    { key: "aiml", patterns: [/\baiml\b/i, /advanced\s+aiml/i, /aiml\s*\+?\s*gen\s*ai/i] },
+    { key: "days7Genai", patterns: [/7\s*days/i, /7days/i, /days7/i, /hands[-\s]*on\s+master/i] },
+    { key: "genai", patterns: [/genai\s*master/i, /gen\s*ai\s*master/i, /master\s+program\s+in\s+gen\s*ai/i, /generative\s+ai/i] },
+    { key: "cyberSecurity", patterns: [/cyber/i, /forensics/i, /\bapcs\b/i] },
+    { key: "fde", patterns: [/\bfde\b/i, /forward\s+deployed\s+engineer/i, /forward\s+deployment\s+engineer/i] }
+  ].find((column) => column.patterns.some((pattern) => pattern.test(text)));
+  return matched?.key || "unspecified";
+}
+
+function getServerLeadOwnershipDate(lead = {}) {
+  return parseMonitoringDate(lead.leadOwnerTimelineAt || lead.counselorAssignedAt || lead.createdAtExact || lead.createdAt);
+}
+
+function wasServerLeadCreatedByCounselor(lead = {}, counselor = "") {
+  const normalized = normalizeMonitoringText(counselor);
+  return normalizeMonitoringText(lead?.requestedBy || lead?.createdBy || lead?.createdByCounselor) === normalized;
+}
+
+function getServerAssignedAdmissionLeadsForCounselor(leads, counselor, range = null, directory) {
+  const normalizedCounselor = normalizeMonitoringText(counselor);
+  return leads.filter((lead) => {
+    if (!isServerAdmissionReportingLead(lead)) return false;
+    if (normalizeMonitoringText(resolveMonitoringCounselorName(lead?.counselor, directory, true)) !== normalizedCounselor) return false;
+    if (wasServerLeadCreatedByCounselor(lead, counselor)) return false;
+    if (range) {
+      const assignmentDate = getServerLeadOwnershipDate(lead);
+      if (!assignmentDate || assignmentDate < range.start || assignmentDate > range.end) return false;
+    }
+    return true;
+  });
+}
+
+function buildServerReportingRows(counselors, leads, range = null, directory) {
+  return counselors.map((counselor) => {
+    const countedByBucket = { enrolled: new Set(), pde: new Set(), cnc: new Set(), cbl: new Set(), ni: new Set() };
+    const normalizedCounselor = normalizeMonitoringText(counselor);
+    leads.filter(isServerAdmissionReportingLead).forEach((lead) => {
+      const leadKey = [lead?.id, lead?.email, lead?.phone].map((value) => String(value || "")).join("::");
+      const assignedToCounselor = normalizeMonitoringText(resolveMonitoringCounselorName(lead?.counselor, directory, true)) === normalizedCounselor;
+      getServerReportingContexts(lead).forEach((context) => {
+        const pitched = String(lead?.[context.coursePitchedField] || "").trim();
+        if (!range && assignedToCounselor && pitched) countedByBucket.pde.add(leadKey);
+        context.history.forEach((entry) => {
+          const eventDate = parseMonitoringDate(entry?.at);
+          if (range && (!eventDate || eventDate < range.start || eventDate > range.end)) return;
+          if (normalizeMonitoringText(entry?.by || entry?.counselor) !== normalizedCounselor) return;
+          const updates = entry?.updates && typeof entry.updates === "object" ? entry.updates : {};
+          if (updates[context.coursePitchedField]) countedByBucket.pde.add(leadKey);
+        });
+      });
+      const events = getServerReportingEventsForLead(lead, range)
+        .filter((event) => normalizeMonitoringText(event.counselor) === normalizedCounselor)
+        .sort((left, right) => (parseMonitoringDate(right.at)?.getTime() || 0) - (parseMonitoringDate(left.at)?.getTime() || 0));
+      const latestDisposition = events.find((event) => ["CNC", "CBL", "NI"].includes(event.bucket));
+      if (events.some((event) => event.bucket === "Enrolled")) countedByBucket.enrolled.add(leadKey);
+      if (latestDisposition?.bucket === "CNC") countedByBucket.cnc.add(leadKey);
+      if (latestDisposition?.bucket === "CBL") countedByBucket.cbl.add(leadKey);
+      if (latestDisposition?.bucket === "NI") countedByBucket.ni.add(leadKey);
+      if (!range && assignedToCounselor) {
+        const currentBucket = getServerCurrentReportingBucketForLead(lead);
+        if (currentBucket === "Enrolled") countedByBucket.enrolled.add(leadKey);
+        if (currentBucket === "CNC") countedByBucket.cnc.add(leadKey);
+        if (currentBucket === "CBL") countedByBucket.cbl.add(leadKey);
+        if (currentBucket === "NI") countedByBucket.ni.add(leadKey);
+      }
+    });
+    const assigned = getServerAssignedAdmissionLeadsForCounselor(leads, counselor, null, directory);
+    return {
+      counselor,
+      enrolled: countedByBucket.enrolled.size,
+      pde: countedByBucket.pde.size,
+      cnc: countedByBucket.cnc.size,
+      cbl: countedByBucket.cbl.size,
+      ni: countedByBucket.ni.size,
+      pendingLeads: assigned.filter((lead) => !hasServerCounselorAdmissionActivity(lead, counselor)).length
+    };
+  }).filter((row) => Object.values(row).some((value) => typeof value === "number" && value > 0));
+}
+
+function buildServerLeadAssignmentRows(counselors, leads, range = null, directory) {
+  const courseKeys = ["apids", "apida", "da", "aiml", "days7Genai", "genai", "cyberSecurity", "fde", "unspecified"];
+  return counselors.map((counselor) => {
+    const row = { counselor, total: 0 };
+    courseKeys.forEach((key) => { row[key] = 0; });
+    getServerAssignedAdmissionLeadsForCounselor(leads, counselor, range, directory).forEach((lead) => {
+      const key = getServerAssignmentCourseColumnKey(getServerAssignmentCourseValue(lead));
+      row[key] += 1;
+      row.total += 1;
+    });
+    return row;
+  }).sort((left, right) => right.total - left.total || String(left.counselor).localeCompare(String(right.counselor)));
+}
+
+function buildServerManagementMonitoringReport(subsection, rawLeads, counselors, range, session, directory) {
+  if (!isAdminLikeSession(session)) {
+    return { metrics: [], columns: [], rows: [] };
+  }
+  const counselorNames = getMonitoringCounselorNamesFromData(rawLeads, counselors, session, directory);
+  if (subsection === "lead-assignment") {
+    const rows = buildServerLeadAssignmentRows(counselorNames, rawLeads, range, directory);
+    const courseColumns = [
+      ["apids", "APIDS"],
+      ["apida", "APIDA"],
+      ["da", "DA"],
+      ["aiml", "AIML + GENAI"],
+      ["days7Genai", "7 DAYS GEN AI & AGENTIC AI"],
+      ["genai", "GEN AI"],
+      ["cyberSecurity", "APCS"],
+      ["fde", "FDE"],
+      ["unspecified", "Unspecified"]
+    ];
+    const totalAssigned = rows.reduce((sum, row) => sum + row.total, 0);
+    return {
+      metrics: [{ label: "Total Assigned", value: totalAssigned }],
+      columns: ["Counselor Name", ...courseColumns.map(([, label]) => label), "Total"],
+      rows
+    };
+  }
+  const rows = buildServerReportingRows(counselorNames, rawLeads, range, directory)
+    .sort((left, right) => (
+      (right.enrolled + right.pde + right.cnc + right.cbl + right.ni + right.pendingLeads)
+      - (left.enrolled + left.pde + left.cnc + left.cbl + left.ni + left.pendingLeads)
+    ) || String(left.counselor).localeCompare(String(right.counselor)));
+  const totals = rows.reduce((acc, row) => {
+    ["enrolled", "pde", "cnc", "cbl", "ni", "pendingLeads"].forEach((key) => {
+      acc[key] += Number(row[key]) || 0;
+    });
+    return acc;
+  }, { enrolled: 0, pde: 0, cnc: 0, cbl: 0, ni: 0, pendingLeads: 0 });
+  return {
+    metrics: [
+      { label: "Enrolled", value: totals.enrolled },
+      { label: "PDE", value: totals.pde },
+      { label: "CNC", value: totals.cnc },
+      { label: "CBL", value: totals.cbl },
+      { label: "NI", value: totals.ni },
+      { label: "Pending Leads", value: totals.pendingLeads }
+    ],
+    columns: ["Counselor Name", "Enrolled", "PDE", "CNC", "CBL", "NI", "Pending Leads"],
+    rows
+  };
+}
+
 function buildMonitoringReport({ subsection, leads, counselors, range, session }) {
   const directory = buildMonitoringCounselorDirectory(counselors);
   const rawLeads = normalizeMonitoringLeadFields(leads);
+  if (subsection === "reporting" || subsection === "lead-assignment") {
+    return buildServerManagementMonitoringReport(subsection, rawLeads, counselors, range, session, directory);
+  }
   const timelineLeads = range
     ? rawLeads.filter((lead) => ["workshopActivityHistory", "admissionActivityHistory", "registeredCourseActivityHistory", "mainAdmissionActivityHistory", "mcubeCallHistory"].some((field) => getMonitoringHistoryInRange(lead?.[field], range).length))
     : rawLeads;
@@ -2368,6 +2609,48 @@ const SCOPED_LEAD_LIST_PROJECTION = {
   registeredActivityTouchedByAssignee: 1,
   registeredCourseActivityUpdates: 1,
   registeredCourseActivityHistory: 1
+};
+
+const LEAD_BROWSE_LIST_PROJECTION = {
+  id: 1,
+  name: 1,
+  email: 1,
+  phone: 1,
+  counselor: 1,
+  createdAt: 1,
+  createdAtExact: 1,
+  updatedAt: 1,
+  workshop: 1,
+  workshopName: 1,
+  admissionWorkshop: 1,
+  courseName: 1,
+  courseCode: 1,
+  coursePitched: 1,
+  mainAdmissionCoursePitched: 1,
+  registeredCoursePitched: 1,
+  country: 1,
+  state: 1,
+  city: 1,
+  branch: 1,
+  source: 1,
+  leadSource: 1,
+  leadPipeline: 1,
+  publicCourseSegment: 1,
+  callStatus: 1,
+  wsStatus: 1,
+  postCallStatus: 1,
+  courseStatus: 1,
+  admissionStatus: 1,
+  postStatusUpdated: 1,
+  postActivityUpdates: 1,
+  mainAdmissionCallStatus: 1,
+  mainAdmissionCourseStatus: 1,
+  mainAdmissionAdmissionStatus: 1,
+  registeredCallStatus: 1,
+  registeredCourseStatus: 1,
+  registeredAdmissionStatus: 1,
+  lsqImported: 1,
+  lsqArchivedLead: 1
 };
 
 function getScopedEntryTimestamp(value) {
@@ -2884,6 +3167,7 @@ function buildMonitoringLeadMongoQuery(subsection = "") {
     ]
   };
   if (key === "main-admission") return getMainAdmissionLeadMongoQuery();
+  if (key === "reporting" || key === "lead-assignment") return getMainAdmissionLeadMongoQuery();
   if (key === "admission-calling") {
     return {
       leadPipeline: { $nin: ["course-registration", MAIN_ADMISSION_PIPELINE] }
@@ -2909,6 +3193,173 @@ function buildMonitoringLeadMongoQuery(subsection = "") {
     return {};
   }
   return legacyPipelineQuery;
+}
+
+function getLeadBrowseCategoryMongoQuery(category = "workshop", admissionSection = "all") {
+  const normalizedCategory = String(category || "workshop").trim().toLowerCase();
+  const normalizedAdmissionSection = String(admissionSection || "all").trim().toLowerCase();
+  if (normalizedCategory === "admission") {
+    if (normalizedAdmissionSection === "main-admission") {
+      return getMainAdmissionLeadMongoQuery();
+    }
+    if (normalizedAdmissionSection === "registered-candidates") {
+      return {
+        leadPipeline: "course-registration",
+        publicCourseSegment: { $ne: PUBLIC_COURSE_CRASH_SEGMENT },
+        courseId: { $ne: "days7_genai" }
+      };
+    }
+    if (normalizedAdmissionSection === "crash-course") {
+      return {
+        leadPipeline: "course-registration",
+        $or: [
+          { publicCourseSegment: PUBLIC_COURSE_CRASH_SEGMENT },
+          { courseId: "days7_genai" }
+        ]
+      };
+    }
+    return {
+      $or: [
+        getMainAdmissionLeadMongoQuery(),
+        { leadPipeline: "course-registration" }
+      ]
+    };
+  }
+
+  return {
+    $and: [
+      {
+        $or: [
+          { leadPipeline: { $exists: false } },
+          { leadPipeline: "" },
+          { leadPipeline: null },
+          { leadPipeline: { $nin: [MAIN_ADMISSION_PIPELINE, "admission", "main-admission-calling", "course-registration"] } }
+        ]
+      },
+      { lsqImported: { $ne: true } }
+    ]
+  };
+}
+
+function getLeadBrowseStatusExpression() {
+  return {
+    $ifNull: [
+      "$mainAdmissionAdmissionStatus",
+      {
+        $ifNull: [
+          "$registeredAdmissionStatus",
+          {
+            $ifNull: [
+              "$admissionStatus",
+              {
+                $ifNull: [
+                  "$courseStatus",
+                  {
+                    $ifNull: [
+                      "$wsStatus",
+                      {
+                        $ifNull: [
+                          "$callStatus",
+                          "No status"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  };
+}
+
+function appendLeadBrowseMongoFilters(query = {}, requestQuery = {}, session = {}) {
+  let nextQuery = query;
+  if (!isAdminLikeSession(session)) {
+    nextQuery = appendMongoAnd(nextQuery, {
+      $or: [
+        { lsqArchivedLead: { $ne: true } },
+        { lsqArchivedLead: { $exists: false } }
+      ],
+      counselor: { $ne: LSQ_ARCHIVED_COUNSELOR }
+    });
+  }
+
+  const counselor = String(requestQuery.counselor || "").trim();
+  if (counselor) {
+    nextQuery = appendMongoAnd(nextQuery, { counselor });
+  }
+
+  const status = String(requestQuery.status || "").trim();
+  if (status) {
+    nextQuery = appendMongoAnd(nextQuery, {
+      $or: [
+        { mainAdmissionAdmissionStatus: status },
+        { registeredAdmissionStatus: status },
+        { admissionStatus: status },
+        { courseStatus: status },
+        { wsStatus: status },
+        { callStatus: status }
+      ]
+    });
+  }
+
+  const search = String(requestQuery.search || requestQuery.query || "").trim();
+  if (search) {
+    const regex = new RegExp(escapeMongoRegex(search), "i");
+    nextQuery = appendMongoAnd(nextQuery, {
+      $or: [
+        { name: regex },
+        { email: regex },
+        { phone: regex },
+        { normalizedEmail: regex },
+        { normalizedPhone: regex },
+        { workshop: regex },
+        { workshopName: regex },
+        { admissionWorkshop: regex },
+        { courseName: regex },
+        { courseCode: regex },
+        { source: regex },
+        { leadSource: regex },
+        { counselor: regex },
+        { mainAdmissionCoursePitched: regex },
+        { registeredCoursePitched: regex }
+      ]
+    });
+  }
+
+  return nextQuery;
+}
+
+async function buildLeadBrowseFacets(baseQuery = {}) {
+  const [counselors, statuses] = await Promise.all([
+    withMongoRetry(
+      () => leadsCollection.distinct("counselor", baseQuery),
+      { retries: 1, label: "Load lead browse counselor facets" }
+    ).catch(() => []),
+    withMongoRetry(
+      () => leadsCollection.aggregate([
+        { $match: baseQuery },
+        { $project: { status: getLeadBrowseStatusExpression() } },
+        { $group: { _id: "$status" } },
+        { $sort: { _id: 1 } },
+        { $limit: 80 }
+      ]).toArray(),
+      { retries: 1, label: "Load lead browse status facets" }
+    ).catch(() => [])
+  ]);
+
+  return {
+    counselors: (Array.isArray(counselors) ? counselors : [])
+      .map((value) => String(value || "Unassigned").trim() || "Unassigned")
+      .filter(Boolean)
+      .sort((left, right) => left.localeCompare(right)),
+    statuses: (Array.isArray(statuses) ? statuses : [])
+      .map((row) => String(row?._id || "No status").trim() || "No status")
+      .filter(Boolean)
+  };
 }
 
 function buildMonitoringLeadProjection(subsection = "") {
@@ -2937,7 +3388,7 @@ function buildMonitoringLeadProjection(subsection = "") {
   if (key === "admission-calling") {
     return { ...projection, admissionActivityHistory: 1, admissionStatus: 1 };
   }
-  if (key === "main-admission") {
+  if (key === "main-admission" || key === "reporting" || key === "lead-assignment") {
     return { ...projection, mainAdmissionActivityHistory: 1, mainAdmissionCoursePitched: 1 };
   }
   if (key === "registered-candidates" || key === "crash-course") {
@@ -3847,6 +4298,16 @@ async function initMongo() {
         await leadsCollection.createIndex({ leadPipeline: 1, registeredAdmissionStatus: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
         await leadsCollection.createIndex({ leadPipeline: 1, registeredCallStatus: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
         await leadsCollection.createIndex({ createdAt: -1 }, { background: true }).catch(() => undefined);
+        await leadsCollection.createIndex({ updatedAt: -1, createdAt: -1 }, { background: true }).catch(() => undefined);
+        await leadsCollection.createIndex({ counselor: 1, updatedAt: -1, createdAt: -1 }, { background: true }).catch(() => undefined);
+        await leadsCollection.createIndex({ source: 1, updatedAt: -1 }, { background: true }).catch(() => undefined);
+        await leadsCollection.createIndex({ leadSource: 1, updatedAt: -1 }, { background: true }).catch(() => undefined);
+        await leadsCollection.createIndex({ lsqImported: 1, lsqArchivedLead: 1, updatedAt: -1 }, { background: true }).catch(() => undefined);
+        await leadsCollection.createIndex({ "workshopActivityHistory.at": -1 }, { background: true }).catch(() => undefined);
+        await leadsCollection.createIndex({ "admissionActivityHistory.at": -1 }, { background: true }).catch(() => undefined);
+        await leadsCollection.createIndex({ "mainAdmissionActivityHistory.at": -1 }, { background: true }).catch(() => undefined);
+        await leadsCollection.createIndex({ "registeredCourseActivityHistory.at": -1 }, { background: true }).catch(() => undefined);
+        await leadsCollection.createIndex({ "mcubeCallHistory.receivedAt": -1 }, { background: true }).catch(() => undefined);
         await leadsCollection.createIndex({ counselor: 1, leadPipeline: 1 }, { background: true }).catch(() => undefined);
         await tasksCollection.createIndex({ id: 1 }, { unique: true, background: true }).catch(() => undefined);
         await tasksCollection.createIndex({ leadId: 1, dueDate: 1 }, { background: true }).catch(() => undefined);
@@ -16153,6 +16614,65 @@ app.put("/api/state/reset", async (req, res) => {
     return res.json(buildStateResponse(nextState));
   } catch (error) {
     return res.status(500).json({ message: "Failed to reset state", details: error.message });
+  }
+});
+
+app.get("/api/leads/browse", async (req, res) => {
+  try {
+    const session = await requireSession(req, res);
+    if (!session) return;
+
+    const permissions = getSessionPagePermissions(session);
+    if (!permissions.leadBrowse) {
+      return res.status(403).json({ message: "You do not have permission to browse leads." });
+    }
+
+    const category = String(req.query?.category || "workshop").trim().toLowerCase() === "admission"
+      ? "admission"
+      : "workshop";
+    const admissionSection = String(req.query?.admissionSection || "all").trim().toLowerCase();
+    const page = parseBoundedPositiveInt(req.query?.page, 1, 1, 100000);
+    const limit = parseBoundedPositiveInt(req.query?.limit, 25, 1, 100);
+    const skip = (page - 1) * limit;
+    const baseQuery = getLeadBrowseCategoryMongoQuery(category, admissionSection);
+    const query = appendLeadBrowseMongoFilters(baseQuery, req.query || {}, session);
+    const includeFacets = String(req.query?.includeFacets || "").trim() === "1";
+
+    const [rawLeads, totalCount, facets] = await Promise.all([
+      withMongoRetry(
+        () => leadsCollection
+          .find(query, { projection: LEAD_BROWSE_LIST_PROJECTION })
+          .sort({ updatedAt: -1, createdAt: -1, _id: -1 })
+          .skip(skip)
+          .limit(limit)
+          .toArray(),
+        { retries: 1, label: "Load lead browse page" }
+      ),
+      withMongoRetry(
+        () => leadsCollection.countDocuments(query),
+        { retries: 1, label: "Count lead browse page" }
+      ),
+      includeFacets ? buildLeadBrowseFacets(baseQuery) : Promise.resolve(null)
+    ]);
+
+    const leads = decorateLeadListForStorage(rawLeads || []);
+    return res.json({
+      ok: true,
+      category,
+      admissionSection,
+      leads,
+      facets: facets || null,
+      pagination: {
+        page,
+        limit,
+        total: totalCount || 0,
+        totalPages: Math.max(1, Math.ceil((totalCount || 0) / limit)),
+        returned: leads.length
+      },
+      updatedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to browse leads", details: error.message });
   }
 });
 
