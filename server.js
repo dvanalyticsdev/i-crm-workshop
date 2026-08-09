@@ -30,6 +30,8 @@ const MONGODB_REACHOUT_LOGS_COLLECTION = process.env.MONGODB_REACHOUT_LOGS_COLLE
 const MONGODB_REACHOUT_MEDIA_COLLECTION = process.env.MONGODB_REACHOUT_MEDIA_COLLECTION || "reachout_media";
 const MONGODB_PERFORMANCE_LOGS_COLLECTION = process.env.MONGODB_PERFORMANCE_LOGS_COLLECTION || "performance_logs";
 const MONGODB_LSQ_ARCHIVE_COLLECTION = process.env.MONGODB_LSQ_ARCHIVE_COLLECTION || "lsq_archive_leads";
+const MONGODB_LSQ_IMPORT_JOBS_COLLECTION = process.env.MONGODB_LSQ_IMPORT_JOBS_COLLECTION || "lsq_import_jobs";
+const MONGODB_LSQ_IMPORT_CHUNKS_COLLECTION = process.env.MONGODB_LSQ_IMPORT_CHUNKS_COLLECTION || "lsq_import_chunks";
 const MONGODB_LEAD_INFLOW_COLLECTION = process.env.MONGODB_LEAD_INFLOW_COLLECTION || "lead_inflow_events";
 const META_WEBHOOK_FORWARD_URL = String(process.env.META_WEBHOOK_FORWARD_URL || "").trim();
 const ADMIN_LOGIN_ID = String(process.env.ADMIN_LOGIN_ID || "").trim();
@@ -72,6 +74,8 @@ const PUBLIC_COURSE_SEGMENT_CONFIG = {
 const MAIN_ADMISSION_PIPELINE = "main-admission";
 const MAIN_ADMISSION_ROUND_ROBIN_FIELD = "mainAdmissionRoundRobinIndex";
 const LSQ_ARCHIVED_COUNSELOR = "Archived Leads";
+const LSQ_BACKGROUND_BATCH_SIZE = 500;
+const LSQ_BACKGROUND_TIME_BUDGET_MS = 25000;
 const KOLKATA_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const LOST_LEAD_ARCHIVE_AFTER_MS = 24 * 60 * 60 * 1000;
 const ADMISSION_SOP_NEW_WINDOW_MS = 48 * 60 * 60 * 1000;
@@ -391,6 +395,8 @@ let activityLogsCollection;
 let leadClaimsCollection;
 let leadCreationRequestsCollection;
 let lsqArchiveCollection;
+let lsqImportJobsCollection;
+let lsqImportChunksCollection;
 let leadInflowCollection;
 
 function logNotificationDebug(message, extra) {
@@ -1597,6 +1603,115 @@ function isResolvedLsqCounselorArchived(counselorName = "") {
   return String(counselorName || "").trim().toLowerCase() === LSQ_ARCHIVED_COUNSELOR.toLowerCase();
 }
 
+function createEmptyLsqImportSummary(scanned = 0) {
+  return {
+    scanned: Number(scanned) || 0,
+    deduped: 0,
+    updated: 0,
+    created: 0,
+    archived: 0,
+    matchedCounselor: 0,
+    archivedCounselor: 0,
+    skippedByCounselorFilter: 0,
+    skippedByStageFilter: 0,
+    byReason: {}
+  };
+}
+
+function mergeLsqImportSummary(total = {}, next = {}) {
+  const merged = {
+    ...createEmptyLsqImportSummary(),
+    ...(total && typeof total === "object" ? total : {})
+  };
+  Object.entries(createEmptyLsqImportSummary()).forEach(([key, defaultValue]) => {
+    if (key === "byReason") {
+      merged.byReason = {
+        ...(merged.byReason && typeof merged.byReason === "object" ? merged.byReason : {})
+      };
+      Object.entries(next?.byReason && typeof next.byReason === "object" ? next.byReason : {}).forEach(([reason, count]) => {
+        merged.byReason[reason] = (Number(merged.byReason[reason]) || 0) + (Number(count) || 0);
+      });
+      return;
+    }
+    if (typeof defaultValue === "number") {
+      merged[key] = (Number(merged[key]) || 0) + (Number(next?.[key]) || 0);
+    }
+  });
+  return merged;
+}
+
+async function processLsqImportRows(rows = [], sourceFileName = "", session = null) {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const state = await getStateDoc();
+  const dedupedRecords = new Map();
+
+  safeRows.forEach((row) => {
+    if (!row || typeof row !== "object") {
+      return;
+    }
+    const record = buildLsqNormalizedRecord(row, sourceFileName);
+    const dedupeKey = record.email || record.phone || record.sourceSnapshot?.leadNumber || record.sourceSnapshot?.prospectId;
+    if (!dedupeKey) {
+      return;
+    }
+
+    const previous = dedupedRecords.get(dedupeKey);
+    const previousTime = Date.parse(previous?.updatedAt || "") || 0;
+    const nextTime = Date.parse(record.updatedAt || "") || 0;
+    if (!previous || nextTime >= previousTime) {
+      dedupedRecords.set(dedupeKey, record);
+    }
+  });
+
+  const summary = createEmptyLsqImportSummary(safeRows.length);
+  summary.deduped = dedupedRecords.size;
+
+  for (const record of dedupedRecords.values()) {
+    const existingLead = findDuplicateLsqLead(state.leads, record);
+    const counselorName = resolveLsqCounselorName(state, record, "all");
+    const archivedCounselor = isResolvedLsqCounselorArchived(counselorName);
+    if (archivedCounselor) {
+      summary.archived += 1;
+      summary.archivedCounselor += 1;
+      summary.byReason["No matching CRM counselor"] = (summary.byReason["No matching CRM counselor"] || 0) + 1;
+    } else {
+      summary.matchedCounselor += 1;
+    }
+
+    let nextLead = null;
+    let wasCreated = false;
+    if (existingLead) {
+      nextLead = buildLsqUpdatedLead(existingLead, record, counselorName);
+      await replaceLeadDocument(nextLead);
+      summary.updated += 1;
+    } else {
+      const nextId = await getNextMetaLeadId();
+      nextLead = buildLsqImportedLead(record, nextId, counselorName);
+      await withMongoRetry(
+        () => leadsCollection.insertOne(nextLead),
+        { retries: 1, label: "Create LSQ imported lead" }
+      );
+      summary.created += 1;
+      wasCreated = true;
+      state.leads.push(nextLead);
+    }
+
+    await recordActivity({
+      leadId: nextLead.id,
+      leadName: nextLead.name,
+      counselorName: nextLead.counselor || "",
+      activityType: wasCreated ? "Lead Created" : "Lead Updated",
+      actionDescription: `${wasCreated ? "Lead created" : "Lead updated"} from LeadSquared import${record.admissionStatus ? ` with ${record.admissionStatus} status` : ""}`,
+      previousValue: existingLead?.lsqLastImportedAt || (wasCreated ? "Created from LSQ import" : "No previous LSQ import"),
+      newValue: record.updatedAt || new Date().toISOString(),
+      session
+    });
+  }
+
+  await touchStateUpdatedAt();
+  return summary;
+}
+
 function mapLsqAdmissionStatus(row = {}) {
   const tokens = [
     row["Lead Stage"],
@@ -1932,6 +2047,139 @@ function normalizeArchivedLeadDoc(doc = {}) {
 
 function normalizeArchivedLeadDocs(docs = []) {
   return (Array.isArray(docs) ? docs : []).map((doc) => normalizeArchivedLeadDoc(doc));
+}
+
+const activeLsqImportJobs = new Set();
+
+function normalizeLsqImportJob(doc = {}) {
+  return {
+    id: String(doc?._id || doc?.id || ""),
+    sourceFileName: String(doc?.sourceFileName || "").trim(),
+    totalRows: Number(doc?.totalRows) || 0,
+    nextRowIndex: Number(doc?.nextRowIndex) || 0,
+    uploadedUntil: Number(doc?.uploadedUntil) || 0,
+    status: String(doc?.status || "uploading").trim(),
+    summary: {
+      ...createEmptyLsqImportSummary(),
+      ...(doc?.summary && typeof doc.summary === "object" ? doc.summary : {})
+    },
+    error: String(doc?.error || "").trim(),
+    createdAt: doc?.createdAt || "",
+    updatedAt: doc?.updatedAt || "",
+    completedAt: doc?.completedAt || ""
+  };
+}
+
+async function processLsqImportJob(jobId, session = null) {
+  const normalizedJobId = String(jobId || "").trim();
+  if (!normalizedJobId || activeLsqImportJobs.has(normalizedJobId)) {
+    return;
+  }
+
+  activeLsqImportJobs.add(normalizedJobId);
+  try {
+    const startedAt = Date.now();
+    let job = await lsqImportJobsCollection.findOne({ _id: normalizedJobId });
+    if (!job || job.status === "completed") {
+      return;
+    }
+
+    await lsqImportJobsCollection.updateOne(
+      { _id: normalizedJobId },
+      { $set: { status: "running", error: "", updatedAt: new Date().toISOString() } }
+    );
+
+    while (Date.now() - startedAt < LSQ_BACKGROUND_TIME_BUDGET_MS) {
+      job = await lsqImportJobsCollection.findOne({ _id: normalizedJobId });
+      if (!job || job.status === "completed") {
+        return;
+      }
+
+      const nextRowIndex = Number(job.nextRowIndex) || 0;
+      const totalRows = Number(job.totalRows) || 0;
+      if (totalRows > 0 && nextRowIndex >= totalRows) {
+        await lsqImportJobsCollection.updateOne(
+          { _id: normalizedJobId },
+          { $set: { status: "completed", completedAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }
+        );
+        await lsqImportChunksCollection.deleteMany({ jobId: normalizedJobId });
+        return;
+      }
+
+      const chunks = await lsqImportChunksCollection.find({ jobId: normalizedJobId }).toArray();
+      const chunk = chunks
+        .filter((item) => Number(item?.startIndex) <= nextRowIndex && Number(item?.endIndex) > nextRowIndex)
+        .sort((left, right) => Number(left.startIndex) - Number(right.startIndex))[0] || null;
+
+      if (!chunk) {
+        const uploadedUntil = Number(job.uploadedUntil) || 0;
+        if (uploadedUntil >= totalRows && nextRowIndex >= uploadedUntil) {
+          await lsqImportJobsCollection.updateOne(
+            { _id: normalizedJobId },
+            { $set: { status: "completed", completedAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }
+          );
+          return;
+        }
+        await lsqImportJobsCollection.updateOne(
+          { _id: normalizedJobId },
+          { $set: { status: "waiting_for_upload", updatedAt: new Date().toISOString() } }
+        );
+        return;
+      }
+
+      const rows = Array.isArray(chunk.rows) ? chunk.rows : [];
+      const offsetWithinChunk = Math.max(0, nextRowIndex - (Number(chunk.startIndex) || 0));
+      const rowsToProcess = rows.slice(offsetWithinChunk, offsetWithinChunk + LSQ_BACKGROUND_BATCH_SIZE);
+      if (!rowsToProcess.length) {
+        await lsqImportJobsCollection.updateOne(
+          { _id: normalizedJobId },
+          { $set: { nextRowIndex: Number(chunk.endIndex) || nextRowIndex, updatedAt: new Date().toISOString() } }
+        );
+        continue;
+      }
+
+      const batchSummary = await processLsqImportRows(rowsToProcess, job.sourceFileName, session);
+      const latestJob = await lsqImportJobsCollection.findOne({ _id: normalizedJobId });
+      const nextSummary = mergeLsqImportSummary(latestJob?.summary, batchSummary);
+      const nextIndex = nextRowIndex + rowsToProcess.length;
+      await lsqImportJobsCollection.updateOne(
+        { _id: normalizedJobId },
+        {
+          $set: {
+            nextRowIndex: nextIndex,
+            summary: nextSummary,
+            status: nextIndex >= totalRows ? "completed" : "running",
+            completedAt: nextIndex >= totalRows ? new Date().toISOString() : "",
+            updatedAt: new Date().toISOString()
+          }
+        }
+      );
+
+      if (nextIndex >= Number(chunk.endIndex || 0)) {
+        await lsqImportChunksCollection.deleteOne({ _id: chunk._id });
+      }
+    }
+
+    const latest = await lsqImportJobsCollection.findOne({ _id: normalizedJobId });
+    if (latest && latest.status === "running") {
+      setTimeout(() => {
+        void processLsqImportJob(normalizedJobId, session);
+      }, 250);
+    }
+  } catch (error) {
+    await lsqImportJobsCollection.updateOne(
+      { _id: normalizedJobId },
+      {
+        $set: {
+          status: "failed",
+          error: error.message,
+          updatedAt: new Date().toISOString()
+        }
+      }
+    ).catch(() => undefined);
+  } finally {
+    activeLsqImportJobs.delete(normalizedJobId);
+  }
 }
 
 function isServerLostLead(lead = {}) {
@@ -3269,6 +3517,8 @@ async function initMongo() {
         leadClaimsCollection    = db.collection("lead_claims");
         leadCreationRequestsCollection = db.collection("lead_creation_requests");
         lsqArchiveCollection = db.collection(MONGODB_LSQ_ARCHIVE_COLLECTION);
+        lsqImportJobsCollection = db.collection(MONGODB_LSQ_IMPORT_JOBS_COLLECTION);
+        lsqImportChunksCollection = db.collection(MONGODB_LSQ_IMPORT_CHUNKS_COLLECTION);
         leadInflowCollection = db.collection(MONGODB_LEAD_INFLOW_COLLECTION);
 
         // Ensure indexes for activity_logs
@@ -3284,6 +3534,9 @@ async function initMongo() {
         await leadCreationRequestsCollection.createIndex({ id: 1 }, { unique: true, background: true }).catch(() => undefined);
         await leadCreationRequestsCollection.createIndex({ status: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
         await leadCreationRequestsCollection.createIndex({ requesterEmail: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
+        await lsqImportJobsCollection.createIndex({ sourceFileKey: 1, totalRows: 1 }, { unique: true, background: true }).catch(() => undefined);
+        await lsqImportJobsCollection.createIndex({ status: 1, updatedAt: -1 }, { background: true }).catch(() => undefined);
+        await lsqImportChunksCollection.createIndex({ jobId: 1, startIndex: 1 }, { unique: true, background: true }).catch(() => undefined);
 
         // Ensure indexes
         await sessionCollection.createIndex(
@@ -3495,6 +3748,8 @@ async function initMongo() {
         leadClaimsCollection    = new MockCollection("leadClaims");
         leadCreationRequestsCollection = new MockCollection("leadCreationRequests");
         lsqArchiveCollection = new MockCollection("lsqArchive");
+        lsqImportJobsCollection = new MockCollection("lsqImportJobs");
+        lsqImportChunksCollection = new MockCollection("lsqImportChunks");
         leadInflowCollection = new MockCollection("leadInflowEvents");
         
         // Sync lead sequence for mock db too
@@ -12192,6 +12447,165 @@ app.delete("/api/admin/lsq-leads", async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ message: "Failed to delete LSQ leads", details: error.message });
+  }
+});
+
+app.post("/api/admin/lsq-import-jobs/start", async (req, res) => {
+  try {
+    const session = await requireSuperAdmin(req, res);
+    if (!session) return;
+
+    const sourceFileName = normalizeLsqValue(req.body?.sourceFileName);
+    const totalRows = Math.max(0, Number(req.body?.totalRows) || 0);
+    const resumeFrom = Math.max(0, Math.min(totalRows, Number(req.body?.resumeFrom) || 0));
+    if (!sourceFileName || !totalRows) {
+      return res.status(400).json({ message: "Source file name and total rows are required." });
+    }
+
+    const sourceFileKey = sourceFileName.toLowerCase();
+    const jobId = `lsq-import-${crypto.createHash("sha256").update(`${sourceFileKey}:${totalRows}`).digest("hex").slice(0, 24)}`;
+    const now = new Date().toISOString();
+    const existing = await lsqImportJobsCollection.findOne({ _id: jobId });
+    const nextRowIndex = existing
+      ? Math.max(Number(existing.nextRowIndex) || 0, resumeFrom)
+      : resumeFrom;
+    const uploadedUntil = existing
+      ? Math.max(Number(existing.uploadedUntil) || 0, resumeFrom)
+      : resumeFrom;
+    const summary = existing?.summary && typeof existing.summary === "object"
+      ? existing.summary
+      : createEmptyLsqImportSummary(resumeFrom);
+
+    await lsqImportJobsCollection.updateOne(
+      { _id: jobId },
+      {
+        $set: {
+          id: jobId,
+          sourceFileName,
+          sourceFileKey,
+          totalRows,
+          nextRowIndex,
+          uploadedUntil,
+          summary,
+          status: nextRowIndex >= totalRows ? "completed" : "uploading",
+          error: "",
+          updatedAt: now,
+          createdBy: session.email || session.name || "super_admin"
+        },
+        $setOnInsert: {
+          createdAt: now
+        }
+      },
+      { upsert: true }
+    );
+
+    const job = await lsqImportJobsCollection.findOne({ _id: jobId });
+    return res.json({ ok: true, job: normalizeLsqImportJob(job) });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to start LSQ import job", details: error.message });
+  }
+});
+
+app.post("/api/admin/lsq-import-jobs/:jobId/chunks", async (req, res) => {
+  try {
+    const session = await requireSuperAdmin(req, res);
+    if (!session) return;
+
+    const jobId = String(req.params.jobId || "").trim();
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    const startIndex = Math.max(0, Number(req.body?.startIndex) || 0);
+    if (!jobId || !rows.length) {
+      return res.status(400).json({ message: "Job id and rows are required." });
+    }
+
+    const job = await lsqImportJobsCollection.findOne({ _id: jobId });
+    if (!job) {
+      return res.status(404).json({ message: "LSQ import job not found." });
+    }
+
+    const endIndex = startIndex + rows.length;
+    const now = new Date().toISOString();
+    await lsqImportChunksCollection.updateOne(
+      { _id: `${jobId}:${startIndex}` },
+      {
+        $set: {
+          jobId,
+          startIndex,
+          endIndex,
+          rows,
+          updatedAt: now
+        },
+        $setOnInsert: {
+          createdAt: now
+        }
+      },
+      { upsert: true }
+    );
+
+    await lsqImportJobsCollection.updateOne(
+      { _id: jobId },
+      {
+        $set: {
+          uploadedUntil: Math.max(Number(job.uploadedUntil) || 0, endIndex),
+          status: "uploading",
+          updatedAt: now
+        }
+      }
+    );
+
+    const nextJob = await lsqImportJobsCollection.findOne({ _id: jobId });
+    return res.json({ ok: true, job: normalizeLsqImportJob(nextJob) });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to upload LSQ import chunk", details: error.message });
+  }
+});
+
+app.post("/api/admin/lsq-import-jobs/:jobId/run", async (req, res) => {
+  try {
+    const session = await requireSuperAdmin(req, res);
+    if (!session) return;
+
+    const jobId = String(req.params.jobId || "").trim();
+    const job = await lsqImportJobsCollection.findOne({ _id: jobId });
+    if (!job) {
+      return res.status(404).json({ message: "LSQ import job not found." });
+    }
+
+    await lsqImportJobsCollection.updateOne(
+      { _id: jobId },
+      { $set: { status: "running", error: "", updatedAt: new Date().toISOString() } }
+    );
+    setTimeout(() => {
+      void processLsqImportJob(jobId, session);
+    }, 0);
+
+    const nextJob = await lsqImportJobsCollection.findOne({ _id: jobId });
+    return res.json({ ok: true, job: normalizeLsqImportJob(nextJob) });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to run LSQ import job", details: error.message });
+  }
+});
+
+app.get("/api/admin/lsq-import-jobs/:jobId", async (req, res) => {
+  try {
+    const session = await requireSuperAdmin(req, res);
+    if (!session) return;
+
+    const jobId = String(req.params.jobId || "").trim();
+    const job = await lsqImportJobsCollection.findOne({ _id: jobId });
+    if (!job) {
+      return res.status(404).json({ message: "LSQ import job not found." });
+    }
+
+    if (["running", "waiting_for_upload"].includes(String(job.status || ""))) {
+      setTimeout(() => {
+        void processLsqImportJob(jobId, session);
+      }, 0);
+    }
+
+    return res.json({ ok: true, job: normalizeLsqImportJob(job) });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch LSQ import job", details: error.message });
   }
 });
 

@@ -38,9 +38,10 @@ const isAdmin = session?.role === "admin" || session?.role === "super_admin";
 const isSuperAdmin = session?.role === "super_admin";
 const LSQ_IMPORT_CHUNK_SIZE = 500;
 const LSQ_IMPORT_CHUNK_RETRIES = 3;
+const LSQ_JOB_POLL_INTERVAL_MS = 3000;
 const LSQ_RESUME_STORAGE_PREFIX = "dvLsqImportResume:";
 const LSQ_SEEDED_RESUME_POINTS = {
-  "LSQ history data as on 1st Aug 2026.csv": 44000
+  "LSQ history data as on 1st Aug 2026.csv": 50500
 };
 
 const DEFAULT_ALLOCATION = [];
@@ -720,6 +721,96 @@ async function postLsqImportChunkWithRetry(rows, sourceFileName, chunkNumber) {
   throw lastError || new Error("Failed to import LSQ leads.");
 }
 
+async function requestLsqJob(path, options = {}, timeoutMs = 120000) {
+  const { response, json } = await fetchJsonWithTimeout(apiUrl(path), {
+    ...options,
+    headers: {
+      Accept: "application/json",
+      ...(options.headers || {})
+    }
+  }, timeoutMs);
+
+  if (!response.ok || !json?.ok) {
+    const details = String(json?.details || "").trim();
+    const message = String(json?.message || "").trim() || "LSQ import job request failed.";
+    throw new Error(details ? `${message}: ${details}` : message);
+  }
+
+  return json;
+}
+
+async function startLsqImportJob(fileName, totalRows, resumeFrom) {
+  return requestLsqJob("/api/admin/lsq-import-jobs/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sourceFileName: fileName,
+      totalRows,
+      resumeFrom
+    })
+  });
+}
+
+async function uploadLsqJobChunk(jobId, rows, startIndex) {
+  return requestLsqJob(`/api/admin/lsq-import-jobs/${encodeURIComponent(jobId)}/chunks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rows, startIndex })
+  });
+}
+
+async function runLsqImportJob(jobId) {
+  return requestLsqJob(`/api/admin/lsq-import-jobs/${encodeURIComponent(jobId)}/run`, {
+    method: "POST"
+  }, 30000);
+}
+
+async function fetchLsqImportJob(jobId) {
+  return requestLsqJob(`/api/admin/lsq-import-jobs/${encodeURIComponent(jobId)}`, {
+    method: "GET"
+  }, 30000);
+}
+
+function getLsqJobSummary(job = {}) {
+  return {
+    ...createEmptyLsqSummary(),
+    ...(job.summary && typeof job.summary === "object" ? job.summary : {}),
+    scanned: Number(job.nextRowIndex) || Number(job.summary?.scanned) || 0
+  };
+}
+
+async function pollLsqImportJob(jobId, fileName) {
+  while (true) {
+    await wait(LSQ_JOB_POLL_INTERVAL_MS);
+    const { job } = await fetchLsqImportJob(jobId);
+    const summary = getLsqJobSummary(job);
+    updateLsqImportSummary(summary);
+    saveLsqResumePoint(fileName, Number(job?.nextRowIndex) || summary.scanned || 0, {
+      status: job?.status || "",
+      jobId
+    });
+
+    if (job.status === "completed") {
+      clearLsqResumePoint(fileName);
+      setMessage(
+        lsqImportMessage,
+        `LSQ background import completed. Created ${summary.created}, updated ${summary.updated}, archived-owner ${summary.archivedCounselor || summary.archived}.`,
+        false
+      );
+      showToast("LSQ import completed.", false);
+      renderAll();
+      return;
+    }
+
+    if (job.status === "failed") {
+      setMessage(lsqImportMessage, `LSQ background import failed at row ${(Number(job.nextRowIndex) || 0) + 1}: ${job.error || "Unknown error"}`, true);
+      return;
+    }
+
+    setMessage(lsqImportMessage, `LSQ background import ${job.status || "running"}: processed ${Number(job.nextRowIndex) || 0} of ${Number(job.totalRows) || 0}.`, false);
+  }
+}
+
 async function handleLsqLeadImport() {
   if (!isSuperAdmin) {
     setMessage(lsqImportMessage, "Only Super Admin can import LSQ leads.", true);
@@ -753,9 +844,6 @@ async function handleLsqLeadImport() {
     return;
   }
 
-  const totalSummary = createEmptyLsqSummary();
-  let latestStatePayload = null;
-  let latestEtag = "";
   const resumePoint = Math.min(readLsqResumePoint(file.name), rows.length);
   let startOffset = 0;
   if (resumePoint > 0 && resumePoint < rows.length) {
@@ -766,53 +854,50 @@ async function handleLsqLeadImport() {
   }
 
   if (startOffset > 0) {
-    totalSummary.scanned = startOffset;
-    updateLsqImportSummary(totalSummary);
+    const seededSummary = createEmptyLsqSummary();
+    seededSummary.scanned = startOffset;
+    updateLsqImportSummary(seededSummary);
   }
 
-  const totalChunks = Math.ceil((rows.length - startOffset) / LSQ_IMPORT_CHUNK_SIZE);
-  let processedChunks = 0;
+  let jobPayload = null;
+  try {
+    jobPayload = await startLsqImportJob(file.name, rows.length, startOffset);
+  } catch (error) {
+    setMessage(lsqImportMessage, `Could not create LSQ background job: ${error.message}`, true);
+    return;
+  }
+
+  const jobId = jobPayload?.job?.id;
+  if (!jobId) {
+    setMessage(lsqImportMessage, "Could not create LSQ background job.", true);
+    return;
+  }
 
   for (let offset = startOffset; offset < rows.length; offset += LSQ_IMPORT_CHUNK_SIZE) {
     const chunk = rows.slice(offset, offset + LSQ_IMPORT_CHUNK_SIZE);
     const chunkNumber = Math.floor(offset / LSQ_IMPORT_CHUNK_SIZE) + 1;
-    processedChunks += 1;
-    setMessage(lsqImportMessage, `Importing LSQ leads ${offset + 1}-${Math.min(offset + chunk.length, rows.length)} of ${rows.length}...`, false);
+    setMessage(lsqImportMessage, `Uploading LSQ job rows ${offset + 1}-${Math.min(offset + chunk.length, rows.length)} of ${rows.length}...`, false);
 
     try {
-      const { response, json } = await postLsqImportChunkWithRetry(chunk, file.name, chunkNumber);
-      mergeLsqSummary(totalSummary, json.summary);
-      updateLsqImportSummary(totalSummary);
-      latestStatePayload = json.state || latestStatePayload;
-      latestEtag = response.headers.get("etag") || latestEtag;
+      await uploadLsqJobChunk(jobId, chunk, offset);
       saveLsqResumePoint(file.name, offset + chunk.length, { lastCompletedChunk: chunkNumber });
-      setMessage(lsqImportMessage, `Processed ${processedChunks} of ${totalChunks} remaining chunks.`, false);
     } catch (error) {
       saveLsqResumePoint(file.name, offset, { failedChunk: chunkNumber, error: error.message });
-      setMessage(lsqImportMessage, `LSQ import stopped at chunk ${chunkNumber}: ${error.message}`, true);
+      setMessage(lsqImportMessage, `LSQ job upload stopped at chunk ${chunkNumber}: ${error.message}`, true);
       return;
     }
   }
 
-  if (latestStatePayload) {
-    acceptServerState(latestStatePayload, latestEtag);
-  }
-
-  const syncResult = await syncStateFromLocalAndVerify();
-  if (!syncResult.ok) {
-    setMessage(lsqImportMessage, syncResult.message || "LSQ import completed, but backend verification failed afterward.", true);
+  try {
+    await runLsqImportJob(jobId);
+  } catch (error) {
+    setMessage(lsqImportMessage, `LSQ job uploaded, but processing could not start: ${error.message}`, true);
     return;
   }
 
   lsqImportFile.value = "";
-  clearLsqResumePoint(file.name);
-  setMessage(
-    lsqImportMessage,
-    `LSQ import completed. Created ${totalSummary.created}, updated ${totalSummary.updated}, archived-owner ${totalSummary.archivedCounselor || totalSummary.archived}.`,
-    false
-  );
-  showToast("LSQ import completed.", false);
-  renderAll();
+  setMessage(lsqImportMessage, "LSQ background job started. You can keep this page open to watch progress.", false);
+  await pollLsqImportJob(jobId, file.name);
 }
 
 async function handleLeadImport() {
