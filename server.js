@@ -30,8 +30,6 @@ const MONGODB_REACHOUT_LOGS_COLLECTION = process.env.MONGODB_REACHOUT_LOGS_COLLE
 const MONGODB_REACHOUT_MEDIA_COLLECTION = process.env.MONGODB_REACHOUT_MEDIA_COLLECTION || "reachout_media";
 const MONGODB_PERFORMANCE_LOGS_COLLECTION = process.env.MONGODB_PERFORMANCE_LOGS_COLLECTION || "performance_logs";
 const MONGODB_LSQ_ARCHIVE_COLLECTION = process.env.MONGODB_LSQ_ARCHIVE_COLLECTION || "lsq_archive_leads";
-const MONGODB_LSQ_IMPORT_JOBS_COLLECTION = process.env.MONGODB_LSQ_IMPORT_JOBS_COLLECTION || "lsq_import_jobs";
-const MONGODB_LSQ_IMPORT_CHUNKS_COLLECTION = process.env.MONGODB_LSQ_IMPORT_CHUNKS_COLLECTION || "lsq_import_chunks";
 const MONGODB_LEAD_INFLOW_COLLECTION = process.env.MONGODB_LEAD_INFLOW_COLLECTION || "lead_inflow_events";
 const META_WEBHOOK_FORWARD_URL = String(process.env.META_WEBHOOK_FORWARD_URL || "").trim();
 const ADMIN_LOGIN_ID = String(process.env.ADMIN_LOGIN_ID || "").trim();
@@ -74,9 +72,6 @@ const PUBLIC_COURSE_SEGMENT_CONFIG = {
 const MAIN_ADMISSION_PIPELINE = "main-admission";
 const MAIN_ADMISSION_ROUND_ROBIN_FIELD = "mainAdmissionRoundRobinIndex";
 const LSQ_ARCHIVED_COUNSELOR = "Archived Leads";
-const LSQ_BACKGROUND_BATCH_SIZE = 250;
-const LSQ_BACKGROUND_TIME_BUDGET_MS = 25000;
-const LSQ_BACKGROUND_BATCH_PAUSE_MS = 1500;
 const KOLKATA_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const LOST_LEAD_ARCHIVE_AFTER_MS = 24 * 60 * 60 * 1000;
 const ADMISSION_SOP_NEW_WINDOW_MS = 48 * 60 * 60 * 1000;
@@ -396,8 +391,6 @@ let activityLogsCollection;
 let leadClaimsCollection;
 let leadCreationRequestsCollection;
 let lsqArchiveCollection;
-let lsqImportJobsCollection;
-let lsqImportChunksCollection;
 let leadInflowCollection;
 
 function logNotificationDebug(message, extra) {
@@ -1447,722 +1440,9 @@ function normalizeLsqValue(value) {
   return String(value ?? "").trim();
 }
 
-function normalizeLsqPhone(value) {
-  return normalizeLsqValue(value).replace(/\D+/g, "");
-}
-
-function parseLsqDateTime(value) {
-  const raw = normalizeLsqValue(value);
-  if (!raw) {
-    return null;
-  }
-
-  const isoMs = Date.parse(raw);
-  if (Number.isFinite(isoMs)) {
-    return new Date(isoMs).toISOString();
-  }
-
-  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{1,2}):(\d{2}):(\d{2})\s*([AP]M)$/i);
-  if (!match) {
-    return null;
-  }
-
-  let [, year, month, day, hour, minute, second, meridian] = match;
-  let normalizedHour = Number(hour) % 12;
-  if (String(meridian).toUpperCase() === "PM") {
-    normalizedHour += 12;
-  }
-
-  return new Date(
-    Number(year),
-    Number(month) - 1,
-    Number(day),
-    normalizedHour,
-    Number(minute),
-    Number(second)
-  ).toISOString();
-}
-
-function getLsqFirstValue(row = {}, keys = []) {
-  for (const key of keys) {
-    const value = normalizeLsqValue(row?.[key]);
-    if (value) {
-      return value;
-    }
-  }
-  return "";
-}
-
-function normalizeLsqToken(value) {
-  return normalizeLsqValue(value).toLowerCase().replace(/[_-]+/g, " ");
-}
-
-function normalizeLsqNameToken(value) {
-  return normalizeLsqValue(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
-}
-
 function isLsqArchivedLead(lead = {}) {
   return Boolean(lead?.lsqArchivedLead)
     || String(lead?.counselor || "").trim().toLowerCase() === LSQ_ARCHIVED_COUNSELOR.toLowerCase();
-}
-
-function buildLsqSourceSnapshot(row = {}) {
-  return {
-    prospectId: normalizeLsqValue(row["Prospect ID"]),
-    leadNumber: normalizeLsqValue(row["Lead Number"]),
-    owner: normalizeLsqValue(row.Owner),
-    ownerEmail: normalizeLsqValue(row["Owner Email"]).toLowerCase(),
-    leadStage: normalizeLsqValue(row["Lead Stage"]),
-    leadOutcome: normalizeLsqValue(row["Lead outcome"]),
-    outcome: normalizeLsqValue(row.Outcome),
-    subStatus: normalizeLsqValue(row["Sub Status"]),
-    offeredAt: normalizeLsqValue(row["Offered At"]),
-    tasksOn: normalizeLsqValue(row["Tasks on"]),
-    taskNature: normalizeLsqValue(row["Task Nature"]),
-    taskType: normalizeLsqValue(row["Task Type"]),
-    lastActivity: normalizeLsqValue(row["Last Activity"]),
-    lastActivityDate: parseLsqDateTime(row["Last Activity Date"]),
-    recentlyModifiedOn: parseLsqDateTime(row["Recently Modified On"]),
-    modifiedOn: parseLsqDateTime(row["Modified On"]),
-    createdOn: parseLsqDateTime(row["Created On"]),
-    program: getLsqFirstValue(row, ["Program", "Course"]),
-    leadStageChangedTo: normalizeLsqValue(row["Lead Stage Changed To"])
-  };
-}
-
-function recordMatchesLsqCounselorFilter(record = {}, counselorFilter = "all") {
-  const normalizedFilter = normalizeLsqValue(counselorFilter).toLowerCase();
-  if (!normalizedFilter || normalizedFilter === "all") {
-    return true;
-  }
-
-  const ownerEmail = normalizeLsqValue(record?.sourceSnapshot?.ownerEmail).toLowerCase();
-  const ownerName = normalizeLsqValue(record?.sourceSnapshot?.owner).toLowerCase();
-  return ownerEmail === normalizedFilter || ownerName === normalizedFilter;
-}
-
-function recordMatchesLsqStageFilter(record = {}, stageFilter = "all") {
-  const normalizedFilter = normalizeLsqValue(stageFilter).toLowerCase();
-  if (!normalizedFilter || normalizedFilter === "all") {
-    return true;
-  }
-
-  const leadStage = normalizeLsqValue(record?.sourceSnapshot?.leadStage).toLowerCase();
-  return leadStage === normalizedFilter;
-}
-
-function resolveLsqCounselorName(state = {}, record = {}, counselorFilter = "all") {
-  const counselors = Array.isArray(state?.counselors) ? state.counselors : [];
-  const ownerEmail = normalizeLsqValue(record?.sourceSnapshot?.ownerEmail).toLowerCase();
-  const ownerName = normalizeLsqValue(record?.sourceSnapshot?.owner).toLowerCase();
-  const ownerNameToken = normalizeLsqNameToken(ownerName);
-  const normalizedFilter = normalizeLsqValue(counselorFilter).toLowerCase();
-
-  const byEmail = ownerEmail
-    ? counselors.find((item) => normalizeLsqValue(item?.email).toLowerCase() === ownerEmail)
-    : null;
-  if (byEmail?.name) {
-    return String(byEmail.name).trim();
-  }
-
-  const byName = ownerName
-    ? counselors.find((item) => normalizeLsqValue(item?.name).toLowerCase() === ownerName)
-    : null;
-  if (byName?.name) {
-    return String(byName.name).trim();
-  }
-
-  const byLooseName = ownerNameToken
-    ? counselors.find((item) => normalizeLsqNameToken(item?.name) === ownerNameToken)
-    : null;
-  if (byLooseName?.name) {
-    return String(byLooseName.name).trim();
-  }
-
-  const fuzzyMatches = ownerName
-    ? counselors.filter((item) => {
-        const candidate = normalizeLsqValue(item?.name).toLowerCase();
-        const candidateToken = normalizeLsqNameToken(item?.name);
-        if (!candidate) {
-          return false;
-        }
-        return candidate.includes(ownerName)
-          || ownerName.includes(candidate)
-          || (candidateToken && ownerNameToken && (candidateToken.includes(ownerNameToken) || ownerNameToken.includes(candidateToken)));
-      })
-    : [];
-  if (fuzzyMatches.length === 1 && fuzzyMatches[0]?.name) {
-    return String(fuzzyMatches[0].name).trim();
-  }
-
-  if (normalizedFilter && normalizedFilter !== "all") {
-    const filteredCounselor = counselors.find((item) => {
-      const email = normalizeLsqValue(item?.email).toLowerCase();
-      const name = normalizeLsqValue(item?.name).toLowerCase();
-      return email === normalizedFilter || name === normalizedFilter;
-    });
-    if (filteredCounselor?.name) {
-      return String(filteredCounselor.name).trim();
-    }
-  }
-
-  return LSQ_ARCHIVED_COUNSELOR;
-}
-
-function isResolvedLsqCounselorArchived(counselorName = "") {
-  return String(counselorName || "").trim().toLowerCase() === LSQ_ARCHIVED_COUNSELOR.toLowerCase();
-}
-
-function createEmptyLsqImportSummary(scanned = 0) {
-  return {
-    scanned: Number(scanned) || 0,
-    deduped: 0,
-    updated: 0,
-    created: 0,
-    archived: 0,
-    matchedCounselor: 0,
-    archivedCounselor: 0,
-    skippedByCounselorFilter: 0,
-    skippedByStageFilter: 0,
-    byReason: {}
-  };
-}
-
-function mergeLsqImportSummary(total = {}, next = {}) {
-  const merged = {
-    ...createEmptyLsqImportSummary(),
-    ...(total && typeof total === "object" ? total : {})
-  };
-  Object.entries(createEmptyLsqImportSummary()).forEach(([key, defaultValue]) => {
-    if (key === "byReason") {
-      merged.byReason = {
-        ...(merged.byReason && typeof merged.byReason === "object" ? merged.byReason : {})
-      };
-      Object.entries(next?.byReason && typeof next.byReason === "object" ? next.byReason : {}).forEach(([reason, count]) => {
-        merged.byReason[reason] = (Number(merged.byReason[reason]) || 0) + (Number(count) || 0);
-      });
-      return;
-    }
-    if (typeof defaultValue === "number") {
-      merged[key] = (Number(merged[key]) || 0) + (Number(next?.[key]) || 0);
-    }
-  });
-  return merged;
-}
-
-function setLsqLookupValue(map, key, lead) {
-  const normalizedKey = String(key || "").trim();
-  if (normalizedKey && !map.has(normalizedKey)) {
-    map.set(normalizedKey, lead);
-  }
-}
-
-function addLeadToLsqLookup(lookup, lead = {}) {
-  if (!lookup || !lead) {
-    return;
-  }
-  const email = normalizeLeadEmail(lead.email);
-  const phone = normalizeLeadPhone(lead.phone);
-  const snapshot = lead?.lsqSourceSnapshot && typeof lead.lsqSourceSnapshot === "object"
-    ? lead.lsqSourceSnapshot
-    : {};
-  setLsqLookupValue(lookup.byEmail, email, lead);
-  setLsqLookupValue(lookup.byPhone, phone, lead);
-  setLsqLookupValue(lookup.byProspectId, normalizeLsqValue(snapshot.prospectId), lead);
-  setLsqLookupValue(lookup.byLeadNumber, normalizeLsqValue(snapshot.leadNumber), lead);
-}
-
-function buildLsqLeadLookup(leads = []) {
-  const lookup = {
-    byEmail: new Map(),
-    byPhone: new Map(),
-    byProspectId: new Map(),
-    byLeadNumber: new Map()
-  };
-  (Array.isArray(leads) ? leads : []).forEach((lead) => addLeadToLsqLookup(lookup, lead));
-  return lookup;
-}
-
-function findDuplicateLsqLeadFromLookup(lookup, record = {}) {
-  if (!lookup) {
-    return null;
-  }
-  const email = normalizeLeadEmail(record.email);
-  const phone = normalizeLeadPhone(record.phone);
-  const prospectId = normalizeLsqValue(record?.sourceSnapshot?.prospectId);
-  const leadNumber = normalizeLsqValue(record?.sourceSnapshot?.leadNumber);
-  return (email && lookup.byEmail.get(email))
-    || (phone && lookup.byPhone.get(phone))
-    || (prospectId && lookup.byProspectId.get(prospectId))
-    || (leadNumber && lookup.byLeadNumber.get(leadNumber))
-    || null;
-}
-
-async function reserveMetaLeadIds(count = 0) {
-  const safeCount = Math.max(0, Number(count) || 0);
-  if (!safeCount) {
-    return [];
-  }
-  await syncLeadSequence();
-  const result = await withMongoRetry(
-    () => metaConfigCollection.findOneAndUpdate(
-      { _id: META_CONFIG_DOC_ID },
-      { $inc: { leadSequence: safeCount } },
-      { returnDocument: "after", upsert: true }
-    ),
-    { retries: 1, label: "Reserve LSQ lead ids" }
-  );
-  const endId = Number(result?.leadSequence) || Date.now();
-  const startId = endId - safeCount + 1;
-  return Array.from({ length: safeCount }, (_, index) => startId + index);
-}
-
-async function executeLsqLeadWrites(operations = []) {
-  const safeOperations = Array.isArray(operations) ? operations.filter(Boolean) : [];
-  if (!safeOperations.length) {
-    return;
-  }
-  if (typeof leadsCollection.bulkWrite === "function") {
-    await withMongoRetry(
-      () => leadsCollection.bulkWrite(safeOperations, { ordered: false }),
-      { retries: 1, label: "Bulk write LSQ leads" }
-    );
-    return;
-  }
-
-  for (const operation of safeOperations) {
-    if (operation.insertOne?.document) {
-      await leadsCollection.insertOne(operation.insertOne.document);
-    } else if (operation.replaceOne) {
-      await leadsCollection.updateOne(
-        operation.replaceOne.filter,
-        { $set: operation.replaceOne.replacement },
-        { upsert: Boolean(operation.replaceOne.upsert) }
-      );
-    }
-  }
-}
-
-async function processLsqImportRows(rows = [], sourceFileName = "", session = null) {
-  const safeRows = Array.isArray(rows) ? rows : [];
-  const dedupedRecords = new Map();
-
-  safeRows.forEach((row) => {
-    if (!row || typeof row !== "object") {
-      return;
-    }
-    const record = buildLsqNormalizedRecord(row, sourceFileName);
-    const dedupeKey = record.email || record.phone || record.sourceSnapshot?.leadNumber || record.sourceSnapshot?.prospectId;
-    if (!dedupeKey) {
-      return;
-    }
-
-    const previous = dedupedRecords.get(dedupeKey);
-    const previousTime = Date.parse(previous?.updatedAt || "") || 0;
-    const nextTime = Date.parse(record.updatedAt || "") || 0;
-    if (!previous || nextTime >= previousTime) {
-      dedupedRecords.set(dedupeKey, record);
-    }
-  });
-
-  const summary = createEmptyLsqImportSummary(safeRows.length);
-  summary.deduped = dedupedRecords.size;
-  const [storedLeads, counselors] = await Promise.all([
-    withMongoRetry(
-      () => leadsCollection.find({}).toArray(),
-      { retries: 1, label: "Load leads for LSQ batch" }
-    ),
-    withMongoRetry(
-      () => counselorsCollection.find({}).toArray(),
-      { retries: 1, label: "Load counselors for LSQ batch" }
-    )
-  ]);
-  const state = {
-    leads: decorateLeadListForStorage(storedLeads || []),
-    counselors: Array.isArray(counselors) ? counselors : []
-  };
-  const leadLookup = buildLsqLeadLookup(state.leads);
-  const leadWrites = [];
-  const activityEntries = [];
-  const recordsToCreate = [];
-
-  for (const record of dedupedRecords.values()) {
-    const existingLead = findDuplicateLsqLeadFromLookup(leadLookup, record);
-    const counselorName = resolveLsqCounselorName(state, record, "all");
-    const archivedCounselor = isResolvedLsqCounselorArchived(counselorName);
-    if (archivedCounselor) {
-      summary.archived += 1;
-      summary.archivedCounselor += 1;
-      summary.byReason["No matching CRM counselor"] = (summary.byReason["No matching CRM counselor"] || 0) + 1;
-    } else {
-      summary.matchedCounselor += 1;
-    }
-
-    let nextLead = null;
-    let wasCreated = false;
-    if (existingLead) {
-      nextLead = buildLsqUpdatedLead(existingLead, record, counselorName);
-      leadWrites.push({
-        replaceOne: {
-          filter: { id: { $in: getLeadIdCandidates(nextLead?.id) } },
-          replacement: decorateLeadForStorage(nextLead),
-          upsert: false
-        }
-      });
-      summary.updated += 1;
-    } else {
-      recordsToCreate.push({ record, counselorName });
-      summary.created += 1;
-      continue;
-    }
-
-    activityEntries.push({
-      leadId: nextLead.id,
-      leadName: nextLead.name,
-      counselorName: nextLead.counselor || "",
-      activityType: wasCreated ? "Lead Created" : "Lead Updated",
-      actionDescription: `${wasCreated ? "Lead created" : "Lead updated"} from LeadSquared import${record.admissionStatus ? ` with ${record.admissionStatus} status` : ""}`,
-      previousValue: existingLead?.lsqLastImportedAt || (wasCreated ? "Created from LSQ import" : "No previous LSQ import"),
-      newValue: record.updatedAt || new Date().toISOString(),
-      session
-    });
-  }
-
-  if (recordsToCreate.length) {
-    const reservedIds = await reserveMetaLeadIds(recordsToCreate.length);
-    recordsToCreate.forEach(({ record, counselorName }, index) => {
-      const nextLead = buildLsqImportedLead(record, reservedIds[index], counselorName);
-      const storedLead = decorateLeadForStorage(nextLead);
-      leadWrites.push({ insertOne: { document: storedLead } });
-      addLeadToLsqLookup(leadLookup, storedLead);
-      activityEntries.push({
-        leadId: nextLead.id,
-        leadName: nextLead.name,
-        counselorName: nextLead.counselor || "",
-        activityType: "Lead Created",
-        actionDescription: `Lead created from LeadSquared import${record.admissionStatus ? ` with ${record.admissionStatus} status` : ""}`,
-        previousValue: "Created from LSQ import",
-        newValue: record.updatedAt || new Date().toISOString(),
-        session
-      });
-    });
-  }
-
-  if (leadWrites.length) {
-    await executeLsqLeadWrites(leadWrites);
-  }
-  await recordActivities(activityEntries);
-  await touchStateUpdatedAt();
-  return summary;
-}
-
-function mapLsqAdmissionStatus(row = {}) {
-  const tokens = [
-    row["Lead Stage"],
-    row["Lead outcome"],
-    row.Outcome,
-    row["Sub Status"],
-    row["Last Activity"],
-    row["Task Type"]
-  ].map(normalizeLsqToken).filter(Boolean).join(" | ");
-
-  if (!tokens) {
-    return "";
-  }
-  if (tokens.includes("offered")) {
-    return "Offered";
-  }
-  if (tokens.includes("opportunity")) {
-    return "Opportunity";
-  }
-  if (tokens.includes("enrolled")) {
-    return "Enrolled";
-  }
-  if (tokens.includes("won") || tokens.includes("joined")) {
-    return "Won";
-  }
-  if (
-    tokens.includes("interested")
-    || tokens.includes("shared details")
-    || tokens.includes("lead called")
-    || tokens.includes("phone call")
-    || tokens.includes("follow up")
-    || tokens.includes("in conversation")
-  ) {
-    return "In-Conversation";
-  }
-  return "";
-}
-
-function mapLsqCourseStatus(row = {}) {
-  const tokens = [
-    row["Lead Stage"],
-    row["Lead outcome"],
-    row.Outcome,
-    row["Sub Status"]
-  ].map(normalizeLsqToken).filter(Boolean).join(" | ");
-
-  if (!tokens) {
-    return "";
-  }
-  if (
-    tokens.includes("dnp")
-    || tokens.includes("no response")
-    || tokens.includes("not interested")
-    || tokens.includes("not shared details")
-    || tokens.includes("rejected")
-    || tokens.includes("lost")
-  ) {
-    return "Not Interested";
-  }
-  if (
-    tokens.includes("interested")
-    || tokens.includes("shared details")
-    || tokens.includes("opportunity")
-    || tokens.includes("offered")
-    || tokens.includes("enrolled")
-    || tokens.includes("won")
-  ) {
-    return "Interested";
-  }
-  return "";
-}
-
-function buildLsqNormalizedRecord(row = {}, sourceFileName = "") {
-  const firstName = normalizeLsqValue(row["First Name"]);
-  const lastName = normalizeLsqValue(row["Last Name"]);
-  const name = getLsqFirstValue(row, ["Lead Name"]) || [firstName, lastName].filter(Boolean).join(" ");
-  const sourceSnapshot = buildLsqSourceSnapshot(row);
-  const updatedAt = sourceSnapshot.lastActivityDate
-    || sourceSnapshot.recentlyModifiedOn
-    || sourceSnapshot.modifiedOn
-    || sourceSnapshot.createdOn
-    || new Date().toISOString();
-
-  return {
-    name,
-    email: normalizeLsqValue(row.Email).toLowerCase(),
-    phone: normalizeLsqPhone(getLsqFirstValue(row, ["Phone Number", "Mobile Number", "Whatsapp Number"])),
-    courseName: sourceSnapshot.program,
-    sourceFileName: normalizeLsqValue(sourceFileName),
-    city: normalizeLsqValue(row.City),
-    state: normalizeLsqValue(row.State),
-    country: normalizeLsqValue(row.Country),
-    callStatus: getLsqFirstValue(row, ["Task Type", "Task Nature", "Last Activity"]),
-    admissionStatus: mapLsqAdmissionStatus(row),
-    courseStatus: mapLsqCourseStatus(row),
-    dialed: /phone call|call/i.test(
-      [row["Last Activity"], row["Task Type"], row["Task Nature"]].map(normalizeLsqValue).join(" ")
-    ) ? "Yes" : "",
-    updatedAt,
-    sourceSnapshot
-  };
-}
-
-function isLsqClosedOrOutOfScope(record = {}) {
-  const statusToken = normalizeLsqToken(record.admissionStatus || record.sourceSnapshot?.leadStage || "");
-  const courseToken = normalizeLsqToken(record.courseStatus);
-  const rawToken = [
-    record.sourceSnapshot?.leadOutcome,
-    record.sourceSnapshot?.outcome,
-    record.sourceSnapshot?.subStatus,
-    record.sourceSnapshot?.leadStage
-  ].map(normalizeLsqToken).join(" | ");
-
-  return statusToken.includes("lost")
-    || statusToken.includes("rejected")
-    || statusToken.includes("closed")
-    || courseToken.includes("not interested")
-    || rawToken.includes("dnp")
-    || rawToken.includes("no response")
-    || rawToken.includes("not shared details")
-    || rawToken.includes("rejected")
-    || rawToken.includes("lost");
-}
-
-function evaluateLsqSop(existingLead, record = {}) {
-  if (!record.email && !record.phone) {
-    return { inSop: false, reason: "Missing email and phone in LSQ row." };
-  }
-  if (isLsqClosedOrOutOfScope(record)) {
-    return { inSop: false, reason: "Lead is closed, rejected, lost, or not interested in LSQ." };
-  }
-
-  const progressAt = Date.parse(record.updatedAt || "");
-  if (!Number.isFinite(progressAt)) {
-    return { inSop: true, reason: "" };
-  }
-
-  const now = Date.now();
-  const normalizedAdmissionStatus = normalizeLsqToken(record.admissionStatus);
-  const windowDays = normalizedAdmissionStatus === "opportunity" || normalizedAdmissionStatus === "offered"
-    ? ADMISSION_SOP_OFFERED_WINDOW_DAYS
-    : ADMISSION_SOP_ACTIVE_WINDOW_DAYS;
-
-  if (now - progressAt > windowDays * 24 * 60 * 60 * 1000) {
-    return { inSop: false, reason: `Lead is outside the ${windowDays}-day SOP activity window.` };
-  }
-
-  return { inSop: true, reason: "" };
-}
-
-function getLsqLeadStageConfig() {
-  return {
-    dialedField: "mainAdmissionDialed",
-    courseField: "mainAdmissionCoursePitched",
-    courseStatusField: "mainAdmissionCourseStatus",
-    admissionStatusField: "mainAdmissionAdmissionStatus",
-    callStatusField: "mainAdmissionCallStatus",
-    updatedFlagField: "mainAdmissionActivityUpdated",
-    historyField: "mainAdmissionActivityHistory"
-  };
-}
-
-function buildLsqUpdatedLead(existingLead, record = {}, counselorName = "") {
-  const config = getLsqLeadStageConfig();
-  const existingHistory = Array.isArray(existingLead?.[config.historyField]) ? existingLead[config.historyField] : [];
-  const nextLead = {
-    ...existingLead,
-    city: record.city || existingLead.city || "",
-    state: record.state || existingLead.state || "",
-    country: record.country || existingLead.country || "",
-    updatedAt: new Date().toISOString(),
-    leadPipeline: MAIN_ADMISSION_PIPELINE,
-    publicCourseSegment: "",
-    counselor: String(counselorName || existingLead.counselor || "Unassigned").trim() || "Unassigned",
-    lsqArchivedLead: isResolvedLsqCounselorArchived(counselorName),
-    sopExcluded: true,
-    admissionSopLastProgressAt: record.updatedAt || existingLead.admissionSopLastProgressAt || "",
-    lsqLastImportedAt: new Date().toISOString(),
-    mainAdmissionActivityUpdates: existingHistory.length + 1,
-    lsqSourceSnapshot: {
-      ...(existingLead.lsqSourceSnapshot && typeof existingLead.lsqSourceSnapshot === "object" ? existingLead.lsqSourceSnapshot : {}),
-      ...record.sourceSnapshot,
-      sourceFileName: record.sourceFileName
-    }
-  };
-
-  if (record.courseName) {
-    nextLead.courseName = record.courseName;
-    nextLead.courseRawName = record.courseName;
-    nextLead[config.courseField] = record.courseName;
-  }
-  if (record.courseStatus) {
-    nextLead[config.courseStatusField] = record.courseStatus;
-  }
-  if (record.admissionStatus) {
-    nextLead[config.admissionStatusField] = record.admissionStatus;
-  }
-  if (record.callStatus) {
-    nextLead[config.callStatusField] = record.callStatus;
-  }
-  if (record.dialed) {
-    nextLead[config.dialedField] = record.dialed;
-  }
-  nextLead[config.updatedFlagField] = true;
-
-  nextLead[config.historyField] = existingHistory.concat({
-    at: new Date().toISOString(),
-    source: "LeadSquared Import",
-    by: "system:lsq-import",
-    updates: {
-      [config.courseField]: nextLead[config.courseField] || "",
-      [config.courseStatusField]: nextLead[config.courseStatusField] || "",
-      [config.admissionStatusField]: nextLead[config.admissionStatusField] || "",
-      [config.callStatusField]: nextLead[config.callStatusField] || "",
-      [config.dialedField]: nextLead[config.dialedField] || ""
-    }
-  });
-
-  return decorateLeadForStorage(nextLead);
-}
-
-function buildLsqImportedLead(record = {}, nextId, counselorName = "Unassigned") {
-  const now = new Date().toISOString();
-  const dialed = record.dialed || (/phone call|call/i.test(String(record.callStatus || "").toLowerCase()) ? "Yes" : "");
-  const courseName = String(record.courseName || "").trim();
-  const callStatus = String(record.callStatus || "").trim();
-  const admissionStatus = String(record.admissionStatus || "").trim();
-  const courseStatus = String(record.courseStatus || "").trim();
-  const archivedLead = isResolvedLsqCounselorArchived(counselorName);
-  const importedLead = {
-    id: nextId,
-    name: String(record.name || "Unknown").trim() || "Unknown",
-    email: String(record.email || `lsq-${nextId}@noemail.lead`).trim().toLowerCase(),
-    phone: String(record.phone || "").trim(),
-    country: String(record.country || "India").trim(),
-    state: String(record.state || "").trim(),
-    city: String(record.city || "").trim(),
-    workshop: "",
-    courseName,
-    courseRawName: courseName,
-    status: "Updated",
-    source: "LeadSquared Import",
-    leadPipeline: MAIN_ADMISSION_PIPELINE,
-    createdAtExact: now,
-    createdAt: toKolkataDateKey(),
-    counselor: counselorName,
-    counselorTag: archivedLead ? LSQ_ARCHIVED_COUNSELOR : "",
-    dialed: "",
-    callStatus: "",
-    wsStatus: "",
-    whatsappInvite: "",
-    postDialed: "",
-    coursePitched: "",
-    courseStatus: "",
-    admissionStatus: "",
-    admissionWorkshop: "",
-    postStatusUpdated: false,
-    preActivityUpdates: 0,
-    postActivityUpdates: 0,
-    workshopActivityHistory: [],
-    admissionActivityHistory: [],
-    mainAdmissionDialed: dialed,
-    mainAdmissionCoursePitched: courseName,
-    mainAdmissionCourseStatus: courseStatus,
-    mainAdmissionAdmissionStatus: admissionStatus,
-    mainAdmissionCallStatus: callStatus,
-    mainAdmissionActivityUpdated: true,
-    mainAdmissionActivityUpdates: 1,
-    mainAdmissionActivityHistory: [{
-      at: now,
-      source: "LeadSquared Import",
-      by: "system:lsq-import",
-      updates: {
-        mainAdmissionDialed: dialed,
-        mainAdmissionCoursePitched: courseName,
-        mainAdmissionCourseStatus: courseStatus,
-        mainAdmissionAdmissionStatus: admissionStatus,
-        mainAdmissionCallStatus: callStatus
-      }
-    }],
-    admissionSopAssignedAt: shouldTreatLeadAsAssigned(counselorName) && !archivedLead ? now : null,
-    admissionSopLastProgressAt: record.updatedAt || now,
-    sopExcluded: true,
-    whatsappGroupStatus: "",
-    leadNotes: [],
-    importSourceFiles: [record.sourceFileName || "LeadSquared Import"].filter(Boolean),
-    importSourceSheets: [],
-    lsqImported: true,
-    lsqArchivedLead: archivedLead,
-    lsqLastImportedAt: now,
-    lsqSourceSnapshot: {
-      ...(record.sourceSnapshot || {}),
-      sourceFileName: record.sourceFileName || ""
-    }
-  };
-
-  return decorateLeadForStorage(importedLead);
-}
-
-function buildLsqArchiveDoc(record = {}, reason = "", existingLead = null) {
-  return {
-    _id: `archived-lead-${crypto.randomUUID()}`,
-    name: String(record.name || existingLead?.name || "").trim(),
-    email: String(record.email || existingLead?.email || "").trim().toLowerCase(),
-    phone: String(record.phone || existingLead?.phone || "").trim(),
-    courseName: String(record.courseName || existingLead?.courseName || existingLead?.courseRawName || "").trim()
-  };
 }
 
 function normalizeArchivedCourseName(value = "") {
@@ -2191,141 +1471,6 @@ function normalizeArchivedLeadDoc(doc = {}) {
 
 function normalizeArchivedLeadDocs(docs = []) {
   return (Array.isArray(docs) ? docs : []).map((doc) => normalizeArchivedLeadDoc(doc));
-}
-
-const activeLsqImportJobs = new Set();
-
-function normalizeLsqImportJob(doc = {}) {
-  return {
-    id: String(doc?._id || doc?.id || ""),
-    sourceFileName: String(doc?.sourceFileName || "").trim(),
-    totalRows: Number(doc?.totalRows) || 0,
-    nextRowIndex: Number(doc?.nextRowIndex) || 0,
-    uploadedUntil: Number(doc?.uploadedUntil) || 0,
-    status: String(doc?.status || "uploading").trim(),
-    summary: {
-      ...createEmptyLsqImportSummary(),
-      ...(doc?.summary && typeof doc.summary === "object" ? doc.summary : {})
-    },
-    error: String(doc?.error || "").trim(),
-    createdAt: doc?.createdAt || "",
-    updatedAt: doc?.updatedAt || "",
-    completedAt: doc?.completedAt || ""
-  };
-}
-
-async function processLsqImportJob(jobId, session = null) {
-  const normalizedJobId = String(jobId || "").trim();
-  if (!normalizedJobId || activeLsqImportJobs.has(normalizedJobId)) {
-    return;
-  }
-
-  activeLsqImportJobs.add(normalizedJobId);
-  try {
-    const startedAt = Date.now();
-    let job = await lsqImportJobsCollection.findOne({ _id: normalizedJobId });
-    if (!job || job.status === "completed") {
-      return;
-    }
-
-    await lsqImportJobsCollection.updateOne(
-      { _id: normalizedJobId },
-      { $set: { status: "running", error: "", updatedAt: new Date().toISOString() } }
-    );
-
-    while (Date.now() - startedAt < LSQ_BACKGROUND_TIME_BUDGET_MS) {
-      job = await lsqImportJobsCollection.findOne({ _id: normalizedJobId });
-      if (!job || job.status === "completed") {
-        return;
-      }
-
-      const nextRowIndex = Number(job.nextRowIndex) || 0;
-      const totalRows = Number(job.totalRows) || 0;
-      if (totalRows > 0 && nextRowIndex >= totalRows) {
-        await lsqImportJobsCollection.updateOne(
-          { _id: normalizedJobId },
-          { $set: { status: "completed", completedAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }
-        );
-        await lsqImportChunksCollection.deleteMany({ jobId: normalizedJobId });
-        return;
-      }
-
-      const chunks = await lsqImportChunksCollection.find({ jobId: normalizedJobId }).toArray();
-      const chunk = chunks
-        .filter((item) => Number(item?.startIndex) <= nextRowIndex && Number(item?.endIndex) > nextRowIndex)
-        .sort((left, right) => Number(left.startIndex) - Number(right.startIndex))[0] || null;
-
-      if (!chunk) {
-        const uploadedUntil = Number(job.uploadedUntil) || 0;
-        if (uploadedUntil >= totalRows && nextRowIndex >= uploadedUntil) {
-          await lsqImportJobsCollection.updateOne(
-            { _id: normalizedJobId },
-            { $set: { status: "completed", completedAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }
-          );
-          return;
-        }
-        await lsqImportJobsCollection.updateOne(
-          { _id: normalizedJobId },
-          { $set: { status: "waiting_for_upload", updatedAt: new Date().toISOString() } }
-        );
-        return;
-      }
-
-      const rows = Array.isArray(chunk.rows) ? chunk.rows : [];
-      const offsetWithinChunk = Math.max(0, nextRowIndex - (Number(chunk.startIndex) || 0));
-      const rowsToProcess = rows.slice(offsetWithinChunk, offsetWithinChunk + LSQ_BACKGROUND_BATCH_SIZE);
-      if (!rowsToProcess.length) {
-        await lsqImportJobsCollection.updateOne(
-          { _id: normalizedJobId },
-          { $set: { nextRowIndex: Number(chunk.endIndex) || nextRowIndex, updatedAt: new Date().toISOString() } }
-        );
-        continue;
-      }
-
-      const batchSummary = await processLsqImportRows(rowsToProcess, job.sourceFileName, session);
-      const latestJob = await lsqImportJobsCollection.findOne({ _id: normalizedJobId });
-      const nextSummary = mergeLsqImportSummary(latestJob?.summary, batchSummary);
-      const nextIndex = nextRowIndex + rowsToProcess.length;
-      await lsqImportJobsCollection.updateOne(
-        { _id: normalizedJobId },
-        {
-          $set: {
-            nextRowIndex: nextIndex,
-            summary: nextSummary,
-            status: nextIndex >= totalRows ? "completed" : "running",
-            completedAt: nextIndex >= totalRows ? new Date().toISOString() : "",
-            updatedAt: new Date().toISOString()
-          }
-        }
-      );
-
-      if (nextIndex >= Number(chunk.endIndex || 0)) {
-        await lsqImportChunksCollection.deleteOne({ _id: chunk._id });
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, LSQ_BACKGROUND_BATCH_PAUSE_MS));
-    }
-
-    const latest = await lsqImportJobsCollection.findOne({ _id: normalizedJobId });
-    if (latest && latest.status === "running") {
-      setTimeout(() => {
-        void processLsqImportJob(normalizedJobId, session);
-      }, 250);
-    }
-  } catch (error) {
-    await lsqImportJobsCollection.updateOne(
-      { _id: normalizedJobId },
-      {
-        $set: {
-          status: "failed",
-          error: error.message,
-          updatedAt: new Date().toISOString()
-        }
-      }
-    ).catch(() => undefined);
-  } finally {
-    activeLsqImportJobs.delete(normalizedJobId);
-  }
 }
 
 function isServerLostLead(lead = {}) {
@@ -2450,6 +1595,201 @@ function buildMonitoringCounselorDirectory(counselors = []) {
   return {
     aliasToName,
     names: [...new Set(names)].sort((left, right) => left.localeCompare(right))
+  };
+}
+
+function getDashboardDateKeyExpression() {
+  return {
+    $substrBytes: [
+      {
+        $toString: {
+          $ifNull: [
+            "$createdAt",
+            { $ifNull: ["$createdAtExact", ""] }
+          ]
+        }
+      },
+      0,
+      10
+    ]
+  };
+}
+
+function getDashboardStageExpression() {
+  return {
+    $switch: {
+      branches: [
+        {
+          case: { $eq: [{ $toLower: { $ifNull: ["$leadPipeline", ""] } }, MAIN_ADMISSION_PIPELINE] },
+          then: "main-admission"
+        },
+        {
+          case: { $eq: [{ $toLower: { $ifNull: ["$leadPipeline", ""] } }, "course-registration"] },
+          then: "registered-course"
+        },
+        {
+          case: {
+            $or: [
+              { $eq: [{ $toLower: { $ifNull: ["$leadPipeline", ""] } }, "admission"] },
+              { $eq: ["$postStatusUpdated", true] }
+            ]
+          },
+          then: "admission"
+        }
+      ],
+      default: "workshop"
+    }
+  };
+}
+
+function getDashboardSummaryAggregationPipeline() {
+  return [
+    {
+      $project: {
+        dateKey: getDashboardDateKeyExpression(),
+        timelineAt: {
+          $toString: {
+            $ifNull: [
+              "$createdAtExact",
+              { $ifNull: ["$createdAt", ""] }
+            ]
+          }
+        },
+        workshop: {
+          $trim: {
+            input: {
+              $toString: {
+                $ifNull: [
+                  "$workshop",
+                  { $ifNull: ["$workshopName", ""] }
+                ]
+              }
+            }
+          }
+        },
+        admissionWorkshop: {
+          $trim: {
+            input: {
+              $toString: {
+                $ifNull: [
+                  "$admissionWorkshop",
+                  {
+                    $ifNull: [
+                      "$courseName",
+                      { $ifNull: ["$workshop", ""] }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        stage: getDashboardStageExpression(),
+        leadPipeline: { $toLower: { $toString: { $ifNull: ["$leadPipeline", ""] } } },
+        publicCourseSegment: { $toLower: { $toString: { $ifNull: ["$publicCourseSegment", ""] } } },
+        admissionStatus: { $toString: { $ifNull: ["$admissionStatus", ""] } },
+        registeredAdmissionStatus: { $toString: { $ifNull: ["$registeredAdmissionStatus", ""] } },
+        mainAdmissionAdmissionStatus: { $toString: { $ifNull: ["$mainAdmissionAdmissionStatus", ""] } }
+      }
+    },
+    {
+      $match: {
+        dateKey: { $regex: "^\\d{4}-\\d{2}-\\d{2}" }
+      }
+    },
+    {
+      $group: {
+        _id: {
+          dateKey: "$dateKey",
+          workshop: "$workshop",
+          admissionWorkshop: "$admissionWorkshop",
+          stage: "$stage",
+          leadPipeline: "$leadPipeline",
+          publicCourseSegment: "$publicCourseSegment",
+          admissionStatus: "$admissionStatus",
+          registeredAdmissionStatus: "$registeredAdmissionStatus",
+          mainAdmissionAdmissionStatus: "$mainAdmissionAdmissionStatus"
+        },
+        leadCount: { $sum: 1 },
+        timelineAt: { $min: "$timelineAt" }
+      }
+    },
+    {
+      $project: {
+        _id: 0,
+        createdAt: "$_id.dateKey",
+        timelineAt: "$timelineAt",
+        workshop: "$_id.workshop",
+        admissionWorkshop: "$_id.admissionWorkshop",
+        stage: "$_id.stage",
+        leadPipeline: "$_id.leadPipeline",
+        publicCourseSegment: "$_id.publicCourseSegment",
+        admissionStatus: "$_id.admissionStatus",
+        registeredAdmissionStatus: "$_id.registeredAdmissionStatus",
+        mainAdmissionAdmissionStatus: "$_id.mainAdmissionAdmissionStatus",
+        leadCount: "$leadCount"
+      }
+    },
+    {
+      $sort: {
+        createdAt: 1,
+        workshop: 1,
+        admissionWorkshop: 1
+      }
+    }
+  ];
+}
+
+function buildDashboardSummaryFromRows(rows = [], updatedAt = null) {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const totalLeads = safeRows.reduce((sum, row) => sum + (Number(row?.leadCount) || 0), 0);
+  const workshopLeadCount = new Map();
+  let latestLeadTimestamp = null;
+
+  safeRows.forEach((row) => {
+    const dateValue = parseDateKeyToTime(row?.timelineAt || row?.createdAt);
+    if (dateValue !== null && (latestLeadTimestamp === null || dateValue > latestLeadTimestamp)) {
+      latestLeadTimestamp = dateValue;
+    }
+
+    const workshopName = String(
+      row?.workshop ||
+      row?.admissionWorkshop ||
+      ""
+    ).trim();
+    if (!workshopName) {
+      return;
+    }
+    workshopLeadCount.set(workshopName, (workshopLeadCount.get(workshopName) || 0) + (Number(row?.leadCount) || 0));
+  });
+
+  const workshopEntries = Array.from(workshopLeadCount.entries())
+    .map(([name, leadCount]) => ({ name, leadCount }))
+    .sort((left, right) => right.leadCount - left.leadCount || left.name.localeCompare(right.name));
+
+  return {
+    updatedAt,
+    latestLeadDate: latestLeadTimestamp === null ? null : new Date(latestLeadTimestamp).toISOString(),
+    totals: {
+      activeWorkshops: workshopEntries.length,
+      upcomingWorkshops: 0,
+      recentWorkshops: workshopEntries.slice(0, 10).length,
+      scopedLeads: totalLeads
+    },
+    leadTimelineRows: safeRows.map((row) => ({
+      createdAt: normalizeDashboardDateKey(row?.createdAt),
+      timelineAt: String(row?.timelineAt || row?.createdAt || "").trim(),
+      workshop: String(row?.workshop || "").trim(),
+      admissionWorkshop: String(row?.admissionWorkshop || row?.workshop || "").trim(),
+      stage: String(row?.stage || "").trim(),
+      leadPipeline: String(row?.leadPipeline || "").trim().toLowerCase(),
+      publicCourseSegment: normalizePublicCourseSegment(row?.publicCourseSegment || ""),
+      admissionStatus: String(row?.admissionStatus || "").trim(),
+      registeredAdmissionStatus: String(row?.registeredAdmissionStatus || "").trim(),
+      mainAdmissionAdmissionStatus: String(row?.mainAdmissionAdmissionStatus || "").trim(),
+      leadCount: Number(row?.leadCount) || 0
+    })).filter((row) => row.createdAt && row.leadCount > 0),
+    workshopBreakdown: workshopEntries.slice(0, 25)
   };
 }
 
@@ -2930,25 +2270,6 @@ const REACHOUT_LEAD_LIST_PROJECTION = {
   metaAdName: 1,
   elementorFormName: 1,
   importSourceSheet: 1
-};
-
-const DASHBOARD_LEAD_SUMMARY_PROJECTION = {
-  id: 1,
-  createdAt: 1,
-  createdAtExact: 1,
-  workshop: 1,
-  workshopName: 1,
-  admissionWorkshop: 1,
-  courseName: 1,
-  stage: 1,
-  leadPipeline: 1,
-  publicCourseSegment: 1,
-  admissionStatus: 1,
-  registeredAdmissionStatus: 1,
-  mainAdmissionAdmissionStatus: 1,
-  postStatusUpdated: 1,
-  postDialed: 1,
-  courseStatus: 1
 };
 
 const SCOPED_LEAD_LIST_PROJECTION = {
@@ -4207,8 +3528,6 @@ async function initMongo() {
         leadClaimsCollection    = db.collection("lead_claims");
         leadCreationRequestsCollection = db.collection("lead_creation_requests");
         lsqArchiveCollection = db.collection(MONGODB_LSQ_ARCHIVE_COLLECTION);
-        lsqImportJobsCollection = db.collection(MONGODB_LSQ_IMPORT_JOBS_COLLECTION);
-        lsqImportChunksCollection = db.collection(MONGODB_LSQ_IMPORT_CHUNKS_COLLECTION);
         leadInflowCollection = db.collection(MONGODB_LEAD_INFLOW_COLLECTION);
 
         // Ensure indexes for activity_logs
@@ -4224,10 +3543,6 @@ async function initMongo() {
         await leadCreationRequestsCollection.createIndex({ id: 1 }, { unique: true, background: true }).catch(() => undefined);
         await leadCreationRequestsCollection.createIndex({ status: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
         await leadCreationRequestsCollection.createIndex({ requesterEmail: 1, createdAt: -1 }, { background: true }).catch(() => undefined);
-        await lsqImportJobsCollection.createIndex({ sourceFileKey: 1, totalRows: 1 }, { unique: true, background: true }).catch(() => undefined);
-        await lsqImportJobsCollection.createIndex({ status: 1, updatedAt: -1 }, { background: true }).catch(() => undefined);
-        await lsqImportChunksCollection.createIndex({ jobId: 1, startIndex: 1 }, { unique: true, background: true }).catch(() => undefined);
-
         // Ensure indexes
         await sessionCollection.createIndex(
           { token: 1 },
@@ -4442,8 +3757,6 @@ async function initMongo() {
         leadClaimsCollection    = new MockCollection("leadClaims");
         leadCreationRequestsCollection = new MockCollection("leadCreationRequests");
         lsqArchiveCollection = new MockCollection("lsqArchive");
-        lsqImportJobsCollection = new MockCollection("lsqImportJobs");
-        lsqImportChunksCollection = new MockCollection("lsqImportChunks");
         leadInflowCollection = new MockCollection("leadInflowEvents");
         
         // Sync lead sequence for mock db too
@@ -11420,27 +10733,6 @@ function findDuplicateRegisteredLeadByEmailOrPhoneInSegment(leads, incomingLead,
   }) || null;
 }
 
-function findDuplicateLsqLead(leads, record = {}) {
-  const contactMatch = findDuplicateLeadByEmailOrPhone(leads, record);
-  if (contactMatch) {
-    return contactMatch;
-  }
-
-  const prospectId = normalizeLsqValue(record?.sourceSnapshot?.prospectId);
-  const leadNumber = normalizeLsqValue(record?.sourceSnapshot?.leadNumber);
-  if (!prospectId && !leadNumber) {
-    return null;
-  }
-
-  return (Array.isArray(leads) ? leads : []).find((lead) => {
-    const snapshot = lead?.lsqSourceSnapshot && typeof lead.lsqSourceSnapshot === "object"
-      ? lead.lsqSourceSnapshot
-      : {};
-    return (prospectId && normalizeLsqValue(snapshot.prospectId) === prospectId)
-      || (leadNumber && normalizeLsqValue(snapshot.leadNumber) === leadNumber);
-  }) || null;
-}
-
 function isMongoDuplicateKeyError(error) {
   return Number(error?.code) === 11000;
 }
@@ -12616,21 +11908,55 @@ function getTaskCategoryLabel(category) {
   return "Workshop Calling";
 }
 
-async function createDueTaskNotificationsForSession(session, state) {
+async function createDueTaskNotificationsForSession(session) {
   if (!session || !isCounselorLikeSession(session)) {
     return;
   }
 
-  const counselorName = String(getSessionCounselorName(state, session) || session.name || "").trim().toLowerCase();
   const counselorEmail = String(session.email || "").trim().toLowerCase();
+  const counselor = counselorEmail
+    ? await withMongoRetry(
+        () => counselorsCollection.findOne(
+          { email: { $regex: new RegExp(`^${escapeRegExp(counselorEmail)}$`, "i") } },
+          { projection: { name: 1, email: 1 } }
+        ),
+        { retries: 1, label: "Load counselor for due task notifications" }
+      ).catch(() => null)
+    : null;
+  const counselorName = String(counselor?.name || session.name || "").trim();
   if (!counselorName || !counselorEmail) {
     return;
   }
 
   const now = Date.now();
-  const dueTasks = (Array.isArray(state?.tasks) ? state.tasks : []).filter((task) => {
+  const nowIso = new Date(now).toISOString();
+  const counselorNamePattern = new RegExp(`^${escapeRegExp(counselorName)}$`, "i");
+  const candidateTasks = await withMongoRetry(
+    () => tasksCollection.find({
+      dueDate: { $lte: nowIso },
+      $and: [
+        {
+          $or: [
+            { reminderSentAt: null },
+            { reminderSentAt: "" },
+            { reminderSentAt: { $exists: false } }
+          ]
+        },
+        {
+          $or: [
+            { leadCounselor: counselorNamePattern },
+            { counselor: counselorNamePattern }
+          ]
+        }
+      ]
+    }).limit(50).toArray(),
+    { retries: 1, label: "Load due task notification candidates" }
+  );
+
+  const normalizedCounselorName = counselorName.toLowerCase();
+  const dueTasks = (Array.isArray(candidateTasks) ? candidateTasks : []).filter((task) => {
     const taskCounselor = String(task?.leadCounselor || task?.counselor || "").trim().toLowerCase();
-    if (taskCounselor !== counselorName) {
+    if (taskCounselor !== normalizedCounselorName) {
       return false;
     }
     if (task?.reminderSentAt) {
@@ -13233,298 +12559,6 @@ app.delete("/api/admin/lsq-leads", async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ message: "Failed to delete LSQ leads", details: error.message });
-  }
-});
-
-app.post("/api/admin/lsq-import-jobs/start", async (req, res) => {
-  try {
-    const session = await requireSuperAdmin(req, res);
-    if (!session) return;
-
-    const sourceFileName = normalizeLsqValue(req.body?.sourceFileName);
-    const totalRows = Math.max(0, Number(req.body?.totalRows) || 0);
-    const resumeFrom = Math.max(0, Math.min(totalRows, Number(req.body?.resumeFrom) || 0));
-    if (!sourceFileName || !totalRows) {
-      return res.status(400).json({ message: "Source file name and total rows are required." });
-    }
-
-    const sourceFileKey = sourceFileName.toLowerCase();
-    const jobId = `lsq-import-${crypto.createHash("sha256").update(`${sourceFileKey}:${totalRows}`).digest("hex").slice(0, 24)}`;
-    const now = new Date().toISOString();
-    const existing = await lsqImportJobsCollection.findOne({ _id: jobId });
-    const nextRowIndex = existing
-      ? Math.max(Number(existing.nextRowIndex) || 0, resumeFrom)
-      : resumeFrom;
-    const uploadedUntil = existing
-      ? Math.max(Number(existing.uploadedUntil) || 0, resumeFrom)
-      : resumeFrom;
-    const summary = existing?.summary && typeof existing.summary === "object"
-      ? existing.summary
-      : createEmptyLsqImportSummary(resumeFrom);
-
-    await lsqImportJobsCollection.updateOne(
-      { _id: jobId },
-      {
-        $set: {
-          id: jobId,
-          sourceFileName,
-          sourceFileKey,
-          totalRows,
-          nextRowIndex,
-          uploadedUntil,
-          summary,
-          status: nextRowIndex >= totalRows ? "completed" : "uploading",
-          error: "",
-          updatedAt: now,
-          createdBy: session.email || session.name || "super_admin"
-        },
-        $setOnInsert: {
-          createdAt: now
-        }
-      },
-      { upsert: true }
-    );
-
-    const job = await lsqImportJobsCollection.findOne({ _id: jobId });
-    return res.json({ ok: true, job: normalizeLsqImportJob(job) });
-  } catch (error) {
-    return res.status(500).json({ message: "Failed to start LSQ import job", details: error.message });
-  }
-});
-
-app.post("/api/admin/lsq-import-jobs/:jobId/chunks", async (req, res) => {
-  try {
-    const session = await requireSuperAdmin(req, res);
-    if (!session) return;
-
-    const jobId = String(req.params.jobId || "").trim();
-    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
-    const startIndex = Math.max(0, Number(req.body?.startIndex) || 0);
-    if (!jobId || !rows.length) {
-      return res.status(400).json({ message: "Job id and rows are required." });
-    }
-
-    const job = await lsqImportJobsCollection.findOne({ _id: jobId });
-    if (!job) {
-      return res.status(404).json({ message: "LSQ import job not found." });
-    }
-
-    const endIndex = startIndex + rows.length;
-    const now = new Date().toISOString();
-    await lsqImportChunksCollection.updateOne(
-      { _id: `${jobId}:${startIndex}` },
-      {
-        $set: {
-          jobId,
-          startIndex,
-          endIndex,
-          rows,
-          updatedAt: now
-        },
-        $setOnInsert: {
-          createdAt: now
-        }
-      },
-      { upsert: true }
-    );
-
-    await lsqImportJobsCollection.updateOne(
-      { _id: jobId },
-      {
-        $set: {
-          uploadedUntil: Math.max(Number(job.uploadedUntil) || 0, endIndex),
-          status: "uploading",
-          updatedAt: now
-        }
-      }
-    );
-
-    const nextJob = await lsqImportJobsCollection.findOne({ _id: jobId });
-    return res.json({ ok: true, job: normalizeLsqImportJob(nextJob) });
-  } catch (error) {
-    return res.status(500).json({ message: "Failed to upload LSQ import chunk", details: error.message });
-  }
-});
-
-app.post("/api/admin/lsq-import-jobs/:jobId/run", async (req, res) => {
-  try {
-    const session = await requireSuperAdmin(req, res);
-    if (!session) return;
-
-    const jobId = String(req.params.jobId || "").trim();
-    const job = await lsqImportJobsCollection.findOne({ _id: jobId });
-    if (!job) {
-      return res.status(404).json({ message: "LSQ import job not found." });
-    }
-
-    await lsqImportJobsCollection.updateOne(
-      { _id: jobId },
-      { $set: { status: "running", error: "", updatedAt: new Date().toISOString() } }
-    );
-    setTimeout(() => {
-      void processLsqImportJob(jobId, session);
-    }, 0);
-
-    const nextJob = await lsqImportJobsCollection.findOne({ _id: jobId });
-    return res.json({ ok: true, job: normalizeLsqImportJob(nextJob) });
-  } catch (error) {
-    return res.status(500).json({ message: "Failed to run LSQ import job", details: error.message });
-  }
-});
-
-app.get("/api/admin/lsq-import-jobs/:jobId", async (req, res) => {
-  try {
-    const session = await requireSuperAdmin(req, res);
-    if (!session) return;
-
-    const jobId = String(req.params.jobId || "").trim();
-    const job = await lsqImportJobsCollection.findOne({ _id: jobId });
-    if (!job) {
-      return res.status(404).json({ message: "LSQ import job not found." });
-    }
-
-    if (["running", "waiting_for_upload"].includes(String(job.status || ""))) {
-      setTimeout(() => {
-        void processLsqImportJob(jobId, session);
-      }, 0);
-    }
-
-    return res.json({ ok: true, job: normalizeLsqImportJob(job) });
-  } catch (error) {
-    return res.status(500).json({ message: "Failed to fetch LSQ import job", details: error.message });
-  }
-});
-
-app.get("/api/admin/lsq-import-jobs", async (req, res) => {
-  try {
-    const session = await requireSuperAdmin(req, res);
-    if (!session) return;
-
-    const jobs = await lsqImportJobsCollection.find({}).toArray();
-    const latestJob = jobs
-      .sort((left, right) => String(right.updatedAt || right.createdAt || "").localeCompare(String(left.updatedAt || left.createdAt || "")))[0] || null;
-    if (!latestJob) {
-      return res.json({ ok: true, job: null });
-    }
-
-    return res.json({ ok: true, job: normalizeLsqImportJob(latestJob) });
-  } catch (error) {
-    return res.status(500).json({ message: "Failed to fetch LSQ import jobs", details: error.message });
-  }
-});
-
-app.post("/api/admin/lsq-import", async (req, res) => {
-  try {
-    const session = await requireSuperAdmin(req, res);
-    if (!session) return;
-
-    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
-    const sourceFileName = normalizeLsqValue(req.body?.sourceFileName);
-    if (!rows.length) {
-      return res.status(400).json({ message: "LSQ import rows are required." });
-    }
-    const counselorFilter = normalizeLsqValue(req.body?.counselorFilter || "all").toLowerCase() || "all";
-    const stageFilter = normalizeLsqValue(req.body?.stageFilter || "all").toLowerCase() || "all";
-
-    const state = await getStateDoc();
-    const dedupedRecords = new Map();
-
-    rows.forEach((row) => {
-      if (!row || typeof row !== "object") {
-        return;
-      }
-      const record = buildLsqNormalizedRecord(row, sourceFileName);
-      const dedupeKey = record.email || record.phone || record.sourceSnapshot?.leadNumber || record.sourceSnapshot?.prospectId;
-      if (!dedupeKey) {
-        return;
-      }
-
-      const previous = dedupedRecords.get(dedupeKey);
-      const previousTime = Date.parse(previous?.updatedAt || "") || 0;
-      const nextTime = Date.parse(record.updatedAt || "") || 0;
-      if (!previous || nextTime >= previousTime) {
-        dedupedRecords.set(dedupeKey, record);
-      }
-    });
-
-    const summary = {
-      scanned: rows.length,
-      deduped: dedupedRecords.size,
-      updated: 0,
-      created: 0,
-      archived: 0,
-      matchedCounselor: 0,
-      archivedCounselor: 0,
-      skippedByCounselorFilter: 0,
-      skippedByStageFilter: 0,
-      byReason: {}
-    };
-
-    for (const record of dedupedRecords.values()) {
-      if (!recordMatchesLsqCounselorFilter(record, counselorFilter)) {
-        summary.skippedByCounselorFilter += 1;
-        continue;
-      }
-      if (!recordMatchesLsqStageFilter(record, stageFilter)) {
-        summary.skippedByStageFilter += 1;
-        continue;
-      }
-
-      const existingLead = findDuplicateLsqLead(state.leads, record);
-      const counselorName = resolveLsqCounselorName(state, record, counselorFilter);
-      const archivedCounselor = isResolvedLsqCounselorArchived(counselorName);
-      if (archivedCounselor) {
-        summary.archived += 1;
-        summary.archivedCounselor += 1;
-        summary.byReason["No matching CRM counselor"] = (summary.byReason["No matching CRM counselor"] || 0) + 1;
-      } else {
-        summary.matchedCounselor += 1;
-      }
-
-      let nextLead = null;
-      let wasCreated = false;
-      if (existingLead) {
-        nextLead = buildLsqUpdatedLead(existingLead, record, counselorName);
-        await replaceLeadDocument(nextLead);
-        summary.updated += 1;
-      } else {
-        const nextId = await getNextMetaLeadId();
-        nextLead = buildLsqImportedLead(record, nextId, counselorName);
-        await withMongoRetry(
-          () => leadsCollection.insertOne(nextLead),
-          { retries: 1, label: "Create LSQ imported lead" }
-        );
-        summary.created += 1;
-        wasCreated = true;
-      }
-
-      await recordActivity({
-        leadId: nextLead.id,
-        leadName: nextLead.name,
-        counselorName: nextLead.counselor || "",
-        activityType: wasCreated ? "Lead Created" : "Lead Updated",
-        actionDescription: `${wasCreated ? "Lead created" : "Lead updated"} from LeadSquared import${record.admissionStatus ? ` with ${record.admissionStatus} status` : ""}`,
-        previousValue: existingLead?.lsqLastImportedAt || (wasCreated ? "Created from LSQ import" : "No previous LSQ import"),
-        newValue: record.updatedAt || new Date().toISOString(),
-        session
-      });
-    }
-
-    await stateCollection.updateOne(
-      { _id: STATE_DOC_ID },
-      { $set: { updatedAt: new Date().toISOString() } },
-      { upsert: true }
-    );
-
-    const nextState = await refreshStateAfterAtomicUpdate();
-    res.setHeader("ETag", buildStateEtag(nextState));
-    return res.json({
-      ok: true,
-      summary,
-      state: buildStateResponse(nextState)
-    });
-  } catch (error) {
-    return res.status(500).json({ message: "Failed to import LSQ leads", details: error.message });
   }
 });
 
@@ -14201,8 +13235,7 @@ app.get("/api/notifications", async (req, res) => {
     res.setHeader("Expires", "0");
 
     if (isPopupOnly) {
-      const state = await getStateDoc();
-      await createDueTaskNotificationsForSession(session, state);
+      await createDueTaskNotificationsForSession(session);
     }
 
     if (isPopupOnly) {
@@ -15937,13 +14970,60 @@ app.get("/api/state/version", async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
 
-    const state = await getStateDoc();
-    const version = buildStateVersionResponse(state);
-    res.setHeader("ETag", version.etag);
+    const stateMeta = await withMongoRetry(
+      () => stateCollection.findOne(
+        { _id: STATE_DOC_ID },
+        {
+          projection: {
+            updatedAt: 1,
+            clearedAt: 1,
+            adminUsers: 1,
+            allocation: 1
+          }
+        }
+      ),
+      { retries: 1, label: "Load state version metadata" }
+    );
+    const normalizedMeta = normalizeStateDoc(stateMeta || {});
+    const etag = buildStateEtag(normalizedMeta);
+    res.setHeader("ETag", etag);
     res.setHeader("Cache-Control", "no-cache");
-    if (req.headers["if-none-match"] === version.etag) {
+    if (req.headers["if-none-match"] === etag) {
       return res.status(304).end();
     }
+
+    const [leadCount, counselorCount, taskCount, allocationCount] = await Promise.all([
+      withMongoRetry(
+        () => leadsCollection.countDocuments({}),
+        { retries: 1, label: "Count state version leads" }
+      ),
+      withMongoRetry(
+        () => counselorsCollection.countDocuments({}),
+        { retries: 1, label: "Count state version counselors" }
+      ),
+      withMongoRetry(
+        () => tasksCollection.countDocuments({}),
+        { retries: 1, label: "Count state version tasks" }
+      ),
+      withMongoRetry(
+        () => allocationCollection.countDocuments({}),
+        { retries: 1, label: "Count state version allocation" }
+      )
+    ]);
+
+    const version = {
+      updatedAt: normalizedMeta.updatedAt || null,
+      clearedAt: normalizedMeta.clearedAt || null,
+      etag,
+      counts: {
+        leads: leadCount || 0,
+        counselors: counselorCount || 0,
+        adminUsers: Array.isArray(normalizedMeta.adminUsers) ? normalizedMeta.adminUsers.length : 0,
+        tasks: taskCount || 0,
+        allocation: allocationCount || 0
+      }
+    };
+
     return res.json(version);
   } catch (error) {
     return res.status(500).json({ message: "Failed to fetch state version", details: error.message });
@@ -16320,20 +15400,28 @@ app.get("/api/dashboard-summary", async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
 
-    const [stateMeta, rawLeads] = await Promise.all([
-      withMongoRetry(
-        () => stateCollection.findOne({ _id: STATE_DOC_ID }),
-        { retries: 1, label: "Load dashboard state metadata" }
+    const stateMeta = await withMongoRetry(
+      () => stateCollection.findOne(
+        { _id: STATE_DOC_ID },
+        { projection: { updatedAt: 1, clearedAt: 1 } }
       ),
-      withMongoRetry(
-        () => leadsCollection.find({}, { projection: DASHBOARD_LEAD_SUMMARY_PROJECTION }).toArray(),
-        { retries: 1, label: "Load dashboard summary leads" }
-      )
-    ]);
-    return res.json(buildDashboardSummary({
-      updatedAt: stateMeta?.updatedAt || null,
-      leads: decorateLeadListForStorage(rawLeads || [])
-    }));
+      { retries: 1, label: "Load dashboard state metadata" }
+    );
+    const etag = buildStateEtag(stateMeta || {});
+    res.setHeader("ETag", etag);
+    res.setHeader("Cache-Control", "no-cache");
+    if (req.headers["if-none-match"] === etag) {
+      return res.status(304).end();
+    }
+
+    const rows = await withMongoRetry(
+      () => leadsCollection
+        .aggregate(getDashboardSummaryAggregationPipeline(), { allowDiskUse: true })
+        .toArray(),
+      { retries: 1, label: "Aggregate dashboard summary leads" }
+    );
+
+    return res.json(buildDashboardSummaryFromRows(rows || [], stateMeta?.updatedAt || null));
   } catch (error) {
     return res.status(500).json({ message: "Failed to fetch dashboard summary", details: error.message });
   }
@@ -16896,8 +15984,11 @@ app.get("/api/counselors", async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
 
-    const state = await getStateDoc();
-    res.json(Array.isArray(state.counselors) ? state.counselors : []);
+    const counselors = await withMongoRetry(
+      () => counselorsCollection.find({}).toArray(),
+      { retries: 1, label: "Load counselors endpoint" }
+    );
+    res.json(Array.isArray(counselors) ? counselors : []);
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch counselors", details: error.message });
   }

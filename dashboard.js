@@ -49,6 +49,7 @@ let dashboardSummary = {
   leadTimelineRows: [],
   updatedAt: null
 };
+let dashboardSummaryEtag = null;
 const MONTH_LOOKUP = {
   jan: 0,
   january: 0,
@@ -150,14 +151,23 @@ function persistTimelineState() {
 }
 
 async function loadDashboardSummary() {
+  const headers = { Accept: "application/json" };
+  if (dashboardSummaryEtag) {
+    headers["If-None-Match"] = dashboardSummaryEtag;
+  }
+
   const response = await fetch(apiUrl("/api/dashboard-summary"), {
     credentials: "same-origin",
-    headers: { Accept: "application/json" }
+    headers
   });
+  if (response.status === 304) {
+    return dashboardSummary;
+  }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(payload?.message || "Failed to load dashboard summary.");
   }
+  dashboardSummaryEtag = response.headers.get("etag") || dashboardSummaryEtag;
   dashboardSummary = {
     leadTimelineRows: Array.isArray(payload?.leadTimelineRows) ? payload.leadTimelineRows : [],
     updatedAt: payload?.updatedAt || null
@@ -167,6 +177,14 @@ async function loadDashboardSummary() {
 
 function getLeads() {
   return Array.isArray(dashboardSummary?.leadTimelineRows) ? dashboardSummary.leadTimelineRows : [];
+}
+
+function getLeadCount(lead) {
+  return Math.max(0, Number(lead?.leadCount) || 1);
+}
+
+function getLeadCountTotal(leads) {
+  return (Array.isArray(leads) ? leads : []).reduce((total, lead) => total + getLeadCount(lead), 0);
 }
 
 function getScopedLeadsByView(leads) {
@@ -446,7 +464,7 @@ function buildWorkshopSummary(leads) {
       workshopDate: extractWorkshopDate(identity.label),
       leadCount: 0
     };
-    existing.leadCount += 1;
+    existing.leadCount += getLeadCount(lead);
     workshopMap.set(identity.key, existing);
   });
 
@@ -476,18 +494,18 @@ function buildKpis(leads) {
     const opportunity = leads.filter((lead) => {
       const status = getAdmissionLeadStatus(lead).trim().toLowerCase();
       return status === "opportunity";
-    }).length;
+    }).reduce((total, lead) => total + getLeadCount(lead), 0);
     const enrolled = leads.filter((lead) => {
       const status = getAdmissionLeadStatus(lead).trim().toLowerCase();
       return status === "enrolled";
-    }).length;
+    }).reduce((total, lead) => total + getLeadCount(lead), 0);
     const won = leads.filter((lead) => {
       const status = getAdmissionLeadStatus(lead).trim().toLowerCase();
       return status === "won";
-    }).length;
+    }).reduce((total, lead) => total + getLeadCount(lead), 0);
 
-    activeWorkshopsEl.textContent = getScopedLeadsByView(getLeads()).length;
-    upcomingWorkshopsEl.textContent = leads.length;
+    activeWorkshopsEl.textContent = getLeadCountTotal(getScopedLeadsByView(getLeads()));
+    upcomingWorkshopsEl.textContent = getLeadCountTotal(leads);
     recentWorkshopsEl.textContent = opportunity;
     scopedLeadsEl.textContent = enrolled;
     wonLeadsEl.textContent = won;
@@ -500,7 +518,7 @@ function buildKpis(leads) {
   activeWorkshopsEl.textContent = activeWorkshops;
   upcomingWorkshopsEl.textContent = summary.sections.upcoming.length;
   recentWorkshopsEl.textContent = summary.sections.recent.length;
-  scopedLeadsEl.textContent = leads.length;
+  scopedLeadsEl.textContent = getLeadCountTotal(leads);
   wonLeadsEl.textContent = "0";
 }
 
@@ -528,7 +546,7 @@ function renderCharts(leads, range) {
   const trendCountMap = new Map();
   leads.forEach((lead) => {
     const dateKey = toKolkataDateKey(parseKolkataDate(lead.timelineAt || lead.createdAt) || new Date());
-    trendCountMap.set(dateKey, (trendCountMap.get(dateKey) || 0) + 1);
+    trendCountMap.set(dateKey, (trendCountMap.get(dateKey) || 0) + getLeadCount(lead));
   });
 
   const trendCounts = trendDates.map((day) => trendCountMap.get(day) || 0);
@@ -643,7 +661,7 @@ function hydrate(leads) {
   const range = getTimelineRange(scopedLeads);
   const filteredLeads = filterLeadsByTimeline(scopedLeads, range);
 
-  activeRangeLabel.textContent = `${range.label} | Leads in range: ${filteredLeads.length}`;
+  activeRangeLabel.textContent = `${range.label} | Leads in range: ${getLeadCountTotal(filteredLeads)}`;
   buildKpis(filteredLeads);
   renderCharts(filteredLeads, range);
 }

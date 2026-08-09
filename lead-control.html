@@ -107,45 +107,6 @@
           <p id="allocationMessage" class="message" aria-live="polite"></p>
         </div>
 
-        <div class="allocation-block" id="lsqImportBlock" data-super-admin-only="true">
-          <div class="card-head">
-            <h4>LSQ Lead Import</h4>
-            <p>Import LeadSquared history into Main Admission Leads. Unmatched owners go to Archived Leads.</p>
-          </div>
-          <div class="import-grid">
-            <div class="import-block">
-              <h4>LeadSquared File</h4>
-              <p class="block-help">Supported formats: .csv, .xlsx. LSQ leads bypass SOP restrictions.</p>
-              <input id="lsqImportFile" type="file" accept=".csv,.xlsx" />
-              <button id="importLsqLeadsBtn" type="button" class="btn-primary">Import LSQ Leads</button>
-            </div>
-            <div class="import-block">
-              <h4>LSQ Import Summary</h4>
-              <div class="import-summary" id="lsqImportSummary">
-                <p>Rows Scanned: 0</p>
-                <p>Created: 0</p>
-                <p>Updated: 0</p>
-                <p>Archived Leads: 0</p>
-              </div>
-              <p id="lsqImportMessage" class="message" aria-live="polite"></p>
-            </div>
-          </div>
-          <div class="import-block">
-            <div class="card-head">
-              <h4>Current LSQ Job</h4>
-              <p>Track the latest saved background import after refresh.</p>
-            </div>
-            <div class="import-summary" id="lsqJobSummary">
-              <p>No LSQ job loaded.</p>
-            </div>
-            <div class="allocation-actions">
-              <button id="refreshLsqJobBtn" type="button" class="btn-ghost">Refresh Job Status</button>
-              <button id="runLsqJobBtn" type="button" class="btn-ghost">Resume Job</button>
-            </div>
-            <p id="lsqJobMessage" class="message" aria-live="polite"></p>
-          </div>
-        </div>
-
         <div class="allocation-block">
           <div class="card-head">
             <h4>Manual Backup & Recovery</h4>
