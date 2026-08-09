@@ -85,7 +85,7 @@ const DEFAULT_PERMISSIONS = {
   registeredCandidates: true,
   mainAdmissionLeads: true,
   taskTracker: true,
-  lostLeads: true,
+  lostLeads: false,
   monitoring: true,
   performanceLogs: false,
   counselorManagement: false,
@@ -112,7 +112,7 @@ const SIDEBAR_GROUPS = [
   {
     id: "workflows",
     label: "Workflows",
-    routes: ["pre-workshop.html", "registered-candidates.html", "lost-leads.html", "task-tracker.html"]
+    routes: ["pre-workshop.html", "registered-candidates.html", "task-tracker.html"]
   },
   {
     id: "sop-tracker",
@@ -488,7 +488,6 @@ function rebuildSidebarSections() {
     "pre-workshop.html": "Workshop",
     "registered-candidates.html": "Admission",
     "task-tracker.html": "Task Tracker",
-    "lost-leads.html": "Lost Leads",
     "monitoring.html": "Monitoring",
     "performance-logs.html": "Performance Logs",
     "counselor-management.html": "Counselor Management",
@@ -700,12 +699,14 @@ function getCounselors() {
 function getSessionPermissions(session) {
   const base = {
     ...DEFAULT_PERMISSIONS,
-    ...(session.permissions || {})
+    ...(session.permissions || {}),
+    lostLeads: false
   };
 
   if (session?.role === "super_admin") {
     return {
-      ...Object.fromEntries(Object.keys(DEFAULT_PERMISSIONS).map((key) => [key, true]))
+      ...Object.fromEntries(Object.keys(DEFAULT_PERMISSIONS).map((key) => [key, true])),
+      lostLeads: false
     };
   }
 
@@ -765,7 +766,6 @@ function getFirstAllowedPage(permissions) {
   if (permissions.preWorkshop) return "pre-workshop.html";
   if (permissions.registeredCandidates) return "registered-candidates.html";
   if (permissions.postWorkshop) return "post-workshop.html";
-  if (permissions.lostLeads) return "lost-leads.html";
   if (permissions.monitoring) return "monitoring.html";
   return "index.html";
 }

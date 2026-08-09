@@ -73,6 +73,7 @@ const PUBLIC_COURSE_SEGMENT_CONFIG = {
 const MAIN_ADMISSION_PIPELINE = "main-admission";
 const MAIN_ADMISSION_ROUND_ROBIN_FIELD = "mainAdmissionRoundRobinIndex";
 const LSQ_ARCHIVED_COUNSELOR = "Archived Leads";
+const LOST_LEADS_COUNSELOR_FILTER = "__lost_leads__";
 const KOLKATA_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const LOST_LEAD_ARCHIVE_AFTER_MS = 24 * 60 * 60 * 1000;
 const ADMISSION_SOP_NEW_WINDOW_MS = 48 * 60 * 60 * 1000;
@@ -148,7 +149,10 @@ const PAGE_ACCESS_KEYS = [
   "reachout",
   "performanceLogs"
 ];
-const FULL_PAGE_ACCESS = Object.freeze(Object.fromEntries(PAGE_ACCESS_KEYS.map((key) => [key, true])));
+const FULL_PAGE_ACCESS = Object.freeze({
+  ...Object.fromEntries(PAGE_ACCESS_KEYS.map((key) => [key, true])),
+  lostLeads: false
+});
 const COUNSELOR_DEFAULT_PAGE_ACCESS = Object.freeze({
   dashboard: true,
   leadBrowse: true,
@@ -159,7 +163,7 @@ const COUNSELOR_DEFAULT_PAGE_ACCESS = Object.freeze({
   registeredCandidates: true,
   mainAdmissionLeads: true,
   taskTracker: true,
-  lostLeads: true,
+  lostLeads: false,
   monitoring: true,
   counselorManagement: false,
   leadControl: true,
@@ -244,7 +248,7 @@ const DEFAULT_PERMISSIONS = {
   preWorkshop: true,
   postWorkshop: true,
   taskTracker: true,
-  lostLeads: true,
+  lostLeads: false,
   monitoring: true
 };
 
@@ -3107,8 +3111,19 @@ function buildScopedLeadMongoQuery(section, requestQuery = {}, session = {}, cou
   query = appendScopedTimelineMongoQuery(query, requestQuery);
 
   const sessionRole = String(session.role || "").trim().toLowerCase();
+  const counselorFilter = String(requestQuery.counselor || "").trim();
   if (sessionRole !== "counselor") {
-    addOptionalExactQuery(query, "counselor", requestQuery.counselor);
+    if (counselorFilter === LOST_LEADS_COUNSELOR_FILTER) {
+      query = appendMongoAnd(query, canUseLostLeadCounselorFilter(session)
+        ? buildLostLeadMongoQuery()
+        : { _id: "__lost_leads_filter_forbidden__" });
+    } else {
+      addOptionalExactQuery(query, "counselor", counselorFilter);
+    }
+  }
+
+  if (section === "main-admission" && counselorFilter !== LOST_LEADS_COUNSELOR_FILTER) {
+    query = appendMongoAnd(query, { $nor: [buildLostLeadMongoQuery()] });
   }
 
   const lsqFilter = String(requestQuery.lsqLeads || "").trim().toLowerCase();
@@ -11661,7 +11676,9 @@ async function requireSuperAdmin(req, res) {
 function normalizePagePermissions(permissions = {}, fallback = FULL_PAGE_ACCESS) {
   return PAGE_ACCESS_KEYS.reduce((accumulator, key) => {
     const defaultValue = Boolean(fallback?.[key]);
-    accumulator[key] = Object.prototype.hasOwnProperty.call(permissions || {}, key)
+    accumulator[key] = key === "lostLeads"
+      ? false
+      : Object.prototype.hasOwnProperty.call(permissions || {}, key)
       ? Boolean(permissions[key])
       : defaultValue;
     return accumulator;
@@ -11938,6 +11955,11 @@ function canManageRoles(session) {
 function isAdminLikeSession(session) {
   const role = String(session?.role || "").trim().toLowerCase();
   return role === "admin" || role === "super_admin";
+}
+
+function canUseLostLeadCounselorFilter(session) {
+  const role = String(session?.role || "").trim().toLowerCase();
+  return role === "admin" || role === "super_admin" || role === "manager";
 }
 
 function isCounselorLikeSession(session) {
@@ -12999,11 +13021,9 @@ app.post("/api/auth/login", async (req, res) => {
       ? "pre-workshop.html"
       : permissions.postWorkshop
         ? "post-workshop.html"
-        : permissions.lostLeads
-          ? "lost-leads.html"
-          : permissions.monitoring
-            ? "monitoring.html"
-            : "index.html";
+        : permissions.monitoring
+          ? "monitoring.html"
+          : "index.html";
 
     return res.json({ session, landing });
   } catch (error) {

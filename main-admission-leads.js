@@ -45,12 +45,14 @@ await bootstrapLocalState({ skipStateRefresh: true });
 
 const session = getSession();
 const isAdmin = session?.role === "admin" || session?.role === "super_admin";
+const canUseLostLeadFilter = isAdmin || session?.role === "manager";
 const canFilterByCounselor = isAdmin || session?.role === "manager";
 const canUseLeadRowActions = !isAdmin;
 const canCreateTasks = session?.role === "counselor" || session?.role === "manager";
 const FIXED_COURSE_LABELS = CRM_FIXED_COURSE_OPTIONS.map((course) => course.label).filter(Boolean);
 const FIXED_COURSE_LABEL_SET = new Set(FIXED_COURSE_LABELS);
 const OTHER_COURSE_FILTER_LABEL = "Others";
+const LOST_LEADS_COUNSELOR_FILTER = "__lost_leads__";
 
 const mainAdmissionRoutingPanel = document.getElementById("mainAdmissionRoutingPanel");
 const mainAdmissionRoutingOptions = document.getElementById("mainAdmissionRoutingOptions");
@@ -193,6 +195,9 @@ filter.leadOwner = ["all", "direct", "reassigned"].includes(String(filter.leadOw
   ? String(filter.leadOwner || "").trim()
   : DEFAULT_FILTER.leadOwner;
 filter.sopFilter = isAdmin && filter.sopFilter === SOP_FILTER_BLOCKED ? SOP_FILTER_BLOCKED : "";
+if (!canUseLostLeadFilter && filter.counselor === LOST_LEADS_COUNSELOR_FILTER) {
+  filter.counselor = "";
+}
 filter.courseName = normalizeMultiValueFilter(filter.courseName);
 filter.location = normalizeLocationLabel(filter.location);
 if (isCounselorSession() && (!persistedFilter.timeline || persistedFilter.timeline === "week")) {
@@ -851,6 +856,20 @@ function isLsqImportedLead(lead = {}) {
 
 function isMainAdmissionLeadInterested(lead = {}) {
   return String(lead?.mainAdmissionCourseStatus || "").trim().toLowerCase() === "interested";
+}
+
+function isMainAdmissionLeadNotInterested(lead = {}) {
+  const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
+  if (pipeline === "main-admission") {
+    return Boolean(lead?.mainAdmissionActivityUpdated)
+      && String(lead?.mainAdmissionCourseStatus || "").trim().toLowerCase() === "not interested";
+  }
+  if (pipeline === "course-registration") {
+    return Boolean(lead?.registeredActivityUpdated)
+      && String(lead?.registeredCourseStatus || "").trim().toLowerCase() === "not interested";
+  }
+  return String(lead?.wsStatus || "").trim().toLowerCase() === "not interested"
+    || (Boolean(lead?.postStatusUpdated) && String(lead?.courseStatus || "").trim().toLowerCase() === "not interested");
 }
 
 function isProtectedMainAdmissionStatus(lead = {}) {
@@ -2122,6 +2141,14 @@ function renderFilters(leads) {
   const facetCourses = Array.isArray(scopedFacets?.courses) ? scopedFacets.courses : null;
   const facetLocations = Array.isArray(scopedFacets?.locations) ? scopedFacets.locations : null;
   const counselors = facetCounselors || getUniqueValues(leads, "counselor");
+  const counselorOptions = [
+    { value: "", label: "All" },
+    { value: "Unassigned", label: "Unassigned" },
+    ...(canUseLostLeadFilter ? [{ value: LOST_LEADS_COUNSELOR_FILTER, label: "Lost Leads" }] : []),
+    ...counselors
+      .filter((item) => item && item !== "Unassigned" && item !== LOST_LEADS_COUNSELOR_FILTER)
+      .map((item) => ({ value: item, label: item }))
+  ];
   const courses = facetCourses || getFixedCourseFilterOptions(leads);
   const locations = facetLocations || [...new Set(leads.map((lead) => getLeadLocation(lead)).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   const selectedCourses = normalizeMultiValueFilter(filter.courseName);
@@ -2189,9 +2216,7 @@ function renderFilters(leads) {
         <div class="filter-item">
           <label for="mainAdmissionCounselorSelect">Counselor</label>
           <select id="mainAdmissionCounselorSelect">
-            <option value="">All</option>
-            <option value="Unassigned" ${filter.counselor === "Unassigned" ? "selected" : ""}>Unassigned</option>
-            ${counselors.map((item) => `<option value="${escapeHtml(item)}" ${filter.counselor === item ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
+            ${counselorOptions.map((item) => `<option value="${escapeHtml(item.value)}" ${filter.counselor === item.value ? "selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}
           </select>
         </div>
         ` : ""}
@@ -2689,7 +2714,12 @@ function filterLeads(leads) {
       const haystack = [lead.name, lead.email, lead.phone, lead.courseName, location, lead.country, lead.counselor].join(" ").toLowerCase();
       if (!haystack.includes(filter.search.toLowerCase())) return false;
     }
-    if (filter.counselor && filter.counselor !== lead.counselor) return false;
+    if (filter.counselor === LOST_LEADS_COUNSELOR_FILTER) {
+      if (!canUseLostLeadFilter || !isMainAdmissionLeadNotInterested(lead)) return false;
+    } else {
+      if (isMainAdmissionLeadNotInterested(lead)) return false;
+      if (filter.counselor && filter.counselor !== lead.counselor) return false;
+    }
     if (activeSegment === DEFAULT_SEGMENT) {
       if (selectedCourses.length) {
         const courseFilterValue = fixedCourseLabel || OTHER_COURSE_FILTER_LABEL;
