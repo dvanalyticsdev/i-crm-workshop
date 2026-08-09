@@ -11635,6 +11635,33 @@ function findLeadByIdentity(state, leadId, leadEmail = "") {
   return leads.find((lead) => candidates.has(String(lead?.id))) || null;
 }
 
+async function findLeadByIdentityFromCollection(leadId, leadEmail = "") {
+  const query = { id: { $in: getLeadIdCandidates(leadId) } };
+  const email = String(leadEmail || "").trim().toLowerCase();
+  if (email) {
+    query.email = email;
+  }
+  const rawLead = await withMongoRetry(
+    () => leadsCollection.findOne(query),
+    { retries: 1, label: "Load lead by identity" }
+  );
+  if (!rawLead) {
+    return null;
+  }
+  return decorateLeadForStorage(rawLead);
+}
+
+async function buildLeadActionState(lead) {
+  const counselors = await withMongoRetry(
+    () => counselorsCollection.find({}).toArray(),
+    { retries: 1, label: "Load counselors for lead action" }
+  );
+  return {
+    leads: lead ? [lead] : [],
+    counselors: Array.isArray(counselors) ? counselors : []
+  };
+}
+
 function getSessionCounselorName(state, session) {
   if (!isCounselorLikeSession(session)) {
     return "";
@@ -13640,12 +13667,12 @@ app.post("/api/leads/:leadId/view", async (req, res) => {
 
     const leadId = req.params.leadId;
     const leadEmail = String(req.body?.leadEmail || "").trim().toLowerCase();
-    const state = await getStateDoc();
-    const lead = findLeadByIdentity(state, leadId, leadEmail);
+    const lead = await findLeadByIdentityFromCollection(leadId, leadEmail);
 
     if (!lead) {
       return res.status(404).json({ message: "Lead not found." });
     }
+    const state = await buildLeadActionState(lead);
 
     if (!isCounselorLeadViewNotificationEligible(session)) {
       return res.json({ ok: true, notified: false, message: "Lead view notifications are only sent for counselor or manager viewers." });
@@ -13797,12 +13824,12 @@ app.patch("/api/main-admission-leads/:leadId/details", async (req, res) => {
 
     const leadId = req.params.leadId;
     const leadEmail = String(req.body?.leadEmail || "").trim().toLowerCase();
-    const state = await getStateDoc();
-    const lead = findLeadByIdentity(state, leadId, leadEmail);
+    const lead = await findLeadByIdentityFromCollection(leadId, leadEmail);
 
     if (!lead) {
       return res.status(404).json({ message: "Lead not found." });
     }
+    const state = await buildLeadActionState(lead);
     if (!isMainAdmissionLead(lead)) {
       return res.status(400).json({ message: "Lead details can be edited only from Main Admission Leads." });
     }
@@ -13878,10 +13905,12 @@ app.patch("/api/main-admission-leads/:leadId/details", async (req, res) => {
       session
     });
 
-    const nextState = await refreshStateAfterAtomicUpdate();
-    const updatedLead = findLeadByIdentity(nextState, leadId, patch.email || leadEmail);
-    res.setHeader("ETag", buildStateEtag(nextState));
-    return res.json({ ok: true, lead: updatedLead, state: buildStateResponse(nextState) });
+    cachedStateDoc = null;
+    cachedStateDocAt = 0;
+    const updatedLead = await findLeadByIdentityFromCollection(leadId, patch.email || leadEmail);
+    const updatedAt = updatedLead?.updatedAt || now;
+    res.setHeader("ETag", buildStateEtag({ updatedAt }));
+    return res.json({ ok: true, lead: updatedLead, updatedAt });
   } catch (error) {
     return res.status(500).json({ message: "Failed to update lead details", details: error.message });
   }
@@ -13896,12 +13925,12 @@ app.post("/api/leads/:leadId/activity", async (req, res) => {
     const leadEmail = String(req.body?.leadEmail || "").trim().toLowerCase();
     const stage = String(req.body?.stage || "").trim().toLowerCase();
     const updates = req.body?.updates || {};
-    const state = await getStateDoc();
-    const lead = findLeadByIdentity(state, leadId, leadEmail);
+    const lead = await findLeadByIdentityFromCollection(leadId, leadEmail);
 
     if (!lead) {
       return res.status(404).json({ message: "Lead not found." });
     }
+    const state = await buildLeadActionState(lead);
     const mutationRestriction = getLeadMutationRestrictionMessage(session, state, lead);
     if (mutationRestriction) {
       return res.status(403).json({ message: mutationRestriction });
@@ -14122,11 +14151,11 @@ app.post("/api/leads/:leadId/notes", async (req, res) => {
       return res.status(400).json({ message: "Note text is required." });
     }
 
-    const state = await getStateDoc();
-    const lead = findLeadByIdentity(state, leadId, leadEmail);
+    const lead = await findLeadByIdentityFromCollection(leadId, leadEmail);
     if (!lead) {
       return res.status(404).json({ message: "Lead not found." });
     }
+    const state = await buildLeadActionState(lead);
     const mutationRestriction = getLeadMutationRestrictionMessage(session, state, lead);
     if (mutationRestriction) {
       return res.status(403).json({ message: mutationRestriction });
@@ -14186,11 +14215,11 @@ app.delete("/api/leads/:leadId/notes/:noteIndex", async (req, res) => {
     const leadId = req.params.leadId;
     const leadEmail = String(req.query?.leadEmail || "").trim().toLowerCase();
     const noteIndex = Number(req.params.noteIndex);
-    const state = await getStateDoc();
-    const lead = findLeadByIdentity(state, leadId, leadEmail);
+    const lead = await findLeadByIdentityFromCollection(leadId, leadEmail);
     if (!lead) {
       return res.status(404).json({ message: "Lead not found." });
     }
+    const state = await buildLeadActionState(lead);
     const mutationRestriction = getLeadMutationRestrictionMessage(session, state, lead);
     if (mutationRestriction) {
       return res.status(403).json({ message: mutationRestriction });
@@ -14528,16 +14557,16 @@ app.post("/api/leads/:leadId/take-sop", async (req, res) => {
       return res.status(400).json({ message: "Lead id is required." });
     }
 
-    const state = await getStateDoc();
+    const lead = await findLeadByIdentityFromCollection(leadId, leadEmail);
+    if (!lead) {
+      return res.status(404).json({ message: "Lead not found." });
+    }
+    const state = await buildLeadActionState(lead);
     const managerName = getSessionCounselorName(state, session);
     if (!managerName) {
       return res.status(403).json({ message: "Manager account details are required to take SOP leads." });
     }
 
-    const lead = findLeadByIdentity(state, leadId, leadEmail);
-    if (!lead) {
-      return res.status(404).json({ message: "Lead not found." });
-    }
     if (!isAdmissionSopScopedLead(lead)) {
       return res.status(400).json({ message: "Only admission SOP leads can be taken by a manager." });
     }
@@ -14986,11 +15015,11 @@ app.post("/api/lead-claims", async (req, res) => {
       return res.status(400).json({ message: "Please enter a more detailed formal reason for this claim." });
     }
 
-    const state = await getStateDoc();
-    const lead = findLeadByIdentity(state, leadId, leadEmail);
+    const lead = await findLeadByIdentityFromCollection(leadId, leadEmail);
     if (!lead) {
       return res.status(404).json({ message: "Lead not found." });
     }
+    const state = await buildLeadActionState(lead);
 
     const requesterName = getSessionCounselorName(state, session);
     const requesterEmail = String(session.email || "").trim().toLowerCase();
