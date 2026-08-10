@@ -16369,7 +16369,7 @@ app.get("/api/account-directory", async (req, res) => {
       withMongoRetry(
         () => stateCollection.findOne(
           { _id: STATE_DOC_ID },
-          { projection: { adminUsers: 1, marketingUsers: 1, admissionSopEnabled: 1, admissionSopEnabledAt: 1, admissionSopUpdatedBy: 1, updatedAt: 1, clearedAt: 1 } }
+          { projection: { adminUsers: 1, marketingUsers: 1, admissionSopEnabled: 1, admissionSopEnabledAt: 1, admissionSopUpdatedBy: 1, coursePriorities: 1, updatedAt: 1, clearedAt: 1 } }
         ),
         { retries: 1, label: "Load account directory metadata" }
       ),
@@ -16393,6 +16393,7 @@ app.get("/api/account-directory", async (req, res) => {
       admissionSopEnabled: normalizedMeta.admissionSopEnabled,
       admissionSopEnabledAt: normalizedMeta.admissionSopEnabledAt,
       admissionSopUpdatedBy: canViewAdminDirectory ? normalizedMeta.admissionSopUpdatedBy : "",
+      coursePriorities: normalizedMeta.coursePriorities,
       updatedAt: normalizedMeta.updatedAt || null,
       clearedAt: normalizedMeta.clearedAt || null
     });

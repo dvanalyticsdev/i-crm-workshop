@@ -134,7 +134,17 @@ export function getTasks() {
 }
 
 export function getCoursePriorities() {
-  return getStateField("coursePriorities");
+  const val = getStateField("coursePriorities");
+  return Array.isArray(val) && val.length ? val : [
+    "days7_genai",
+    "advanced-aiml-genai-agentic",
+    "apcs",
+    "apida",
+    "apids",
+    "forward-deployed-engineer",
+    "master-genai-agentic",
+    "data-analytics-specialist"
+  ];
 }
 
 export function replaceStateSnapshot(snapshot) {

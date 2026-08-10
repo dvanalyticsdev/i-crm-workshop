@@ -252,6 +252,7 @@ async function loadLeadControlDirectory() {
     adminUsers: Array.isArray(json?.adminUsers) ? json.adminUsers : [],
     marketingUsers: Array.isArray(json?.marketingUsers) ? json.marketingUsers : [],
     admissionSopEnabled: json?.admissionSopEnabled !== false,
+    coursePriorities: Array.isArray(json?.coursePriorities) ? json.coursePriorities : [],
     updatedAt: json?.updatedAt || new Date().toISOString(),
     clearedAt: json?.clearedAt || null
   });
