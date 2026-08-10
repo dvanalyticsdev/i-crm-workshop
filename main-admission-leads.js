@@ -1210,6 +1210,13 @@ function hasAssigneeActivityHistory(history) {
 }
 
 function getLeadActivityUpdateCount(lead) {
+  if (!isLsqImportedLead(lead)) {
+    const counselor = String(lead?.counselor || "").trim().toLowerCase();
+    if (!counselor || counselor === "unassigned") {
+      return 0;
+    }
+  }
+
   if (typeof lead?.mainAdmissionActivityTouchedByAssignee === "boolean") {
     return lead.mainAdmissionActivityTouchedByAssignee ? 1 : 0;
   }

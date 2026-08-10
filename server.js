@@ -2858,6 +2858,13 @@ function scopedHasAssigneeActivityHistory(history) {
 }
 
 function getScopedLeadActivityUpdateCount(lead = {}, section = "") {
+  if (lead.lsqImported !== true) {
+    const counselor = String(lead.counselor || "").trim().toLowerCase();
+    if (!counselor || counselor === "unassigned") {
+      return 0;
+    }
+  }
+
   if (section === "registered-candidates") {
     if (typeof lead.registeredActivityTouchedByAssignee === "boolean") return lead.registeredActivityTouchedByAssignee ? 1 : 0;
     if (typeof lead.registeredActivityUpdated === "boolean") return lead.registeredActivityUpdated ? 1 : 0;

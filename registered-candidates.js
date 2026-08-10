@@ -566,6 +566,13 @@ function hasAssigneeActivityHistory(history) {
 }
 
 function getLeadActivityUpdateCount(lead) {
+  if (lead?.lsqImported !== true) {
+    const counselor = String(lead?.counselor || "").trim().toLowerCase();
+    if (!counselor || counselor === "unassigned") {
+      return 0;
+    }
+  }
+
   if (typeof lead?.registeredActivityTouchedByAssignee === "boolean") {
     return lead.registeredActivityTouchedByAssignee ? 1 : 0;
   }
