@@ -63,6 +63,7 @@ function normalizeState(snapshot = {}) {
     marketingUsers: Array.isArray(snapshot?.marketingUsers) ? snapshot.marketingUsers : [],    
     allocation: Array.isArray(snapshot?.allocation) ? snapshot.allocation : [],
     tasks: Array.isArray(snapshot?.tasks) ? snapshot.tasks : [],
+    coursePriorities: Array.isArray(snapshot?.coursePriorities) ? snapshot.coursePriorities : [],
     updatedAt: snapshot?.updatedAt || null,
     clearedAt: snapshot?.clearedAt || null
   };
