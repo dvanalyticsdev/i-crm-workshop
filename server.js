@@ -12,6 +12,14 @@ const ROOT_DIR = __dirname;
 const VERSION_FILE = path.join(ROOT_DIR, ".version");
 const APP_STARTED_AT = new Date().toISOString();
 
+function parseEnvInteger(name, fallback, minimum = 0) {
+  const parsed = Number(process.env[name]);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.max(minimum, Math.floor(parsed));
+}
+
 const MONGODB_URI = process.env.MONGODB_URI;
 const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || "i-crm-workshop";
 const MONGODB_STATE_COLLECTION = process.env.MONGODB_STATE_COLLECTION || "app_state";
@@ -32,8 +40,8 @@ const MONGODB_REACHOUT_MEDIA_COLLECTION = process.env.MONGODB_REACHOUT_MEDIA_COL
 const MONGODB_PERFORMANCE_LOGS_COLLECTION = process.env.MONGODB_PERFORMANCE_LOGS_COLLECTION || "performance_logs";
 const MONGODB_LSQ_ARCHIVE_COLLECTION = process.env.MONGODB_LSQ_ARCHIVE_COLLECTION || "lsq_archive_leads";
 const MONGODB_LEAD_INFLOW_COLLECTION = process.env.MONGODB_LEAD_INFLOW_COLLECTION || "lead_inflow_events";
-const MONGODB_MAX_POOL_SIZE = Math.max(10, Number(process.env.MONGODB_MAX_POOL_SIZE || 50));
-const MONGODB_MIN_POOL_SIZE = Math.max(0, Number(process.env.MONGODB_MIN_POOL_SIZE || 0));
+const MONGODB_MAX_POOL_SIZE = parseEnvInteger("MONGODB_MAX_POOL_SIZE", 75, 10);
+const MONGODB_MIN_POOL_SIZE = parseEnvInteger("MONGODB_MIN_POOL_SIZE", 10, 0);
 const META_WEBHOOK_FORWARD_URL = String(process.env.META_WEBHOOK_FORWARD_URL || "").trim();
 const ADMIN_LOGIN_ID = String(process.env.ADMIN_LOGIN_ID || "").trim();
 const ADMIN_LOGIN_PASSWORD = String(process.env.ADMIN_LOGIN_PASSWORD || "").trim();
