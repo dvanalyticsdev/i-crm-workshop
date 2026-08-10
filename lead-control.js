@@ -12,7 +12,8 @@ import {
   getSession,
   getStateSnapshot,
   replaceStateSnapshot,
-  syncStateFromLocalAndVerify
+  syncStateFromLocalAndVerify,
+  getCoursePriorities
 } from "./state-sync.js";
 import { createRenderScheduler, withButtonBusy } from "./ui-feedback.js";
 await bootstrapLocalState({ skipStateRefresh: true });
@@ -872,10 +873,23 @@ function extractWorkshopDateFromName(value, fallbackYear) {
 }
 
 function normalizeDuplicatePhone(value) {
-  const raw = String(value || "").trim();
-  if (/^\d+(\.\d+)?e\+?\d+$/i.test(raw)) {
-    return "";
+  let raw = String(value || "").trim();
+  
+  // Strip common prefix like p:
+  raw = raw.replace(/^[a-zA-Z]:/, "").trim();
+
+  // Handle scientific notation string
+  if (/^\d+(\.\d+)?[eE][+-]?\d+$/.test(raw)) {
+    const num = Number(raw);
+    if (Number.isFinite(num)) {
+      const str = String(Math.trunc(num));
+      if (str.endsWith("00000")) {
+        return ""; // Reject due to precision loss
+      }
+      raw = str;
+    }
   }
+
   return raw.replace(/\.0+$/, "").replace(/\D+/g, "").trim();
 }
 
@@ -1370,6 +1384,7 @@ async function handleLeadImport() {
 
   const savedCount = Number(importSaveResult.createdCount) || 0;
   const skippedCount = Number(importSaveResult.skippedCount) || 0;
+  const updatedCount = Number(importSaveResult.updatedCount) || 0;
   const serverSkippedLeads = Array.isArray(importSaveResult.skippedLeads) ? importSaveResult.skippedLeads : [];
   serverSkippedLeads.forEach((item) => {
     incrementSummaryBucket(summaryBuckets, classifyImportIssue(item?.reason || ""));
@@ -1385,21 +1400,13 @@ async function handleLeadImport() {
   });
 
   if (failed.length) {
-    setMessage(importMessage, `Import finished. ${savedCount} new lead${savedCount === 1 ? "" : "s"} added; ${failed.length + skippedCount} row${failed.length + skippedCount === 1 ? "" : "s"} not imported. First row to review: ${failed[0]}`, true);
-  } else if (skippedCount) {
-    setMessage(importMessage, `Import finished. ${savedCount} new lead${savedCount === 1 ? "" : "s"} added; ${skippedCount} duplicate row${skippedCount === 1 ? "" : "s"} safely skipped.`, false);
+    setMessage(importMessage, `Import finished. ${savedCount} new lead${savedCount === 1 ? "" : "s"} added; ${updatedCount} duplicate course${updatedCount === 1 ? "" : "s"} updated; ${failed.length + skippedCount} row${failed.length + skippedCount === 1 ? "" : "s"} not imported.`, true);
+  } else if (skippedCount || updatedCount) {
+    setMessage(importMessage, `Import finished. ${savedCount} new lead${savedCount === 1 ? "" : "s"} added; ${updatedCount} duplicate course${updatedCount === 1 ? "" : "s"} updated; ${skippedCount} duplicate row${skippedCount === 1 ? "" : "s"} safely skipped.`, false);
   } else if (assignmentMisses.length) {
     setMessage(importMessage, `Imported ${savedCount}. ${assignmentMisses.length} lead${assignmentMisses.length === 1 ? "" : "s"} stayed Unassigned because no matching routing rule was enabled.`, true);
   } else {
-    const messageParts = [];
-    if (savedCount) {
-      messageParts.push(`created ${savedCount}`);
-    }
-    if (recordsNeedingAssignment.length) {
-      setMessage(importMessage, "Counselor Assigned Successfully.", false);
-    } else {
-      setMessage(importMessage, `Import completed: ${messageParts.join(" and ") || "no changes"}.`, false);
-    }
+    setMessage(importMessage, `Import completed successfully: created ${savedCount} leads.`, false);
   }
 
   leadImportFile.value = "";
@@ -1511,6 +1518,269 @@ async function restoreManualBackup() {
   renderAll();
 }
 
+function buildCustomLeadFromImportRow(row, id, selectedCourseOpt, sourceFileName) {
+  const name = String(pickValue(row, ["studentname", "fullname", "leadname", "name"]) || "").trim();
+  const email = String(pickValue(row, ["emailaddress", "emailid", "mail", "email"]) || "").trim().toLowerCase();
+  const phone = normalizeImportedPhone(pickValue(row, ["phone", "phonenumber", "number", "mobile", "contact", "contactnumber"]));
+  const createdAt = normalizeCreatedAt(pickValue(row, ["created", "createdat", "date", "leadcreated", "createdon"]));
+
+  if (!name) {
+    return { error: "Name is required." };
+  }
+  if (!phone) {
+    return { error: "Phone Number is required." };
+  }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { error: "Valid email is required when provided." };
+  }
+
+  return {
+    lead: {
+      id,
+      name,
+      email,
+      phone,
+      normalizedEmail: email,
+      normalizedPhone: normalizeDuplicatePhone(phone),
+      courseName: selectedCourseOpt.label,
+      courseId: selectedCourseOpt.id,
+      courseCode: selectedCourseOpt.label,
+      leadPipeline: "main-admission",
+      publicCourseSegment: selectedCourseOpt.id === "days7_genai" ? "crash-course" : "standard",
+      createdAt,
+      createdAtExact: new Date().toISOString(),
+      counselor: "Unassigned",
+      mainAdmissionDialed: "",
+      mainAdmissionCoursePitched: selectedCourseOpt.label,
+      mainAdmissionCourseStatus: "",
+      mainAdmissionAdmissionStatus: "",
+      mainAdmissionCallStatus: "",
+      mainAdmissionActivityUpdated: false,
+      mainAdmissionActivityUpdates: 0,
+      mainAdmissionActivityTouchedByAssignee: false,
+      mainAdmissionActivityHistory: [],
+      leadNotes: [],
+      importSourceFiles: [String(sourceFileName || "").trim()].filter(Boolean),
+      importSourceSheets: [String(row.__workshopName || "").trim()].filter(Boolean),
+      importSourceSheet: String(row.__workshopName || "").trim(),
+      elementorFormName: "Custom Import",
+      source: "Custom Import",
+      leadSource: "Custom Import"
+    }
+  };
+}
+
+async function handleCustomLeadImport() {
+  if (!isAdmin) {
+    setMessage(importMessage, "Only admin can import leads.", true);
+    return;
+  }
+
+  const file = customImportFile.files?.[0];
+  if (!file) {
+    setMessage(importMessage, "Please select a .xlsx or .csv file for custom import.", true);
+    return;
+  }
+
+  if (!/\.(xlsx|csv)$/i.test(file.name)) {
+    setMessage(importMessage, "Unsupported format. Please upload .xlsx or .csv.", true);
+    return;
+  }
+
+  const selectedCourseId = customImportCourseSelect.value;
+  const courseOpt = CRM_FIXED_COURSE_OPTIONS.find((c) => c.id === selectedCourseId) || { id: "data-analytics-specialist", label: "DAS" };
+
+  const allocationValidation = validateAllocation(getAllocation());
+  if (!allocationValidation.ok) {
+    setMessage(importMessage, allocationValidation.message, true);
+    return;
+  }
+
+  let rows = [];
+  try {
+    rows = await parseImportFile(file);
+  } catch {
+    setMessage(importMessage, "Could not read file. Check format and try again.", true);
+    return;
+  }
+
+  if (!rows.length) {
+    setMessage(importMessage, "No rows found in the uploaded file.", true);
+    updateImportSummary({ totalRows: 0, savedCount: 0, notImportedCount: 0 });
+    return;
+  }
+
+  const leadIndexByEmail = new Map();
+  const leadIndexByPhone = new Map();
+
+  const importedRecords = [];
+  const failed = [];
+  const assignmentMisses = [];
+  const summaryBuckets = {};
+  let createdCount = 0;
+  let tempId = Date.now();
+
+  rows.forEach((row, idx) => {
+    const { lead, error } = buildCustomLeadFromImportRow(row, tempId, courseOpt, file.name);
+    if (error) {
+      failed.push(`Row ${idx + 2}: ${error}`);
+      incrementSummaryBucket(summaryBuckets, classifyImportIssue(error));
+      return;
+    }
+
+    const duplicateReasons = [];
+    if (lead.email && leadIndexByEmail.has(lead.email)) {
+      duplicateReasons.push("email address");
+    }
+    const normalizedPhone = normalizeDuplicatePhone(lead.phone);
+    if (normalizedPhone && leadIndexByPhone.has(normalizedPhone)) {
+      duplicateReasons.push("phone number");
+    }
+    if (duplicateReasons.length) {
+      const message = `Duplicate ${duplicateReasons.join(" and ")} already exists in this file.`;
+      failed.push(`Row ${idx + 2}: ${message}`);
+      incrementSummaryBucket(summaryBuckets, classifyImportIssue(message));
+      return;
+    }
+
+    importedRecords.push({ lead });
+    if (lead.email) {
+      leadIndexByEmail.set(lead.email, importedRecords.length - 1);
+    }
+    if (normalizedPhone) {
+      leadIndexByPhone.set(normalizedPhone, importedRecords.length - 1);
+    }
+    createdCount += 1;
+    tempId += 1;
+  });
+
+  const routingMeta = getRoutingMeta();
+  const recordsNeedingAssignment = importedRecords.filter(({ lead }) => {
+    const counselor = String(lead.counselor || "").trim().toLowerCase();
+    return !counselor || counselor === "unassigned";
+  });
+
+  recordsNeedingAssignment.forEach((record) => {
+    const assignedCounselor = assignLeadByRoundRobin(record.lead, allocationValidation.cleaned, routingMeta);
+    record.lead.counselor = assignedCounselor;
+    if (assignedCounselor === "Unassigned") {
+      assignmentMisses.push(record.lead.name);
+    }
+  });
+
+  const importedLeads = importedRecords.map(({ lead }) => lead);
+  const importSaveResult = await saveUniversalImportedLeads(importedLeads, [
+    ...allocationValidation.cleaned,
+    routingMeta
+  ]);
+  if (!importSaveResult || importSaveResult.ok === false) {
+    setMessage(importMessage, importSaveResult?.message || "Failed to save imported leads.", true);
+    return;
+  }
+
+  const savedCount = Number(importSaveResult.createdCount) || 0;
+  const skippedCount = Number(importSaveResult.skippedCount) || 0;
+  const updatedCount = Number(importSaveResult.updatedCount) || 0;
+  const serverSkippedLeads = Array.isArray(importSaveResult.skippedLeads) ? importSaveResult.skippedLeads : [];
+  serverSkippedLeads.forEach((item) => {
+    incrementSummaryBucket(summaryBuckets, classifyImportIssue(item?.reason || ""));
+  });
+  if (assignmentMisses.length) {
+    incrementSummaryBucket(summaryBuckets, "unassigned", assignmentMisses.length);
+  }
+  updateImportSummary({
+    totalRows: rows.length,
+    savedCount,
+    notImportedCount: failed.length + skippedCount,
+    ...summaryBuckets
+  });
+
+  if (failed.length) {
+    setMessage(importMessage, `Import finished. ${savedCount} new lead${savedCount === 1 ? "" : "s"} added; ${updatedCount} duplicate course${updatedCount === 1 ? "" : "s"} updated; ${failed.length + skippedCount} row${failed.length + skippedCount === 1 ? "" : "s"} not imported.`, true);
+  } else if (skippedCount || updatedCount) {
+    setMessage(importMessage, `Import finished. ${savedCount} new lead${savedCount === 1 ? "" : "s"} added; ${updatedCount} duplicate course${updatedCount === 1 ? "" : "s"} updated; ${skippedCount} duplicate row${skippedCount === 1 ? "" : "s"} safely skipped.`, false);
+  } else if (assignmentMisses.length) {
+    setMessage(importMessage, `Imported ${savedCount}. ${assignmentMisses.length} lead${assignmentMisses.length === 1 ? "" : "s"} stayed Unassigned because no matching routing rule was enabled.`, true);
+  } else {
+    setMessage(importMessage, `Import completed successfully: created ${savedCount} leads.`, false);
+  }
+
+  customImportFile.value = "";
+  await loadImportedFiles().catch(() => undefined);
+  renderAll();
+}
+
+function renderCoursePriorities() {
+  if (!coursePriorityContainer) return;
+  const priorities = getCoursePriorities();
+
+  coursePriorityContainer.innerHTML = priorities.map((courseId, idx) => {
+    const courseOpt = CRM_FIXED_COURSE_OPTIONS.find((c) => c.id === courseId) || { id: courseId, label: courseId };
+    return `
+      <div class="priority-row" data-course-id="${courseId}" style="display: flex; justify-content: space-between; align-items: center; padding: var(--space-2) var(--space-3); background: var(--surface-muted); border: 1px solid var(--border); border-radius: var(--radius-md); margin-bottom: var(--space-1);">
+        <span style="font-weight: 600; color: var(--text);">${courseOpt.label}</span>
+        <div style="display: flex; gap: 6px;">
+          <button type="button" class="btn-ghost btn-xs priority-up-btn" data-index="${idx}" ${idx === 0 ? "disabled" : ""} style="padding: 2px 6px;">▲</button>
+          <button type="button" class="btn-ghost btn-xs priority-down-btn" data-index="${idx}" ${idx === priorities.length - 1 ? "disabled" : ""} style="padding: 2px 6px;">▼</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  coursePriorityContainer.querySelectorAll(".priority-up-btn").forEach((btn) => {
+    btn.onclick = (e) => {
+      const index = parseInt(e.currentTarget.dataset.index, 10);
+      movePriority(index, index - 1);
+    };
+  });
+
+  coursePriorityContainer.querySelectorAll(".priority-down-btn").forEach((btn) => {
+    btn.onclick = (e) => {
+      const index = parseInt(e.currentTarget.dataset.index, 10);
+      movePriority(index, index + 1);
+    };
+  });
+}
+
+function movePriority(from, to) {
+  const priorities = getCoursePriorities();
+  if (to < 0 || to >= priorities.length) return;
+
+  const temp = priorities[from];
+  priorities[from] = priorities[to];
+  priorities[to] = temp;
+
+  replaceStateSnapshot({
+    ...getStateSnapshot(),
+    coursePriorities: priorities
+  });
+
+  renderCoursePriorities();
+}
+
+async function saveCoursePriorities() {
+  if (!isAdmin) {
+    return { ok: false, message: "Only admin can update course priorities." };
+  }
+  const priorities = getCoursePriorities();
+
+  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/admin/course-priorities"), {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    },
+    body: JSON.stringify({ coursePriorities: priorities })
+  }, 10000);
+
+  if (!response.ok || json?.ok === false) {
+    return { ok: false, message: json?.message || "Failed to save course priorities." };
+  }
+
+  replaceStateSnapshot(json.state);
+  return { ok: true };
+}
+
 function setupAdminPanel() {
   if (!adminImportPanel) {
     return;
@@ -1571,6 +1841,24 @@ function setupAdminPanel() {
     void withButtonBusy(event.currentTarget, "Importing leads...", () => handleLeadImport());
   };
 
+  if (importCustomLeadsBtn) {
+    importCustomLeadsBtn.onclick = (event) => {
+      void withButtonBusy(event.currentTarget, "Importing custom leads...", () => handleCustomLeadImport());
+    };
+  }
+
+  if (saveCoursePrioritiesBtn) {
+    saveCoursePrioritiesBtn.onclick = async (event) => {
+      const result = await withButtonBusy(event.currentTarget, "Saving priorities...", () => saveCoursePriorities());
+      if (!result || result.ok === false) {
+        setMessage(coursePrioritiesMessage, result?.message || "Failed to save course priorities.", true);
+        return;
+      }
+      setMessage(coursePrioritiesMessage, "Course priorities saved successfully.", false);
+      showToast("Course priorities saved successfully.", false);
+    };
+  }
+
   if (exportBackupBtn) {
     exportBackupBtn.onclick = (event) => {
       void withButtonBusy(event.currentTarget, "Preparing backup...", () => downloadManualBackup());
@@ -1595,6 +1883,7 @@ function setupAdminPanel() {
     };
   }
 
+  renderCoursePriorities();
 }
 
 function initLeadControlPage() {
@@ -1604,7 +1893,7 @@ function initLeadControlPage() {
 initLeadControlPage();
 
 function renderAll() {
-  // Lead & Data Control only needs directory/routing state; avoid touching the full lead cache here.
+  renderCoursePriorities();
 }
 
 const scheduleRenderAll = createRenderScheduler(renderAll);

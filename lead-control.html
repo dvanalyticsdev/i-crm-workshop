@@ -84,6 +84,26 @@
           </div>
 
           <div class="import-block">
+            <h4>Custom Course Lead Import</h4>
+            <p class="block-help">Import Excel files directly to a selected course. Both subsheets (FB, Website) will be parsed.</p>
+            <div style="margin-bottom: 8px;">
+              <label for="customImportCourseSelect" style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 4px; color: var(--text-muted);">Target Course:</label>
+              <select id="customImportCourseSelect" style="width: 100%; padding: 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--text); font-weight: 500;">
+                <option value="days7_genai">7DAYS_GENAI</option>
+                <option value="advanced-aiml-genai-agentic">AIML + GenAI</option>
+                <option value="apcs">APCS</option>
+                <option value="apida">APIDA</option>
+                <option value="apids">APIDS</option>
+                <option value="forward-deployed-engineer">FDE</option>
+                <option value="master-genai-agentic">GenAI Master</option>
+                <option value="data-analytics-specialist">Others</option>
+              </select>
+            </div>
+            <input id="customImportFile" type="file" accept=".xlsx,.csv" />
+            <button id="importCustomLeadsBtn" type="button" class="btn-primary">Import Custom Leads</button>
+          </div>
+
+          <div class="import-block" style="grid-column: span 2;">
             <h4>Import Summary</h4>
             <div class="import-summary" id="importSummary">
               <p>Rows checked: 0</p>
@@ -119,6 +139,20 @@
             <button id="saveAllocationBtn" type="button" class="btn-ghost">Save Routing Rules</button>
           </div>
           <p id="allocationMessage" class="message" aria-live="polite"></p>
+        </div>
+
+        <div class="allocation-block">
+          <div class="card-head">
+            <h4>Course Priority Rules</h4>
+            <p>Define course priority rankings. If an imported duplicate lead matches an existing lead, the course is updated if the new course has higher priority.</p>
+          </div>
+          <div id="coursePriorityContainer" style="display: grid; gap: 8px; margin: 12px 0;">
+            <!-- Rendered dynamically by lead-control.js -->
+          </div>
+          <div class="allocation-actions">
+            <button id="saveCoursePrioritiesBtn" type="button" class="btn-ghost">Save Course Priorities</button>
+          </div>
+          <p id="coursePrioritiesMessage" class="message" aria-live="polite"></p>
         </div>
 
         <div class="allocation-block">

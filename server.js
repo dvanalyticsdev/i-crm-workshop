@@ -712,6 +712,16 @@ function normalizeStateDoc(state = {}) {
     admissionSopEnabled: state.admissionSopEnabled !== false,
     admissionSopEnabledAt: state.admissionSopEnabledAt || null,
     admissionSopUpdatedBy: state.admissionSopUpdatedBy || "",
+    coursePriorities: Array.isArray(state.coursePriorities) ? state.coursePriorities : [
+      "days7_genai",
+      "advanced-aiml-genai-agentic",
+      "apcs",
+      "apida",
+      "apids",
+      "forward-deployed-engineer",
+      "master-genai-agentic",
+      "data-analytics-specialist"
+    ],
     createdAt: state.createdAt || new Date().toISOString(),
     updatedAt: state.updatedAt || new Date().toISOString(),
     clearedAt: state.clearedAt || null
@@ -774,6 +784,7 @@ function buildStateResponse(state, options = {}) {
     admissionSopEnabled: normalized.admissionSopEnabled,
     admissionSopEnabledAt: normalized.admissionSopEnabledAt,
     admissionSopUpdatedBy: normalized.admissionSopUpdatedBy,
+    coursePriorities: normalized.coursePriorities,
     updatedAt: normalized.updatedAt || null,
     clearedAt: normalized.clearedAt || null
   };
@@ -15272,7 +15283,11 @@ app.post("/api/leads/universal-import", async (req, res) => {
     const existingLeads = duplicateConditions.length
       ? await withMongoRetry(
         () => leadsCollection
-          .find({ $or: duplicateConditions }, { projection: { id: 1, name: 1, email: 1, phone: 1, normalizedEmail: 1, normalizedPhone: 1 } })
+          .find({ $or: duplicateConditions }, { projection: {
+            id: 1, name: 1, email: 1, phone: 1, normalizedEmail: 1, normalizedPhone: 1,
+            courseId: 1, courseName: 1, courseCode: 1, leadPipeline: 1, publicCourseSegment: 1,
+            mainAdmissionCoursePitched: 1, mainAdmissionActivityHistory: 1
+          } })
           .toArray(),
         { retries: 1, label: "Check universal import duplicates" }
       )
@@ -15282,11 +15297,71 @@ app.post("/api/leads/universal-import", async (req, res) => {
     const existingByEmail = new Map(existingLeads.map((lead) => [normalizeLeadEmail(lead.normalizedEmail || lead.email), lead]).filter(([key]) => key));
     const existingByPhone = new Map(existingLeads.map((lead) => [normalizeLeadPhone(lead.normalizedPhone || lead.phone), lead]).filter(([key]) => key));
 
+    const stateDoc = await getStateDoc();
+    const coursePriorities = Array.isArray(stateDoc?.coursePriorities) ? stateDoc.coursePriorities : [
+      "days7_genai",
+      "advanced-aiml-genai-agentic",
+      "apcs",
+      "apida",
+      "apids",
+      "forward-deployed-engineer",
+      "master-genai-agentic",
+      "data-analytics-specialist"
+    ];
+
+    function getPriorityRank(courseId) {
+      if (!courseId) return 999;
+      const idx = coursePriorities.indexOf(courseId);
+      return idx === -1 ? 999 : idx;
+    }
+
     const importableLeads = [];
+    let updatedCount = 0;
+
     for (const prepared of preparedLeads) {
-      if ((prepared.email && existingEmails.has(prepared.email)) || (prepared.phone && existingPhones.has(prepared.phone))) {
-        const duplicate = existingByEmail.get(prepared.email) || existingByPhone.get(prepared.phone);
-        skippedLeads.push({ name: prepared.lead.name || "", reason: "Duplicate already exists in CRM.", existingId: duplicate?.id });
+      const duplicate = (prepared.email && existingByEmail.get(prepared.email)) || 
+                        (prepared.phone && existingByPhone.get(prepared.phone));
+      if (duplicate) {
+        const incomingCourseId = prepared.lead.courseId;
+        const existingCourseId = duplicate.courseId;
+
+        if (incomingCourseId && getPriorityRank(incomingCourseId) < getPriorityRank(existingCourseId)) {
+          const updateFields = {
+            courseId: prepared.lead.courseId,
+            courseName: prepared.lead.courseName,
+            courseCode: prepared.lead.courseCode,
+            publicCourseSegment: prepared.lead.publicCourseSegment,
+            leadPipeline: prepared.lead.leadPipeline || "main-admission",
+            updatedAt: now
+          };
+          if (updateFields.leadPipeline === "main-admission") {
+            updateFields.mainAdmissionCoursePitched = prepared.lead.courseName;
+          }
+
+          const historyEntry = {
+            id: Date.now() + Math.random(),
+            at: now,
+            by: session.name || session.email || "System",
+            type: "Note",
+            value: `Course updated from ${duplicate.courseName || "None"} to ${prepared.lead.courseName} via import priority rule.`
+          };
+
+          await withMongoRetry(
+            () => leadsCollection.updateOne(
+              { id: duplicate.id },
+              {
+                $set: updateFields,
+                $push: { mainAdmissionActivityHistory: historyEntry }
+              }
+            ),
+            { retries: 1, label: "Update duplicate lead course via priority" }
+          );
+
+          updatedCount++;
+          skippedLeads.push({ name: prepared.lead.name || "", reason: "Updated course via priority rule.", existingId: duplicate.id, wasUpdated: true });
+        } else {
+          skippedLeads.push({ name: prepared.lead.name || "", reason: "Duplicate already exists in CRM.", existingId: duplicate?.id });
+        }
         continue;
       }
       importableLeads.push(prepared.lead);
@@ -15323,7 +15398,8 @@ app.post("/api/leads/universal-import", async (req, res) => {
     return res.json({
       ok: true,
       createdCount: createdLeads.length,
-      skippedCount: skippedLeads.length,
+      skippedCount: skippedLeads.length - updatedCount,
+      updatedCount,
       skippedLeads,
       leads: createdLeads,
       updatedAt: now
@@ -16383,6 +16459,35 @@ app.put("/api/admin/sop-settings", async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ message: "Failed to update SOP settings", details: error.message });
+  }
+});
+
+app.put("/api/admin/course-priorities", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "super_admin"]);
+    if (!session) return;
+
+    const coursePriorities = Array.isArray(req.body?.coursePriorities) ? req.body.coursePriorities : [];
+    if (!coursePriorities.length) {
+      return res.status(400).json({ message: "Priorities list cannot be empty." });
+    }
+
+    const now = new Date().toISOString();
+    const nextState = await withMongoRetry(
+      () => stateCollection.findOneAndUpdate(
+        { _id: STATE_DOC_ID },
+        { $set: { coursePriorities, updatedAt: now }, $setOnInsert: { createdAt: now } },
+        { returnDocument: "after", upsert: true }
+      ),
+      { retries: 1, label: "Save course priorities" }
+    );
+
+    cachedStateDoc = null;
+    cachedStateDocAt = 0;
+    res.setHeader("ETag", buildStateEtag(nextState));
+    return res.json({ ok: true, coursePriorities: nextState.coursePriorities, state: buildStateResponse(nextState) });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to update course priorities", details: error.message });
   }
 });
 

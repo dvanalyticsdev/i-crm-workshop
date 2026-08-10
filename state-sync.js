@@ -133,6 +133,10 @@ export function getTasks() {
   return getStateField("tasks");
 }
 
+export function getCoursePriorities() {
+  return getStateField("coursePriorities");
+}
+
 export function replaceStateSnapshot(snapshot) {
   return setCurrentState(snapshot);
 }
