@@ -53,10 +53,16 @@ function updateToggleLabel(button, theme) {
 }
 
 function applyTheme(theme, options = {}) {
-  const isCoursesPage = window.location.pathname.includes("courses");
-  const nextTheme = isCoursesPage ? "light" : (theme === "dark" ? "dark" : "light");
+  const path = decodeURIComponent(window.location.pathname);
+  const isLandingPage = path.includes("courses.html") ||
+                        path.includes("crash-course.html") ||
+                        path.includes("crash course") ||
+                        path.endsWith("/courses") ||
+                        path.endsWith("/crash-course") ||
+                        path.endsWith("/crash course");
+  const nextTheme = isLandingPage ? "light" : (theme === "dark" ? "dark" : "light");
   const root = getRoot();
-  const persist = isCoursesPage ? false : (options.persist !== false);
+  const persist = isLandingPage ? false : (options.persist !== false);
   const emit = options.emit !== false;
 
   root.setAttribute("data-theme", nextTheme);
