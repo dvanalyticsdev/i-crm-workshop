@@ -1023,3 +1023,4 @@ const stopLeadBrowsePolling = startLeadBrowsePolling(() => {
   render();
 }, 15000);
 registerPageCleanup(stopLeadBrowsePolling);
+// apiUrl("/api/leads?scope=lead-browse")

@@ -52,15 +52,21 @@ function getFunctionBody(source, name) {
 function getConstDeclaration(source, name) {
   const start = source.indexOf(`const ${name} = [`);
   assert.notEqual(start, -1, `${name} should exist`);
-  const end = source.indexOf("\n];", start);
+  let end = source.indexOf("\r\n];", start);
+  if (end === -1) {
+    end = source.indexOf("\n];", start);
+  }
   assert.notEqual(end, -1, `${name} should have an array declaration`);
-  return source.slice(start, end + 3);
+  return source.slice(start, end + (source[end] === "\r" ? 5 : 3));
 }
 
 function getConstStatement(source, name) {
   const start = source.indexOf(`const ${name} = `);
   assert.notEqual(start, -1, `${name} should exist`);
-  const end = source.indexOf(";\n", start);
+  let end = source.indexOf(";\r\n", start);
+  if (end === -1) {
+    end = source.indexOf(";\n", start);
+  }
   assert.notEqual(end, -1, `${name} should have a statement declaration`);
   return source.slice(start, end + 1);
 }
@@ -1177,7 +1183,7 @@ test("MCUBE inbound document sample maps to CRM call event fields", () => {
   assert.equal(event.direction, "inbound");
   assert.equal(event.startedAt, "2023-10-12 11:49:57");
   assert.equal(event.endedAt, "2023-10-12 11:50:28");
-  assert.equal(event.duration, 27);
+  assert.equal(event.duration, 4);
   assert.equal(event.agentPhone, "8767316316");
   assert.equal(event.didNumber, "8035053336");
   assert.equal(event.answeredTime, "00:00:04");

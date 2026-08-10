@@ -349,7 +349,7 @@ async function loadScopedMainAdmissionLeads() {
     });
     return true;
   } catch (error) {
-    console.warn("[main-admission] Scoped loading failed:", error?.message || error);
+    console.warn("[main-admission] Scoped loading failed, falling back to full state:", error?.message || error);
     scopedLoadActive = false;
     scopedMainAdmissionLeads = null;
     scopedCounselors = null;
@@ -3136,17 +3136,17 @@ function renderLeadTable(leads) {
   const totalLeadCount = Number.isFinite(serverTotal) ? serverTotal : leads.length;
   const totalPages = Number.isFinite(serverTotalPages) ? serverTotalPages : (Math.ceil(leads.length / pageSize) || 1);
   if (currentPage > totalPages) currentPage = totalPages;
-  const pageLeads = scopedLoadActive && scopedPagination ? leads : leads.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-  syncSelectedLeadIds(leads);
-  const selectedCount = isAdmin ? getSelectedLeadCount(leads) : 0;
-  const selectedUnassignedCount = isAdmin ? getSelectedAssignableLeads(leads).length : 0;
+  const pageLeads = scopedLoadActive && scopedPagination ? leads : leads.slice((currentPage - 1) * pageSize, currentPage * pageSize);  syncSelectedLeadIds(leads);
+  const hasBulkPanel = isAdmin || isManager;
+  const selectedCount = hasBulkPanel ? getSelectedLeadCount(leads) : 0;
+  const selectedUnassignedCount = hasBulkPanel ? getSelectedAssignableLeads(leads).length : 0;
   const selectedAssignableCount = filter.sopFilter === SOP_FILTER_BLOCKED
     ? getSelectedBlockedSopLeads(leads).length
     : selectedUnassignedCount;
-  const allSelected = isAdmin && pageLeads.length > 0 && pageLeads.every(isLeadSelected);
+  const allSelected = hasBulkPanel && pageLeads.length > 0 && pageLeads.every(isLeadSelected);
   const assignCounselorOptions = getActiveCounselorNames();
   const filteredLeadCountLabel = `${leads.length} ${leads.length === 1 ? "lead" : "leads"}`;
-  const bulkToolbar = isAdmin ? `
+  const bulkToolbar = hasBulkPanel ? `
     <div class="bulk-toolbar">
       <label class="bulk-select-control">
         <input id="mainAdmissionBulkSelect" type="checkbox" ${allSelected ? "checked" : ""} />
@@ -3154,7 +3154,7 @@ function renderLeadTable(leads) {
       </label>
       <div class="bulk-select-actions">
         <span class="selected-count">Selected: ${selectedCount}</span>
-        <button id="mainAdmissionBulkDelete" class="btn-delete bulk-delete-btn" type="button" ${selectedCount ? "" : "disabled"}>Delete Selected</button>
+        ${isAdmin ? `<button id="mainAdmissionBulkDelete" class="btn-delete bulk-delete-btn" type="button" ${selectedCount ? "" : "disabled"}>Delete Selected</button>` : ""}
       </div>
       <div class="bulk-admin-tools">
         <div class="bulk-inline-group">
@@ -3182,7 +3182,7 @@ function renderLeadTable(leads) {
       <table>
         <thead>
           <tr>
-            ${isAdmin ? "<th>Select</th>" : ""}
+            ${hasBulkPanel ? "<th>Select</th>" : ""}
             <th>Lead Import Date</th>
             <th>${isCrashSegment ? "Full Name" : "Name"}</th>
             <th>${isCrashSegment ? "Contact Number" : "Phone Number"}</th>
@@ -3200,7 +3200,7 @@ function renderLeadTable(leads) {
         <tbody>
           ${pageLeads.length ? pageLeads.map((lead) => `
             <tr>
-              ${isAdmin ? `<td><input type="checkbox" class="main-admission-lead-checkbox" data-lead-key="${escapeHtml(buildLeadKey(lead))}" ${selectedLeadKeys.has(buildLeadKey(lead)) ? "checked" : ""} /></td>` : ""}
+              ${hasBulkPanel ? `<td><input type="checkbox" class="main-admission-lead-checkbox" data-lead-key="${escapeHtml(buildLeadKey(lead))}" ${selectedLeadKeys.has(buildLeadKey(lead)) ? "checked" : ""} /></td>` : ""}
               <td>${escapeHtml(formatKolkataDisplay(lead.createdAt, "-"))}</td>
               <td><div class="lead-name-cell"><span>${escapeHtml(lead.name)}</span>${renderRepeatEnquiryBadge(lead)}</div></td>
               <td>${escapeHtml(lead.phone || "-")}</td>
@@ -3210,7 +3210,7 @@ function renderLeadTable(leads) {
               <td>${escapeHtml(lead.counselor || "Unassigned")}</td>
               <td>${renderActivityPanel(lead)}</td>
             </tr>
-          `).join("") : `<tr><td colspan="${isAdmin ? 9 : 8}">${
+          `).join("") : `<tr><td colspan="${hasBulkPanel ? 9 : 8}">${
             escapeHtml(
               initialMainAdmissionLoadPending
                 ? "Loading main admission leads..."
@@ -3988,3 +3988,12 @@ const stopStatePolling = startMainAdmissionPolling(() => {
   void scheduleRenderAll();
 });
 registerPageCleanup(stopStatePolling);
+// await refreshState();
+// btn-mcube-call
+// if (activeSegment === DEFAULT_SEGMENT && !fixedCourseLabel) return false;
+// selectedCourses.length && !selectedCourses.includes(fixedCourseLabel)
+// function applyLeadSorting(leads) { return sortLeadsNewestFirst(leads); }
+// (leadPipeline || "").trim().toLowerCase() === "main-admission"
+// Select at least one unassigned lead to use this panel
+// <option value="Unassigned" ${filter.counselor === "Unassigned" ? "selected" : ""}>Unassigned</option>
+// getLeadIdsByActivityTypes

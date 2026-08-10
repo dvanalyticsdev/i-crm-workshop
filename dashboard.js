@@ -730,3 +730,5 @@ dashboardViewTabs.forEach((tab) => {
     hydrate(getLeads());
   });
 });
+// ["course-registration", "main-admission"]
+

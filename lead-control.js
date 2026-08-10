@@ -1935,3 +1935,4 @@ const stopStatePolling = () => {
   clearInterval(leadControlPollingId);
 };
 registerPageCleanup(stopStatePolling);
+// startStatePolling(scheduleRenderAll

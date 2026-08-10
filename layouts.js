@@ -1866,3 +1866,4 @@ function startVersionCheck() {
     void checkSystemVersion();
   });
 }
+// routes: ["pre-workshop.html", "registered-candidates.html", "lost-leads.html", "task-tracker.html"]

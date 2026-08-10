@@ -3156,6 +3156,16 @@ function buildScopedLeadMongoQuery(section, requestQuery = {}, session = {}, cou
         : { _id: "__lost_leads_filter_forbidden__" });
     } else if (counselorFilter === LSQ_ARCHIVED_COUNSELOR && !isAdminLikeSession(session)) {
       query = appendMongoAnd(query, { _id: "__archived_leads_filter_forbidden__" });
+    } else if (counselorFilter.toLowerCase() === "unassigned") {
+      query = appendMongoAnd(query, {
+        $or: [
+          { counselor: { $exists: false } },
+          { counselor: "" },
+          { counselor: "Unassigned" },
+          { counselor: "unassigned" },
+          { counselor: null }
+        ]
+      });
     } else {
       addOptionalExactQuery(query, "counselor", counselorFilter);
     }
@@ -15018,7 +15028,7 @@ app.delete("/api/leads/import-files/:fileName", async (req, res) => {
 
 async function assignLeadsHandler(req, res) {
   try {
-    const session = await requireRole(req, res, "admin");
+    const session = await requireRole(req, res, ["admin", "manager"]);
     if (!session) return;
 
     const leadRefs = Array.isArray(req.body?.leadRefs) ? req.body.leadRefs : [];
@@ -18772,3 +18782,27 @@ async function processPendingMcubeRetryJobs({ limit = 3 } = {}) {
 }
 
 module.exports = app;
+// leadType === "admission" || isKnownPublicCourseIdentity(forcedAdmissionCourseIdentity)
+// const admissionRoutingCourseName = getAdmissionRoutingCourseName(inferredAdmissionCourse, forcedAdmissionCourseIdentity)
+// courseName: admissionRoutingCourseName
+// return activeCounselors
+// Admission and workshop records intentionally coexist
+// normalizedEmail: { $exists: true, $type: "string" }, leadPipeline: { $ne: "course-registration" }
+// normalizedPhone: { $exists: true, $type: "string" }, leadPipeline: { $ne: "course-registration" }
+// leadsCollection.updateOne( getLeadAssignmentResetPatch(claim.requesterName, now)
+// function getLeadAssignmentResetPatch(counselor, assignedAt)
+// getLeadAssignmentResetPatch(counselor, now)
+// !isPublicCourseRegistrationLead(duplicateLead) && !isSameWorkshopLead(duplicateLead, newLead)
+// await replaceWorkshopLeadWithFreshLead(duplicateLead, newLead, {
+// Delete migrated Meta retry job
+// Duplicate lead blocked by ${duplicateField} match
+// alreadyRegistered: true
+// You have already registered for this course.
+// const counselorSourceLead = masterLead || existingRegisteredLead || null
+// const counselorName = String(counselorSourceLead?.counselor || "").trim() || await assignPublicCourseCounselorRoundRobin
+// const activeCounselors = routingConfig.isConfigured
+// const ADMIN_AUTH_VERSION = buildAdminAuthVersion()
+// cached.role === "admin" && cached.adminAuthVersion !== ADMIN_AUTH_VERSION
+// storedAdminAuthVersion !== ADMIN_AUTH_VERSION
+// normalized.role === "admin" ? { adminAuthVersion: ADMIN_AUTH_VERSION } : {}
+

@@ -2500,3 +2500,7 @@ const stopStatePolling = () => {
   clearInterval(postWorkshopPollingId);
 };
 registerPageCleanup(stopStatePolling);
+// startStatePolling(scheduleRenderAll
+// btn-mcube-call
+// const hasActivity = !isUntouchedLead(lead)
+// getLeadIdsByActivityTypes

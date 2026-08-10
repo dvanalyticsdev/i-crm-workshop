@@ -887,11 +887,11 @@ function renderLeadTable(rows = getFilteredRows()) {
   leadTable.innerHTML = `
     <div class="section-head">
       <div>
-        <h2>${isAdminSession() ? "Admission Reallocation Queue" : "My Admission SOP Queue"}</h2>
-        <p class="block-help">${isAdminSession() ? "Blocked leads can be bulk deleted here. All admission leads remain visible for counselor-wise diagnosis." : "These are your admission-side leads, sorted by urgency and SOP risk."}</p>
+        <h2>${canViewAllAdmissionLeads() ? "Admission Reallocation Queue" : "My Admission SOP Queue"}</h2>
+        <p class="block-help">${canViewAllAdmissionLeads() ? (isAdminSession() ? "Blocked leads can be bulk assigned or deleted here. All admission leads remain visible for counselor-wise diagnosis." : "Blocked leads can be bulk assigned here. All admission leads remain visible for counselor-wise diagnosis.") : "These are your admission-side leads, sorted by urgency and SOP risk."}</p>
       </div>
     </div>
-    ${isAdminSession() ? `
+    ${canViewAllAdmissionLeads() ? `
       <div class="bulk-select-actions sop-bulk-toolbar">
         <label class="bulk-select-control sop-bulk-toolbar__select-all">
           <input type="checkbox" id="sopSelectAllPageBlocked" ${allPageBlockedSelected ? "checked" : ""} ${pageBlockedKeys.length ? "" : "disabled"} />
@@ -910,7 +910,7 @@ function renderLeadTable(rows = getFilteredRows()) {
             <input type="number" id="sopUnblockDaysInput" class="bulk-count-input" min="1" max="365" placeholder="Days" ${selectedBlockedRows.length ? "" : "disabled"} />
             <button type="button" class="btn-ghost bulk-action-btn" id="sopBulkUnblockBtn" ${selectedBlockedRows.length ? "" : "disabled"}>Unblock Selected</button>
           ` : ""}
-          <button type="button" class="btn-delete bulk-delete-btn" id="sopBulkDeleteBtn" ${selectedBlockedRows.length ? "" : "disabled"}>Delete Selected</button>
+          ${isAdminSession() ? `<button type="button" class="btn-delete bulk-delete-btn" id="sopBulkDeleteBtn" ${selectedBlockedRows.length ? "" : "disabled"}>Delete Selected</button>` : ""}
         </div>
       </div>
     ` : ""}
@@ -918,7 +918,7 @@ function renderLeadTable(rows = getFilteredRows()) {
       <table class="data-table sop-lead-table">
         <thead>
           <tr>
-            ${isAdminSession() ? "<th>Select</th>" : ""}
+            ${canViewAllAdmissionLeads() ? "<th>Select</th>" : ""}
             <th>Lead</th>
             <th>Section</th>
             <th>Counselor</th>
@@ -933,7 +933,7 @@ function renderLeadTable(rows = getFilteredRows()) {
         <tbody>
           ${pageRows.map((model) => `
             <tr>
-              ${isAdminSession() ? `
+              ${canViewAllAdmissionLeads() ? `
                 <td>
                   ${model.sop?.blocked ? `
                     <input type="checkbox" data-lead-key="${escapeHtml(model.pageSelectionKey)}" ${selectedBlockedLeadKeys.has(model.pageSelectionKey) ? "checked" : ""} />
@@ -960,7 +960,7 @@ function renderLeadTable(rows = getFilteredRows()) {
                 </div>
               </td>
             </tr>
-          `).join("") || `<tr><td colspan="${isAdminSession() ? 10 : 9}" class="empty-state">No admission leads match the current SOP filters.</td></tr>`}
+          `).join("") || `<tr><td colspan="${canViewAllAdmissionLeads() ? 10 : 9}" class="empty-state">No admission leads match the current SOP filters.</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -1109,7 +1109,7 @@ async function deleteSelectedBlockedLeads() {
 }
 
 async function assignSelectedBlockedLeads(counselorName) {
-  if (!isAdminSession()) return;
+  if (!isAdminSession() && !isManagerSession()) return;
 
   const selectedRows = getCurrentPageRowModels(getFilteredRows())
     .filter((row) => selectedBlockedLeadKeys.has(row.pageSelectionKey) && row.sop?.blocked);

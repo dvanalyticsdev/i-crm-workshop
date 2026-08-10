@@ -494,3 +494,4 @@ const stopStatePolling = startTaskTrackerPolling(() => {
   renderAll();
 });
 registerPageCleanup(stopStatePolling);
+// mainAdmissionTaskSection

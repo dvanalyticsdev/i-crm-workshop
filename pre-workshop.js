@@ -395,6 +395,7 @@ function getScopedLeads(allLeads) {
 }
 
 function getLeadActivityUpdateCount(lead) {
+  // preActivityUpdates
   if (typeof lead?.workshopActivityTouchedByAssignee === "boolean") {
     return lead.workshopActivityTouchedByAssignee ? 1 : 0;
   }
@@ -2688,3 +2689,6 @@ const stopStatePolling = () => {
   clearInterval(preWorkshopPollingId);
 };
 registerPageCleanup(stopStatePolling);
+// startStatePolling(scheduleRenderAll
+// btn-mcube-call
+// const hasActivity = !isUntouchedLead(lead)

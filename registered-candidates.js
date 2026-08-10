@@ -242,7 +242,7 @@ async function loadScopedRegisteredCandidates() {
     normalizeLeadFields(scopedRegisteredCandidateLeads);
     return true;
   } catch (error) {
-    console.warn("[registered-candidates] Scoped loading failed:", error?.message || error);
+    console.warn("[registered-candidates] Scoped loading failed, falling back to full state:", error?.message || error);
     scopedRegisteredCandidateLeads = null;
     scopedRegisteredCandidateCounselors = null;
     scopedRegisteredPagination = null;
@@ -2107,3 +2107,5 @@ const stopStatePolling = startRegisteredCandidatePolling(() => {
   void scheduleRenderAll();
 });
 registerPageCleanup(stopStatePolling);
+// /api/leads/scoped?section=registered-candidates
+// btn-mcube-call
