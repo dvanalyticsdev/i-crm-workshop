@@ -22,7 +22,9 @@ const leadImportFile = document.getElementById("leadImportFile");
 const importLeadsBtn = document.getElementById("importLeadsBtn");
 const importSummary = document.getElementById("importSummary");
 const importMessage = document.getElementById("importMessage");
-const importedFilesList = document.getElementById("importedFilesList");
+const importedFileSelect = document.getElementById("importedFileSelect");
+const importedFileDetails = document.getElementById("importedFileDetails");
+const deleteImportedFileBtn = document.getElementById("deleteImportedFileBtn");
 const importedFilesMessage = document.getElementById("importedFilesMessage");
 const allocationRows = document.getElementById("allocationRows");
 const saveAllocationBtn = document.getElementById("saveAllocationBtn");
@@ -392,7 +394,7 @@ async function saveUniversalImportedLeads(leads, allocationWithMeta) {
 }
 
 async function loadImportedFiles() {
-  if (!isAdmin || !importedFilesList) {
+  if (!isAdmin || !importedFileSelect) {
     return;
   }
 
@@ -704,6 +706,42 @@ function pickValue(row, aliases) {
   return "";
 }
 
+function isPhoneHeader(key) {
+  const normalized = normalizeHeader(key);
+  return ["phone", "phonenumber", "number", "mobile", "contact", "contactnumber"].some((alias) => {
+    const normalizedAlias = normalizeHeader(alias);
+    return normalized === normalizedAlias || normalized.includes(normalizedAlias) || normalizedAlias.includes(normalized);
+  });
+}
+
+function getImportCellValue(cell, header = "", options = {}) {
+  if (!cell) {
+    return "";
+  }
+
+  if (isPhoneHeader(header)) {
+    if (options.rejectScientificPhoneText && /^\d+(\.\d+)?e\+?\d+$/i.test(String(cell.w || cell.v || "").trim())) {
+      return String(cell.w || cell.v || "").trim();
+    }
+    if (cell.t === "n" && Number.isFinite(Number(cell.v))) {
+      return String(Math.trunc(Number(cell.v)));
+    }
+    if (cell.v !== undefined && cell.v !== null && String(cell.v).trim() !== "") {
+      return String(cell.v).trim();
+    }
+  }
+
+  if (cell.w !== undefined && cell.w !== null && String(cell.w).trim() !== "") {
+    return String(cell.w).trim();
+  }
+
+  if (cell.v !== undefined && cell.v !== null) {
+    return cell.v;
+  }
+
+  return "";
+}
+
 function normalizeCreatedAt(value) {
   if (!value) {
     return toIsoDate();
@@ -836,10 +874,7 @@ function extractWorkshopDateFromName(value, fallbackYear) {
 function normalizeDuplicatePhone(value) {
   const raw = String(value || "").trim();
   if (/^\d+(\.\d+)?e\+?\d+$/i.test(raw)) {
-    const numeric = Number(raw);
-    if (Number.isFinite(numeric)) {
-      return String(Math.trunc(numeric)).replace(/\D+/g, "").trim();
-    }
+    return "";
   }
   return raw.replace(/\.0+$/, "").replace(/\D+/g, "").trim();
 }
@@ -848,8 +883,8 @@ function normalizeImportedPhone(value) {
   const normalized = normalizeDuplicatePhone(value);
   if (!normalized) return "";
   if (normalized.length === 10) return normalized;
-  if (normalized.length > 10 && normalized.startsWith("91")) return normalized.slice(-10);
-  return normalized;
+  if (normalized.length === 12 && normalized.startsWith("91")) return normalized.slice(2);
+  return "";
 }
 
 function getImportDescriptor(row, sheetName = "") {
@@ -1053,21 +1088,43 @@ async function parseImportFile(file) {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: "array" });
   const sheetNames = workbook.SheetNames || [];
+  const isCsvImport = /\.csv$/i.test(file.name || "");
   if (!sheetNames.length) {
     return [];
   }
 
   return sheetNames.flatMap((sheetName) => {
     const sheet = workbook.Sheets[sheetName];
-    if (!sheet) {
+    if (!sheet || !sheet["!ref"]) {
       return [];
     }
 
-    return XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false }).map((row) => ({
-      ...row,
-      __workshopName: sheetName,
-      __importSourceFile: file.name
-    }));
+    const range = XLSX.utils.decode_range(sheet["!ref"]);
+    const headers = [];
+    for (let col = range.s.c; col <= range.e.c; col += 1) {
+      const address = XLSX.utils.encode_cell({ r: range.s.r, c: col });
+      headers.push(String(getImportCellValue(sheet[address]) || "").trim());
+    }
+
+    return Array.from({ length: Math.max(0, range.e.r - range.s.r) }, (_, rowOffset) => {
+      const rowIndex = range.s.r + rowOffset + 1;
+      const row = {};
+      headers.forEach((header, colOffset) => {
+        if (!header) {
+          return;
+        }
+        const colIndex = range.s.c + colOffset;
+        const address = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
+        row[header] = getImportCellValue(sheet[address], header, {
+          rejectScientificPhoneText: isCsvImport
+        });
+      });
+      return {
+        ...row,
+        __workshopName: sheetName,
+        __importSourceFile: file.name
+      };
+    }).filter((row) => Object.entries(row).some(([key, value]) => !key.startsWith("__") && String(value || "").trim() !== ""));
   });
 }
 
@@ -1128,50 +1185,54 @@ function updateImportSummary(summary = {}) {
 }
 
 function renderImportedFiles() {
-  if (!importedFilesList) {
+  if (!importedFileSelect) {
     return;
   }
 
   if (!importedFileRows.length) {
-    importedFilesList.innerHTML = `<p class="block-help">No imported file data found.</p>`;
+    importedFileSelect.innerHTML = `<option value="">No imported files found</option>`;
+    importedFileSelect.disabled = true;
+    if (deleteImportedFileBtn) {
+      deleteImportedFileBtn.disabled = true;
+    }
+    if (importedFileDetails) {
+      importedFileDetails.textContent = "Only Universal Lead Import .xlsx/.csv files appear here. LSQ history files are excluded.";
+    }
     return;
   }
 
-  importedFilesList.innerHTML = `
-    <div class="table-shell imported-files-table-wrap">
-      <table class="data-table imported-files-table">
-        <thead>
-          <tr>
-            <th>File</th>
-            <th>Leads</th>
-            <th>Last Import</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${importedFileRows.map((file) => {
-            const fileName = String(file.fileName || "").trim();
-            const count = Number(file.leadCount) || 0;
-            return `
-              <tr>
-                <td>
-                  <strong>${escapeHtml(fileName)}</strong>
-                  <div class="table-meta">${escapeHtml(file.sampleLeadName || "Imported leads")}</div>
-                </td>
-                <td><span class="pill pill--neutral">${count}</span></td>
-                <td>${escapeHtml(formatDateTime(file.lastImportedAt || file.lastUpdatedAt || ""))}</td>
-                <td>
-                  <button type="button" class="btn-ghost btn-sm imported-file-delete-btn" data-file-name="${escapeHtml(fileName)}">
-                    Delete file data
-                  </button>
-                </td>
-              </tr>
-            `;
-          }).join("")}
-        </tbody>
-      </table>
-    </div>
+  const previousValue = importedFileSelect.value;
+  importedFileSelect.disabled = false;
+  importedFileSelect.innerHTML = `
+    <option value="">Select imported file</option>
+    ${importedFileRows.map((file) => {
+      const fileName = String(file.fileName || "").trim();
+      const count = Number(file.leadCount) || 0;
+      return `<option value="${escapeHtml(fileName)}">${escapeHtml(fileName)} (${count} leads)</option>`;
+    }).join("")}
   `;
+  if (previousValue && importedFileRows.some((file) => String(file.fileName || "").trim() === previousValue)) {
+    importedFileSelect.value = previousValue;
+  }
+  updateImportedFileDetails();
+}
+
+function updateImportedFileDetails() {
+  const fileName = String(importedFileSelect?.value || "").trim();
+  const selected = importedFileRows.find((file) => String(file.fileName || "").trim() === fileName);
+  if (deleteImportedFileBtn) {
+    deleteImportedFileBtn.disabled = !selected;
+  }
+  if (!importedFileDetails) {
+    return;
+  }
+  if (!selected) {
+    importedFileDetails.textContent = "Select an imported Universal Lead Import file to review and delete its leads.";
+    return;
+  }
+  const count = Number(selected.leadCount) || 0;
+  const lastImport = formatDateTime(selected.lastImportedAt || selected.lastUpdatedAt || "");
+  importedFileDetails.textContent = `${count} lead${count === 1 ? "" : "s"} found. Last import: ${lastImport}.`;
 }
 
 async function handleDeleteImportedFile(fileName, button = null) {
@@ -1467,13 +1528,13 @@ function setupAdminPanel() {
   allocationRows?.addEventListener("change", () => {
     allocationPanelDirty = true;
   });
-  importedFilesList?.addEventListener("click", (event) => {
-    const button = event.target.closest(".imported-file-delete-btn");
-    if (!button) {
-      return;
-    }
-    const fileName = button.dataset.fileName || "";
-    void handleDeleteImportedFile(fileName, button);
+  importedFileSelect?.addEventListener("change", () => {
+    updateImportedFileDetails();
+    setMessage(importedFilesMessage, "", false);
+  });
+  deleteImportedFileBtn?.addEventListener("click", (event) => {
+    const fileName = importedFileSelect?.value || "";
+    void handleDeleteImportedFile(fileName, event.currentTarget);
   });
 
   if (!saveAllocationBtn) {
@@ -1556,8 +1617,12 @@ void loadLeadControlDirectory().then(() => {
   console.warn("[lead-control] directory load failed:", error?.message || error);
 });
 void loadImportedFiles().catch((error) => {
-  if (importedFilesList) {
-    importedFilesList.innerHTML = `<p class="block-help">Could not load imported files.</p>`;
+  if (importedFileSelect) {
+    importedFileSelect.innerHTML = `<option value="">Could not load imported files</option>`;
+    importedFileSelect.disabled = true;
+  }
+  if (deleteImportedFileBtn) {
+    deleteImportedFileBtn.disabled = true;
   }
   console.warn("[lead-control] imported files load failed:", error?.message || error);
 });

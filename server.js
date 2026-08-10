@@ -14817,14 +14817,19 @@ function buildImportFileLeadQuery(fileName) {
 
   const exactPattern = new RegExp(`^${escapeRegExp(normalized)}$`, "i");
   return {
+    lsqImported: { $ne: true },
+    $or: [
+      { source: "Universal Import" },
+      { leadSource: "Universal Import" }
+    ],
+    $and: [{
     $or: [
       { importSourceFiles: normalized },
       { importSourceFile: normalized },
-      { "lsqSourceSnapshot.sourceFileName": normalized },
       { importSourceFiles: { $regex: exactPattern } },
-      { importSourceFile: { $regex: exactPattern } },
-      { "lsqSourceSnapshot.sourceFileName": { $regex: exactPattern } }
+      { importSourceFile: { $regex: exactPattern } }
     ]
+    }]
   };
 }
 
@@ -14836,6 +14841,15 @@ app.get("/api/leads/import-files", async (req, res) => {
     const rows = await withMongoRetry(
       () => leadsCollection.aggregate([
         {
+          $match: {
+            lsqImported: { $ne: true },
+            $or: [
+              { source: "Universal Import" },
+              { leadSource: "Universal Import" }
+            ]
+          }
+        },
+        {
           $project: {
             name: 1,
             importedAt: 1,
@@ -14843,8 +14857,7 @@ app.get("/api/leads/import-files", async (req, res) => {
             sourceValues: {
               $concatArrays: [
                 { $cond: [{ $isArray: "$importSourceFiles" }, "$importSourceFiles", []] },
-                { $cond: [{ $ne: [{ $ifNull: ["$importSourceFile", ""] }, ""] }, ["$importSourceFile"], []] },
-                { $cond: [{ $ne: [{ $ifNull: ["$lsqSourceSnapshot.sourceFileName", ""] }, ""] }, ["$lsqSourceSnapshot.sourceFileName"], []] }
+                { $cond: [{ $ne: [{ $ifNull: ["$importSourceFile", ""] }, ""] }, ["$importSourceFile"], []] }
               ]
             }
           }

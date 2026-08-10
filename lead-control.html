@@ -99,9 +99,13 @@
             <h4>Imported File Data</h4>
             <p>Review uploaded files and remove all CRM leads created from one file when an import needs to be reversed.</p>
           </div>
-          <div id="importedFilesList" class="imported-files-list">
-            <p class="block-help">Loading imported files...</p>
+          <div class="imported-file-select-row">
+            <select id="importedFileSelect" class="imported-file-select">
+              <option value="">Loading imported files...</option>
+            </select>
+            <button id="deleteImportedFileBtn" type="button" class="btn-ghost imported-file-delete-btn" disabled>Delete file data</button>
           </div>
+          <div id="importedFileDetails" class="block-help">Select an imported file to review its lead count.</div>
           <p id="importedFilesMessage" class="message" aria-live="polite"></p>
         </div>
 

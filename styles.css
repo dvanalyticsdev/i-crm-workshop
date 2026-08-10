@@ -2860,22 +2860,15 @@ tbody tr:hover {
   border-top: 1px solid var(--border);
 }
 
-.imported-files-list {
-  min-height: 52px;
+.imported-file-select-row {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto;
+  gap: var(--space-2);
+  align-items: center;
 }
 
-.imported-files-table-wrap {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-}
-
-.imported-files-table th:nth-child(2),
-.imported-files-table td:nth-child(2),
-.imported-files-table th:nth-child(4),
-.imported-files-table td:nth-child(4) {
-  width: 140px;
-  text-align: center;
+.imported-file-select {
+  min-height: 44px;
 }
 
 .imported-file-delete-btn {
