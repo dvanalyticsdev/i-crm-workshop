@@ -2860,6 +2860,35 @@ tbody tr:hover {
   border-top: 1px solid var(--border);
 }
 
+.imported-files-list {
+  min-height: 52px;
+}
+
+.imported-files-table-wrap {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.imported-files-table th:nth-child(2),
+.imported-files-table td:nth-child(2),
+.imported-files-table th:nth-child(4),
+.imported-files-table td:nth-child(4) {
+  width: 140px;
+  text-align: center;
+}
+
+.imported-file-delete-btn {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  color: var(--danger);
+}
+
+.imported-file-delete-btn:hover,
+.imported-file-delete-btn:focus-visible {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+}
+
 .allocation-actions {
   display: flex;
   justify-content: flex-end;

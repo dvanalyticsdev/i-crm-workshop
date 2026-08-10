@@ -22,6 +22,8 @@ const leadImportFile = document.getElementById("leadImportFile");
 const importLeadsBtn = document.getElementById("importLeadsBtn");
 const importSummary = document.getElementById("importSummary");
 const importMessage = document.getElementById("importMessage");
+const importedFilesList = document.getElementById("importedFilesList");
+const importedFilesMessage = document.getElementById("importedFilesMessage");
 const allocationRows = document.getElementById("allocationRows");
 const saveAllocationBtn = document.getElementById("saveAllocationBtn");
 const allocationMessage = document.getElementById("allocationMessage");
@@ -37,6 +39,7 @@ const session = getSession();
 const isAdmin = session?.role === "admin" || session?.role === "super_admin";
 const isSuperAdmin = session?.role === "super_admin";
 let allocationPanelDirty = false;
+let importedFileRows = [];
 
 const DEFAULT_ALLOCATION = [];
 const ROUTING_META_TYPE = "routing-meta";
@@ -385,6 +388,49 @@ async function saveUniversalImportedLeads(leads, allocationWithMeta) {
     acceptServerState(json.state, response.headers.get("etag"));
   }
 
+  return { ok: true, ...json };
+}
+
+async function loadImportedFiles() {
+  if (!isAdmin || !importedFilesList) {
+    return;
+  }
+
+  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/leads/import-files"), {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    credentials: "same-origin"
+  }, 12000);
+
+  if (!response.ok || json?.ok === false) {
+    throw new Error(json?.message || "Failed to load imported files.");
+  }
+
+  importedFileRows = Array.isArray(json?.files) ? json.files : [];
+  renderImportedFiles();
+}
+
+async function deleteImportedFileData(fileName) {
+  const normalized = String(fileName || "").trim();
+  if (!normalized) {
+    return { ok: false, message: "Import file name is required." };
+  }
+
+  const { response, json } = await fetchJsonWithTimeout(apiUrl(`/api/leads/import-files/${encodeURIComponent(normalized)}`), {
+    method: "DELETE",
+    headers: { Accept: "application/json" },
+    credentials: "same-origin"
+  }, 30000);
+
+  if (!response.ok || json?.ok === false) {
+    return { ok: false, message: json?.message || "Failed to delete imported file data." };
+  }
+
+  if (json?.state) {
+    acceptServerState(json.state, response.headers.get("etag"));
+  }
+
+  importedFileRows = importedFileRows.filter((item) => String(item.fileName || "").trim() !== normalized);
   return { ok: true, ...json };
 }
 
@@ -1081,6 +1127,81 @@ function updateImportSummary(summary = {}) {
   `;
 }
 
+function renderImportedFiles() {
+  if (!importedFilesList) {
+    return;
+  }
+
+  if (!importedFileRows.length) {
+    importedFilesList.innerHTML = `<p class="block-help">No imported file data found.</p>`;
+    return;
+  }
+
+  importedFilesList.innerHTML = `
+    <div class="table-shell imported-files-table-wrap">
+      <table class="data-table imported-files-table">
+        <thead>
+          <tr>
+            <th>File</th>
+            <th>Leads</th>
+            <th>Last Import</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${importedFileRows.map((file) => {
+            const fileName = String(file.fileName || "").trim();
+            const count = Number(file.leadCount) || 0;
+            return `
+              <tr>
+                <td>
+                  <strong>${escapeHtml(fileName)}</strong>
+                  <div class="table-meta">${escapeHtml(file.sampleLeadName || "Imported leads")}</div>
+                </td>
+                <td><span class="pill pill--neutral">${count}</span></td>
+                <td>${escapeHtml(formatDateTime(file.lastImportedAt || file.lastUpdatedAt || ""))}</td>
+                <td>
+                  <button type="button" class="btn-ghost btn-sm imported-file-delete-btn" data-file-name="${escapeHtml(fileName)}">
+                    Delete file data
+                  </button>
+                </td>
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function handleDeleteImportedFile(fileName, button = null) {
+  if (!isAdmin) {
+    setMessage(importedFilesMessage, "Only admin can delete imported file data.", true);
+    return;
+  }
+
+  const target = importedFileRows.find((item) => String(item.fileName || "").trim() === String(fileName || "").trim());
+  const leadCount = Number(target?.leadCount) || 0;
+  const confirmed = window.confirm(`Delete ${leadCount} lead${leadCount === 1 ? "" : "s"} imported from "${fileName}"? This cannot be undone except by restoring a backup.`);
+  if (!confirmed) {
+    return;
+  }
+
+  const result = button
+    ? await withButtonBusy(button, "Deleting...", () => deleteImportedFileData(fileName))
+    : await deleteImportedFileData(fileName);
+
+  if (!result || result.ok === false) {
+    setMessage(importedFilesMessage, result?.message || "Failed to delete imported file data.", true);
+    return;
+  }
+
+  const deletedCount = Number(result.deletedCount) || 0;
+  setMessage(importedFilesMessage, `Deleted ${deletedCount} lead${deletedCount === 1 ? "" : "s"} from ${fileName}.`, false);
+  showToast("Imported file data deleted.", false);
+  await loadImportedFiles().catch(() => undefined);
+}
+
 async function handleLeadImport() {
   if (!isAdmin) {
     setMessage(importMessage, "Only admin can import leads.", true);
@@ -1221,6 +1342,7 @@ async function handleLeadImport() {
   }
 
   leadImportFile.value = "";
+  await loadImportedFiles().catch(() => undefined);
   renderAll();
 }
 
@@ -1345,6 +1467,14 @@ function setupAdminPanel() {
   allocationRows?.addEventListener("change", () => {
     allocationPanelDirty = true;
   });
+  importedFilesList?.addEventListener("click", (event) => {
+    const button = event.target.closest(".imported-file-delete-btn");
+    if (!button) {
+      return;
+    }
+    const fileName = button.dataset.fileName || "";
+    void handleDeleteImportedFile(fileName, button);
+  });
 
   if (!saveAllocationBtn) {
     return;
@@ -1424,6 +1554,12 @@ void loadLeadControlDirectory().then(() => {
   renderAll();
 }).catch((error) => {
   console.warn("[lead-control] directory load failed:", error?.message || error);
+});
+void loadImportedFiles().catch((error) => {
+  if (importedFilesList) {
+    importedFilesList.innerHTML = `<p class="block-help">Could not load imported files.</p>`;
+  }
+  console.warn("[lead-control] imported files load failed:", error?.message || error);
 });
 let leadControlPollingStopped = false;
 let leadControlPollingActive = false;

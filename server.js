@@ -14801,6 +14801,160 @@ app.delete("/api/leads", async (req, res) => {
   }
 });
 
+function normalizeImportFileName(value) {
+  return String(value || "").trim();
+}
+
+function isUploadedImportFileName(value) {
+  return /\.(xlsx|csv)$/i.test(normalizeImportFileName(value));
+}
+
+function buildImportFileLeadQuery(fileName) {
+  const normalized = normalizeImportFileName(fileName);
+  if (!normalized) {
+    return null;
+  }
+
+  const exactPattern = new RegExp(`^${escapeRegExp(normalized)}$`, "i");
+  return {
+    $or: [
+      { importSourceFiles: normalized },
+      { importSourceFile: normalized },
+      { "lsqSourceSnapshot.sourceFileName": normalized },
+      { importSourceFiles: { $regex: exactPattern } },
+      { importSourceFile: { $regex: exactPattern } },
+      { "lsqSourceSnapshot.sourceFileName": { $regex: exactPattern } }
+    ]
+  };
+}
+
+app.get("/api/leads/import-files", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "super_admin"]);
+    if (!session) return;
+
+    const rows = await withMongoRetry(
+      () => leadsCollection.aggregate([
+        {
+          $project: {
+            name: 1,
+            importedAt: 1,
+            updatedAt: 1,
+            sourceValues: {
+              $concatArrays: [
+                { $cond: [{ $isArray: "$importSourceFiles" }, "$importSourceFiles", []] },
+                { $cond: [{ $ne: [{ $ifNull: ["$importSourceFile", ""] }, ""] }, ["$importSourceFile"], []] },
+                { $cond: [{ $ne: [{ $ifNull: ["$lsqSourceSnapshot.sourceFileName", ""] }, ""] }, ["$lsqSourceSnapshot.sourceFileName"], []] }
+              ]
+            }
+          }
+        },
+        { $unwind: "$sourceValues" },
+        {
+          $project: {
+            fileName: { $trim: { input: { $toString: "$sourceValues" } } },
+            name: 1,
+            importedAt: 1,
+            updatedAt: 1
+          }
+        },
+        { $match: { fileName: { $regex: /\.(xlsx|csv)$/i } } },
+        {
+          $group: {
+            _id: "$fileName",
+            leadCount: { $sum: 1 },
+            lastImportedAt: { $max: "$importedAt" },
+            lastUpdatedAt: { $max: "$updatedAt" },
+            sampleLeadName: { $first: "$name" }
+          }
+        },
+        { $sort: { lastImportedAt: -1, lastUpdatedAt: -1, _id: 1 } }
+      ]).toArray(),
+      { retries: 1, label: "Load imported file summary" }
+    );
+
+    return res.json({
+      ok: true,
+      files: rows.map((row) => ({
+        fileName: String(row?._id || "").trim(),
+        leadCount: Number(row?.leadCount) || 0,
+        lastImportedAt: row?.lastImportedAt || null,
+        lastUpdatedAt: row?.lastUpdatedAt || null,
+        sampleLeadName: row?.sampleLeadName || ""
+      })).filter((row) => row.fileName)
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load imported files", details: error.message });
+  }
+});
+
+app.delete("/api/leads/import-files/:fileName", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "super_admin"]);
+    if (!session) return;
+
+    const fileName = normalizeImportFileName(req.params?.fileName);
+    if (!fileName || !isUploadedImportFileName(fileName)) {
+      return res.status(400).json({ message: "A valid imported .xlsx or .csv file name is required." });
+    }
+
+    const query = buildImportFileLeadQuery(fileName);
+    const leadsToDelete = await withMongoRetry(
+      () => leadsCollection.find(query, { projection: { id: 1, name: 1, counselor: 1, workshop: 1, courseName: 1, source: 1 } }).toArray(),
+      { retries: 1, label: "Load imported file leads for deletion" }
+    );
+
+    if (!leadsToDelete.length) {
+      return res.status(404).json({ message: "No leads were found for this imported file." });
+    }
+
+    const deletedLeadIds = leadsToDelete
+      .map((lead) => String(lead?.id || "").trim())
+      .filter(Boolean);
+
+    const result = await withMongoRetry(
+      () => leadsCollection.deleteMany(query),
+      { retries: 1, label: "Delete imported file leads" }
+    );
+
+    if (!result.deletedCount) {
+      return res.status(409).json({ message: "Leads changed before they could be deleted. Please reload and retry." });
+    }
+
+    if (deletedLeadIds.length) {
+      await Promise.all([
+        tasksCollection.deleteMany({ leadId: { $in: deletedLeadIds } }).catch(() => undefined),
+        leadClaimsCollection.deleteMany({ leadId: { $in: deletedLeadIds } }).catch(() => undefined),
+        leadCreationRequestsCollection.deleteMany({ leadId: { $in: deletedLeadIds } }).catch(() => undefined),
+        notificationsCollection.deleteMany({ leadId: { $in: deletedLeadIds } }).catch(() => undefined)
+      ]);
+    }
+
+    await recordActivity({
+      leadId: "",
+      leadName: fileName,
+      counselorName: "",
+      activityType: "Imported File Deleted",
+      actionDescription: `Deleted ${result.deletedCount} lead${result.deletedCount === 1 ? "" : "s"} imported from ${fileName}`,
+      previousValue: fileName,
+      session
+    }).catch(() => undefined);
+
+    const now = new Date().toISOString();
+    await touchStateUpdatedAt(now);
+    res.setHeader("ETag", buildStateEtag({ updatedAt: now }));
+    return res.json({
+      ok: true,
+      fileName,
+      deletedCount: Number(result.deletedCount) || 0,
+      deletedLeadIds,
+      updatedAt: now
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to delete imported file data", details: error.message });
+  }
+});
+
 async function assignLeadsHandler(req, res) {
   try {
     const session = await requireRole(req, res, "admin");
