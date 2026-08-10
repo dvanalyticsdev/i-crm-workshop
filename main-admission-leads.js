@@ -1792,12 +1792,22 @@ function isUnassignedCounselor(value) {
   return String(value || "").trim().toLowerCase() === "unassigned";
 }
 
+function isArchivedCounselor(value) {
+  return String(value || "").trim().toLowerCase() === "archived leads";
+}
+
 function getSelectedLeads(leads) {
   return leads.filter((lead) => selectedLeadKeys.has(buildLeadKey(lead)));
 }
 
 function getSelectedUnassignedLeads(leads) {
   return getSelectedLeads(leads).filter((lead) => isUnassignedCounselor(lead?.counselor));
+}
+
+function getSelectedAssignableLeads(leads) {
+  return getSelectedLeads(leads).filter((lead) => (
+    isUnassignedCounselor(lead?.counselor) || isArchivedCounselor(lead?.counselor)
+  ));
 }
 
 function getSelectedBlockedSopLeads(leads) {
@@ -3122,7 +3132,7 @@ function renderLeadTable(leads) {
   const pageLeads = scopedLoadActive && scopedPagination ? leads : leads.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   syncSelectedLeadIds(leads);
   const selectedCount = isAdmin ? getSelectedLeadCount(leads) : 0;
-  const selectedUnassignedCount = isAdmin ? getSelectedUnassignedLeads(leads).length : 0;
+  const selectedUnassignedCount = isAdmin ? getSelectedAssignableLeads(leads).length : 0;
   const selectedAssignableCount = filter.sopFilter === SOP_FILTER_BLOCKED
     ? getSelectedBlockedSopLeads(leads).length
     : selectedUnassignedCount;
@@ -3669,11 +3679,11 @@ async function assignSelectedUnassignedLeads(leads) {
   const selectedLeads = getSelectedLeads(leads);
   const selectedAssignableLeads = filter.sopFilter === SOP_FILTER_BLOCKED
     ? selectedLeads.filter(isSopBlockedLead)
-    : selectedLeads.filter((lead) => isUnassignedCounselor(lead?.counselor));
+    : selectedLeads.filter((lead) => isUnassignedCounselor(lead?.counselor) || isArchivedCounselor(lead?.counselor));
   if (!selectedAssignableLeads.length) {
     showToast(filter.sopFilter === SOP_FILTER_BLOCKED
       ? "Select at least one blocked SOP lead to assign."
-      : "Select at least one unassigned lead to use this panel.", true);
+      : "Select at least one unassigned or archived lead to use this panel.", true);
     return false;
   }
 

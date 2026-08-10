@@ -7688,15 +7688,20 @@ async function processMcubeWebhookPayload(req, body, options = {}) {
   const stageConfig = inferLeadStageForCallUpdate(lead);
   const normalizedStatus = mapMcubeDispositionToCrmStatus(event.disposition || event.eventType);
   const assignment = getMcubeLeadAssignment(event, state.counselors);
-  const shouldAssignFromPickedCall = !shouldTreatLeadAsAssigned(lead.counselor)
+  const shouldAssignFromPickedCall = event.direction === "inbound"
+    && (!shouldTreatLeadAsAssigned(lead.counselor) || isArchivedOrLostLead(lead))
     && shouldTreatLeadAsAssigned(assignment.counselorName);
   const effectiveCounselorName = String(
     shouldAssignFromPickedCall ? assignment.counselorName : lead.counselor
   ).trim() || "Unassigned";
+  const mcubeUpdatedAt = new Date().toISOString();
+  const pickedCallAssignmentPatch = shouldAssignFromPickedCall
+    ? getLeadAssignmentPatch(lead, effectiveCounselorName, mcubeUpdatedAt)
+    : {};
   const history = Array.isArray(lead.mcubeCallHistory) ? lead.mcubeCallHistory : [];
   const nextHistory = [
     {
-      at: new Date().toISOString(),
+      at: mcubeUpdatedAt,
       counselor: effectiveCounselorName,
       callId: event.callId,
       eventType: event.eventType,
@@ -7720,8 +7725,9 @@ async function processMcubeWebhookPayload(req, body, options = {}) {
 
   const nextLead = decorateLeadForStorage({
     ...lead,
+    ...pickedCallAssignmentPatch,
     counselor: effectiveCounselorName,
-    updatedAt: new Date().toISOString(),
+    updatedAt: mcubeUpdatedAt,
     mcubeCallHistory: nextHistory,
     mcubePickedBy: assignment.pickedBy || lead.mcubePickedBy || "",
     mcubePickedByPhone: assignment.pickedByPhone || lead.mcubePickedByPhone || "",
@@ -7729,7 +7735,7 @@ async function processMcubeWebhookPayload(req, body, options = {}) {
     mcubeLastEventType: event.eventType,
     mcubeLastDisposition: event.disposition,
     mcubeLastCallId: event.callId,
-    mcubeLastEventAt: new Date().toISOString(),
+    mcubeLastEventAt: mcubeUpdatedAt,
     mcubeLastDirection: event.direction || "",
     lastCallAt: event.endedAt || event.startedAt || new Date().toISOString(),
     lastCallRecordingUrl: config.enableRecordingLinks ? event.recordingUrl : (lead.lastCallRecordingUrl || "")
@@ -12298,6 +12304,30 @@ function getLeadAssignmentResetPatch(lead, counselor, assignedAt) {
   return patch;
 }
 
+function isArchivedOrLostLead(lead = {}) {
+  return isLsqArchivedLead(lead) || isServerLostLead(lead);
+}
+
+function getLeadAssignmentPatch(lead, counselor, assignedAt) {
+  const patch = {
+    ...getLeadAssignmentResetPatch(lead, counselor, assignedAt)
+  };
+
+  if (isLsqArchivedLead(lead)) {
+    patch.lsqArchivedLead = false;
+    patch.lsqArchivedAt = "";
+    patch.lsqArchivedBy = "";
+  }
+
+  if (isServerLostLead(lead)) {
+    Object.assign(patch, restoreLostLeadPatch(lead), {
+      updatedAt: assignedAt
+    });
+  }
+
+  return patch;
+}
+
 const PROTECTED_ASSIGNMENT_ADMISSION_STATUSES = new Set(["inconversation", "enrolled", "won"]);
 const PROTECTED_ASSIGNMENT_WORKSHOP_STATUSES = new Set(["interested"]);
 
@@ -15016,6 +15046,11 @@ async function assignLeadsHandler(req, res) {
     const admissionSopEnabled = isAdmissionSopEnabledInState(sopSettings || {});
 
     leadsToUpdate.forEach((lead) => {
+      if (isArchivedOrLostLead(lead)) {
+        assignableLeads.push(lead);
+        return;
+      }
+
       const skipReason = getLeadBulkAssignmentSkipReason(lead);
       if (!skipReason) {
         const sopState = deriveAdmissionSopState(lead, Date.now(), { enabled: admissionSopEnabled });
@@ -15069,7 +15104,7 @@ async function assignLeadsHandler(req, res) {
       .map((lead) => lead.id)
       .filter((id) => id !== undefined && id !== null);
     const assignmentChangedLeads = assignableLeads
-      .filter((lead) => String(lead.counselor || "").trim().toLowerCase() !== counselor.toLowerCase());
+      .filter((lead) => isArchivedOrLostLead(lead) || String(lead.counselor || "").trim().toLowerCase() !== counselor.toLowerCase());
     const now = new Date().toISOString();
     const result = await leadsCollection.updateMany(
       { id: { $in: assignableLeadIds } },
@@ -15087,7 +15122,7 @@ async function assignLeadsHandler(req, res) {
       for (const lead of assignmentChangedLeads) {
         await leadsCollection.updateOne(
           { id: { $in: getLeadIdCandidates(lead.id) } },
-          { $set: getLeadAssignmentResetPatch(lead, counselor, now) }
+          { $set: getLeadAssignmentPatch(lead, counselor, now) }
         );
       }
     }
