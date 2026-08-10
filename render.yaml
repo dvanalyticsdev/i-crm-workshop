@@ -16,6 +16,8 @@ services:
         value: app_state
       - key: MONGODB_SESSION_COLLECTION
         value: user_sessions
+      - key: MONGODB_MAX_POOL_SIZE
+        value: 50
       - key: MONGODB_PREFERENCE_COLLECTION
         value: user_preferences
       - key: MONGODB_META_CONFIG_COLLECTION

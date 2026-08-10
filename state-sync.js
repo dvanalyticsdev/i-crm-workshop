@@ -516,7 +516,7 @@ export async function login({ role, identifier, password, passcode = "" }) {
       Accept: "application/json"
     },
     body: JSON.stringify({ role, identifier, password, passcode })
-  });
+  }, 20000);
 
   if (!response.ok) {
     return {

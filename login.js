@@ -1,5 +1,5 @@
 import { initThemeSystem } from "./theme.js";
-import { bootstrapLocalState, getSession, login, logout, refreshSession } from "./state-sync.js";
+import { getSession, login, logout, refreshSession } from "./state-sync.js";
 
 function revealAuthShell() {
   if (window.__dvLoadingOverlayTimer) {
@@ -18,8 +18,6 @@ if (storedVersion !== SYSTEM_UI_VERSION) {
 
 initThemeSystem();
 revealAuthShell();
-
-void bootstrapLocalState().catch(() => undefined);
 
 const authUrl = new URL(window.location.href);
 const shouldForceLogin = authUrl.searchParams.has("forceLogin") || authUrl.searchParams.has("logout");

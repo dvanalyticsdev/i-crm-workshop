@@ -32,6 +32,8 @@ const MONGODB_REACHOUT_MEDIA_COLLECTION = process.env.MONGODB_REACHOUT_MEDIA_COL
 const MONGODB_PERFORMANCE_LOGS_COLLECTION = process.env.MONGODB_PERFORMANCE_LOGS_COLLECTION || "performance_logs";
 const MONGODB_LSQ_ARCHIVE_COLLECTION = process.env.MONGODB_LSQ_ARCHIVE_COLLECTION || "lsq_archive_leads";
 const MONGODB_LEAD_INFLOW_COLLECTION = process.env.MONGODB_LEAD_INFLOW_COLLECTION || "lead_inflow_events";
+const MONGODB_MAX_POOL_SIZE = Math.max(10, Number(process.env.MONGODB_MAX_POOL_SIZE || 50));
+const MONGODB_MIN_POOL_SIZE = Math.max(0, Number(process.env.MONGODB_MIN_POOL_SIZE || 0));
 const META_WEBHOOK_FORWARD_URL = String(process.env.META_WEBHOOK_FORWARD_URL || "").trim();
 const ADMIN_LOGIN_ID = String(process.env.ADMIN_LOGIN_ID || "").trim();
 const ADMIN_LOGIN_PASSWORD = String(process.env.ADMIN_LOGIN_PASSWORD || "").trim();
@@ -679,6 +681,12 @@ async function persistSession(res, session) {
     sameSite: "lax",
     maxAge: SESSION_TTL_MS,
     path: "/"
+  });
+
+  setCachedSession(token, normalized, {
+    role: normalized.role,
+    sessionSchemaVersion: normalized.sessionSchemaVersion,
+    adminAuthVersion
   });
 
   return normalized;
@@ -4241,8 +4249,8 @@ async function initMongo() {
           // Larger pool so concurrent serverless invocations don't queue waiting
           // for a connection. In serverless, avoid forcing warm connections
           // because they can create intermittent TLS/connect stalls.
-          maxPoolSize: 10,
-          minPoolSize: 0,
+          maxPoolSize: MONGODB_MAX_POOL_SIZE,
+          minPoolSize: MONGODB_MIN_POOL_SIZE,
           // Fail fast on cold starts rather than hanging for 30 s.
           serverSelectionTimeoutMS: 4000,
           connectTimeoutMS: 4000,
@@ -12873,6 +12881,73 @@ async function loadFreshLeadsForDuplicateReview() {
   return decorateLeadListForStorage(leads || []);
 }
 
+async function loadAuthDirectoryMeta() {
+  const doc = await withMongoRetry(
+    () => stateCollection.findOne(
+      { _id: STATE_DOC_ID },
+      { projection: { adminUsers: 1, marketingUsers: 1 } }
+    ),
+    { retries: 1, label: "Load auth directory" }
+  );
+  return normalizeStateDoc(doc || {});
+}
+
+async function findAdminAuthUser(identifier, password) {
+  const normalizedIdentifier = String(identifier || "").trim().toLowerCase();
+  const state = await loadAuthDirectoryMeta();
+  const adminUsers = Array.isArray(state.adminUsers) ? state.adminUsers : [];
+  return adminUsers.find((item) => {
+    const phone = String(item.phone || "").trim().toLowerCase();
+    const email = String(item.email || "").trim().toLowerCase();
+    return String(item.password || "") === password
+      && (phone === normalizedIdentifier || email === normalizedIdentifier);
+  }) || null;
+}
+
+async function findMarketingAuthUser(identifier, password) {
+  const email = String(identifier || "").trim().toLowerCase();
+  const state = await loadAuthDirectoryMeta();
+  const marketingUsers = Array.isArray(state.marketingUsers) ? state.marketingUsers : [];
+  const user = marketingUsers.find(
+    (item) => String(item.email || "").trim().toLowerCase() === email && String(item.password || "") === password
+  ) || null;
+  return { user, total: marketingUsers.length };
+}
+
+async function findCounselorAuthUser(role, identifier, password) {
+  const email = String(identifier || "").trim().toLowerCase();
+  const exactMatch = await withMongoRetry(
+    () => counselorsCollection.findOne(
+      { email },
+      { projection: { _id: 0 } }
+    ),
+    { retries: 1, label: "Load counselor auth record" }
+  );
+  const fallbackMatch = exactMatch ? null : await withMongoRetry(
+    () => counselorsCollection.findOne(
+      { email: new RegExp(`^${escapeRegExp(email)}$`, "i") },
+      { projection: { _id: 0 } }
+    ),
+    { retries: 1, label: "Load counselor auth record fallback" }
+  );
+  const counselor = exactMatch || fallbackMatch;
+  if (!counselor) {
+    const total = await withMongoRetry(
+      () => counselorsCollection.estimatedDocumentCount(),
+      { retries: 1, label: "Count counselor auth records" }
+    ).catch(() => 0);
+    return { user: null, total };
+  }
+
+  const accountRole = String(counselor.role || "counselor").trim().toLowerCase();
+  const effectiveRole = accountRole === "manager" ? "manager" : "counselor";
+  const passwordMatches = String(counselor.password || "") === password;
+  return {
+    user: effectiveRole === role && passwordMatches ? counselor : null,
+    total: 1
+  };
+}
+
 app.post("/api/auth/login", async (req, res) => {
   try {
     const role = String(req.body?.role || "").trim().toLowerCase();
@@ -12884,8 +12959,9 @@ app.post("/api/auth/login", async (req, res) => {
       return res.status(400).json({ message: "Role, identifier, and password are required." });
     }
 
+    await initMongo();
+
     if (role === "admin") {
-      const state = await getStateDoc();
       const authConfig = await getAuthConfig();
       const normalizedIdentifier = identifier.toLowerCase();
       const superAdminIdentifier = String(ADMIN_USER.id || "").trim().toLowerCase();
@@ -12921,13 +12997,7 @@ app.post("/api/auth/login", async (req, res) => {
         });
       }
 
-      const adminUsers = Array.isArray(state.adminUsers) ? state.adminUsers : [];
-      const adminUser = adminUsers.find((item) => {
-        const phone = String(item.phone || "").trim().toLowerCase();
-        const email = String(item.email || "").trim().toLowerCase();
-        return String(item.password || "") === password
-          && (phone === normalizedIdentifier || email === normalizedIdentifier);
-      });
+      const adminUser = await findAdminAuthUser(identifier, password);
 
       if (!adminUser) {
         return res.status(401).json({ message: "Invalid credentials for selected role." });
@@ -12948,15 +13018,10 @@ app.post("/api/auth/login", async (req, res) => {
     }
 
     if (role === "marketing") {
-      const state = await getStateDoc();
-      const marketingUsers = Array.isArray(state.marketingUsers) ? state.marketingUsers : [];
-      const email = identifier.toLowerCase();
-      const marketingUser = marketingUsers.find(
-        (item) => String(item.email || "").trim().toLowerCase() === email && String(item.password || "") === password
-      );
+      const { user: marketingUser, total: marketingUserCount } = await findMarketingAuthUser(identifier, password);
 
       if (!marketingUser) {
-        if (!marketingUsers.length) {
+        if (!marketingUserCount) {
           return res.status(404).json({
             message: "Marketing credentials are not available. Make sure marketing user records exist in the shared database."
           });
@@ -12979,19 +13044,10 @@ app.post("/api/auth/login", async (req, res) => {
       return res.status(400).json({ message: "Unsupported role." });
     }
 
-    const state = await getStateDoc();
-    const counselors = Array.isArray(state.counselors) ? state.counselors : [];
-    const email = identifier.toLowerCase();
-    const counselor = counselors.find((item) => {
-      const accountRole = String(item.role || "counselor").trim().toLowerCase();
-      const effectiveRole = accountRole === "manager" ? "manager" : "counselor";
-      return effectiveRole === role
-        && String(item.email || "").trim().toLowerCase() === email
-        && String(item.password || "") === password;
-    });
+    const { user: counselor, total: counselorCount } = await findCounselorAuthUser(role, identifier, password);
 
     if (!counselor) {
-      if (!counselors.length) {
+      if (!counselorCount) {
         return res.status(404).json({
           message: "Counselor credentials are not available on this deployment. Check Vercel MONGODB_URI and make sure counselor records exist in the shared database."
         });
