@@ -777,6 +777,8 @@ test("monitoring merges MCube call metrics into the unified admission report", (
   assert.match(monitoring, /function buildMcubeRows\(/);
   assert.match(monitoring, /function renderUnifiedAdmissionView\(/);
   assert.match(monitoring, /function buildUnifiedAdmissionRows\(/);
+  assert.match(monitoring, /function getUnifiedAdmissionCounselorNames\(/);
+  assert.match(monitoring, /getUnifiedAdmissionCounselorNames\(rawAllLeads\)/);
   assert.match(monitoring, /normalizeText\(counselor\) === "unassigned"/);
   assert.match(monitoring, /nextEntry\.normalizedStatus \|\| previous\.normalizedStatus/);
   assert.match(monitoring, /text\.match\(\/\^\(\?:\(\\d\+\)\\s\*h\)\?/);

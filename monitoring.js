@@ -920,6 +920,34 @@ function getMonitoringCounselorNames() {
   return names;
 }
 
+function getUnifiedAdmissionCounselorNames(rawLeads = []) {
+  const names = new Set(getMonitoringCounselorNames());
+  rawLeads
+    .filter(isUnifiedAdmissionLead)
+    .forEach((lead) => {
+      const leadCounselor = resolveCounselorName(lead?.counselor, true);
+      if (leadCounselor && normalizeText(leadCounselor) !== "unassigned") {
+        names.add(leadCounselor);
+      }
+      getHistoryEntriesInRange(lead?.mcubeCallHistory, getTimelineRange()).forEach((entry) => {
+        const callCounselor = getMcubeCounselorLabel({
+          ...entry,
+          counselor: entry?.counselor || lead?.counselor
+        });
+        if (callCounselor && normalizeText(callCounselor) !== "unassigned") {
+          names.add(callCounselor);
+        }
+      });
+    });
+
+  if (isCounselorSession()) {
+    const identity = getCounselorIdentity();
+    return [...names].filter((name) => normalizeText(name) === identity);
+  }
+
+  return [...names].sort((left, right) => left.localeCompare(right));
+}
+
 function getLeadOwnershipDate(lead) {
   return parseLocalDate(
     lead?.leadOwnerTimelineAt
@@ -2887,7 +2915,7 @@ function renderActiveMonitoringView() {
   monitoringActiveDescription.textContent = subsectionConfig.description;
 
   if (activeView.subsection === "admission-unified") {
-    const counselors = getMonitoringCounselorNames();
+    const counselors = getUnifiedAdmissionCounselorNames(rawAllLeads);
     renderUnifiedAdmissionView(counselors, rawAllLeads, range);
     return;
   }
