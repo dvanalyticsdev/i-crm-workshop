@@ -21,6 +21,7 @@ import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
 import {
   addLeadNote,
+  assignFilteredMainAdmissionLeads,
   assignLeads as assignLeadsOnServer,
   deleteLeadNote,
   deleteLeads as deleteLeadsOnServer,
@@ -208,6 +209,7 @@ if (isCounselorSession() && (!persistedFilter.timeline || persistedFilter.timeli
 let currentPage = 1;
 const pageSize = 50;
 let selectedLeadKeys = new Set();
+let filteredSelectionLimit = 0;
 let bulkAssignCounselor = "";
 let activeLeadRef = null;
 let notesLeadRef = null;
@@ -287,46 +289,12 @@ function recordMainAdmissionPerformance({ phase, subsection = "", durationMs = n
 async function loadScopedMainAdmissionLeads() {
   const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
   try {
-    const params = new URLSearchParams({
-      section: "main-admission",
-      page: String(currentPage),
-      limit: String(pageSize)
-    });
+    const params = new URLSearchParams(getScopedMainAdmissionFilterPayload({
+      page: currentPage,
+      limit: pageSize
+    }));
     if (!scopedFacets) {
       params.set("includeFacets", "1");
-    }
-    [
-      "search",
-      "timeline",
-      "startDate",
-      "endDate",
-      "counselorActivityTimeline",
-      "counselorActivityStartDate",
-      "counselorActivityEndDate",
-      "leadOwner",
-      "location",
-      "leadSource",
-      "mainAdmissionDialed",
-      "mainAdmissionCourseStatus",
-      "mainAdmissionAdmissionStatus",
-      "mainAdmissionCallStatus",
-      "activityStatus",
-      "latestActivity",
-      "repeatEnquiryStatus",
-      "whatsappActivity",
-      "sopFilter",
-      "lsqLeads"
-    ].forEach((key) => {
-      const value = String(filter?.[key] || "").trim();
-      if (value) params.set(key, value);
-    });
-    const selectedCounselors = normalizeMultiValueFilter(filter.counselor);
-    if (selectedCounselors.length) {
-      params.set("counselor", selectedCounselors.join(","));
-    }
-    const selectedCourses = normalizeMultiValueFilter(filter.courseName);
-    if (selectedCourses.length) {
-      params.set("courseName", selectedCourses.join(","));
     }
     const response = await fetch(apiUrl(`/api/leads/scoped?${params.toString()}`), {
       credentials: "same-origin",
@@ -412,6 +380,7 @@ function startMainAdmissionPolling(onRefresh, intervalMs = 15000) {
 }
 
 function persistFilters() {
+  clearBulkLeadSelection();
   void saveLocalPreference(FILTER_STORAGE_KEY, filter);
   if (scopedLoadActive || Array.isArray(scopedMainAdmissionLeads)) {
     window.clearTimeout(scopedReloadTimer);
@@ -1850,6 +1819,7 @@ function syncSelectedLeadIds(leads) {
 }
 
 function toggleLeadSelection(leadKey, isChecked) {
+  filteredSelectionLimit = 0;
   const next = new Set(selectedLeadKeys);
   if (isChecked) {
     next.add(String(leadKey));
@@ -1860,7 +1830,50 @@ function toggleLeadSelection(leadKey, isChecked) {
 }
 
 function toggleAllLeadsSelection(leads, isChecked) {
+  filteredSelectionLimit = 0;
   selectedLeadKeys = isChecked ? new Set(getSelectableLeadKeys(leads)) : new Set();
+}
+
+function getScopedMainAdmissionFilterPayload({ page = currentPage, limit = pageSize } = {}) {
+  const payload = {
+    section: "main-admission",
+    page: String(page),
+    limit: String(limit)
+  };
+  [
+    "search",
+    "timeline",
+    "startDate",
+    "endDate",
+    "counselorActivityTimeline",
+    "counselorActivityStartDate",
+    "counselorActivityEndDate",
+    "leadOwner",
+    "location",
+    "leadSource",
+    "mainAdmissionDialed",
+    "mainAdmissionCourseStatus",
+    "mainAdmissionAdmissionStatus",
+    "mainAdmissionCallStatus",
+    "activityStatus",
+    "latestActivity",
+    "repeatEnquiryStatus",
+    "whatsappActivity",
+    "sopFilter",
+    "lsqLeads"
+  ].forEach((key) => {
+    const value = String(filter?.[key] || "").trim();
+    if (value) payload[key] = value;
+  });
+  const selectedCounselors = normalizeMultiValueFilter(filter.counselor);
+  if (selectedCounselors.length) {
+    payload.counselor = selectedCounselors.join(",");
+  }
+  const selectedCourses = normalizeMultiValueFilter(filter.courseName);
+  if (selectedCourses.length) {
+    payload.courseName = selectedCourses.join(",");
+  }
+  return payload;
 }
 
 function isLeadSelected(lead) {
@@ -1882,8 +1895,25 @@ function selectLeadBatch(leads, rawValue) {
     return 0;
   }
 
+  filteredSelectionLimit = 0;
   selectedLeadKeys = new Set(getSelectableLeadKeys(leads).slice(0, count));
   return count;
+}
+
+function selectFilteredLeadBatch(rawValue, totalLeadCount) {
+  const count = clampSelectionCount(rawValue, totalLeadCount);
+  if (!count) {
+    return 0;
+  }
+
+  selectedLeadKeys = new Set();
+  filteredSelectionLimit = count;
+  return count;
+}
+
+function clearBulkLeadSelection() {
+  selectedLeadKeys = new Set();
+  filteredSelectionLimit = 0;
 }
 
 function findLeadByRef(leadRef) {
@@ -3276,19 +3306,23 @@ function renderLeadTable(leads) {
   const isCrashSegment = false;
   const serverTotal = scopedPagination?.total;
   const serverTotalPages = scopedPagination?.totalPages;
-  const totalLeadCount = Number.isFinite(serverTotal) ? serverTotal : leads.length;
+  const advancedFilterActive = hasActiveAdvancedFilter();
+  const totalLeadCount = !advancedFilterActive && Number.isFinite(serverTotal) ? serverTotal : leads.length;
   const totalPages = Number.isFinite(serverTotalPages) ? serverTotalPages : (Math.ceil(leads.length / pageSize) || 1);
   if (currentPage > totalPages) currentPage = totalPages;
   const pageLeads = scopedLoadActive && scopedPagination ? leads : leads.slice((currentPage - 1) * pageSize, currentPage * pageSize);  syncSelectedLeadIds(leads);
   const hasBulkPanel = isAdmin || isManager;
-  const selectedCount = hasBulkPanel ? getSelectedLeadCount(leads) : 0;
+  const filteredSelectedCount = hasBulkPanel && filteredSelectionLimit ? Math.min(filteredSelectionLimit, totalLeadCount) : 0;
+  const rowSelectedCount = hasBulkPanel ? getSelectedLeadCount(leads) : 0;
+  const selectedCount = hasBulkPanel ? (filteredSelectedCount || rowSelectedCount) : 0;
   const selectedUnassignedCount = hasBulkPanel ? getSelectedAssignableLeads(leads).length : 0;
-  const selectedAssignableCount = filter.sopFilter === SOP_FILTER_BLOCKED
+  const selectedAssignableCount = filteredSelectedCount || (filter.sopFilter === SOP_FILTER_BLOCKED
     ? getSelectedBlockedSopLeads(leads).length
-    : selectedUnassignedCount;
+    : selectedUnassignedCount);
   const allSelected = hasBulkPanel && pageLeads.length > 0 && pageLeads.every(isLeadSelected);
   const assignCounselorOptions = getActiveCounselorNames();
-  const filteredLeadCountLabel = `${leads.length} ${leads.length === 1 ? "lead" : "leads"}`;
+  const selectedCountLabel = filteredSelectedCount ? `${filteredSelectedCount} filtered` : selectedCount;
+  const filteredLeadCountLabel = `${totalLeadCount} ${totalLeadCount === 1 ? "lead" : "leads"}`;
   const bulkToolbar = hasBulkPanel ? `
     <div class="bulk-toolbar">
       <label class="bulk-select-control">
@@ -3296,13 +3330,14 @@ function renderLeadTable(leads) {
         <span>Select All</span>
       </label>
       <div class="bulk-select-actions">
-        <span class="selected-count">Selected: ${selectedCount}</span>
-        ${isAdmin ? `<button id="mainAdmissionBulkDelete" class="btn-delete bulk-delete-btn" type="button" ${selectedCount ? "" : "disabled"}>Delete Selected</button>` : ""}
+        <span class="selected-count">Selected: ${selectedCountLabel}</span>
+        ${isAdmin ? `<button id="mainAdmissionBulkDelete" class="btn-delete bulk-delete-btn" type="button" ${rowSelectedCount ? "" : "disabled"}>Delete Selected</button>` : ""}
       </div>
       <div class="bulk-admin-tools">
         <div class="bulk-inline-group">
-          <input id="mainAdmissionBulkCountInput" class="bulk-count-input" type="number" min="1" max="${leads.length || 1}" placeholder="Count" />
-          <button id="mainAdmissionBulkCountApply" type="button" class="btn-ghost bulk-action-btn" ${leads.length ? "" : "disabled"}>Select Count</button>
+          <input id="mainAdmissionBulkCountInput" class="bulk-count-input" type="number" min="1" max="${totalLeadCount || 1}" placeholder="Count" />
+          <button id="mainAdmissionBulkCountApply" type="button" class="btn-ghost bulk-action-btn" ${totalLeadCount ? "" : "disabled"}>Select Count</button>
+          <button id="mainAdmissionSelectAllFiltered" type="button" class="btn-ghost bulk-action-btn" ${(totalLeadCount && scopedLoadActive && !advancedFilterActive) ? "" : "disabled"}>Select All Filtered</button>
         </div>
         <div class="bulk-inline-group">
           <select id="mainAdmissionBulkAssignCounselor" class="bulk-assign-select">
@@ -3479,14 +3514,40 @@ mainAdmissionLeadTableSection.addEventListener("click", async (event) => {
 
   if (event.target.id === "mainAdmissionBulkCountApply") {
     const bulkCountInput = document.getElementById("mainAdmissionBulkCountInput");
-    const selectedBatchCount = selectLeadBatch(getCurrentFilteredLeads(), bulkCountInput?.value);
+    const advancedFilterActive = hasActiveAdvancedFilter();
+    const localFilteredLeads = getCurrentFilteredLeads();
+    const totalLeadCount = advancedFilterActive ? localFilteredLeads.length : (Number(scopedPagination?.total ?? localFilteredLeads.length) || 0);
+    const selectedBatchCount = scopedLoadActive && !advancedFilterActive
+      ? selectFilteredLeadBatch(bulkCountInput?.value, totalLeadCount)
+      : selectLeadBatch(localFilteredLeads, bulkCountInput?.value);
     if (!selectedBatchCount) {
       showToast("Enter a valid lead count to select.", true);
       return;
     }
 
     renderAll();
-    showToast(`Selected ${selectedBatchCount} lead${selectedBatchCount === 1 ? "" : "s"}.`);
+    showToast(`Selected ${selectedBatchCount} filtered lead${selectedBatchCount === 1 ? "" : "s"}.`);
+    return;
+  }
+
+  if (event.target.id === "mainAdmissionSelectAllFiltered") {
+    if (!scopedLoadActive) {
+      showToast("Select All Filtered is available after the filtered lead list finishes loading.", true);
+      return;
+    }
+    if (hasActiveAdvancedFilter()) {
+      showToast("Select All Filtered is not available with advanced filters.", true);
+      return;
+    }
+    const totalLeadCount = Number(scopedPagination?.total ?? getCurrentFilteredLeads().length) || 0;
+    const selectedBatchCount = selectFilteredLeadBatch(totalLeadCount, totalLeadCount);
+    if (!selectedBatchCount) {
+      showToast("No filtered leads available to select.", true);
+      return;
+    }
+
+    renderAll();
+    showToast(`Selected all ${selectedBatchCount} filtered lead${selectedBatchCount === 1 ? "" : "s"}.`);
     return;
   }
 
@@ -3826,6 +3887,10 @@ async function assignSelectedUnassignedLeads(leads) {
     return false;
   }
 
+  if (filteredSelectionLimit > 0) {
+    return assignFilteredSelectedLeads(counselor);
+  }
+
   const selectedLeads = getSelectedLeads(leads);
   const selectedAssignableLeads = filter.sopFilter === SOP_FILTER_BLOCKED
     ? selectedLeads.filter(isSopBlockedLead)
@@ -3862,6 +3927,39 @@ async function assignSelectedUnassignedLeads(leads) {
   currentPage = 1;
   setMessage(`${summary.message}${skippedAssignedText}`);
   showToast(`${summary.message}${skippedAssignedText}`);
+  return true;
+}
+
+async function assignFilteredSelectedLeads(counselor) {
+  const totalLeadCount = Number(scopedPagination?.total ?? getCurrentFilteredLeads().length) || 0;
+  const selectionCount = Math.min(filteredSelectionLimit, totalLeadCount);
+  if (!selectionCount) {
+    showToast("Select filtered leads before assigning.", true);
+    return false;
+  }
+
+  const confirmed = window.confirm(`Assign ${selectionCount} filtered lead${selectionCount === 1 ? "" : "s"} to ${counselor}?`);
+  if (!confirmed) {
+    return false;
+  }
+
+  const assignResult = await assignFilteredMainAdmissionLeads({
+    filters: getScopedMainAdmissionFilterPayload({ page: 1, limit: pageSize }),
+    counselor,
+    limit: selectionCount
+  });
+  if (!assignResult || assignResult.ok === false) {
+    showToast(assignResult?.message || "Failed to assign filtered leads.", true);
+    return false;
+  }
+
+  const summary = formatLeadAssignmentResult(assignResult, selectionCount, counselor);
+  clearBulkLeadSelection();
+  bulkAssignCounselor = "";
+  currentPage = 1;
+  await loadScopedMainAdmissionLeads();
+  setMessage(summary.message);
+  showToast(summary.message);
   return true;
 }
 

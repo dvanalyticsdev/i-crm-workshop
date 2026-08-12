@@ -100,6 +100,13 @@ export function assignLeads(leadRefs, counselor) {
   });
 }
 
+export function assignFilteredMainAdmissionLeads({ filters = {}, counselor, limit = null } = {}) {
+  return requestJson("/api/leads/scoped/main-admission/assignment", {
+    method: "POST",
+    body: JSON.stringify({ filters, counselor, limit })
+  });
+}
+
 export function takeSopLead(leadId, leadEmail = "") {
   return requestJson(`/api/leads/${encodeURIComponent(leadId)}/take-sop`, {
     method: "POST",

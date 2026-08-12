@@ -15293,6 +15293,271 @@ async function assignLeadsHandler(req, res) {
   }
 }
 
+async function assignFilteredMainAdmissionLeadsHandler(req, res) {
+  try {
+    const session = await requireRole(req, res, ["admin", "super_admin", "manager"]);
+    if (!session) return;
+
+    const permissions = getSessionPagePermissions(session);
+    if (!permissions.mainAdmissionLeads) {
+      return res.status(403).json({ message: "You do not have permission to assign main admission leads." });
+    }
+
+    const counselor = String(req.body?.counselor || "").trim();
+    if (!counselor) {
+      return res.status(400).json({ message: "Counselor is required." });
+    }
+
+    const rawLimit = req.body?.limit;
+    const assignmentLimit = rawLimit === null || rawLimit === undefined || rawLimit === ""
+      ? 0
+      : parseBoundedPositiveInt(rawLimit, 0, 1, 10000);
+    if (rawLimit !== null && rawLimit !== undefined && rawLimit !== "" && !assignmentLimit) {
+      return res.status(400).json({ message: "A valid filtered lead count is required." });
+    }
+
+    const requestQuery = {
+      ...(req.body?.filters && typeof req.body.filters === "object" ? req.body.filters : {}),
+      section: "main-admission"
+    };
+    const [stateMeta, counselors] = await Promise.all([
+      withMongoRetry(
+        () => stateCollection.findOne(
+          { _id: STATE_DOC_ID },
+          { projection: { admissionSopEnabled: 1 } }
+        ),
+        { retries: 1, label: "Load filtered assignment SOP settings" }
+      ),
+      withMongoRetry(
+        () => counselorsCollection.find({}).toArray(),
+        { retries: 1, label: "Load filtered assignment counselors" }
+      )
+    ]);
+    const admissionSopEnabled = isAdmissionSopEnabledInState(stateMeta || {});
+    const query = buildScopedLeadMongoQuery("main-admission", requestQuery, session, counselors);
+    const rawLeads = await withMongoRetry(
+      () => leadsCollection
+        .find(query, { projection: {
+          ...SCOPED_LEAD_LIST_PROJECTION,
+          admissionStatus: 1,
+          courseStatus: 1,
+          postStatusUpdated: 1,
+          wsStatus: 1
+        } })
+        .sort({ createdAt: -1, _id: -1 })
+        .toArray(),
+      { retries: 1, label: "Load filtered main admission leads for assignment" }
+    );
+    const sessionRole = String(session.role || "").trim().toLowerCase();
+    const visibleLeads = decorateLeadListForStorage(rawLeads || []).filter((lead) => {
+      if (!isAdminLikeSession(session) && isLsqArchivedLead(lead)) {
+        return false;
+      }
+      if (["counselor", "manager"].includes(sessionRole)) {
+        return !deriveAdmissionSopState(lead, Date.now(), { enabled: admissionSopEnabled })?.blocked;
+      }
+      return true;
+    });
+    const sortedLeads = (hasScopedRuntimeFilters(requestQuery)
+      ? visibleLeads.filter((lead) => leadMatchesScopedRuntimeFilters(lead, "main-admission", requestQuery, session, { admissionSopEnabled }))
+      : visibleLeads)
+      .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+    const leadsToUpdate = assignmentLimit ? sortedLeads.slice(0, assignmentLimit) : sortedLeads;
+
+    if (!leadsToUpdate.length) {
+      return res.status(404).json({ message: "No filtered leads matched this assignment." });
+    }
+
+    let managerCounselorName = "";
+    if (sessionRole === "manager") {
+      const userEmail = String(session.email || "").trim().toLowerCase();
+      const counselorDoc = userEmail
+        ? counselors.find((item) => String(item.email || "").trim().toLowerCase() === userEmail)
+        : null;
+      managerCounselorName = String(counselorDoc?.name || session.name || "").trim().toLowerCase();
+    }
+
+    const assignableLeads = [];
+    let skippedProtectedCount = 0;
+    let skippedInterestedCount = 0;
+    let skippedBlockedSameCounselorCount = 0;
+
+    leadsToUpdate.forEach((lead) => {
+      if (isArchivedOrLostLead(lead)) {
+        assignableLeads.push(lead);
+        return;
+      }
+
+      const isSuperAdmin = sessionRole === "super_admin";
+      const isManagerOwnLead = sessionRole === "manager" &&
+        String(lead?.counselor || "").trim().toLowerCase() === managerCounselorName;
+      const isManagerAllowedLead = sessionRole !== "manager" ||
+        isManagerOwnLead ||
+        !shouldTreatLeadAsAssigned(lead?.counselor) ||
+        String(lead?.counselor || "").trim().toLowerCase() === LSQ_ARCHIVED_COUNSELOR.toLowerCase();
+
+      if (!isSuperAdmin && !isManagerAllowedLead) {
+        skippedProtectedCount += 1;
+        return;
+      }
+
+      if (isSuperAdmin || isManagerOwnLead) {
+        assignableLeads.push(lead);
+        return;
+      }
+
+      const skipReason = getLeadBulkAssignmentSkipReason(lead);
+      if (skipReason) {
+        if (skipReason === "workshopInterested") {
+          skippedInterestedCount += 1;
+        } else {
+          skippedProtectedCount += 1;
+        }
+        return;
+      }
+
+      const sopState = deriveAdmissionSopState(lead, Date.now(), { enabled: admissionSopEnabled });
+      const isBlockedSameCounselor = Boolean(
+        sopState?.blocked &&
+        isAdmissionSopScopedLead(lead) &&
+        String(lead?.counselor || "").trim().toLowerCase() === counselor.toLowerCase()
+      );
+      if (isBlockedSameCounselor) {
+        skippedBlockedSameCounselorCount += 1;
+        return;
+      }
+
+      assignableLeads.push(lead);
+    });
+
+    if (!assignableLeads.length) {
+      const now = new Date().toISOString();
+      await touchStateUpdatedAt(now);
+      res.setHeader("ETag", buildStateEtag({ updatedAt: now }));
+      return res.json({
+        ok: true,
+        updatedCount: 0,
+        matchedCount: 0,
+        assignedCount: 0,
+        skippedProtectedCount,
+        skippedInterestedCount,
+        skippedBlockedSameCounselorCount,
+        filteredCount: sortedLeads.length,
+        requestedCount: leadsToUpdate.length,
+        leads: [],
+        updatedAt: now
+      });
+    }
+
+    const assignableLeadIds = assignableLeads
+      .map((lead) => lead.id)
+      .filter((id) => id !== undefined && id !== null);
+    const assignmentChangedLeads = assignableLeads
+      .filter((lead) => isArchivedOrLostLead(lead) || String(lead.counselor || "").trim().toLowerCase() !== counselor.toLowerCase());
+    const now = new Date().toISOString();
+    const result = await leadsCollection.updateMany(
+      { id: { $in: assignableLeadIds } },
+      { $set: { counselor, updatedAt: now } }
+    );
+    const matchedCount = Number.isFinite(Number(result.matchedCount))
+      ? Number(result.matchedCount)
+      : Number(result.modifiedCount) || 0;
+    if (!matchedCount) {
+      return res.status(409).json({ message: "Filtered leads changed before they could be assigned. Please reload and retry." });
+    }
+
+    if (assignmentChangedLeads.length) {
+      for (const lead of assignmentChangedLeads) {
+        await leadsCollection.updateOne(
+          { id: { $in: getLeadIdCandidates(lead.id) } },
+          { $set: getLeadAssignmentPatch(lead, counselor, now) }
+        );
+      }
+    }
+
+    const counselorEmailByName = new Map();
+    counselors.forEach((item) => {
+      if (item.name && item.email) {
+        counselorEmailByName.set(item.name.toLowerCase().trim(), item.email.toLowerCase().trim());
+      }
+    });
+
+    for (const lead of assignmentChangedLeads) {
+      const oldCounselor = String(lead.counselor || "").trim();
+      const newCounselor = String(counselor).trim();
+      const leadLabel = formatLeadNotificationLabel(lead);
+      const hasOldCounselor = oldCounselor && oldCounselor.toLowerCase() !== "unassigned";
+
+      await recordActivity({
+        leadId: lead.id,
+        leadName: lead.name,
+        counselorName: newCounselor,
+        activityType: hasOldCounselor ? "Lead Reassigned" : "Lead Assigned",
+        actionDescription: hasOldCounselor
+          ? `Lead counselor reassigned from ${oldCounselor} to ${newCounselor}`
+          : `Lead assigned to counselor ${newCounselor}`,
+        previousValue: oldCounselor || "Unassigned",
+        newValue: newCounselor,
+        session
+      });
+
+      const oldCounselorEmail = counselorEmailByName.get(oldCounselor.toLowerCase());
+      const newCounselorEmail = counselorEmailByName.get(newCounselor.toLowerCase());
+
+      if (oldCounselorEmail && hasOldCounselor) {
+        await createNotification({
+          userId: oldCounselorEmail,
+          role: "counselor",
+          type: "lead_transferred_from",
+          title: "Lead Transferred",
+          message: `Lead ${leadLabel} has been transferred to ${newCounselor}.`,
+          sound: true,
+          leadId: lead.id,
+          leadName: lead.name,
+          toCounselor: newCounselor
+        });
+      }
+
+      if (newCounselorEmail && newCounselor.toLowerCase() !== "unassigned") {
+        await createNotification({
+          userId: newCounselorEmail,
+          role: "counselor",
+          type: "lead_transferred_to",
+          title: hasOldCounselor ? "Lead Transferred to You" : "New Lead Received",
+          message: hasOldCounselor
+            ? `You received lead ${leadLabel} from ${oldCounselor}.`
+            : `You received new lead ${leadLabel}.`,
+          sound: true,
+          leadId: lead.id,
+          leadName: lead.name,
+          fromCounselor: hasOldCounselor ? oldCounselor : null
+        });
+      }
+    }
+
+    await touchStateUpdatedAt(now);
+    cachedStateDoc = null;
+    cachedStateDocAt = 0;
+
+    res.setHeader("ETag", buildStateEtag({ updatedAt: now }));
+    return res.json({
+      ok: true,
+      updatedCount: result.modifiedCount,
+      matchedCount: result.matchedCount,
+      assignedCount: matchedCount,
+      skippedProtectedCount,
+      skippedInterestedCount,
+      skippedBlockedSameCounselorCount,
+      filteredCount: sortedLeads.length,
+      requestedCount: leadsToUpdate.length,
+      leads: [],
+      updatedAt: now
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to assign filtered main admission leads", details: error.message });
+  }
+}
+
 app.post("/api/leads/universal-import", async (req, res) => {
   try {
     const session = await requireRole(req, res, ["admin", "super_admin"]);
@@ -15473,6 +15738,7 @@ app.post("/api/leads/universal-import", async (req, res) => {
 
 app.patch("/api/leads/assignment", assignLeadsHandler);
 app.post("/api/leads/assignment", assignLeadsHandler);
+app.post("/api/leads/scoped/main-admission/assignment", assignFilteredMainAdmissionLeadsHandler);
 
 app.post("/api/leads/:leadId/take-sop", async (req, res) => {
   try {
