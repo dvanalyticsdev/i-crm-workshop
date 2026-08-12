@@ -1843,6 +1843,17 @@ test("admission SOP progress only counts counselor activity", () => {
   assert.match(styles, /\.lead-tab-panel \.main-admission-details-item dd[\s\S]*?overflow-wrap: anywhere/);
 });
 
+test("lead mutation checks respect the admission SOP master toggle", () => {
+  const server = read("server.js");
+  const actionStateBuilder = getFunctionBody(server, "buildLeadActionState");
+  const mutationRestriction = getNamedFunctionSource(server, "getLeadMutationRestrictionMessage");
+
+  assert.match(actionStateBuilder, /stateCollection\.findOne/);
+  assert.match(actionStateBuilder, /admissionSopEnabled: 1/);
+  assert.match(actionStateBuilder, /admissionSopEnabled: normalizedMeta\.admissionSopEnabled/);
+  assert.match(mutationRestriction, /deriveAdmissionSopState\(lead, Date\.now\(\), \{ enabled: isAdmissionSopEnabledInState\(state\) \}\)/);
+});
+
 test("admission SOP rows can open lead tabs", () => {
   const admissionSop = read("admission-sop.js");
 

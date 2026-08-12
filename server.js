@@ -12242,13 +12242,26 @@ async function findLeadByContactFromCollection({ email = "", phone = "" } = {}) 
 }
 
 async function buildLeadActionState(lead) {
-  const counselors = await withMongoRetry(
-    () => counselorsCollection.find({}).toArray(),
-    { retries: 1, label: "Load counselors for lead action" }
-  );
+  const [counselors, stateMeta] = await Promise.all([
+    withMongoRetry(
+      () => counselorsCollection.find({}).toArray(),
+      { retries: 1, label: "Load counselors for lead action" }
+    ),
+    withMongoRetry(
+      () => stateCollection.findOne(
+        { _id: STATE_DOC_ID },
+        { projection: { admissionSopEnabled: 1, admissionSopEnabledAt: 1, admissionSopUpdatedBy: 1 } }
+      ),
+      { retries: 1, label: "Load SOP settings for lead action" }
+    )
+  ]);
+  const normalizedMeta = normalizeStateDoc(stateMeta || {});
   return {
     leads: lead ? [lead] : [],
-    counselors: Array.isArray(counselors) ? counselors : []
+    counselors: Array.isArray(counselors) ? counselors : [],
+    admissionSopEnabled: normalizedMeta.admissionSopEnabled,
+    admissionSopEnabledAt: normalizedMeta.admissionSopEnabledAt,
+    admissionSopUpdatedBy: normalizedMeta.admissionSopUpdatedBy
   };
 }
 
