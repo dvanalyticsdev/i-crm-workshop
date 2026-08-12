@@ -39,6 +39,7 @@ const monitoringDataCache = new Map();
 
 const TIMELINE_STORAGE_KEY = "dvWorkshopMonitoringTimeline";
 const VIEW_STORAGE_KEY = "dvMonitoringActiveView";
+const ADMISSION_FILTER_STORAGE_KEY = "dvUnifiedAdmissionMonitoringFilters";
 const CRASH_SEGMENT = "crash-course";
 const MONITORING_ACTIVITY_HISTORY_FIELDS = [
   "workshopActivityHistory",
@@ -48,7 +49,7 @@ const MONITORING_ACTIVITY_HISTORY_FIELDS = [
 ];
 const MONITORING_COUNTER_LABEL = "Total Leads Touched";
 const ADMIN_MONITORING_GROUP = "admin";
-const ADMIN_MONITORING_SUBSECTIONS = new Set(["reporting", "lead-assignment"]);
+const ADMIN_MONITORING_SUBSECTIONS = new Set();
 const REPORTING_BUCKETS = ["Enrolled", "PDE", "CNC", "CBL", "NI", "Pending Leads"];
 const ASSIGNMENT_COURSE_COLUMNS = [
   {
@@ -119,63 +120,25 @@ const VIEW_CONFIG = {
     description: "Monitor the workshop-stage pipelines and post-workshop follow-up activity.",
     subsections: {
       "workshop-calling": {
-        label: "Workshop Calling",
-        title: "Workshop Calling Monitoring",
+        label: "Pre",
+        title: "Pre Workshop Monitoring",
         description: "Track pre-workshop calling performance, interest response, and WhatsApp group movement."
       },
       "admission-calling": {
-        label: "Admission Calling",
-        title: "Admission Calling Monitoring",
+        label: "Post",
+        title: "Post Workshop Monitoring",
         description: "Track post-workshop counselor follow-up, conversion progress, and workshop-to-admission movement."
       }
     }
   },
   admission: {
     label: "Admission",
-    description: "Monitor direct admission leads, registered candidates, and the 7-Day Crash Course pipeline.",
+    description: "Monitor all admission-side leads, outcomes, and MCube activity in one report.",
     subsections: {
-      "main-admission": {
-        label: "Main Admission",
-        title: "Main Admission Monitoring",
-        description: "Track direct Meta and website admission enquiries handled outside the workshop calling flow."
-      },
-      "registered-candidates": {
-        label: "Registered Candidates",
-        title: "Registered Candidates Monitoring",
-        description: "Track the standard public-course registration pipeline and counselor follow-up activity."
-      },
-      "crash-course": {
-        label: "7 Days Crash Course",
-        title: "7 Days Crash Course Monitoring",
-        description: "Track the isolated 7-Day Crash Course registration pipeline separately from standard registered candidates."
-      }
-    }
-  },
-  mcube: {
-    label: "MCube",
-    description: "Monitor MCube calling volume, connection outcomes, and total talk time across the CRM.",
-    subsections: {
-      "mcube-main": {
-        label: "MCube",
-        title: "MCube Monitoring",
-        description: "Track total calls, inbound and outbound volume, lead-picked calls, not connected calls, and talk time."
-      }
-    }
-  },
-  [ADMIN_MONITORING_GROUP]: {
-    label: "Management Reports",
-    adminOnly: true,
-    description: "Review Main Admission reporting buckets and course-wise lead assignment counts.",
-    subsections: {
-      reporting: {
-        label: "Reporting",
-        title: "Reporting",
-        description: "Track Main Admission Enrolled, PDE, CNC, CBL, NI, and untouched pending leads by counselor."
-      },
-      "lead-assignment": {
-        label: "Lead Assignment Panel",
-        title: "Lead Assignment Panel",
-        description: "Review Main Admission counselor-wise lead assignment counts by course."
+      "admission-unified": {
+        label: "Admission",
+        title: "Admission Monitoring",
+        description: "Review Main Admission, Registered Candidates, 7 Days Crash Course, admission outcomes, and MCube call activity together."
       }
     }
   }
@@ -190,6 +153,15 @@ let timelineFilter = {
 let activeView = {
   group: "workshop",
   subsection: "workshop-calling"
+};
+
+let admissionReportFilters = {
+  course: "all",
+  manager: "all",
+  lce: "all",
+  outboundCalls: "all",
+  inboundCalls: "all",
+  talkTime: "all"
 };
 
 let counselorDirectoryCacheKey = "";
@@ -221,6 +193,11 @@ timelineFilter = {
 activeView = {
   ...activeView,
   ...await loadLocalPreference(VIEW_STORAGE_KEY, {})
+};
+
+admissionReportFilters = {
+  ...admissionReportFilters,
+  ...await loadLocalPreference(ADMISSION_FILTER_STORAGE_KEY, {})
 };
 
 function escapeHtml(value) {
@@ -376,7 +353,7 @@ function resolveCounselorActivityActor(value) {
 }
 
 function isCounselorSession() {
-  return session?.role === "counselor";
+  return session?.role === "counselor" || session?.role === "manager";
 }
 
 function isAdminSession() {
@@ -411,6 +388,10 @@ function persistActiveView() {
   void saveLocalPreference(VIEW_STORAGE_KEY, activeView);
 }
 
+function persistAdmissionReportFilters() {
+  void saveLocalPreference(ADMISSION_FILTER_STORAGE_KEY, admissionReportFilters);
+}
+
 function setExportMessage(text, isError = true) {
   if (!monitoringExportMessage) {
     return;
@@ -431,11 +412,17 @@ function getScopedLeads(allLeads) {
   }
 
   return allLeads.filter((lead) =>
-    String(lead.counselor || "").trim().toLowerCase() === counselorName
+    normalizeText(resolveCounselorName(lead.counselor, true)) === counselorName
     || MONITORING_ACTIVITY_HISTORY_FIELDS.some((historyField) =>
       Array.isArray(lead?.[historyField])
       && lead[historyField].some((entry) => resolveCounselorActivityActor(entry?.by).toLowerCase() === counselorName)
     )
+    || (Array.isArray(lead?.mcubeCallHistory) && lead.mcubeCallHistory.some((entry) =>
+      normalizeText(getMcubeCounselorLabel({
+        ...entry,
+        counselor: entry?.counselor || lead?.counselor
+      })) === counselorName
+    ))
   );
 }
 
@@ -469,6 +456,7 @@ function normalizeLeadFields(leads) {
     lead.postStatusUpdated = typeof lead.postStatusUpdated === "boolean" ? lead.postStatusUpdated : false;
 
     lead.registeredDialed = lead.registeredDialed || "";
+    lead.registeredCoursePitched = lead.registeredCoursePitched || "";
     lead.registeredCourseStatus = lead.registeredCourseStatus || "";
     lead.registeredAdmissionStatus = lead.registeredAdmissionStatus || "";
     lead.registeredCallStatus = lead.registeredCallStatus || "";
@@ -529,7 +517,8 @@ async function loadMonitoringData() {
   monitoringLoadController = controller;
   const timeoutId = window.setTimeout(() => controller.abort(), 18000);
   try {
-  if (!isAdminMonitoringView() || ["reporting", "lead-assignment"].includes(activeView.subsection)) {
+  const canUseServerReport = activeView.group === "workshop";
+  if (canUseServerReport) {
     const reportUrl = new URL(apiUrl("/api/monitoring-report"), window.location.origin);
     reportUrl.searchParams.set("subsection", activeView.subsection);
     reportUrl.searchParams.set("timelineType", timelineFilter.type || "week");
@@ -573,7 +562,9 @@ async function loadMonitoringData() {
     monitoringReport = null;
   }
 
-  const leadsPath = isAdminMonitoringView()
+  const leadsPath = activeView.subsection === "admission-unified"
+    ? "/api/leads?scope=assigned-or-touched"
+    : isAdminMonitoringView()
     ? "/api/leads?scope=assigned-or-touched"
     : `/api/leads?scope=assigned-or-touched&monitoringSubsection=${encodeURIComponent(activeView.subsection)}`;
   const [leadResponse, counselorResponse] = await Promise.all([
@@ -1255,7 +1246,7 @@ function primeMcubeRecordingDuration(entry = {}) {
       mcubeRecordingDurationCache.set(cacheKey, normalizeMcubeTalkTimeSeconds(durationSeconds));
       mcubeRecordingDurationInflight.delete(cacheKey);
       resolve();
-      if (activeView?.subsection === "mcube-main") {
+      if (activeView?.subsection === "admission-unified") {
         renderAll();
       }
     };
@@ -1368,11 +1359,25 @@ function isFilledCourseValue(value) {
 function getReportingContexts(lead = {}) {
   return [
     {
+      historyField: "admissionActivityHistory",
+      coursePitchedField: "coursePitched",
+      courseStatusField: "courseStatus",
+      admissionStatusField: "admissionStatus",
+      callStatusField: "postCallStatus"
+    },
+    {
       historyField: "mainAdmissionActivityHistory",
       coursePitchedField: "mainAdmissionCoursePitched",
       courseStatusField: "mainAdmissionCourseStatus",
       admissionStatusField: "mainAdmissionAdmissionStatus",
       callStatusField: "mainAdmissionCallStatus"
+    },
+    {
+      historyField: "registeredCourseActivityHistory",
+      coursePitchedField: "registeredCoursePitched",
+      courseStatusField: "registeredCourseStatus",
+      admissionStatusField: "registeredAdmissionStatus",
+      callStatusField: "registeredCallStatus"
     }
   ].map((context) => ({
     ...context,
@@ -2386,6 +2391,463 @@ function renderMcubeView(rawLeads, range) {
   ], rows, 7);
 }
 
+function getCounselorAccountByName(name) {
+  const normalizedName = normalizeText(resolveCounselorName(name, true));
+  return monitoringCounselors.find((item) =>
+    normalizeText(resolveCounselorName(item?.name, true)) === normalizedName
+  ) || null;
+}
+
+function getCounselorRoleLabel(name) {
+  return getCounselorAccountByName(name)?.role === "manager" ? "Manager" : "Counselor";
+}
+
+function getUnifiedAdmissionContexts(lead = {}) {
+  return [
+    {
+      historyField: "mainAdmissionActivityHistory",
+      coursePitchedField: "mainAdmissionCoursePitched",
+      courseStatusField: "mainAdmissionCourseStatus",
+      admissionStatusField: "mainAdmissionAdmissionStatus",
+      callStatusField: "mainAdmissionCallStatus"
+    },
+    {
+      historyField: "registeredCourseActivityHistory",
+      coursePitchedField: "registeredCoursePitched",
+      courseStatusField: "registeredCourseStatus",
+      admissionStatusField: "registeredAdmissionStatus",
+      callStatusField: "registeredCallStatus"
+    }
+  ].map((context) => ({
+    ...context,
+    history: Array.isArray(lead?.[context.historyField]) ? lead[context.historyField] : []
+  }));
+}
+
+function isUnifiedAdmissionLead(lead = {}) {
+  return isNonWorkshopPipelineLead(lead)
+    || getUnifiedAdmissionContexts(lead).some((context) =>
+      context.history.length
+      || String(lead?.[context.coursePitchedField] || "").trim()
+      || String(lead?.[context.courseStatusField] || "").trim()
+      || String(lead?.[context.admissionStatusField] || "").trim()
+      || String(lead?.[context.callStatusField] || "").trim()
+    );
+}
+
+function getAdmissionLeadReceivedDate(lead = {}) {
+  return parseLocalDate(
+    lead?.createdAtExact
+    || lead?.registeredAt
+    || lead?.leadOwnerTimelineAt
+    || lead?.counselorAssignedAt
+    || lead?.createdAt
+  );
+}
+
+function isLeadInTimelineByReceivedDate(lead = {}, range = null) {
+  if (!range) {
+    return true;
+  }
+  const receivedDate = getAdmissionLeadReceivedDate(lead);
+  return receivedDate && receivedDate >= range.start && receivedDate <= range.end;
+}
+
+function getUnifiedAdmissionCourseValue(lead = {}) {
+  return String(
+    lead?.mainAdmissionCoursePitched
+    || lead?.registeredCoursePitched
+    || lead?.coursePitched
+    || lead?.courseName
+    || lead?.courseCode
+    || ""
+  ).trim();
+}
+
+function getUnifiedAdmissionSourceLabel(lead = {}) {
+  if (isMainAdmissionLead(lead)) {
+    return "Main Admission";
+  }
+  if (isCrashCourseRegistrationLead(lead)) {
+    return "7 Days Crash Course";
+  }
+  if (isStandardRegisteredLead(lead)) {
+    return "Registered Candidates";
+  }
+  return "Admission";
+}
+
+function getLatestUnifiedAdmissionFieldValue(lead = {}, fieldKey = "") {
+  const values = [];
+  getUnifiedAdmissionContexts(lead).forEach((context) => {
+    const field = context[fieldKey];
+    if (!field) {
+      return;
+    }
+    const currentValue = String(lead?.[field] || "").trim();
+    if (currentValue) {
+      values.push({
+        value: currentValue,
+        time: parseLocalDate(
+          lead?.[`${field}UpdatedAt`]
+          || lead?.updatedAt
+          || lead?.createdAtExact
+          || lead?.createdAt
+        )?.getTime() || 0
+      });
+    }
+    context.history.forEach((entry) => {
+      const updates = entry?.updates && typeof entry.updates === "object" ? entry.updates : {};
+      if (!Object.prototype.hasOwnProperty.call(updates, field)) {
+        return;
+      }
+      const value = String(updates[field] || "").trim();
+      if (!value) {
+        return;
+      }
+      values.push({
+        value,
+        time: parseLocalDate(entry?.at)?.getTime() || 0
+      });
+    });
+  });
+  return values.sort((left, right) => right.time - left.time)[0]?.value || "";
+}
+
+function hasUnifiedCoursePitched(lead = {}) {
+  return getUnifiedAdmissionContexts(lead).some((context) =>
+    isFilledCourseValue(lead?.[context.coursePitchedField])
+    || context.history.some((entry) => {
+      const updates = entry?.updates && typeof entry.updates === "object" ? entry.updates : {};
+      return Object.prototype.hasOwnProperty.call(updates, context.coursePitchedField)
+        && isFilledCourseValue(updates[context.coursePitchedField]);
+    })
+  );
+}
+
+function hasUnifiedAdmissionAction(lead = {}, counselor = "", range = null) {
+  const normalizedCounselor = normalizeText(counselor);
+  const hasCrmAction = getUnifiedAdmissionContexts(lead).some((context) =>
+    getHistoryEntriesInRange(context.history, range).some((entry) =>
+      normalizeText(resolveCounselorActivityActor(entry?.by)) === normalizedCounselor
+      && isCounselorActivityEntry(entry, MONITORING_ACTIVITY_OPTIONS[context.historyField] || {})
+    )
+  );
+  if (hasCrmAction) {
+    return true;
+  }
+
+  return getHistoryEntriesInRange(lead?.mcubeCallHistory, range).some((entry) =>
+    normalizeText(getMcubeCounselorLabel({
+      ...entry,
+      counselor: entry?.counselor || lead?.counselor
+    })) === normalizedCounselor
+  );
+}
+
+function getUnifiedAdmissionStatusCounts(leads = []) {
+  return leads.reduce((summary, lead) => {
+    const courseStatus = normalizeText(getLatestUnifiedAdmissionFieldValue(lead, "courseStatusField"));
+    const admissionStatus = normalizeText(getLatestUnifiedAdmissionFieldValue(lead, "admissionStatusField"));
+
+    if (courseStatus === "interested") {
+      summary.interested += 1;
+    }
+    if (courseStatus === "not interested" || courseStatus === "ni") {
+      summary.notInterested += 1;
+    }
+    if (admissionStatus === "opportunity") {
+      summary.opportunity += 1;
+    }
+    if (admissionStatus === "offered") {
+      summary.offered += 1;
+    }
+    return summary;
+  }, {
+    interested: 0,
+    notInterested: 0,
+    opportunity: 0,
+    offered: 0
+  });
+}
+
+function getAdmissionFilterOptions(leads = [], rows = []) {
+  const courseOptions = [...new Set(
+    leads.map(getUnifiedAdmissionCourseValue).filter(isFilledCourseValue)
+  )].sort((left, right) => left.localeCompare(right));
+  const lceOptions = [...new Set(rows.map((row) => row.counselor).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right));
+  const managerOptions = [...new Set(
+    monitoringCounselors
+      .filter((item) => item?.role === "manager")
+      .map((item) => String(item?.name || "").trim())
+      .filter(Boolean)
+  )].sort((left, right) => left.localeCompare(right));
+  return { courseOptions, lceOptions, managerOptions };
+}
+
+function passesCallFilter(value, filter) {
+  if (filter === "with") {
+    return value > 0;
+  }
+  if (filter === "without") {
+    return value === 0;
+  }
+  return true;
+}
+
+function applyUnifiedAdmissionFilters(rows = [], leadsByCounselor = new Map()) {
+  return rows.filter((row) => {
+    if (admissionReportFilters.lce !== "all" && normalizeText(row.counselor) !== normalizeText(admissionReportFilters.lce)) {
+      return false;
+    }
+    if (admissionReportFilters.manager !== "all" && normalizeText(row.counselor) !== normalizeText(admissionReportFilters.manager)) {
+      return false;
+    }
+    if (!passesCallFilter(row.outboundCalls, admissionReportFilters.outboundCalls)) {
+      return false;
+    }
+    if (!passesCallFilter(row.inboundCalls, admissionReportFilters.inboundCalls)) {
+      return false;
+    }
+    if (!passesCallFilter(row.talkTimeSeconds, admissionReportFilters.talkTime)) {
+      return false;
+    }
+    if (admissionReportFilters.course !== "all") {
+      const counselorLeads = leadsByCounselor.get(row.counselor) || [];
+      return counselorLeads.some((lead) =>
+        normalizeText(getUnifiedAdmissionCourseValue(lead)) === normalizeText(admissionReportFilters.course)
+      );
+    }
+    return true;
+  });
+}
+
+function buildUnifiedAdmissionRows(counselors, rawLeads, range) {
+  const baseAdmissionLeads = rawLeads
+    .filter(isUnifiedAdmissionLead)
+    .filter((lead) => isLeadInTimelineByReceivedDate(lead, range));
+  const admissionLeads = admissionReportFilters.course === "all"
+    ? baseAdmissionLeads
+    : baseAdmissionLeads.filter((lead) =>
+      normalizeText(getUnifiedAdmissionCourseValue(lead)) === normalizeText(admissionReportFilters.course)
+    );
+  const leadsByCounselor = new Map();
+  const rows = counselors.map((counselor) => {
+    const normalizedCounselor = normalizeText(counselor);
+    const counselorLeads = admissionLeads.filter((lead) =>
+      normalizeText(resolveCounselorName(lead?.counselor, true)) === normalizedCounselor
+    );
+    const uniqueLeads = [...new Map(counselorLeads.map((lead) => [getLeadKey(lead), lead])).values()];
+    leadsByCounselor.set(counselor, uniqueLeads);
+    const sourceEntries = formatDerivedBreakdownEntries(uniqueLeads, getUnifiedAdmissionSourceLabel, "", "Admission");
+    const courseEntries = formatDerivedBreakdownEntries(
+      uniqueLeads.filter((lead) => isFilledCourseValue(getUnifiedAdmissionCourseValue(lead))),
+      getUnifiedAdmissionCourseValue,
+      "",
+      "Unspecified"
+    );
+    const calls = getMcubeCallEntriesInRange(uniqueLeads, range).filter((entry) =>
+      normalizeText(getMcubeCounselorLabel(entry)) === normalizedCounselor
+    );
+    primeMcubeRecordingDurations(calls);
+    const statusCounts = getUnifiedAdmissionStatusCounts(uniqueLeads);
+    const totalReceived = uniqueLeads.length;
+    const totalPde = uniqueLeads.filter(hasUnifiedCoursePitched).length;
+    const totalActioned = uniqueLeads.filter((lead) => hasUnifiedAdmissionAction(lead, counselor, range)).length;
+    const outboundCalls = calls.filter((entry) => normalizeText(entry.direction) === "outbound").length;
+    const inboundCalls = calls.filter((entry) => normalizeText(entry.direction) === "inbound").length;
+    const talkTimeSeconds = calls.reduce((sum, entry) => sum + getMcubeEntryTalkTimeSeconds(entry), 0);
+
+    return {
+      counselor,
+      role: getCounselorRoleLabel(counselor),
+      sourceEntries,
+      courseEntries,
+      totalReceived,
+      totalActioned,
+      totalInactioned: Math.max(0, totalReceived - totalActioned),
+      pde: totalPde,
+      interested: statusCounts.interested,
+      notInterested: statusCounts.notInterested,
+      opportunity: statusCounts.opportunity,
+      offered: statusCounts.offered,
+      outboundCalls,
+      inboundCalls,
+      talkTimeSeconds,
+      talkTimeLabel: formatTalkTime(talkTimeSeconds)
+    };
+  });
+
+  const visibleRows = filterVisibleMonitoringRows(rows)
+    .sort((left, right) =>
+      right.totalReceived - left.totalReceived
+      || right.totalActioned - left.totalActioned
+      || String(left.counselor).localeCompare(String(right.counselor))
+    );
+  return { rows: visibleRows, leadsByCounselor, allAdmissionLeads: baseAdmissionLeads };
+}
+
+function renderUnifiedAdmissionFilters(options = {}) {
+  const { courseOptions = [], lceOptions = [], managerOptions = [] } = options;
+  monitoringSubsectionNav.style.display = "";
+  monitoringSubsectionNav.innerHTML = `
+    <div class="card-head">
+      <h3>Admission Filters</h3>
+      <p>Filter the unified report without splitting it into separate panels.</p>
+    </div>
+    <div class="filter-row">
+      <div class="filter-item">
+        <label for="admissionCourseFilter">Course Name</label>
+        <select id="admissionCourseFilter">
+          <option value="all">All courses</option>
+          ${courseOptions.map((course) => `<option value="${escapeHtml(course)}" ${admissionReportFilters.course === course ? "selected" : ""}>${escapeHtml(course)}</option>`).join("")}
+        </select>
+      </div>
+      <div class="filter-item">
+        <label for="admissionManagerFilter">Manager Name</label>
+        <select id="admissionManagerFilter">
+          <option value="all">All managers</option>
+          ${managerOptions.map((manager) => `<option value="${escapeHtml(manager)}" ${admissionReportFilters.manager === manager ? "selected" : ""}>${escapeHtml(manager)}</option>`).join("")}
+        </select>
+      </div>
+      <div class="filter-item">
+        <label for="admissionLceFilter">LCE Name</label>
+        <select id="admissionLceFilter">
+          <option value="all">All LCEs</option>
+          ${lceOptions.map((lce) => `<option value="${escapeHtml(lce)}" ${admissionReportFilters.lce === lce ? "selected" : ""}>${escapeHtml(lce)}</option>`).join("")}
+        </select>
+      </div>
+      <div class="filter-item">
+        <label for="admissionOutboundFilter">Outbound Calls</label>
+        <select id="admissionOutboundFilter">
+          <option value="all" ${admissionReportFilters.outboundCalls === "all" ? "selected" : ""}>All</option>
+          <option value="with" ${admissionReportFilters.outboundCalls === "with" ? "selected" : ""}>With outbound</option>
+          <option value="without" ${admissionReportFilters.outboundCalls === "without" ? "selected" : ""}>Without outbound</option>
+        </select>
+      </div>
+      <div class="filter-item">
+        <label for="admissionInboundFilter">Inbound Calls</label>
+        <select id="admissionInboundFilter">
+          <option value="all" ${admissionReportFilters.inboundCalls === "all" ? "selected" : ""}>All</option>
+          <option value="with" ${admissionReportFilters.inboundCalls === "with" ? "selected" : ""}>With inbound</option>
+          <option value="without" ${admissionReportFilters.inboundCalls === "without" ? "selected" : ""}>Without inbound</option>
+        </select>
+      </div>
+      <div class="filter-item">
+        <label for="admissionTalkTimeFilter">Talktime</label>
+        <select id="admissionTalkTimeFilter">
+          <option value="all" ${admissionReportFilters.talkTime === "all" ? "selected" : ""}>All</option>
+          <option value="with" ${admissionReportFilters.talkTime === "with" ? "selected" : ""}>With talktime</option>
+          <option value="without" ${admissionReportFilters.talkTime === "without" ? "selected" : ""}>Without talktime</option>
+        </select>
+      </div>
+      <div class="filter-item filter-item-cta">
+        <label>&nbsp;</label>
+        <button id="resetAdmissionFilters" class="btn-ghost" type="button">Reset filters</button>
+      </div>
+    </div>
+  `;
+
+  [
+    ["admissionCourseFilter", "course"],
+    ["admissionManagerFilter", "manager"],
+    ["admissionLceFilter", "lce"],
+    ["admissionOutboundFilter", "outboundCalls"],
+    ["admissionInboundFilter", "inboundCalls"],
+    ["admissionTalkTimeFilter", "talkTime"]
+  ].forEach(([id, key]) => {
+    const control = document.getElementById(id);
+    if (!control) {
+      return;
+    }
+    control.onchange = (event) => {
+      admissionReportFilters[key] = event.target.value;
+      persistAdmissionReportFilters();
+      renderAll();
+    };
+  });
+
+  document.getElementById("resetAdmissionFilters")?.addEventListener("click", () => {
+    admissionReportFilters = {
+      course: "all",
+      manager: "all",
+      lce: "all",
+      outboundCalls: "all",
+      inboundCalls: "all",
+      talkTime: "all"
+    };
+    persistAdmissionReportFilters();
+    renderAll();
+  }, { once: true });
+}
+
+function renderUnifiedAdmissionView(counselors, rawLeads, range) {
+  const built = buildUnifiedAdmissionRows(counselors, rawLeads, range);
+  renderUnifiedAdmissionFilters(getAdmissionFilterOptions(built.allAdmissionLeads, built.rows));
+  const rows = applyUnifiedAdmissionFilters(built.rows, built.leadsByCounselor);
+  const totals = rows.reduce((summary, row) => {
+    summary.totalReceived += row.totalReceived;
+    summary.totalActioned += row.totalActioned;
+    summary.totalInactioned += row.totalInactioned;
+    summary.pde += row.pde;
+    summary.interested += row.interested;
+    summary.notInterested += row.notInterested;
+    summary.opportunity += row.opportunity;
+    summary.offered += row.offered;
+    return summary;
+  }, {
+    totalReceived: 0,
+    totalActioned: 0,
+    totalInactioned: 0,
+    pde: 0,
+    interested: 0,
+    notInterested: 0,
+    opportunity: 0,
+    offered: 0
+  });
+
+  buildMetricCards([
+    { label: "Total Leads Received", value: totals.totalReceived },
+    { label: "Total Leads Actioned", value: totals.totalActioned },
+    { label: "Total Leads Inactioned", value: totals.totalInactioned },
+    { label: "Actioned %", value: formatPercent(totals.totalActioned, totals.totalReceived) },
+    { label: "Inaction %", value: formatPercent(totals.totalInactioned, totals.totalReceived) },
+    { label: "Total PDE", value: totals.pde },
+    { label: "PDE %", value: formatPercent(totals.pde, totals.totalReceived) },
+    { label: "Total Interested", value: totals.interested },
+    { label: "Interested %", value: formatPercent(totals.interested, totals.totalReceived) },
+    { label: "Not Interested %", value: formatPercent(totals.notInterested, totals.totalReceived) },
+    { label: "Total Opportunity", value: totals.opportunity },
+    { label: "Opportunity %", value: formatPercent(totals.opportunity, totals.totalReceived) },
+    { label: "Total Offered", value: totals.offered },
+    { label: "Offered %", value: formatPercent(totals.offered, totals.totalReceived) }
+  ]);
+
+  renderTable([
+    { label: "LCE Name", render: (row) => escapeHtml(row.counselor) },
+    { label: "Role", render: (row) => escapeHtml(row.role) },
+    { label: "Sources", render: (row) => renderBreakdownCell(row.sourceEntries, "No admission leads") },
+    { label: "Courses", render: (row) => renderBreakdownCell(row.courseEntries, "No course selected") },
+    { label: "Received", render: (row) => String(row.totalReceived) },
+    { label: "Actioned", render: (row) => String(row.totalActioned) },
+    { label: "Inactioned", render: (row) => String(row.totalInactioned) },
+    { label: "Actioned %", render: (row) => formatPercent(row.totalActioned, row.totalReceived) },
+    { label: "PDE", render: (row) => String(row.pde) },
+    { label: "PDE %", render: (row) => formatPercent(row.pde, row.totalReceived) },
+    { label: "Interested", render: (row) => String(row.interested) },
+    { label: "Interested %", render: (row) => formatPercent(row.interested, row.totalReceived) },
+    { label: "Not Interested %", render: (row) => formatPercent(row.notInterested, row.totalReceived) },
+    { label: "Opportunity", render: (row) => String(row.opportunity) },
+    { label: "Opportunity %", render: (row) => formatPercent(row.opportunity, row.totalReceived) },
+    { label: "Offered", render: (row) => String(row.offered) },
+    { label: "Offered %", render: (row) => formatPercent(row.offered, row.totalReceived) },
+    { label: "Outbound Calls", render: (row) => String(row.outboundCalls) },
+    { label: "Inbound Calls", render: (row) => String(row.inboundCalls) },
+    { label: "Talktime", render: (row) => escapeHtml(row.talkTimeLabel) }
+  ], rows, 20);
+}
+
 function renderActiveMonitoringView() {
   if (renderServerMonitoringReport()) {
     return;
@@ -2415,6 +2877,12 @@ function renderActiveMonitoringView() {
   monitoringActiveTitle.textContent = subsectionConfig.title;
   monitoringActiveDescription.textContent = subsectionConfig.description;
 
+  if (activeView.subsection === "admission-unified") {
+    const counselors = getMonitoringCounselorNames();
+    renderUnifiedAdmissionView(counselors, rawAllLeads, range);
+    return;
+  }
+
   if (activeView.subsection === "reporting") {
     const rawLeads = getManagementReportMainAdmissionLeads(rawAllLeads, range);
     const counselors = getMonitoringCounselorNames();
@@ -2442,27 +2910,6 @@ function renderActiveMonitoringView() {
     const rawLeads = legacyNonMainAdmissionRawLeads.filter((lead) => !isNonWorkshopPipelineLead(lead));
     const counselors = getMonitoringCounselorNames();
     renderAdmissionCallingView(counselors, leads, rawLeads, range);
-    return;
-  }
-
-  if (activeView.subsection === "main-admission") {
-    const leads = timelineLeads.filter(isMainAdmissionLead);
-    const rawLeads = rawAllLeads.filter(isMainAdmissionLead);
-    const counselors = getMonitoringCounselorNames();
-    renderMainAdmissionView(counselors, leads, rawLeads, range);
-    return;
-  }
-
-  if (activeView.subsection === "registered-candidates") {
-    const leads = timelineLeads.filter(isStandardRegisteredLead);
-    const rawLeads = rawAllLeads.filter(isStandardRegisteredLead);
-    const counselors = getMonitoringCounselorNames();
-    renderRegisteredView(counselors, leads, rawLeads, range);
-    return;
-  }
-
-  if (activeView.subsection === "mcube-main") {
-    renderMcubeView(rawAllLeads, range);
     return;
   }
 

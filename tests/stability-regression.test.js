@@ -35,6 +35,29 @@ function getNamedFunctionSource(source, name) {
   assert.fail(`Could not extract ${name}`);
 }
 
+function getNamedObjectSource(source, name) {
+  const start = source.indexOf(`const ${name} = {`);
+  assert.notEqual(start, -1, `${name} should exist`);
+
+  let braceIndex = source.indexOf("{", start);
+  assert.notEqual(braceIndex, -1, `${name} should have a body`);
+
+  let depth = 0;
+  for (let index = braceIndex; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(start, index + 1);
+      }
+    }
+  }
+
+  assert.fail(`Could not extract ${name}`);
+}
+
 function countMatches(source, pattern) {
   return Array.from(source.matchAll(pattern)).length;
 }
@@ -723,7 +746,7 @@ test("monitoring counselor scope includes touched leads and admins hide zero row
   assert.equal(countMatches(monitoring, /return filterVisibleMonitoringRows\(sortRowsByPriority\(counselors\.map\(/g), 4);
 });
 
-test("monitoring includes a single-view MCube tab with call summary metrics", () => {
+test("monitoring merges MCube call metrics into the unified admission report", () => {
   const monitoring = read("monitoring.js");
   const server = read("server.js");
 
@@ -731,7 +754,7 @@ test("monitoring includes a single-view MCube tab with call summary metrics", ()
   assert.match(server, /buildMonitoringReport/);
   assert.match(monitoring, /\/api\/monitoring-report/);
   assert.match(monitoring, /renderServerMonitoringReport/);
-  assert.match(monitoring, /mcube:\s*\{/);
+  assert.doesNotMatch(getNamedObjectSource(monitoring, "VIEW_CONFIG"), /mcube:\s*\{/);
   assert.match(monitoring, /function getCounselorFirstName\(/);
   assert.match(monitoring, /function getCounselorAliasKeys\(/);
   assert.match(monitoring, /COUNSELOR_ALIAS_STOP_WORDS/);
@@ -739,7 +762,7 @@ test("monitoring includes a single-view MCube tab with call summary metrics", ()
   assert.match(monitoring, /matchedNames\.size === 1/);
   assert.match(monitoring, /resolveCounselorName\(entry\?\.agentName, true\)/);
   assert.match(monitoring, /resolveCounselorName\(lead\?\.counselor, true\)/);
-  assert.match(monitoring, /"mcube-main"/);
+  assert.match(monitoring, /"admission-unified"/);
   assert.match(monitoring, /if \(subsections\.length <= 1\) \{/);
   assert.match(monitoring, /function getMcubeCallEntriesInRange\(/);
   assert.match(monitoring, /function normalizeMcubeTalkTimeSeconds\(/);
@@ -752,24 +775,29 @@ test("monitoring includes a single-view MCube tab with call summary metrics", ()
   assert.match(monitoring, /function scopeMcubeCallsForSession\(/);
   assert.match(monitoring, /normalizeText\(getMcubeCounselorLabel\(entry\)\) === counselorIdentity/);
   assert.match(monitoring, /function buildMcubeRows\(/);
+  assert.match(monitoring, /function renderUnifiedAdmissionView\(/);
+  assert.match(monitoring, /function buildUnifiedAdmissionRows\(/);
   assert.match(monitoring, /normalizeText\(counselor\) === "unassigned"/);
   assert.match(monitoring, /nextEntry\.normalizedStatus \|\| previous\.normalizedStatus/);
   assert.match(monitoring, /text\.match\(\/\^\(\?:\(\\d\+\)\\s\*h\)\?/);
   assert.match(monitoring, /answer\|answered\|connected\|completed\|success/);
-  assert.match(monitoring, /label: "Total Calls"/);
   assert.match(monitoring, /label: "Outbound Calls"/);
   assert.match(monitoring, /label: "Inbound Calls"/);
-  assert.match(monitoring, /label: "Call Picked"/);
-  assert.match(monitoring, /label: "Call Not Picked \/ Not Connected"/);
-  assert.match(monitoring, /label: "Total Talk Time"/);
-  assert.match(monitoring, /label: "Counselor Name"/);
-  assert.match(monitoring, /label: "Talk Time"/);
-  assert.match(monitoring, /seconds > 8 \* 60 \* 60/);
+  assert.match(monitoring, /label: "Talktime"/);
+  assert.match(monitoring, /label: "Total Leads Received"/);
+  assert.match(monitoring, /label: "Total Leads Actioned"/);
+  assert.match(monitoring, /label: "Total Leads Inactioned"/);
+  assert.match(monitoring, /label: "Total PDE"/);
+  assert.match(monitoring, /label: "PDE %"/);
+  assert.match(monitoring, /label: "Total Opportunity"/);
+  assert.match(monitoring, /label: "Opportunity %"/);
+  assert.match(monitoring, /label: "Total Offered"/);
+  assert.match(monitoring, /label: "Offered %"/);
   assert.match(monitoring, /getMcubeEntryTalkTimeSeconds\(entry\)/);
-  assert.match(monitoring, /renderMcubeView\(rawAllLeads, range\)/);
+  assert.match(monitoring, /renderUnifiedAdmissionView\(counselors, rawAllLeads, range\)/);
 });
 
-test("monitoring adds admin reporting views and yesterday timeline", () => {
+test("monitoring keeps Workshop Pre and Post plus one unified Admission panel", () => {
   const monitoringHtml = read("monitoring.html");
   const monitoring = read("monitoring.js");
   const server = read("server.js");
@@ -777,21 +805,43 @@ test("monitoring adds admin reporting views and yesterday timeline", () => {
   assert.match(monitoringHtml, /<option value="yesterday">Yesterday<\/option>/);
   assert.match(server, /if \(type === "yesterday"\) return getMonitoringDayRange\(-1\)/);
   assert.match(monitoring, /if \(timelineFilter\.type === "yesterday"\)/);
-  assert.match(monitoring, /adminOnly: true/);
-  assert.match(monitoring, /label: "Management Reports"/);
-  assert.match(monitoring, /label: "Reporting"/);
-  assert.match(monitoring, /label: "Lead Assignment Panel"/);
+  assert.match(getNamedObjectSource(monitoring, "VIEW_CONFIG"), /label: "Workshop"/);
+  assert.match(getNamedObjectSource(monitoring, "VIEW_CONFIG"), /label: "Pre"/);
+  assert.match(getNamedObjectSource(monitoring, "VIEW_CONFIG"), /label: "Post"/);
+  assert.match(getNamedObjectSource(monitoring, "VIEW_CONFIG"), /label: "Admission"/);
+  assert.match(getNamedObjectSource(monitoring, "VIEW_CONFIG"), /"admission-unified"/);
+  assert.doesNotMatch(getNamedObjectSource(monitoring, "VIEW_CONFIG"), /label: "Management Reports"/);
+  assert.doesNotMatch(getNamedObjectSource(monitoring, "VIEW_CONFIG"), /label: "Lead Assignment Panel"/);
+  assert.doesNotMatch(getNamedObjectSource(monitoring, "VIEW_CONFIG"), /"mcube-main"/);
+  assert.match(monitoring, /const ADMISSION_FILTER_STORAGE_KEY = "dvUnifiedAdmissionMonitoringFilters"/);
+  assert.match(monitoring, /label for="admissionCourseFilter">Course Name/);
+  assert.match(monitoring, /label for="admissionManagerFilter">Manager Name/);
+  assert.match(monitoring, /label for="admissionLceFilter">LCE Name/);
+  assert.match(monitoring, /label for="admissionOutboundFilter">Outbound Calls/);
+  assert.match(monitoring, /label for="admissionInboundFilter">Inbound Calls/);
+  assert.match(monitoring, /label for="admissionTalkTimeFilter">Talktime/);
+  assert.doesNotMatch(getNamedFunctionSource(monitoring, "renderUnifiedAdmissionFilters"), /Campaign/);
+  assert.match(monitoring, /session\?\.role === "counselor" \|\| session\?\.role === "manager"/);
+  assert.match(monitoring, /function hasUnifiedCoursePitched\(/);
+  assert.match(getNamedFunctionSource(monitoring, "hasUnifiedCoursePitched"), /context\.coursePitchedField/);
+  assert.match(getNamedFunctionSource(monitoring, "getUnifiedAdmissionContexts"), /mainAdmissionCoursePitched/);
+  assert.match(getNamedFunctionSource(monitoring, "getUnifiedAdmissionContexts"), /registeredCoursePitched/);
+  assert.match(monitoring, /const canUseServerReport = activeView\.group === "workshop"/);
+  assert.match(monitoring, /activeView\.subsection === "admission-unified"/);
+});
+
+test("monitoring preserves legacy reporting helpers while unified admission replaces admin views", () => {
+  const monitoring = read("monitoring.js");
+
   assert.match(monitoring, /const REPORTING_BUCKETS = \["Enrolled", "PDE", "CNC", "CBL", "NI", "Pending Leads"\]/);
   assert.doesNotMatch(getNamedFunctionSource(monitoring, "renderReportingView"), /NE/);
   assert.match(monitoring, /function findFirstCoursePitchedEvent\(/);
   assert.match(monitoring, /function hasCounselorAdmissionActivity\(/);
   assert.match(getNamedFunctionSource(monitoring, "getReportingContexts"), /mainAdmissionActivityHistory/);
-  assert.doesNotMatch(getNamedFunctionSource(monitoring, "getReportingContexts"), /admissionActivityHistory/);
-  assert.doesNotMatch(getNamedFunctionSource(monitoring, "getReportingContexts"), /registeredCourseActivityHistory/);
+  assert.match(getNamedFunctionSource(monitoring, "getReportingContexts"), /admissionActivityHistory/);
+  assert.match(getNamedFunctionSource(monitoring, "getReportingContexts"), /registeredCourseActivityHistory/);
   assert.match(monitoring, /function getManagementReportMainAdmissionLeads\(/);
   assert.match(monitoring, /getMainAdmissionLeadOwnerType\(lead\) === "reassigned"/);
-  assert.match(monitoring, /const rawLeads = getManagementReportMainAdmissionLeads\(rawAllLeads, range\)/);
-  assert.match(monitoring, /const rawLeads = rawAllLeads\.filter\(isMainAdmissionLead\)/);
   assert.match(getNamedFunctionSource(monitoring, "getAssignedAdmissionLeadsForCounselor"), /getLeadOwnershipDate\(lead\)/);
   assert.match(getNamedFunctionSource(monitoring, "getAssignedAdmissionLeadsForCounselor"), /wasLeadCreatedByCounselor\(lead, counselor\)/);
   assert.match(monitoring, /label: "FDE"/);
@@ -1975,4 +2025,3 @@ test("counselor multi-select filter and click outside closure validation", () =>
   assert.match(mainAdmissionLeads, /isCourseFilterOpen = false;/);
   assert.match(mainAdmissionLeads, /isCounselorFilterOpen = false;/);
 });
-
