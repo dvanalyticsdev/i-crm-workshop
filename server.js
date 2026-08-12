@@ -15031,6 +15031,19 @@ async function assignLeadsHandler(req, res) {
     const session = await requireRole(req, res, ["admin", "manager"]);
     if (!session) return;
 
+    const sessionRole = String(session.role || "").trim().toLowerCase();
+    let managerCounselorName = "";
+    if (sessionRole === "manager") {
+      const userEmail = String(session.email || "").trim().toLowerCase();
+      const counselorDoc = userEmail
+        ? await withMongoRetry(
+            () => counselorsCollection.findOne({ email: new RegExp(`^${escapeRegExp(userEmail)}$`, "i") }),
+            { retries: 1, label: "Load counselor for manager assignment check" }
+          ).catch(() => null)
+        : null;
+      managerCounselorName = String(counselorDoc?.name || session.name || "").trim().toLowerCase();
+    }
+
     const leadRefs = Array.isArray(req.body?.leadRefs) ? req.body.leadRefs : [];
     const leadIds = Array.isArray(req.body?.leadIds) ? req.body.leadIds : [];
     const counselor = String(req.body?.counselor || "").trim();
@@ -15075,6 +15088,18 @@ async function assignLeadsHandler(req, res) {
 
     leadsToUpdate.forEach((lead) => {
       if (isArchivedOrLostLead(lead)) {
+        assignableLeads.push(lead);
+        return;
+      }
+
+      // Check if this lead is skipped/protected.
+      // Super admin can assign ANY lead without any regulation.
+      // Manager can assign their own leads without any exception.
+      const isSuperAdmin = sessionRole === "super_admin";
+      const isManagerOwnLead = sessionRole === "manager" && 
+        String(lead?.counselor || "").trim().toLowerCase() === managerCounselorName;
+
+      if (isSuperAdmin || isManagerOwnLead) {
         assignableLeads.push(lead);
         return;
       }

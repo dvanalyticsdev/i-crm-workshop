@@ -1812,9 +1812,14 @@ function getSelectedUnassignedLeads(leads) {
 }
 
 function getSelectedAssignableLeads(leads) {
-  return getSelectedLeads(leads).filter((lead) => (
-    isUnassignedCounselor(lead?.counselor) || isArchivedCounselor(lead?.counselor)
-  ));
+  return getSelectedLeads(leads).filter((lead) => {
+    if (session?.role === "super_admin") return true;
+    if (session?.role === "manager") {
+      const isOwnLead = String(lead?.counselor || "").trim().toLowerCase() === getCounselorIdentity();
+      return isOwnLead || isUnassignedCounselor(lead?.counselor) || isArchivedCounselor(lead?.counselor);
+    }
+    return isUnassignedCounselor(lead?.counselor) || isArchivedCounselor(lead?.counselor);
+  });
 }
 
 function getSelectedBlockedSopLeads(leads) {
@@ -3686,11 +3691,15 @@ async function assignSelectedUnassignedLeads(leads) {
   const selectedLeads = getSelectedLeads(leads);
   const selectedAssignableLeads = filter.sopFilter === SOP_FILTER_BLOCKED
     ? selectedLeads.filter(isSopBlockedLead)
-    : selectedLeads.filter((lead) => isUnassignedCounselor(lead?.counselor) || isArchivedCounselor(lead?.counselor));
+    : getSelectedAssignableLeads(leads);
   if (!selectedAssignableLeads.length) {
     showToast(filter.sopFilter === SOP_FILTER_BLOCKED
       ? "Select at least one blocked SOP lead to assign."
-      : "Select at least one unassigned or archived lead to use this panel.", true);
+      : (session?.role === "super_admin" 
+          ? "Select at least one lead to use this panel."
+          : (session?.role === "manager" 
+              ? "Select at least one unassigned, archived, or your own lead to use this panel."
+              : "Select at least one unassigned or archived lead to use this panel.")), true);
     return false;
   }
 

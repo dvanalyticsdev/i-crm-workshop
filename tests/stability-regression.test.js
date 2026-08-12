@@ -1929,3 +1929,21 @@ test("performance logs capture user-facing page, role, section, subsection, and 
   assert.match(performanceJs, /function getTrendLine/);
   assert.match(performanceJs, /DELETE/);
 });
+
+test("manager and superadmin assignment permission bypass", () => {
+  const server = read("server.js");
+  const mainAdmissionLeads = read("main-admission-leads.js");
+
+  const serverAssignHandler = getFunctionBody(server, "assignLeadsHandler");
+
+  // Validate backend checks for manager own leads and super admin
+  assert.match(serverAssignHandler, /const isSuperAdmin = sessionRole === "super_admin"/);
+  assert.match(serverAssignHandler, /const isManagerOwnLead = sessionRole === "manager"/);
+  assert.match(serverAssignHandler, /managerCounselorName/);
+
+  // Validate frontend checks for manager own leads and super admin
+  assert.match(mainAdmissionLeads, /if \(session\?\.role === "super_admin"\) return true;/);
+  assert.match(mainAdmissionLeads, /if \(session\?\.role === "manager"\)/);
+  assert.match(mainAdmissionLeads, /const isOwnLead = String\(lead\?\.counselor \|\| ""\)\.trim\(\)\.toLowerCase\(\) === getCounselorIdentity\(\);/);
+});
+
