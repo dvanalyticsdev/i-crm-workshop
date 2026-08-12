@@ -800,9 +800,15 @@ test("monitoring merges MCube call metrics into the unified admission report", (
   assert.match(getNamedFunctionSource(monitoring, "buildUnifiedAdmissionRows"), /const receivedAdmissionLeads = admissionLeads\.filter/);
   assert.match(getNamedFunctionSource(monitoring, "buildUnifiedAdmissionRows"), /const counselorCallLeads = admissionLeads\.filter/);
   assert.match(getNamedFunctionSource(monitoring, "buildUnifiedAdmissionRows"), /getMcubeCallEntriesInRange\(counselorCallLeads, range\)/);
+  assert.match(getNamedFunctionSource(monitoring, "loadMonitoringData"), /nextIsSuspiciousEmpty/);
+  assert.match(getNamedFunctionSource(monitoring, "loadMonitoringData"), /Keeping the last loaded report/);
+  assert.match(getNamedFunctionSource(monitoring, "loadMonitoringData"), /monitoringLeads/);
+  assert.match(getNamedFunctionSource(monitoring, "renderAll"), /renderMonitoringDataWarning\(\)/);
   assert.match(getNamedFunctionSource(server, "buildMonitoringLeadProjection"), /mainAdmissionCourseStatus: 1/);
   assert.match(getNamedFunctionSource(server, "buildMonitoringLeadProjection"), /registeredCoursePitched: 1/);
   assert.match(getNamedFunctionSource(server, "buildMonitoringLeadProjection"), /coursePitched: 1/);
+  assert.match(server, /ALLOW_MOCK_DB_FALLBACK/);
+  assert.match(server, /NODE_ENV === "production"/);
 });
 
 test("monitoring keeps Workshop Pre and Post plus one unified Admission panel", () => {

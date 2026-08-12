@@ -35,6 +35,8 @@ let monitoringReport = null;
 let monitoringLoading = false;
 let monitoringLoadController = null;
 let monitoringLoadSequence = 0;
+let monitoringDataWarning = "";
+let monitoringRenderedDataWarning = "";
 const monitoringDataCache = new Map();
 
 const TIMELINE_STORAGE_KEY = "dvWorkshopMonitoringTimeline";
@@ -401,6 +403,34 @@ function setExportMessage(text, isError = true) {
   monitoringExportMessage.style.color = isError ? "var(--danger)" : "var(--success)";
 }
 
+function setMonitoringDataWarning(text = "") {
+  monitoringDataWarning = String(text || "").trim();
+}
+
+function renderMonitoringDataWarning() {
+  if (!monitoringExportMessage) {
+    return;
+  }
+
+  if (!monitoringDataWarning && monitoringRenderedDataWarning) {
+    monitoringExportMessage.textContent = "";
+    monitoringRenderedDataWarning = "";
+    return;
+  }
+  if (!monitoringDataWarning) {
+    return;
+  }
+  monitoringExportMessage.textContent = monitoringDataWarning;
+  monitoringExportMessage.style.color = "var(--warning, var(--danger))";
+  monitoringRenderedDataWarning = monitoringDataWarning;
+}
+
+function hasUsableMonitoringPayload(leads = [], counselors = []) {
+  return Array.isArray(leads)
+    && Array.isArray(counselors)
+    && (leads.length > 0 || counselors.length > 0);
+}
+
 function getScopedLeads(allLeads) {
   if (!isCounselorSession()) {
     return allLeads;
@@ -590,8 +620,26 @@ async function loadMonitoringData() {
     throw new Error(counselorPayload?.message || "Failed to load monitoring counselors.");
   }
   if (loadSequence !== monitoringLoadSequence) return;
-  monitoringLeads = Array.isArray(leadPayload) ? leadPayload : [];
-  monitoringCounselors = Array.isArray(counselorPayload) ? counselorPayload : [];
+  const nextLeads = Array.isArray(leadPayload) ? leadPayload : [];
+  const nextCounselors = Array.isArray(counselorPayload) ? counselorPayload : [];
+  const previousHadData = hasUsableMonitoringPayload(monitoringLeads, monitoringCounselors);
+  const nextIsSuspiciousEmpty = activeView.subsection === "admission-unified"
+    && previousHadData
+    && nextLeads.length === 0
+    && nextCounselors.length === 0;
+  if (nextIsSuspiciousEmpty) {
+    setMonitoringDataWarning("Monitoring refresh returned no data. Keeping the last loaded report until the next successful refresh.");
+    storeMonitoringCache(cacheKey, {
+      report: monitoringReport,
+      leads: monitoringLeads,
+      counselors: monitoringCounselors,
+      etag: ""
+    });
+    return;
+  }
+  setMonitoringDataWarning("");
+  monitoringLeads = nextLeads;
+  monitoringCounselors = nextCounselors;
   counselorDirectoryCacheKey = "";
   normalizeLeadFields(monitoringLeads);
   storeMonitoringCache(cacheKey, {
@@ -2976,6 +3024,7 @@ function renderAll() {
   renderSectionNav();
   renderSubsectionNav();
   renderActiveMonitoringView();
+  renderMonitoringDataWarning();
   window.__dvMarkRouteViewReady?.();
 
   if (exportMonitoringBtn) {

@@ -4569,6 +4569,9 @@ async function initMongo() {
         });
         console.log(`Connected to MongoDB database: ${MONGODB_DB_NAME}`);
       } catch (err) {
+        if (process.env.NODE_ENV === "production" && process.env.ALLOW_MOCK_DB_FALLBACK !== "true") {
+          throw err;
+        }
         console.warn(`\n⚠️ MongoDB connection failed: ${err.message}`);
         console.warn("⚠️ Falling back to local file-based mock database in the ./tmp/ directory.\n");
         
