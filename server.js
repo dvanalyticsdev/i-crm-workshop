@@ -3265,7 +3265,7 @@ function getScopedLeadLocationFacet(lead = {}) {
 }
 
 function getScopedMainAdmissionCourseFacet(lead = {}) {
-  const identity = buildCourseIdentity(lead?.courseRawName || lead?.courseName || lead?.courseCode, lead);
+  const identity = buildCourseIdentity(lead?.courseName || lead?.courseCode || lead?.courseId || lead?.courseRawName, lead);
   return isKnownPublicCourseIdentity(identity) ? identity.label : "Others";
 }
 

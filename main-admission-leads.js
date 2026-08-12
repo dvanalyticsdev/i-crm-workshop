@@ -1031,10 +1031,10 @@ function filterByLeadOwner(leads) {
 
 function getCanonicalCourseIdentity(lead = {}) {
   return getCanonicalPublicCourseIdentity([
-    lead?.courseRawName,
     lead?.courseName,
     lead?.courseId,
     lead?.courseCode,
+    lead?.courseRawName,
     lead?.metaAdName,
     lead?.metaAdsetName,
     lead?.metaCampaignName,
