@@ -2523,6 +2523,12 @@ function renderFilters(leads) {
   };
   const counselorTrigger = document.getElementById("mainAdmissionCounselorTrigger");
   if (counselorTrigger) {
+    const counselorFilterEl = document.getElementById("mainAdmissionCounselorMultiFilter");
+    if (counselorFilterEl) {
+      counselorFilterEl.addEventListener("click", (e) => {
+        e.stopPropagation();
+      });
+    }
     counselorTrigger.onclick = () => {
       isCounselorFilterOpen = !isCounselorFilterOpen;
       renderAll();
@@ -2557,6 +2563,12 @@ function renderFilters(leads) {
   }
   const courseTrigger = document.getElementById("mainAdmissionCourseTrigger");
   if (courseTrigger) {
+    const courseFilterEl = document.getElementById("mainAdmissionCourseMultiFilter");
+    if (courseFilterEl) {
+      courseFilterEl.addEventListener("click", (e) => {
+        e.stopPropagation();
+      });
+    }
     courseTrigger.onclick = () => {
       isCourseFilterOpen = !isCourseFilterOpen;
       renderAll();
