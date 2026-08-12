@@ -16906,10 +16906,8 @@ app.get("/api/leads/scoped", async (req, res) => {
       return res.status(403).json({ message: "You do not have permission to view this lead section." });
     }
 
-    const page = parseBoundedPositiveInt(req.query?.page, 1, 1, 100000);
+    const requestedPage = parseBoundedPositiveInt(req.query?.page, 1, 1, 100000);
     const limit = parseBoundedPositiveInt(req.query?.limit, 50, 1, 500);
-    const skip = (page - 1) * limit;
-    const runtimeFiltersActive = hasScopedRuntimeFilters(req.query || {});
 
     const [stateMeta, counselors] = await Promise.all([
       withMongoRetry(
@@ -16943,7 +16941,7 @@ app.get("/api/leads/scoped", async (req, res) => {
         admissionSopEnabledAt: stateMeta?.admissionSopEnabledAt || null,
         admissionSopUpdatedBy: stateMeta?.admissionSopUpdatedBy || "",
         pagination: {
-          page,
+          page: requestedPage,
           limit,
           total: 0,
           totalPages: 1,
@@ -16983,9 +16981,12 @@ app.get("/api/leads/scoped", async (req, res) => {
       : visibleLeads;
     const sortedLeads = runtimeFilteredLeads
       .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
-    const leads = sortedLeads.slice(skip, skip + limit);
     const updatedAt = stateMeta?.updatedAt || new Date().toISOString();
     const safeTotal = sortedLeads.length;
+    const totalPages = Math.max(1, Math.ceil(safeTotal / limit));
+    const page = Math.min(requestedPage, totalPages);
+    const skip = (page - 1) * limit;
+    const leads = sortedLeads.slice(skip, skip + limit);
     const effectiveAssignedCount = sortedLeads.filter((lead) => shouldTreatLeadAsAssigned(lead?.counselor)).length;
     const effectiveUnassignedCount = sortedLeads.filter((lead) => !shouldTreatLeadAsAssigned(lead?.counselor)).length;
     const effectiveInterestedCount = sortedLeads.filter((lead) => (section === "registered-candidates" ? lead.registeredCourseStatus : lead.mainAdmissionCourseStatus) === "Interested").length;
@@ -17011,7 +17012,7 @@ app.get("/api/leads/scoped", async (req, res) => {
         page,
         limit,
         total: safeTotal,
-        totalPages: Math.max(1, Math.ceil(safeTotal / limit)),
+        totalPages,
         returned: leads.length
       },
       updatedAt,

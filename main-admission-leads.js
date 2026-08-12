@@ -234,6 +234,8 @@ let initialMainAdmissionLoadPending = true;
 let draftMainAdmissionSearch = filter.search;
 let initialMainAdmissionLoadFailed = false;
 let scopedReloadTimer = null;
+let scopedDataSignature = "";
+let scopedReloadInFlight = null;
 populateCrmCourseSelect("modalMainAdmissionCoursePitched", { includeNo: true });
 
 function getScopedCounselors() {
@@ -289,10 +291,11 @@ function recordMainAdmissionPerformance({ phase, subsection = "", durationMs = n
 async function loadScopedMainAdmissionLeads() {
   const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
   try {
-    const params = new URLSearchParams(getScopedMainAdmissionFilterPayload({
+    const filterPayload = getScopedMainAdmissionFilterPayload({
       page: currentPage,
       limit: pageSize
-    }));
+    });
+    const params = new URLSearchParams(filterPayload);
     if (!scopedFacets) {
       params.set("includeFacets", "1");
     }
@@ -308,10 +311,14 @@ async function loadScopedMainAdmissionLeads() {
     scopedMainAdmissionLeads = Array.isArray(payload?.leads) ? payload.leads : [];
     scopedCounselors = Array.isArray(payload?.counselors) ? payload.counselors : [];
     scopedPagination = payload?.pagination || null;
+    if (Number.isFinite(Number(scopedPagination?.page))) {
+      currentPage = Number(scopedPagination.page) || 1;
+    }
     scopedCounts = payload?.counts || null;
     scopedFacets = payload?.facets || scopedFacets || null;
     scopedAdmissionSopEnabled = payload?.admissionSopEnabled !== false;
     scopedLoadActive = true;
+    scopedDataSignature = buildScopedDataSignature();
     normalizeLeadFields(scopedMainAdmissionLeads);
     recordMainAdmissionPerformance({
       phase: "data-fetch",
@@ -330,6 +337,7 @@ async function loadScopedMainAdmissionLeads() {
     scopedCounts = null;
     scopedFacets = null;
     scopedAdmissionSopEnabled = true;
+    scopedDataSignature = "";
     recordMainAdmissionPerformance({
       phase: "data-fetch",
       subsection: "scoped-leads",
@@ -509,6 +517,10 @@ function getAdvancedFilterDraftSet() {
 function hasActiveAdvancedFilter() {
   const advanced = normalizeAdvancedFilter(filter.advanced);
   return advanced.conditions.length > 0;
+}
+
+function shouldUseScopedServerPage() {
+  return Boolean(scopedLoadActive && scopedPagination && isScopedServerPageFresh() && !hasActiveAdvancedFilter());
 }
 
 function getAdvancedFilterSummary() {
@@ -1876,6 +1888,25 @@ function getScopedMainAdmissionFilterPayload({ page = currentPage, limit = pageS
   return payload;
 }
 
+function buildScopedDataSignature(payload = getScopedMainAdmissionFilterPayload()) {
+  return new URLSearchParams(payload).toString();
+}
+
+function isScopedServerPageFresh() {
+  return scopedDataSignature && scopedDataSignature === buildScopedDataSignature();
+}
+
+function ensureFreshScopedServerPage() {
+  if (!scopedLoadActive || scopedReloadInFlight || isScopedServerPageFresh()) {
+    return;
+  }
+  scopedReloadInFlight = loadScopedMainAdmissionLeads()
+    .then(() => renderAll())
+    .finally(() => {
+      scopedReloadInFlight = null;
+    });
+}
+
 function isLeadSelected(lead) {
   return selectedLeadKeys.has(buildLeadKey(lead));
 }
@@ -2167,7 +2198,7 @@ async function clearRegisteredCandidateData() {
 }
 
 function renderKpis(leads) {
-  const counts = scopedLoadActive && scopedCounts ? scopedCounts : null;
+  const counts = shouldUseScopedServerPage() && scopedCounts ? scopedCounts : null;
   const total = counts ? Number(counts.total || 0) : leads.length;
   const interested = counts ? Number(counts.interested || 0) : leads.filter((lead) => lead.mainAdmissionCourseStatus === "Interested").length;
   const enrolled = counts ? Number(counts.enrolled || 0) : leads.filter((lead) => lead.mainAdmissionAdmissionStatus === "Enrolled").length;
@@ -2717,6 +2748,9 @@ function renderFilters(leads) {
 
 function getMainAdmissionExportRows() {
   const allLeads = getScopedLeads(getAllLeads());
+  if (shouldUseScopedServerPage()) {
+    return applyLeadSorting(allLeads);
+  }
   return filterLeads(allLeads);
 }
 
@@ -3306,11 +3340,11 @@ function renderLeadTable(leads) {
   const isCrashSegment = false;
   const serverTotal = scopedPagination?.total;
   const serverTotalPages = scopedPagination?.totalPages;
-  const advancedFilterActive = hasActiveAdvancedFilter();
-  const totalLeadCount = !advancedFilterActive && Number.isFinite(serverTotal) ? serverTotal : leads.length;
-  const totalPages = Number.isFinite(serverTotalPages) ? serverTotalPages : (Math.ceil(leads.length / pageSize) || 1);
+  const useServerPage = shouldUseScopedServerPage();
+  const totalLeadCount = useServerPage && Number.isFinite(serverTotal) ? serverTotal : leads.length;
+  const totalPages = useServerPage && Number.isFinite(serverTotalPages) ? serverTotalPages : (Math.ceil(leads.length / pageSize) || 1);
   if (currentPage > totalPages) currentPage = totalPages;
-  const pageLeads = scopedLoadActive && scopedPagination ? leads : leads.slice((currentPage - 1) * pageSize, currentPage * pageSize);  syncSelectedLeadIds(leads);
+  const pageLeads = useServerPage ? leads : leads.slice((currentPage - 1) * pageSize, currentPage * pageSize);  syncSelectedLeadIds(leads);
   const hasBulkPanel = isAdmin || isManager;
   const filteredSelectedCount = hasBulkPanel && filteredSelectionLimit ? Math.min(filteredSelectionLimit, totalLeadCount) : 0;
   const rowSelectedCount = hasBulkPanel ? getSelectedLeadCount(leads) : 0;
@@ -3337,7 +3371,7 @@ function renderLeadTable(leads) {
         <div class="bulk-inline-group">
           <input id="mainAdmissionBulkCountInput" class="bulk-count-input" type="number" min="1" max="${totalLeadCount || 1}" placeholder="Count" />
           <button id="mainAdmissionBulkCountApply" type="button" class="btn-ghost bulk-action-btn" ${totalLeadCount ? "" : "disabled"}>Select Count</button>
-          <button id="mainAdmissionSelectAllFiltered" type="button" class="btn-ghost bulk-action-btn" ${(totalLeadCount && scopedLoadActive && !advancedFilterActive) ? "" : "disabled"}>Select All Filtered</button>
+          <button id="mainAdmissionSelectAllFiltered" type="button" class="btn-ghost bulk-action-btn" ${(totalLeadCount && useServerPage) ? "" : "disabled"}>Select All Filtered</button>
         </div>
         <div class="bulk-inline-group">
           <select id="mainAdmissionBulkAssignCounselor" class="bulk-assign-select">
@@ -3514,10 +3548,10 @@ mainAdmissionLeadTableSection.addEventListener("click", async (event) => {
 
   if (event.target.id === "mainAdmissionBulkCountApply") {
     const bulkCountInput = document.getElementById("mainAdmissionBulkCountInput");
-    const advancedFilterActive = hasActiveAdvancedFilter();
     const localFilteredLeads = getCurrentFilteredLeads();
-    const totalLeadCount = advancedFilterActive ? localFilteredLeads.length : (Number(scopedPagination?.total ?? localFilteredLeads.length) || 0);
-    const selectedBatchCount = scopedLoadActive && !advancedFilterActive
+    const useServerPage = shouldUseScopedServerPage();
+    const totalLeadCount = useServerPage ? (Number(scopedPagination?.total) || 0) : localFilteredLeads.length;
+    const selectedBatchCount = useServerPage
       ? selectFilteredLeadBatch(bulkCountInput?.value, totalLeadCount)
       : selectLeadBatch(localFilteredLeads, bulkCountInput?.value);
     if (!selectedBatchCount) {
@@ -3531,15 +3565,11 @@ mainAdmissionLeadTableSection.addEventListener("click", async (event) => {
   }
 
   if (event.target.id === "mainAdmissionSelectAllFiltered") {
-    if (!scopedLoadActive) {
+    if (!shouldUseScopedServerPage()) {
       showToast("Select All Filtered is available after the filtered lead list finishes loading.", true);
       return;
     }
-    if (hasActiveAdvancedFilter()) {
-      showToast("Select All Filtered is not available with advanced filters.", true);
-      return;
-    }
-    const totalLeadCount = Number(scopedPagination?.total ?? getCurrentFilteredLeads().length) || 0;
+    const totalLeadCount = Number(scopedPagination?.total) || 0;
     const selectedBatchCount = selectFilteredLeadBatch(totalLeadCount, totalLeadCount);
     if (!selectedBatchCount) {
       showToast("No filtered leads available to select.", true);
@@ -3931,7 +3961,9 @@ async function assignSelectedUnassignedLeads(leads) {
 }
 
 async function assignFilteredSelectedLeads(counselor) {
-  const totalLeadCount = Number(scopedPagination?.total ?? getCurrentFilteredLeads().length) || 0;
+  const totalLeadCount = shouldUseScopedServerPage()
+    ? (Number(scopedPagination?.total) || 0)
+    : getCurrentFilteredLeads().length;
   const selectionCount = Math.min(filteredSelectionLimit, totalLeadCount);
   if (!selectionCount) {
     showToast("Select filtered leads before assigning.", true);
@@ -4148,6 +4180,7 @@ function restoreActiveInputState(state) {
 async function renderAll() {
   const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
   const activeInputState = getActiveInputState();
+  ensureFreshScopedServerPage();
   renderAdmissionSectionNav();
   renderSegmentSection();
   if (detailsLeadRef && !detailsEditMode) {
@@ -4160,7 +4193,7 @@ async function renderAll() {
   }
   const allLeads = getScopedLeads(getAllLeads());
   sanitizeFixedCourseFilter(allLeads);
-  const filteredLeads = filterLeads(allLeads);
+  const filteredLeads = shouldUseScopedServerPage() ? applyLeadSorting(allLeads) : filterLeads(allLeads);
   renderRegisteredRoutingPanel();
   renderKpis(filteredLeads);
   renderFilters(allLeads);
