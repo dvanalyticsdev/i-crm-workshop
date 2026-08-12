@@ -2625,20 +2625,29 @@ function applyUnifiedAdmissionFilters(rows = [], leadsByCounselor = new Map()) {
 
 function buildUnifiedAdmissionRows(counselors, rawLeads, range) {
   const baseAdmissionLeads = rawLeads
-    .filter(isUnifiedAdmissionLead)
-    .filter((lead) => isLeadInTimelineByReceivedDate(lead, range));
+    .filter(isUnifiedAdmissionLead);
   const admissionLeads = admissionReportFilters.course === "all"
     ? baseAdmissionLeads
     : baseAdmissionLeads.filter((lead) =>
       normalizeText(getUnifiedAdmissionCourseValue(lead)) === normalizeText(admissionReportFilters.course)
     );
+  const receivedAdmissionLeads = admissionLeads.filter((lead) => isLeadInTimelineByReceivedDate(lead, range));
   const leadsByCounselor = new Map();
   const rows = counselors.map((counselor) => {
     const normalizedCounselor = normalizeText(counselor);
-    const counselorLeads = admissionLeads.filter((lead) =>
+    const counselorLeads = receivedAdmissionLeads.filter((lead) =>
       normalizeText(resolveCounselorName(lead?.counselor, true)) === normalizedCounselor
     );
     const uniqueLeads = [...new Map(counselorLeads.map((lead) => [getLeadKey(lead), lead])).values()];
+    const counselorCallLeads = admissionLeads.filter((lead) =>
+      normalizeText(resolveCounselorName(lead?.counselor, true)) === normalizedCounselor
+      || getHistoryEntriesInRange(lead?.mcubeCallHistory, range).some((entry) =>
+        normalizeText(getMcubeCounselorLabel({
+          ...entry,
+          counselor: entry?.counselor || lead?.counselor
+        })) === normalizedCounselor
+      )
+    );
     leadsByCounselor.set(counselor, uniqueLeads);
     const sourceEntries = formatDerivedBreakdownEntries(uniqueLeads, getUnifiedAdmissionSourceLabel, "", "Admission");
     const courseEntries = formatDerivedBreakdownEntries(
@@ -2647,7 +2656,7 @@ function buildUnifiedAdmissionRows(counselors, rawLeads, range) {
       "",
       "Unspecified"
     );
-    const calls = getMcubeCallEntriesInRange(uniqueLeads, range).filter((entry) =>
+    const calls = getMcubeCallEntriesInRange(counselorCallLeads, range).filter((entry) =>
       normalizeText(getMcubeCounselorLabel(entry)) === normalizedCounselor
     );
     primeMcubeRecordingDurations(calls);

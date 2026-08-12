@@ -795,6 +795,9 @@ test("monitoring merges MCube call metrics into the unified admission report", (
   assert.match(monitoring, /label: "Offered %"/);
   assert.match(monitoring, /getMcubeEntryTalkTimeSeconds\(entry\)/);
   assert.match(monitoring, /renderUnifiedAdmissionView\(counselors, rawAllLeads, range\)/);
+  assert.match(getNamedFunctionSource(monitoring, "buildUnifiedAdmissionRows"), /const receivedAdmissionLeads = admissionLeads\.filter/);
+  assert.match(getNamedFunctionSource(monitoring, "buildUnifiedAdmissionRows"), /const counselorCallLeads = admissionLeads\.filter/);
+  assert.match(getNamedFunctionSource(monitoring, "buildUnifiedAdmissionRows"), /getMcubeCallEntriesInRange\(counselorCallLeads, range\)/);
   assert.match(getNamedFunctionSource(server, "buildMonitoringLeadProjection"), /mainAdmissionCourseStatus: 1/);
   assert.match(getNamedFunctionSource(server, "buildMonitoringLeadProjection"), /registeredCoursePitched: 1/);
   assert.match(getNamedFunctionSource(server, "buildMonitoringLeadProjection"), /coursePitched: 1/);
