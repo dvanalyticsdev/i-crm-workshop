@@ -16679,74 +16679,13 @@ app.get("/api/leads/scoped", async (req, res) => {
     }
     const query = buildScopedLeadMongoQuery(section, req.query || {}, session, counselors);
     const shouldIncludeFacets = String(req.query?.includeFacets || "").trim() === "1";
-    const [rawLeads, totalCount, assignedCount, unassignedCount, interestedCount, enrolledCount, wonCount, facets] = runtimeFiltersActive
-      ? await Promise.all([
-        withMongoRetry(
-          () => leadsCollection
-            .find(query, { projection: SCOPED_LEAD_LIST_PROJECTION })
-            .sort({ createdAt: -1, _id: -1 })
-            .toArray(),
-          { retries: 1, label: "Load runtime-filtered scoped leads" }
-        ),
-        Promise.resolve(null),
-        Promise.resolve(null),
-        Promise.resolve(null),
-        Promise.resolve(null),
-        Promise.resolve(null),
-        Promise.resolve(null),
-        shouldIncludeFacets ? buildScopedLeadFacets(section, session, counselors, req.query || {}) : Promise.resolve(null)
-      ])
-      : await Promise.all([
+    const [rawLeads, facets] = await Promise.all([
       withMongoRetry(
         () => leadsCollection
           .find(query, { projection: SCOPED_LEAD_LIST_PROJECTION })
           .sort({ createdAt: -1, _id: -1 })
-          .skip(skip)
-          .limit(limit)
           .toArray(),
         { retries: 1, label: "Load scoped leads" }
-      ),
-      withMongoRetry(
-        () => leadsCollection.countDocuments(query),
-        { retries: 1, label: "Count scoped leads" }
-      ),
-      withMongoRetry(
-        () => leadsCollection.countDocuments(appendMongoAnd(query, {
-          counselor: { $exists: true, $nin: ["", "Unassigned", "unassigned"] }
-        })),
-        { retries: 1, label: "Count assigned scoped leads" }
-      ),
-      withMongoRetry(
-        () => leadsCollection.countDocuments(appendMongoAnd(query, {
-          $or: [
-            { counselor: { $exists: false } },
-            { counselor: "" },
-            { counselor: "Unassigned" },
-            { counselor: "unassigned" }
-          ]
-        })),
-        { retries: 1, label: "Count unassigned scoped leads" }
-      ),
-      withMongoRetry(
-        () => leadsCollection.countDocuments({
-          ...query,
-          [section === "registered-candidates" ? "registeredCourseStatus" : "mainAdmissionCourseStatus"]: "Interested"
-        }),
-        { retries: 1, label: "Count interested scoped leads" }
-      ),
-      withMongoRetry(
-        () => leadsCollection.countDocuments({
-          ...query,
-          [section === "registered-candidates" ? "registeredAdmissionStatus" : "mainAdmissionAdmissionStatus"]: "Enrolled"
-        }),
-        { retries: 1, label: "Count enrolled scoped leads" }
-      ),
-      withMongoRetry(
-        () => leadsCollection.countDocuments({
-          ...query,
-          [section === "registered-candidates" ? "registeredAdmissionStatus" : "mainAdmissionAdmissionStatus"]: "Won"
-        }),
-        { retries: 1, label: "Count won scoped leads" }
       ),
       shouldIncludeFacets ? buildScopedLeadFacets(section, session, counselors, req.query || {}) : Promise.resolve(null)
     ]);
@@ -16761,30 +16700,19 @@ app.get("/api/leads/scoped", async (req, res) => {
       }
       return true;
     });
-    const runtimeFilteredLeads = runtimeFiltersActive
+    const runtimeFilteredLeads = hasScopedRuntimeFilters(req.query || {})
       ? visibleLeads.filter((lead) => leadMatchesScopedRuntimeFilters(lead, section, req.query || {}, session, { admissionSopEnabled }))
       : visibleLeads;
     const sortedLeads = runtimeFilteredLeads
       .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
-    const leads = runtimeFiltersActive ? sortedLeads.slice(skip, skip + limit) : sortedLeads;
+    const leads = sortedLeads.slice(skip, skip + limit);
     const updatedAt = stateMeta?.updatedAt || new Date().toISOString();
-    const safeTotal = Math.max(0, runtimeFiltersActive ? sortedLeads.length : (totalCount || 0));
-    const countSource = runtimeFiltersActive ? sortedLeads : null;
-    const effectiveAssignedCount = runtimeFiltersActive
-      ? countSource.filter((lead) => shouldTreatLeadAsAssigned(lead?.counselor)).length
-      : assignedCount || 0;
-    const effectiveUnassignedCount = runtimeFiltersActive
-      ? countSource.filter((lead) => !shouldTreatLeadAsAssigned(lead?.counselor)).length
-      : unassignedCount || 0;
-    const effectiveInterestedCount = runtimeFiltersActive
-      ? countSource.filter((lead) => (section === "registered-candidates" ? lead.registeredCourseStatus : lead.mainAdmissionCourseStatus) === "Interested").length
-      : interestedCount || 0;
-    const effectiveEnrolledCount = runtimeFiltersActive
-      ? countSource.filter((lead) => (section === "registered-candidates" ? lead.registeredAdmissionStatus : lead.mainAdmissionAdmissionStatus) === "Enrolled").length
-      : enrolledCount || 0;
-    const effectiveWonCount = runtimeFiltersActive
-      ? countSource.filter((lead) => (section === "registered-candidates" ? lead.registeredAdmissionStatus : lead.mainAdmissionAdmissionStatus) === "Won").length
-      : wonCount || 0;
+    const safeTotal = sortedLeads.length;
+    const effectiveAssignedCount = sortedLeads.filter((lead) => shouldTreatLeadAsAssigned(lead?.counselor)).length;
+    const effectiveUnassignedCount = sortedLeads.filter((lead) => !shouldTreatLeadAsAssigned(lead?.counselor)).length;
+    const effectiveInterestedCount = sortedLeads.filter((lead) => (section === "registered-candidates" ? lead.registeredCourseStatus : lead.mainAdmissionCourseStatus) === "Interested").length;
+    const effectiveEnrolledCount = sortedLeads.filter((lead) => (section === "registered-candidates" ? lead.registeredAdmissionStatus : lead.mainAdmissionAdmissionStatus) === "Enrolled").length;
+    const effectiveWonCount = sortedLeads.filter((lead) => (section === "registered-candidates" ? lead.registeredAdmissionStatus : lead.mainAdmissionAdmissionStatus) === "Won").length;
     const response = {
       section,
       leads,
