@@ -325,8 +325,8 @@ async function loadScopedMainAdmissionLeads() {
       params.set("counselor", selectedCounselors.join(","));
     }
     const selectedCourses = normalizeMultiValueFilter(filter.courseName);
-    if (selectedCourses.length === 1 && selectedCourses[0] !== OTHER_COURSE_FILTER_LABEL) {
-      params.set("courseName", selectedCourses[0]);
+    if (selectedCourses.length) {
+      params.set("courseName", selectedCourses.join(","));
     }
     const response = await fetch(apiUrl(`/api/leads/scoped?${params.toString()}`), {
       credentials: "same-origin",

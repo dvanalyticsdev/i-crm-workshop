@@ -3003,6 +3003,7 @@ function hasScopedRuntimeFilters(query = {}) {
   return [
     "counselorActivityTimeline",
     "leadOwner",
+    "courseName",
     "location",
     "leadSource",
     "activityStatus",
@@ -3021,6 +3022,17 @@ function leadMatchesScopedRuntimeFilters(lead = {}, section = "", query = {}, se
   const owner = String(query.leadOwner || "").trim().toLowerCase();
   if (owner === "direct" && String(lead.leadOwnerType || "direct").trim().toLowerCase() === "reassigned") return false;
   if (owner === "reassigned" && String(lead.leadOwnerType || "").trim().toLowerCase() !== "reassigned") return false;
+
+  const courseValues = String(query.courseName || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (courseValues.length) {
+    const leadCourseValue = section === "main-admission"
+      ? getScopedMainAdmissionCourseFacet(lead)
+      : String(lead.courseName || "").trim();
+    if (!courseValues.includes(leadCourseValue)) return false;
+  }
 
   const location = normalizeScopedLocationLabel(query.location);
   if (location && getScopedLeadLocationFacet(lead) !== location) return false;
@@ -3204,7 +3216,7 @@ function buildScopedLeadMongoQuery(section, requestQuery = {}, session = {}, cou
   }
 
   const courseName = String(requestQuery.courseName || "").trim();
-  if (courseName) {
+  if (courseName && section !== "main-admission" && !courseName.includes(",")) {
     query.courseName = courseName;
   }
 
