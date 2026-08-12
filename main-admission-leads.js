@@ -2850,7 +2850,7 @@ function filterLeads(leads) {
     const isBlockedSopLead = isSopBlockedLead(lead);
     if (filter.sopFilter === SOP_FILTER_BLOCKED) {
       if (!isAdmin || !isBlockedSopLead) return false;
-    } else if (isBlockedSopLead) {
+    } else if (isBlockedSopLead && !isAdmin) {
       return false;
     }
     const fixedCourseLabel = getFixedCrmCourseLabel(lead);
