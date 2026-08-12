@@ -783,7 +783,7 @@ test("monitoring merges MCube call metrics into the unified admission report", (
   assert.match(monitoring, /answer\|answered\|connected\|completed\|success/);
   assert.match(monitoring, /label: "Outbound Calls"/);
   assert.match(monitoring, /label: "Inbound Calls"/);
-  assert.match(monitoring, /label: "Talktime"/);
+  assert.match(monitoring, /label: "Talk Time"/);
   assert.match(monitoring, /label: "Total Leads Received"/);
   assert.match(monitoring, /label: "Total Leads Actioned"/);
   assert.match(monitoring, /label: "Total Leads Inactioned"/);
@@ -795,6 +795,9 @@ test("monitoring merges MCube call metrics into the unified admission report", (
   assert.match(monitoring, /label: "Offered %"/);
   assert.match(monitoring, /getMcubeEntryTalkTimeSeconds\(entry\)/);
   assert.match(monitoring, /renderUnifiedAdmissionView\(counselors, rawAllLeads, range\)/);
+  assert.match(getNamedFunctionSource(server, "buildMonitoringLeadProjection"), /mainAdmissionCourseStatus: 1/);
+  assert.match(getNamedFunctionSource(server, "buildMonitoringLeadProjection"), /registeredCoursePitched: 1/);
+  assert.match(getNamedFunctionSource(server, "buildMonitoringLeadProjection"), /coursePitched: 1/);
 });
 
 test("monitoring keeps Workshop Pre and Post plus one unified Admission panel", () => {

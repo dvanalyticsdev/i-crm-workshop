@@ -1861,6 +1861,36 @@ th {
   font-weight: 700;
 }
 
+.unified-admission-table {
+  min-width: 2180px;
+  table-layout: auto;
+}
+
+.unified-admission-table th,
+.unified-admission-table td {
+  min-width: 86px;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
+.unified-admission-table th {
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.unified-admission-table th:nth-child(1),
+.unified-admission-table td:nth-child(1) {
+  min-width: 170px;
+  text-align: left;
+}
+
+.unified-admission-table th:nth-child(3),
+.unified-admission-table td:nth-child(3),
+.unified-admission-table th:nth-child(4),
+.unified-admission-table td:nth-child(4) {
+  min-width: 240px;
+}
+
 .table-sort-button {
   display: inline-flex;
   align-items: center;

@@ -2825,27 +2825,27 @@ function renderUnifiedAdmissionView(counselors, rawLeads, range) {
   ]);
 
   renderTable([
-    { label: "LCE Name", render: (row) => escapeHtml(row.counselor) },
+    { label: "LCE", render: (row) => escapeHtml(row.counselor) },
     { label: "Role", render: (row) => escapeHtml(row.role) },
     { label: "Sources", render: (row) => renderBreakdownCell(row.sourceEntries, "No admission leads") },
     { label: "Courses", render: (row) => renderBreakdownCell(row.courseEntries, "No course selected") },
     { label: "Received", render: (row) => String(row.totalReceived) },
     { label: "Actioned", render: (row) => String(row.totalActioned) },
     { label: "Inactioned", render: (row) => String(row.totalInactioned) },
-    { label: "Actioned %", render: (row) => formatPercent(row.totalActioned, row.totalReceived) },
+    { label: "Action %", render: (row) => formatPercent(row.totalActioned, row.totalReceived) },
     { label: "PDE", render: (row) => String(row.pde) },
     { label: "PDE %", render: (row) => formatPercent(row.pde, row.totalReceived) },
     { label: "Interested", render: (row) => String(row.interested) },
-    { label: "Interested %", render: (row) => formatPercent(row.interested, row.totalReceived) },
-    { label: "Not Interested %", render: (row) => formatPercent(row.notInterested, row.totalReceived) },
-    { label: "Opportunity", render: (row) => String(row.opportunity) },
-    { label: "Opportunity %", render: (row) => formatPercent(row.opportunity, row.totalReceived) },
+    { label: "Int %", render: (row) => formatPercent(row.interested, row.totalReceived) },
+    { label: "NI %", render: (row) => formatPercent(row.notInterested, row.totalReceived) },
+    { label: "Opp", render: (row) => String(row.opportunity) },
+    { label: "Opp %", render: (row) => formatPercent(row.opportunity, row.totalReceived) },
     { label: "Offered", render: (row) => String(row.offered) },
     { label: "Offered %", render: (row) => formatPercent(row.offered, row.totalReceived) },
-    { label: "Outbound Calls", render: (row) => String(row.outboundCalls) },
-    { label: "Inbound Calls", render: (row) => String(row.inboundCalls) },
-    { label: "Talktime", render: (row) => escapeHtml(row.talkTimeLabel) }
-  ], rows, 20);
+    { label: "Outbound", render: (row) => String(row.outboundCalls) },
+    { label: "Inbound", render: (row) => String(row.inboundCalls) },
+    { label: "Talk Time", render: (row) => escapeHtml(row.talkTimeLabel) }
+  ], rows, 20, "unified-admission-table");
 }
 
 function renderActiveMonitoringView() {
