@@ -3149,29 +3149,37 @@ function buildScopedLeadMongoQuery(section, requestQuery = {}, session = {}, cou
 
   const sessionRole = String(session.role || "").trim().toLowerCase();
   const counselorFilter = String(requestQuery.counselor || "").trim();
-  if (sessionRole !== "counselor") {
-    if (counselorFilter === LOST_LEADS_COUNSELOR_FILTER) {
-      query = appendMongoAnd(query, canUseLostLeadCounselorFilter(session)
-        ? buildLostLeadMongoQuery()
-        : { _id: "__lost_leads_filter_forbidden__" });
-    } else if (counselorFilter === LSQ_ARCHIVED_COUNSELOR && !isAdminLikeSession(session)) {
-      query = appendMongoAnd(query, { _id: "__archived_leads_filter_forbidden__" });
-    } else if (counselorFilter.toLowerCase() === "unassigned") {
-      query = appendMongoAnd(query, {
-        $or: [
-          { counselor: { $exists: false } },
-          { counselor: "" },
-          { counselor: "Unassigned" },
-          { counselor: "unassigned" },
-          { counselor: null }
-        ]
-      });
-    } else {
-      addOptionalExactQuery(query, "counselor", counselorFilter);
-    }
+  const counselorValues = counselorFilter.split(",").map((val) => val.trim()).filter(Boolean);
+  const hasLostLeadsSelected = counselorValues.includes(LOST_LEADS_COUNSELOR_FILTER);
+
+  if (sessionRole !== "counselor" && counselorValues.length > 0) {
+    const conditions = counselorValues.map((value) => {
+      if (value === LOST_LEADS_COUNSELOR_FILTER) {
+        return canUseLostLeadCounselorFilter(session)
+          ? buildLostLeadMongoQuery()
+          : { _id: "__lost_leads_filter_forbidden__" };
+      } else if (value === LSQ_ARCHIVED_COUNSELOR) {
+        return isAdminLikeSession(session)
+          ? { counselor: LSQ_ARCHIVED_COUNSELOR }
+          : { _id: "__archived_leads_filter_forbidden__" };
+      } else if (value.toLowerCase() === "unassigned") {
+        return {
+          $or: [
+            { counselor: { $exists: false } },
+            { counselor: "" },
+            { counselor: "Unassigned" },
+            { counselor: "unassigned" },
+            { counselor: null }
+          ]
+        };
+      } else {
+        return { counselor: value };
+      }
+    });
+    query = appendMongoAnd(query, { $or: conditions });
   }
 
-  if (section === "main-admission" && counselorFilter && counselorFilter !== LOST_LEADS_COUNSELOR_FILTER) {
+  if (section === "main-admission" && counselorFilter && !hasLostLeadsSelected) {
     query = appendMongoAnd(query, { $nor: [buildLostLeadMongoQuery()] });
   }
 

@@ -1947,3 +1947,32 @@ test("manager and superadmin assignment permission bypass", () => {
   assert.match(mainAdmissionLeads, /const isOwnLead = String\(lead\?\.counselor \|\| ""\)\.trim\(\)\.toLowerCase\(\) === getCounselorIdentity\(\);/);
 });
 
+test("counselor multi-select filter and click outside closure validation", () => {
+  const server = read("server.js");
+  const mainAdmissionLeads = read("main-admission-leads.js");
+
+  const queryBuilderSource = getNamedFunctionSource(server, "buildScopedLeadMongoQuery");
+
+  // Verify backend parses counselor comma separated values
+  assert.match(queryBuilderSource, /counselorFilter\.split\((["'])\,\1\)/);
+  assert.match(queryBuilderSource, /counselorValues\.map/);
+  assert.match(queryBuilderSource, /conditions/);
+  assert.match(queryBuilderSource, /\{\s*\$or\s*:\s*conditions\s*\}/);
+
+  // Verify frontend defines default counselor as array
+  assert.match(mainAdmissionLeads, /counselor\s*:\s*\[\s*\]/);
+
+  // Verify frontend defines counselor filter open variable
+  assert.match(mainAdmissionLeads, /let isCounselorFilterOpen = false;/);
+
+  // Verify frontend renders multi-filter HTML layout for counselor
+  assert.match(mainAdmissionLeads, /id="mainAdmissionCounselorMultiFilter"/);
+  assert.match(mainAdmissionLeads, /id="mainAdmissionCounselorTrigger"/);
+  assert.match(mainAdmissionLeads, /id="mainAdmissionCounselorMenu"/);
+
+  // Verify frontend adds click-outside listener that closes filters
+  assert.match(mainAdmissionLeads, /document\.addEventListener\((["'])click\1/);
+  assert.match(mainAdmissionLeads, /isCourseFilterOpen = false;/);
+  assert.match(mainAdmissionLeads, /isCounselorFilterOpen = false;/);
+});
+

@@ -108,7 +108,7 @@ const DEFAULT_FILTER = {
   ...COUNSELOR_ACTIVITY_DATE_DEFAULTS,
   search: "",
   leadOwner: session?.role === "manager" ? "all" : isCounselorSession() ? "direct" : "all",
-  counselor: "",
+  counselor: [],
   courseName: [],
   leadSource: "",
   location: "",
@@ -196,8 +196,9 @@ filter.leadOwner = ["all", "direct", "reassigned"].includes(String(filter.leadOw
   ? String(filter.leadOwner || "").trim()
   : DEFAULT_FILTER.leadOwner;
 filter.sopFilter = isAdmin && filter.sopFilter === SOP_FILTER_BLOCKED ? SOP_FILTER_BLOCKED : "";
-if (!canUseLostLeadFilter && filter.counselor === LOST_LEADS_COUNSELOR_FILTER) {
-  filter.counselor = "";
+filter.counselor = normalizeMultiValueFilter(filter.counselor);
+if (!canUseLostLeadFilter && filter.counselor.includes(LOST_LEADS_COUNSELOR_FILTER)) {
+  filter.counselor = filter.counselor.filter(item => item !== LOST_LEADS_COUNSELOR_FILTER);
 }
 filter.courseName = normalizeMultiValueFilter(filter.courseName);
 filter.location = normalizeLocationLabel(filter.location);
@@ -216,6 +217,7 @@ let mainAdmissionActivityModalMode = "edit";
 let activeSegment = DEFAULT_SEGMENT;
 let locationSortDirection = "";
 let isCourseFilterOpen = false;
+let isCounselorFilterOpen = false;
 let isAdvancedFilterOpen = false;
 let advancedFilterDraft = null;
 let scopedMainAdmissionLeads = null;
@@ -302,7 +304,6 @@ async function loadScopedMainAdmissionLeads() {
       "counselorActivityStartDate",
       "counselorActivityEndDate",
       "leadOwner",
-      "counselor",
       "location",
       "leadSource",
       "mainAdmissionDialed",
@@ -319,6 +320,10 @@ async function loadScopedMainAdmissionLeads() {
       const value = String(filter?.[key] || "").trim();
       if (value) params.set(key, value);
     });
+    const selectedCounselors = normalizeMultiValueFilter(filter.counselor);
+    if (selectedCounselors.length) {
+      params.set("counselor", selectedCounselors.join(","));
+    }
     const selectedCourses = normalizeMultiValueFilter(filter.courseName);
     if (selectedCourses.length === 1 && selectedCourses[0] !== OTHER_COURSE_FILTER_LABEL) {
       params.set("courseName", selectedCourses[0]);
@@ -2187,6 +2192,17 @@ function renderFilters(leads) {
         ? selectedCourses[0]
         : `${selectedCourses.length} selected`;
 
+  const selectedCounselors = normalizeMultiValueFilter(filter.counselor);
+  const allCounselorOptions = counselorOptions.filter((item) => item.value !== "");
+  const allCounselorsSelected = allCounselorOptions.length > 0 && selectedCounselors.length === allCounselorOptions.length;
+  const counselorTriggerLabel = !selectedCounselors.length
+    ? "All"
+    : allCounselorsSelected
+      ? `All (${selectedCounselors.length})`
+      : selectedCounselors.length === 1
+        ? (counselorOptions.find((opt) => opt.value === selectedCounselors[0])?.label || selectedCounselors[0])
+        : `${selectedCounselors.length} selected`;
+
   mainAdmissionFilterBar.innerHTML = `
     <div class="filter-section">
       <div class="filter-section-title">Timeline</div>
@@ -2240,10 +2256,42 @@ function renderFilters(leads) {
         </div>
         ${canFilterByCounselor ? `
         <div class="filter-item">
-          <label for="mainAdmissionCounselorSelect">Counselor</label>
-          <select id="mainAdmissionCounselorSelect">
-            ${counselorOptions.map((item) => `<option value="${escapeHtml(item.value)}" ${filter.counselor === item.value ? "selected" : ""}>${escapeHtml(item.label)}</option>`).join("")}
-          </select>
+          <label for="mainAdmissionCounselorTrigger">Counselor</label>
+          <div class="multi-filter ${isCounselorFilterOpen ? "multi-filter--open" : ""}" id="mainAdmissionCounselorMultiFilter">
+            <button
+              type="button"
+              id="mainAdmissionCounselorTrigger"
+              class="multi-filter-trigger"
+              aria-haspopup="true"
+              aria-expanded="${isCounselorFilterOpen ? "true" : "false"}"
+            >
+              <span class="multi-filter-trigger__text">${escapeHtml(counselorTriggerLabel)}</span>
+              <span class="multi-filter-caret" aria-hidden="true">${isCounselorFilterOpen ? "&#9650;" : "&#9660;"}</span>
+            </button>
+            ${isCounselorFilterOpen ? `
+            <div class="multi-filter-menu" id="mainAdmissionCounselorMenu">
+              <div class="multi-filter-actions">
+                <button type="button" class="multi-filter-action-btn" id="mainAdmissionCounselorSelectAllBtn">Select All</button>
+                <button type="button" class="multi-filter-action-btn" id="mainAdmissionCounselorClearBtn">Clear</button>
+                <button type="button" class="multi-filter-action-btn multi-filter-action-btn--primary" id="mainAdmissionCounselorCloseBtn">Close</button>
+              </div>
+              ${counselorOptions.length
+                ? counselorOptions.filter((item) => item.value !== "").map((item) => {
+                    const checked = selectedCounselors.includes(item.value);
+                    return `
+                    <label class="multi-filter-option ${checked ? "multi-filter-option--selected" : ""}">
+                      <input type="checkbox" value="${escapeHtml(item.value)}" data-counselor-filter-option ${checked ? "checked" : ""} />
+                      <span>${escapeHtml(item.label)}</span>
+                    </label>
+                  `;
+                  }).join("")
+                : `<div class="multi-filter-empty">No counselor options available.</div>`}
+              <div class="multi-filter-meta">
+                <span class="selected-count">Selected: ${selectedCounselors.length || "All"}</span>
+              </div>
+            </div>
+            ` : ""}
+          </div>
         </div>
         ` : ""}
       </div>
@@ -2473,13 +2521,39 @@ function renderFilters(leads) {
     currentPage = 1;
     renderAll();
   };
-  if (canFilterByCounselor) {
-    document.getElementById("mainAdmissionCounselorSelect").onchange = (event) => {
-      filter.counselor = event.target.value;
-      persistFilters();
-      currentPage = 1;
+  const counselorTrigger = document.getElementById("mainAdmissionCounselorTrigger");
+  if (counselorTrigger) {
+    counselorTrigger.onclick = () => {
+      isCounselorFilterOpen = !isCounselorFilterOpen;
       renderAll();
     };
+    document.querySelectorAll("[data-counselor-filter-option]").forEach((input) => {
+      input.onchange = (event) => {
+        toggleCounselorFilterValue(event.target.value);
+      };
+    });
+    const selectAllCounselorsBtn = document.getElementById("mainAdmissionCounselorSelectAllBtn");
+    if (selectAllCounselorsBtn) {
+      selectAllCounselorsBtn.onclick = () => {
+        setAllCounselorFilters(leads);
+      };
+    }
+    const clearCounselorsBtn = document.getElementById("mainAdmissionCounselorClearBtn");
+    if (clearCounselorsBtn) {
+      clearCounselorsBtn.onclick = () => {
+        clearCounselorFilters();
+      };
+    }
+    const closeCounselorsBtn = document.getElementById("mainAdmissionCounselorCloseBtn");
+    if (closeCounselorsBtn) {
+      closeCounselorsBtn.onclick = () => {
+        isCounselorFilterOpen = false;
+        renderAll();
+      };
+    }
+  } else {
+    filter.counselor = [];
+    isCounselorFilterOpen = false;
   }
   const courseTrigger = document.getElementById("mainAdmissionCourseTrigger");
   if (courseTrigger) {
@@ -2586,6 +2660,7 @@ function renderFilters(leads) {
     filter.advanced = { ...ADVANCED_FILTER_DEFAULT };
     draftMainAdmissionSearch = filter.search;
     isCourseFilterOpen = false;
+    isCounselorFilterOpen = false;
     isAdvancedFilterOpen = false;
     advancedFilterDraft = null;
     persistFilters();
@@ -2635,6 +2710,42 @@ function setAllCourseFilters(leads) {
 
 function clearCourseFilters() {
   updateCourseFilterSelection([]);
+}
+
+function updateCounselorFilterSelection(nextValues) {
+  filter.counselor = normalizeMultiValueFilter(nextValues);
+  persistFilters();
+  currentPage = 1;
+  renderAll();
+}
+
+function toggleCounselorFilterValue(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return;
+  }
+
+  const currentValues = normalizeMultiValueFilter(filter.counselor);
+  const nextValues = currentValues.includes(normalized)
+    ? currentValues.filter((item) => item !== normalized)
+    : [...currentValues, normalized];
+
+  updateCounselorFilterSelection(nextValues);
+}
+
+function setAllCounselorFilters(leads) {
+  const facetCounselors = Array.isArray(scopedFacets?.counselors) ? scopedFacets.counselors : null;
+  const counselors = facetCounselors || getUniqueValues(leads, "counselor");
+  const options = [
+    "Unassigned",
+    ...(canUseLostLeadFilter ? [LOST_LEADS_COUNSELOR_FILTER] : []),
+    ...counselors.filter((item) => item && item !== "Unassigned" && item !== LOST_LEADS_COUNSELOR_FILTER && (!isManager || item !== "Archived Leads"))
+  ];
+  updateCounselorFilterSelection(options);
+}
+
+function clearCounselorFilters() {
+  updateCounselorFilterSelection([]);
 }
 
 function compareLeadLocations(a, b) {
@@ -2740,11 +2851,26 @@ function filterLeads(leads) {
       const haystack = [lead.name, lead.email, lead.phone, lead.courseName, location, lead.country, lead.counselor].join(" ").toLowerCase();
       if (!haystack.includes(filter.search.toLowerCase())) return false;
     }
-    if (filter.counselor === LOST_LEADS_COUNSELOR_FILTER) {
-      if (!canUseLostLeadFilter || !isMainAdmissionLeadNotInterested(lead)) return false;
-    } else {
-      if (filter.counselor && isMainAdmissionLeadNotInterested(lead)) return false;
-      if (filter.counselor && filter.counselor !== lead.counselor) return false;
+    const selectedCounselors = normalizeMultiValueFilter(filter.counselor);
+    if (selectedCounselors.length) {
+      const hasLostLeadsSelected = selectedCounselors.includes(LOST_LEADS_COUNSELOR_FILTER);
+      const otherSelectedCounselors = selectedCounselors.filter((c) => c !== LOST_LEADS_COUNSELOR_FILTER);
+
+      let matchesFilter = false;
+
+      if (hasLostLeadsSelected && canUseLostLeadFilter && isMainAdmissionLeadNotInterested(lead)) {
+        matchesFilter = true;
+      }
+
+      if (!matchesFilter && otherSelectedCounselors.length) {
+        const leadCounselorValue = lead.counselor || "Unassigned";
+        const matchesCounselor = otherSelectedCounselors.includes(leadCounselorValue);
+        if (matchesCounselor && !isMainAdmissionLeadNotInterested(lead)) {
+          matchesFilter = true;
+        }
+      }
+
+      if (!matchesFilter) return false;
     }
     if (activeSegment === DEFAULT_SEGMENT) {
       if (selectedCourses.length) {
@@ -3997,6 +4123,30 @@ const stopStatePolling = startMainAdmissionPolling(() => {
   void scheduleRenderAll();
 });
 registerPageCleanup(stopStatePolling);
+
+document.addEventListener("click", (event) => {
+  let needsRerender = false;
+
+  if (isCourseFilterOpen) {
+    const courseFilterEl = document.getElementById("mainAdmissionCourseMultiFilter");
+    if (courseFilterEl && !courseFilterEl.contains(event.target)) {
+      isCourseFilterOpen = false;
+      needsRerender = true;
+    }
+  }
+
+  if (isCounselorFilterOpen) {
+    const counselorFilterEl = document.getElementById("mainAdmissionCounselorMultiFilter");
+    if (counselorFilterEl && !counselorFilterEl.contains(event.target)) {
+      isCounselorFilterOpen = false;
+      needsRerender = true;
+    }
+  }
+
+  if (needsRerender) {
+    renderAll();
+  }
+});
 // await refreshState();
 // btn-mcube-call
 // if (activeSegment === DEFAULT_SEGMENT && !fixedCourseLabel) return false;
