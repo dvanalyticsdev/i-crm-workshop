@@ -8913,11 +8913,6 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
 
     const leadId = String(req.body?.leadId || "").trim();
     const phone = String(req.body?.phone || "").trim();
-    const state = await getStateDoc();
-    logTiming("state-loaded", {
-      counselors: Array.isArray(state?.counselors) ? state.counselors.length : 0,
-      leads: Array.isArray(state?.leads) ? state.leads.length : 0
-    });
     const lead = leadId
       ? await findLeadByIdentityFromCollection(leadId)
       : (phone ? await findLeadByContactFromCollection({ phone }) : null);
@@ -8926,15 +8921,19 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
     if (!targetPhone) {
       return res.status(400).json({ message: "A target phone number is required." });
     }
-    const accessState = lead ? await buildLeadActionState(lead) : state;
-    logTiming("access-state-built", { hasLead: Boolean(lead) });
+    const accessState = await buildLeadActionState(lead);
+    logTiming("access-state-built", {
+      hasLead: Boolean(lead),
+      counselors: Array.isArray(accessState?.counselors) ? accessState.counselors.length : 0,
+      leads: Array.isArray(accessState?.leads) ? accessState.leads.length : 0
+    });
     if (isCounselorLikeSession(session) && lead && !canMutateLead(session, accessState, lead)) {
       return res.status(403).json({ message: "Only the assigned counselor can call this lead." });
     }
 
     const counselorName = String(lead?.counselor || session.name || "").trim();
     const counselorDoc = counselorName
-      ? (Array.isArray(state?.counselors) ? state.counselors : []).find(
+      ? (Array.isArray(accessState?.counselors) ? accessState.counselors : []).find(
           (item) => String(item?.name || "").trim().toLowerCase() === counselorName.toLowerCase()
         )
       : null;
