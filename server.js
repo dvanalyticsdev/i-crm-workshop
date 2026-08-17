@@ -8875,11 +8875,31 @@ app.all("/api/mcube/call-routing", async (req, res) => {
 });
 
 app.post("/api/mcube/click-to-call", async (req, res) => {
+  const timingStartedAt = Date.now();
+  const timingId = `mctc-${timingStartedAt}-${Math.random().toString(36).slice(2, 8)}`;
+  let timingLastAt = timingStartedAt;
+  const logTiming = (phase, extra = {}) => {
+    const now = Date.now();
+    console.log("[mcube-click-to-call timing]", JSON.stringify({
+      id: timingId,
+      phase,
+      stepMs: now - timingLastAt,
+      totalMs: now - timingStartedAt,
+      ...extra
+    }));
+    timingLastAt = now;
+  };
+
   try {
     const session = await requireRole(req, res, ["admin", "counselor", "manager"]);
     if (!session) return;
+    logTiming("session-authorized", { role: session.role || "" });
 
     const config = await getMcubeConfig();
+    logTiming("config-loaded", {
+      enabled: Boolean(config.enabled),
+      clickToCallEnabled: config.enableClickToCall !== false
+    });
     if (!config.enabled || config.enableClickToCall === false) {
       return res.status(400).json({ message: "MCUBE click-to-call is disabled." });
     }
@@ -8894,14 +8914,20 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
     const leadId = String(req.body?.leadId || "").trim();
     const phone = String(req.body?.phone || "").trim();
     const state = await getStateDoc();
+    logTiming("state-loaded", {
+      counselors: Array.isArray(state?.counselors) ? state.counselors.length : 0,
+      leads: Array.isArray(state?.leads) ? state.leads.length : 0
+    });
     const lead = leadId
       ? await findLeadByIdentityFromCollection(leadId)
       : (phone ? await findLeadByContactFromCollection({ phone }) : null);
+    logTiming("lead-loaded", { hasLead: Boolean(lead), leadId: lead?.id || leadId || "" });
     const targetPhone = normalizeMcubeDialNumber(phone || lead?.phone || "");
     if (!targetPhone) {
       return res.status(400).json({ message: "A target phone number is required." });
     }
     const accessState = lead ? await buildLeadActionState(lead) : state;
+    logTiming("access-state-built", { hasLead: Boolean(lead) });
     if (isCounselorLikeSession(session) && lead && !canMutateLead(session, accessState, lead)) {
       return res.status(403).json({ message: "Only the assigned counselor can call this lead." });
     }
@@ -8913,6 +8939,10 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
         )
       : null;
     const executiveNumber = normalizeMcubeDialNumber(getMcubeExecutiveNumber(counselorDoc, session, config));
+    logTiming("executive-number-resolved", {
+      hasCounselorDoc: Boolean(counselorDoc),
+      hasExecutiveNumber: Boolean(executiveNumber)
+    });
     if (!executiveNumber) {
       return res.status(400).json({ message: "MCUBE executive number is missing for this counselor/session." });
     }
@@ -8927,6 +8957,17 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
     const primaryRequest = buildMcubeClickToCallRequest(config, requestPayload);
     let activeRequest = primaryRequest;
     const attempts = [];
+    logTiming("mcube-request-start", {
+      offering: activeRequest.offering,
+      method: activeRequest.method,
+      endpointHost: (() => {
+        try {
+          return new URL(activeRequest.endpoint).host;
+        } catch {
+          return "";
+        }
+      })()
+    });
     let response = await fetch(activeRequest.endpoint, {
       method: activeRequest.method,
       headers: {
@@ -8935,7 +8976,9 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
       },
       ...(activeRequest.body ? { body: activeRequest.body } : {})
     });
+    logTiming("mcube-response-headers", { status: response.status, ok: response.ok });
     let text = await response.text();
+    logTiming("mcube-response-body-read", { responseChars: text.length });
     attempts.push(buildMcubeAttemptLog(activeRequest, response, text));
     let parsed = null;
     try {
@@ -8945,6 +8988,7 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
     }
 
     const mcubeAccepted = response.ok && isSuccessfulMcubeClickToCallResponse(parsed, text, activeRequest.offering);
+    logTiming("mcube-response-classified", { accepted: mcubeAccepted });
 
     if (!mcubeAccepted) {
       await saveMcubeLog({
@@ -8965,6 +9009,7 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
         mcubeResponse: parsed || text || "",
         mcubeAttempts: attempts
       });
+      logTiming("failure-log-saved");
       if (lead) {
         await recordActivity({
           leadId: lead.id,
@@ -8981,6 +9026,7 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
             agentPhone: requestPayload.exenumber
           })
         });
+        logTiming("failure-activity-recorded");
       }
       const attemptSummary = describeFailedMcubeAttempts(attempts);
       const setupHint = response.status === 404
@@ -9011,6 +9057,7 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
           agentPhone: requestPayload.exenumber
         })
       });
+      logTiming("success-activity-recorded");
       await stateCollection.updateOne(
         { _id: STATE_DOC_ID },
         { $set: { updatedAt: new Date().toISOString() } },
@@ -9018,6 +9065,7 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
       );
       cachedStateDoc = null;
       cachedStateDocAt = 0;
+      logTiming("state-updated-after-dispatch");
     }
 
     await saveMcubeLog({
@@ -9041,7 +9089,9 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
         refid: requestPayload.refid
       }
     });
+    logTiming("success-log-saved");
 
+    logTiming("response-sent", { ok: true });
     return res.json({
       ok: true,
       endpoint: activeRequest.endpoint,
@@ -9049,6 +9099,7 @@ app.post("/api/mcube/click-to-call", async (req, res) => {
       response: parsed || text || null
     });
   } catch (err) {
+    logTiming("route-error", { message: err.message || "" });
     return res.status(500).json({ message: "Failed to trigger MCUBE click-to-call.", details: err.message });
   }
 });
