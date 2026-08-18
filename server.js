@@ -458,6 +458,7 @@ let cachedStateDoc    = null;
 let cachedStateDocAt  = 0;
 let metaLogWriteCount = 0;
 let leadStorageNormalizationPromise = null;
+let leadSequenceSyncPromise = null;
 // Re-read from Mongo after 5 s so stale serverless instances pick up writes
 // from other instances sooner. Shorter TTL reduces the window in which a
 // concurrent GET can return stale data after a PUT on a different instance.
@@ -9868,7 +9869,7 @@ app.post("/api/public-course-registrations", async (req, res) => {
     });
 
     if (existingLead) {
-      const updatedLead = await updateExistingIntegrationLead(existingLead, newLead, {
+      const updatedLead = await updateExistingPublicCourseRegistrationLead(existingLead, newLead, {
         source: "Public Registration"
       });
 
@@ -11437,6 +11438,49 @@ async function updateExistingIntegrationLead(existingLead, incomingLead, options
 
   cachedStateDoc = null;
   cachedStateDocAt = 0;
+  return nextLead;
+}
+
+async function updateExistingPublicCourseRegistrationLead(existingLead, incomingLead, options = {}) {
+  const nextLead = buildProtectedIntegrationLeadUpdate(existingLead, incomingLead);
+  const previousRepeatCount = Number.isFinite(Number(existingLead?.repeatEnquiryCount))
+    ? Number(existingLead.repeatEnquiryCount)
+    : 0;
+  const sourceLabel = String(options.source || "Public Registration").trim() || "Public Registration";
+  const existingRepeatSources = Array.isArray(existingLead?.repeatEnquirySources)
+    ? existingLead.repeatEnquirySources.map((value) => String(value || "").trim()).filter(Boolean)
+    : [];
+  const now = new Date().toISOString();
+  nextLead.repeatEnquiryCount = previousRepeatCount + 1;
+  nextLead.lastRepeatEnquiryAt = now;
+  nextLead.lastRepeatEnquirySource = sourceLabel;
+  nextLead.repeatEnquirySources = [...new Set([...existingRepeatSources, sourceLabel])];
+  await replaceLeadDocument(nextLead);
+  cachedStateDoc = null;
+  cachedStateDocAt = 0;
+
+  const previousCourse = String(existingLead?.courseName || existingLead?.workshop || existingLead?.admissionWorkshop || "").trim();
+  const nextCourse = String(nextLead?.courseName || nextLead?.workshop || nextLead?.admissionWorkshop || "").trim();
+  setImmediate(() => {
+    (async () => {
+      await recordActivity({
+        leadId: nextLead.id,
+        leadName: nextLead.name,
+        counselorName: nextLead.counselor || "",
+        activityType: "Lead Updated",
+        actionDescription: `${sourceLabel} enquiry received again for existing lead${nextCourse && nextCourse !== previousCourse ? ` and course updated to ${nextCourse}` : ""}`,
+        previousValue: previousCourse || "Existing lead retained",
+        newValue: nextCourse || previousCourse || "Existing lead retained"
+      });
+
+      await stateCollection.updateOne(
+        { _id: STATE_DOC_ID },
+        { $set: { updatedAt: now } },
+        { upsert: true }
+      );
+    })().catch(() => undefined);
+  });
+
   return nextLead;
 }
 
@@ -18312,6 +18356,10 @@ if (require.main === module) {
 }
 
 async function syncLeadSequence() {
+  if (leadSequenceSyncPromise) {
+    return leadSequenceSyncPromise;
+  }
+  leadSequenceSyncPromise = (async () => {
   try {
     const maxLeadDoc = await leadsCollection.find({}, { projection: { id: 1 } })
       .sort({ id: -1 })
@@ -18329,8 +18377,11 @@ async function syncLeadSequence() {
       );
     }
   } catch (error) {
+    leadSequenceSyncPromise = null;
     console.error("Failed to sync lead sequence:", error.message);
   }
+  })();
+  return leadSequenceSyncPromise;
 }
 
 async function getNextMetaLeadId() {
