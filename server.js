@@ -9845,13 +9845,13 @@ app.post("/api/public-course-registrations", async (req, res) => {
       return res.status(400).json({ message: "Name, phone, email, and a valid course are required." });
     }
 
-    const snapshot = await getStateDoc();
     const publicCourseSegment = getPublicCourseSegment(course);
     const isCrashCourseRegistration = publicCourseSegment === PUBLIC_COURSE_CRASH_SEGMENT;
-    const existingLead = findDuplicateLeadByEmailOrPhone(snapshot.leads, { email, phone });
-    const masterLead = findDuplicateNonRegisteredLeadByEmailOrPhone(snapshot.leads, { email, phone });
+    const contactMatches = await findLeadsByContactFromCollection({ email, phone });
+    const existingLead = findDuplicateLeadByEmailOrPhone(contactMatches, { email, phone });
+    const masterLead = findDuplicateNonRegisteredLeadByEmailOrPhone(contactMatches, { email, phone });
     const effectiveMasterLead = isCrashCourseRegistration ? null : masterLead;
-    const existingRegisteredLead = findDuplicateRegisteredLeadByEmailOrPhoneInSegment(snapshot.leads, { email, phone }, publicCourseSegment);
+    const existingRegisteredLead = findDuplicateRegisteredLeadByEmailOrPhoneInSegment(contactMatches, { email, phone }, publicCourseSegment);
     const isSameRegisteredCourse = !!existingRegisteredLead && publicCourseLeadMatchesCourse(existingRegisteredLead, course);
 
     const counselorName = "Unassigned";
@@ -9872,37 +9872,41 @@ app.post("/api/public-course-registrations", async (req, res) => {
         source: "Public Registration"
       });
 
-      await createNotification({
-        userId: "admin",
-        role: "admin",
-        type: "public_course_registration_update",
-        title: "Existing Lead Registered Again",
-        message: `Lead: ${formatLeadNotificationLabel(updatedLead)}. Registered again for ${course.name}. Existing record retained.`,
-        sound: true,
-        leadId: updatedLead.id,
-        leadName: updatedLead.name,
-        assignedCounselor: updatedLead.counselor || "Unassigned"
-      });
-
-      if (shouldTreatLeadAsAssigned(updatedLead.counselor)) {
-        const escapedName = updatedLead.counselor.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
-        const counselorDoc = await counselorsCollection.findOne({
-          name: { $regex: new RegExp(`^${escapedName}$`, "i") }
-        });
-        if (counselorDoc?.email) {
+      setImmediate(() => {
+        (async () => {
           await createNotification({
-            userId: counselorDoc.email,
-            role: "counselor",
+            userId: "admin",
+            role: "admin",
             type: "public_course_registration_update",
             title: "Existing Lead Registered Again",
-            message: `${formatLeadNotificationLabel(updatedLead)} registered again for ${course.code}. Existing lead record was updated.`,
+            message: `Lead: ${formatLeadNotificationLabel(updatedLead)}. Registered again for ${course.name}. Existing record retained.`,
             sound: true,
             leadId: updatedLead.id,
             leadName: updatedLead.name,
-            assignedCounselor: updatedLead.counselor
+            assignedCounselor: updatedLead.counselor || "Unassigned"
           });
-        }
-      }
+
+          if (shouldTreatLeadAsAssigned(updatedLead.counselor)) {
+            const escapedName = updatedLead.counselor.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+            const counselorDoc = await counselorsCollection.findOne({
+              name: { $regex: new RegExp(`^${escapedName}$`, "i") }
+            });
+            if (counselorDoc?.email) {
+              await createNotification({
+                userId: counselorDoc.email,
+                role: "counselor",
+                type: "public_course_registration_update",
+                title: "Existing Lead Registered Again",
+                message: `${formatLeadNotificationLabel(updatedLead)} registered again for ${course.code}. Existing lead record was updated.`,
+                sound: true,
+                leadId: updatedLead.id,
+                leadName: updatedLead.name,
+                assignedCounselor: updatedLead.counselor
+              });
+            }
+          }
+        })().catch(() => undefined);
+      });
 
       return res.status(200).json({
         ok: true,
@@ -9930,72 +9934,77 @@ app.post("/api/public-course-registrations", async (req, res) => {
       );
     }
 
-    await withMongoRetry(
-      () => leadsCollection.insertOne(decorateLeadForStorage(newLead)),
-      { retries: 1, label: "Create public course registration lead" }
-    );
-
-    await recordActivity({
-      leadId: newLead.id,
-      leadName: newLead.name,
-      counselorName: newLead.counselor || "",
-      activityType: "Lead Created",
-      actionDescription: `Lead created via public registration for course ${course.title || course.id}`,
-      newValue: `Name: ${newLead.name}, Phone: ${newLead.phone}, Email: ${newLead.email}`
-    });
-
-    if (shouldTreatLeadAsAssigned(newLead.counselor)) {
-      await recordActivity({
-        leadId: newLead.id,
-        leadName: newLead.name,
-        counselorName: newLead.counselor,
-        activityType: "Lead Assigned",
-        actionDescription: `Lead initially assigned to counselor ${newLead.counselor}`,
-        newValue: newLead.counselor
-      });
-    }
-
     const now = new Date().toISOString();
-    await stateCollection.updateOne(
-      { _id: STATE_DOC_ID },
-      { $set: { updatedAt: now } },
-      { upsert: true }
-    );
+    await Promise.all([
+      withMongoRetry(
+        () => leadsCollection.insertOne(decorateLeadForStorage(newLead)),
+        { retries: 1, label: "Create public course registration lead" }
+      ),
+      stateCollection.updateOne(
+        { _id: STATE_DOC_ID },
+        { $set: { updatedAt: now } },
+        { upsert: true }
+      )
+    ]);
     cachedStateDoc = null;
     cachedStateDocAt = 0;
 
-    await createNotification({
-      userId: "admin",
-      role: "admin",
-      type: "public_course_registration",
-      title: "New Course Registration",
-      message: `Lead: ${formatLeadNotificationLabel(newLead)}. Registered for ${course.name}. Awaiting manual counselor assignment.${!isCrashCourseRegistration && effectiveMasterLead ? " (linked to existing CRM lead)" : ""}${shouldReplaceExistingRegisteredLead ? " (updated registered section)" : ""}`,
-      sound: true,
-      leadId: nextId,
-      leadName: newLead.name,
-      assignedCounselor: counselorName
-    });
+    setImmediate(() => {
+      (async () => {
+        await recordActivity({
+          leadId: newLead.id,
+          leadName: newLead.name,
+          counselorName: newLead.counselor || "",
+          activityType: "Lead Created",
+          actionDescription: `Lead created via public registration for course ${course.title || course.id}`,
+          newValue: `Name: ${newLead.name}, Phone: ${newLead.phone}, Email: ${newLead.email}`
+        });
 
-    if (counselorName && counselorName.toLowerCase() !== "unassigned") {
-      const escapedName = counselorName.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
-      const counselorDoc = await counselorsCollection.findOne({
-        name: { $regex: new RegExp(`^${escapedName}$`, "i") }
-      });
+        if (shouldTreatLeadAsAssigned(newLead.counselor)) {
+          await recordActivity({
+            leadId: newLead.id,
+            leadName: newLead.name,
+            counselorName: newLead.counselor,
+            activityType: "Lead Assigned",
+            actionDescription: `Lead initially assigned to counselor ${newLead.counselor}`,
+            newValue: newLead.counselor
+          });
+        }
 
-      if (counselorDoc?.email) {
         await createNotification({
-          userId: counselorDoc.email,
-          role: "counselor",
+          userId: "admin",
+          role: "admin",
           type: "public_course_registration",
-          title: "New Registered Candidate",
-          message: `You received new registered candidate ${formatLeadNotificationLabel(newLead)} for ${course.code}.`,
+          title: "New Course Registration",
+          message: `Lead: ${formatLeadNotificationLabel(newLead)}. Registered for ${course.name}. Awaiting manual counselor assignment.${!isCrashCourseRegistration && effectiveMasterLead ? " (linked to existing CRM lead)" : ""}${shouldReplaceExistingRegisteredLead ? " (updated registered section)" : ""}`,
           sound: true,
           leadId: nextId,
           leadName: newLead.name,
           assignedCounselor: counselorName
         });
-      }
-    }
+
+        if (counselorName && counselorName.toLowerCase() !== "unassigned") {
+          const escapedName = counselorName.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+          const counselorDoc = await counselorsCollection.findOne({
+            name: { $regex: new RegExp(`^${escapedName}$`, "i") }
+          });
+
+          if (counselorDoc?.email) {
+            await createNotification({
+              userId: counselorDoc.email,
+              role: "counselor",
+              type: "public_course_registration",
+              title: "New Registered Candidate",
+              message: `You received new registered candidate ${formatLeadNotificationLabel(newLead)} for ${course.code}.`,
+              sound: true,
+              leadId: nextId,
+              leadName: newLead.name,
+              assignedCounselor: counselorName
+            });
+          }
+        }
+      })().catch(() => undefined);
+    });
 
     return res.status(201).json({
       ok: true,
@@ -12289,6 +12298,36 @@ async function findLeadByContactFromCollection({ email = "", phone = "" } = {}) 
     const rightUpdatedAt = Date.parse(String(right?.updatedAt || right?.createdAtExact || right?.createdAt || ""));
     return (Number.isFinite(rightUpdatedAt) ? rightUpdatedAt : 0) - (Number.isFinite(leftUpdatedAt) ? leftUpdatedAt : 0);
   })[0] || null;
+}
+
+async function findLeadsByContactFromCollection({ email = "", phone = "" } = {}) {
+  const normalizedEmail = normalizeLeadEmail(email);
+  const normalizedPhone = normalizeLeadPhone(phone);
+  const conditions = [];
+  if (normalizedEmail) {
+    conditions.push({ normalizedEmail });
+    conditions.push({ email: normalizedEmail });
+  }
+  if (normalizedPhone) {
+    conditions.push({ normalizedPhone });
+  }
+  if (!conditions.length) {
+    return [];
+  }
+  const matches = await withMongoRetry(
+    () => leadsCollection.find({ $or: conditions }).limit(30).toArray(),
+    { retries: 1, label: "Load leads by contact" }
+  );
+  return decorateLeadListForStorage(matches || []).sort((left, right) => {
+    const leftAssigned = shouldTreatLeadAsAssigned(left?.counselor) ? 1 : 0;
+    const rightAssigned = shouldTreatLeadAsAssigned(right?.counselor) ? 1 : 0;
+    if (leftAssigned !== rightAssigned) {
+      return rightAssigned - leftAssigned;
+    }
+    const leftUpdatedAt = Date.parse(String(left?.updatedAt || left?.createdAtExact || left?.createdAt || ""));
+    const rightUpdatedAt = Date.parse(String(right?.updatedAt || right?.createdAtExact || right?.createdAt || ""));
+    return (Number.isFinite(rightUpdatedAt) ? rightUpdatedAt : 0) - (Number.isFinite(leftUpdatedAt) ? leftUpdatedAt : 0);
+  });
 }
 
 async function buildLeadActionState(lead) {

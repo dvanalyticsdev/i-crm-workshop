@@ -17,7 +17,15 @@ import {
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
 import { triggerMcubeClickToCall } from "./mcube-call-service.js";
-import { addLeadNote, deleteLeadNote, deleteLeads as deleteLeadsOnServer, trackLeadView, updateLeadActivity as updateLeadActivityOnServer } from "./lead-service.js";
+import {
+  addLeadNote,
+  assignLeads as assignLeadsOnServer,
+  deleteLeadNote,
+  deleteLeads as deleteLeadsOnServer,
+  formatLeadAssignmentResult,
+  trackLeadView,
+  updateLeadActivity as updateLeadActivityOnServer
+} from "./lead-service.js";
 import { formatKolkataDate, formatKolkataDateTime, formatKolkataDisplay, getKolkataDayRange, parseKolkataDate as parseTimelineDate, toKolkataDateKey } from "./date-utils.js";
 import {
   bindCounselorActivityDateFilter,
@@ -31,6 +39,8 @@ await bootstrapLocalState({ skipStateRefresh: true });
 
 const session = getSession();
 const isAdmin = session?.role === "admin" || session?.role === "super_admin";
+const isManager = session?.role === "manager";
+const canUseBulkAssignment = isAdmin || isManager;
 const canUseLeadRowActions = !isAdmin;
 const canCreateTasks = session?.role === "counselor" || session?.role === "manager";
 
@@ -119,6 +129,7 @@ if (isCounselorSession() && (!persistedFilter.timeline || persistedFilter.timeli
 let currentPage = 1;
 const pageSize = 50;
 let selectedLeadKeys = new Set();
+let bulkAssignCounselor = "";
 let activeLeadRef = null;
 let notesLeadRef = null;
 let registeredRoutingConfig = { selectedCounselors: [], isConfigured: false };
@@ -735,6 +746,10 @@ function getSelectedLeadCount(leads) {
   });
 
   return count;
+}
+
+function getSelectedLeads(leads) {
+  return leads.filter((lead) => selectedLeadKeys.has(buildLeadKey(lead)));
 }
 
 function syncSelectedLeadIds(leads) {
@@ -1580,10 +1595,14 @@ function renderLeadTable(leads) {
   if (currentPage > totalPages) currentPage = totalPages;
   const pageLeads = scopedRegisteredCandidateActive && scopedRegisteredPagination ? leads : leads.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   syncSelectedLeadIds(leads);
-  const selectedCount = isAdmin ? getSelectedLeadCount(leads) : 0;
-  const allSelected = isAdmin && pageLeads.length > 0 && pageLeads.every(isLeadSelected);
+  const selectedCount = canUseBulkAssignment ? getSelectedLeadCount(leads) : 0;
+  const allSelected = canUseBulkAssignment && pageLeads.length > 0 && pageLeads.every(isLeadSelected);
+  const assignCounselorOptions = getRegisteredCandidateCounselors()
+    .map((counselor) => counselor.name)
+    .filter((name) => name && name.toLowerCase() !== "unassigned")
+    .sort((a, b) => a.localeCompare(b));
 
-  const bulkToolbar = isAdmin ? `
+  const bulkToolbar = canUseBulkAssignment ? `
     <div class="bulk-toolbar">
       <label class="bulk-select-control">
         <input id="registeredBulkSelect" type="checkbox" ${allSelected ? "checked" : ""} />
@@ -1591,12 +1610,19 @@ function renderLeadTable(leads) {
       </label>
       <div class="bulk-select-actions">
         <span class="selected-count">Selected: ${selectedCount}</span>
-        <button id="registeredBulkDelete" class="btn-delete bulk-delete-btn" type="button" ${selectedCount ? "" : "disabled"}>Delete Selected</button>
+        ${isAdmin ? `<button id="registeredBulkDelete" class="btn-delete bulk-delete-btn" type="button" ${selectedCount ? "" : "disabled"}>Delete Selected</button>` : ""}
       </div>
       <div class="bulk-admin-tools">
         <div class="bulk-inline-group">
-          <input id="registeredBulkCountInput" class="bulk-count-input" type="number" min="1" max="${leads.length || 1}" placeholder="Count" />
+          <input id="registeredBulkCountInput" class="bulk-count-input" type="number" min="1" max="${totalLeadCount || 1}" placeholder="Count" />
           <button id="registeredBulkCountApply" type="button" class="btn-ghost bulk-action-btn" ${leads.length ? "" : "disabled"}>Select Count</button>
+        </div>
+        <div class="bulk-inline-group">
+          <select id="registeredBulkAssignCounselor" class="bulk-assign-select">
+            <option value="">Assign to</option>
+            ${assignCounselorOptions.map((item) => `<option value="${escapeHtml(item)}" ${bulkAssignCounselor === item ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
+          </select>
+          <button id="registeredBulkAssign" type="button" class="btn-ghost bulk-action-btn" ${(selectedCount && bulkAssignCounselor) ? "" : "disabled"}>Assign Selected</button>
         </div>
       </div>
     </div>
@@ -1608,7 +1634,7 @@ function renderLeadTable(leads) {
       <table>
         <thead>
           <tr>
-            ${isAdmin ? "<th>Select</th>" : ""}
+            ${canUseBulkAssignment ? "<th>Select</th>" : ""}
             <th>Lead Import Date</th>
             <th>${isCrashSegment ? "Full Name" : "Name"}</th>
             <th>${isCrashSegment ? "Contact Number" : "Phone Number"}</th>
@@ -1622,7 +1648,7 @@ function renderLeadTable(leads) {
         <tbody>
           ${pageLeads.length ? pageLeads.map((lead) => `
             <tr>
-              ${isAdmin ? `<td><input type="checkbox" class="registered-lead-checkbox" data-lead-key="${escapeHtml(buildLeadKey(lead))}" ${selectedLeadKeys.has(buildLeadKey(lead)) ? "checked" : ""} /></td>` : ""}
+              ${canUseBulkAssignment ? `<td><input type="checkbox" class="registered-lead-checkbox" data-lead-key="${escapeHtml(buildLeadKey(lead))}" ${selectedLeadKeys.has(buildLeadKey(lead)) ? "checked" : ""} /></td>` : ""}
               <td>${escapeHtml(formatKolkataDisplay(lead.createdAt, "-"))}</td>
               <td><div class="lead-name-cell"><span>${escapeHtml(lead.name)}</span>${renderRepeatEnquiryBadge(lead)}</div></td>
               <td>${escapeHtml(lead.phone || "-")}</td>
@@ -1632,7 +1658,7 @@ function renderLeadTable(leads) {
               <td>${escapeHtml(lead.counselor || "Unassigned")}</td>
               <td>${renderActivityPanel(lead)}</td>
             </tr>
-          `).join("") : `<tr><td colspan="${isAdmin ? 9 : 8}">No registered candidates available for current filters.</td></tr>`}
+          `).join("") : `<tr><td colspan="${canUseBulkAssignment ? 9 : 8}">No registered candidates available for current filters.</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -1692,6 +1718,25 @@ function renderLeadTable(leads) {
 
       renderAll();
       showToast(`Selected ${selectedBatchCount} lead${selectedBatchCount === 1 ? "" : "s"}.`);
+    };
+  }
+
+  const bulkAssignSelect = document.getElementById("registeredBulkAssignCounselor");
+  if (bulkAssignSelect) {
+    bulkAssignSelect.onchange = () => {
+      bulkAssignCounselor = bulkAssignSelect.value;
+      renderAll();
+    };
+  }
+
+  const bulkAssign = document.getElementById("registeredBulkAssign");
+  if (bulkAssign) {
+    bulkAssign.onclick = () => {
+      void assignSelectedRegisteredLeads(leads).then((assigned) => {
+        if (assigned) {
+          renderAll();
+        }
+      });
     };
   }
 
@@ -1900,6 +1945,40 @@ async function deleteSelectedLeads(leads) {
   currentPage = 1;
   setMessage(`Deleted ${removedCount} registered lead${removedCount === 1 ? "" : "s"} successfully.`);
   showToast(`Deleted ${removedCount} registered lead${removedCount === 1 ? "" : "s"} successfully.`);
+  return true;
+}
+
+async function assignSelectedRegisteredLeads(leads) {
+  const counselor = String(bulkAssignCounselor || "").trim();
+  if (!counselor) {
+    showToast("Choose a counselor before assigning leads.", true);
+    return false;
+  }
+
+  const selectedLeads = getSelectedLeads(leads);
+  if (!selectedLeads.length) {
+    showToast("Select at least one registered lead to assign.", true);
+    return false;
+  }
+
+  const assignedLeadRefs = selectedLeads.map(buildLeadRef);
+  const assignResult = await assignLeadsOnServer(assignedLeadRefs, counselor);
+  if (!assignResult || assignResult.ok === false) {
+    showToast(assignResult?.message || "Failed to assign selected leads.", true);
+    return false;
+  }
+
+  mergeScopedRegisteredLeadUpdates(assignResult.leads);
+  const summary = formatLeadAssignmentResult(assignResult, assignedLeadRefs.length, counselor);
+  selectedLeadKeys = new Set();
+  bulkAssignCounselor = "";
+  currentPage = 1;
+  setMessage(summary.message);
+  showToast(summary.message);
+
+  if (scopedRegisteredCandidateActive) {
+    await loadScopedRegisteredCandidates();
+  }
   return true;
 }
 
