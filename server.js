@@ -53,6 +53,7 @@ const MCUBE_CONFIG_DOC_ID = "mcube_integration";
 const REACHOUT_CONFIG_DOC_ID = "reachout_center";
 const BACKUP_FORMAT = "dv-crm-manual-backup";
 const BACKUP_VERSION = 1;
+const EXPORT_JOB_DIR = path.join(ROOT_DIR, "tmp", "export-jobs");
 const MAX_META_LOGS = 200;
 const MAX_ELEMENTOR_LOGS = 200;
 const MAX_MCUBE_LOGS = 200;
@@ -15778,6 +15779,136 @@ async function writeCsvLine(res, line) {
   }
 }
 
+function sanitizeExportJobId(value = "") {
+  return String(value || "").replace(/[^a-f0-9]/gi, "");
+}
+
+function getExportJobPaths(jobId) {
+  const safeJobId = sanitizeExportJobId(jobId);
+  return {
+    statusPath: path.join(EXPORT_JOB_DIR, `${safeJobId}.json`),
+    filePath: path.join(EXPORT_JOB_DIR, `${safeJobId}.csv`),
+    tempPath: path.join(EXPORT_JOB_DIR, `${safeJobId}.tmp`)
+  };
+}
+
+async function writeExportJobStatus(jobId, status) {
+  await fs.promises.mkdir(EXPORT_JOB_DIR, { recursive: true });
+  const { statusPath } = getExportJobPaths(jobId);
+  await fs.promises.writeFile(statusPath, JSON.stringify({
+    ...status,
+    updatedAt: new Date().toISOString()
+  }), "utf8");
+}
+
+async function readExportJobStatus(jobId) {
+  const { statusPath } = getExportJobPaths(jobId);
+  const raw = await fs.promises.readFile(statusPath, "utf8");
+  return JSON.parse(raw);
+}
+
+async function writeCsvLineToStream(stream, line) {
+  if (!stream.write(`${line}\r\n`)) {
+    await once(stream, "drain");
+  }
+}
+
+async function generateMainAdmissionExportJob(jobId, requestQuery, session) {
+  const { filePath, tempPath } = getExportJobPaths(jobId);
+  let cursor = null;
+  let stream = null;
+  let rowCount = 0;
+
+  try {
+    await writeExportJobStatus(jobId, {
+      ok: true,
+      status: "running",
+      rowCount: 0,
+      fileName: `main-admission-leads-${new Date().toISOString().slice(0, 10)}.csv`
+    });
+
+    const [stateMeta, counselors] = await Promise.all([
+      withMongoRetry(
+        () => stateCollection.findOne(
+          { _id: STATE_DOC_ID },
+          { projection: { admissionSopEnabled: 1 } }
+        ),
+        { retries: 1, label: "Load export job SOP settings" }
+      ),
+      withMongoRetry(
+        () => counselorsCollection.find({}).toArray(),
+        { retries: 1, label: "Load export job counselors" }
+      )
+    ]);
+
+    const admissionSopEnabled = isAdmissionSopEnabledInState(stateMeta || {});
+    const query = buildScopedLeadMongoQuery("main-admission", requestQuery, session, counselors);
+    const sessionRole = String(session.role || "").trim().toLowerCase();
+    const needsRuntimeFiltering = hasScopedRuntimeFilters(requestQuery);
+
+    stream = fs.createWriteStream(tempPath, { encoding: "utf8" });
+    stream.write("\uFEFF");
+    await writeCsvLineToStream(stream, buildMainAdmissionExportCsvHeader());
+
+    cursor = leadsCollection
+      .find(query, { projection: SCOPED_LEAD_LIST_PROJECTION })
+      .sort({ createdAt: -1, _id: -1 })
+      .batchSize(500);
+
+    for await (const rawLead of cursor) {
+      const [lead] = decorateLeadListForStorage([rawLead]);
+      if (!lead) continue;
+      if (!isAdminLikeSession(session) && isLsqArchivedLead(lead)) continue;
+      if (["counselor", "manager"].includes(sessionRole)
+        && deriveAdmissionSopState(lead, Date.now(), { enabled: admissionSopEnabled })?.blocked) {
+        continue;
+      }
+      if (needsRuntimeFiltering
+        && !leadMatchesScopedRuntimeFilters(lead, "main-admission", requestQuery, session, { admissionSopEnabled })) {
+        continue;
+      }
+      await writeCsvLineToStream(stream, buildMainAdmissionExportCsvRow(lead));
+      rowCount += 1;
+      if (rowCount % 5000 === 0) {
+        await writeExportJobStatus(jobId, {
+          ok: true,
+          status: "running",
+          rowCount,
+          fileName: `main-admission-leads-${new Date().toISOString().slice(0, 10)}.csv`
+        });
+      }
+    }
+
+    await new Promise((resolve, reject) => {
+      stream.end((error) => error ? reject(error) : resolve());
+    });
+    stream = null;
+    await fs.promises.rename(tempPath, filePath);
+    await writeExportJobStatus(jobId, {
+      ok: true,
+      status: "complete",
+      rowCount,
+      downloadUrl: `/api/main-admission-leads/export-jobs/${encodeURIComponent(jobId)}/download`,
+      fileName: `main-admission-leads-${new Date().toISOString().slice(0, 10)}.csv`
+    });
+  } catch (error) {
+    if (stream) {
+      stream.destroy();
+    }
+    if (cursor) {
+      await cursor.close().catch(() => undefined);
+    }
+    await fs.promises.unlink(tempPath).catch(() => undefined);
+    await writeExportJobStatus(jobId, {
+      ok: false,
+      status: "failed",
+      rowCount,
+      message: "Failed to prepare main admission export.",
+      details: error.message
+    }).catch(() => undefined);
+  }
+}
+
 async function exportFilteredMainAdmissionLeadsHandler(req, res) {
   try {
     const session = await requireRole(req, res, ["admin", "counselor", "manager"]);
@@ -15845,6 +15976,95 @@ async function exportFilteredMainAdmissionLeadsHandler(req, res) {
     return res.status(500).json({ message: "Failed to export main admission leads", details: error.message });
   }
 }
+
+app.post("/api/main-admission-leads/export-jobs", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "counselor", "manager"]);
+    if (!session) return;
+
+    const permissions = getSessionPagePermissions(session);
+    if (!permissions.mainAdmissionLeads) {
+      return res.status(403).json({ message: "You do not have permission to export main admission leads." });
+    }
+
+    await fs.promises.mkdir(EXPORT_JOB_DIR, { recursive: true });
+    const jobId = crypto.randomBytes(16).toString("hex");
+    const requestQuery = {
+      ...(req.body?.filters && typeof req.body.filters === "object" ? req.body.filters : {}),
+      section: "main-admission"
+    };
+    await writeExportJobStatus(jobId, {
+      ok: true,
+      status: "queued",
+      rowCount: 0,
+      fileName: `main-admission-leads-${new Date().toISOString().slice(0, 10)}.csv`
+    });
+
+    setImmediate(() => {
+      generateMainAdmissionExportJob(jobId, requestQuery, session).catch((error) => {
+        writeExportJobStatus(jobId, {
+          ok: false,
+          status: "failed",
+          rowCount: 0,
+          message: "Failed to prepare main admission export.",
+          details: error.message
+        }).catch(() => undefined);
+      });
+    });
+
+    return res.status(202).json({
+      ok: true,
+      jobId,
+      statusUrl: `/api/main-admission-leads/export-jobs/${encodeURIComponent(jobId)}`
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to start main admission export", details: error.message });
+  }
+});
+
+app.get("/api/main-admission-leads/export-jobs/:jobId", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "counselor", "manager"]);
+    if (!session) return;
+
+    const jobId = sanitizeExportJobId(req.params?.jobId);
+    if (!jobId) {
+      return res.status(400).json({ message: "Export job id is required." });
+    }
+
+    const status = await readExportJobStatus(jobId);
+    return res.json(status);
+  } catch (error) {
+    return res.status(404).json({ message: "Export job was not found.", details: error.message });
+  }
+});
+
+app.get("/api/main-admission-leads/export-jobs/:jobId/download", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "counselor", "manager"]);
+    if (!session) return;
+
+    const jobId = sanitizeExportJobId(req.params?.jobId);
+    if (!jobId) {
+      return res.status(400).json({ message: "Export job id is required." });
+    }
+
+    const status = await readExportJobStatus(jobId);
+    if (status.status !== "complete") {
+      return res.status(409).json({ message: "Export is not ready yet." });
+    }
+
+    const { filePath } = getExportJobPaths(jobId);
+    await fs.promises.access(filePath, fs.constants.R_OK);
+    const filename = String(status.fileName || `main-admission-leads-${new Date().toISOString().slice(0, 10)}.csv`).replace(/"/g, "");
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Cache-Control", "no-store");
+    return fs.createReadStream(filePath).pipe(res);
+  } catch (error) {
+    return res.status(404).json({ message: "Export file was not found.", details: error.message });
+  }
+});
 
 app.post("/api/leads/universal-import", async (req, res) => {
   try {

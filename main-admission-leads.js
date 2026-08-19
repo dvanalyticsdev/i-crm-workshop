@@ -350,12 +350,61 @@ async function loadScopedMainAdmissionLeads() {
   }
 }
 
-function downloadScopedMainAdmissionExportCsv() {
+function waitForExportPoll(delayMs) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, delayMs);
+  });
+}
+
+async function requestJsonForExport(path, options = {}) {
+  const response = await fetch(apiUrl(path), {
+    credentials: "same-origin",
+    ...options,
+    headers: {
+      Accept: "application/json",
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.headers || {})
+    }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = payload?.details ? ` ${payload.details}` : "";
+    throw new Error(`${payload?.message || "Export request failed."}${detail}`);
+  }
+  return payload;
+}
+
+async function downloadScopedMainAdmissionExportCsv() {
   const filterPayload = getScopedMainAdmissionFilterPayload({ page: 1, limit: pageSize });
-  const params = new URLSearchParams(filterPayload);
+  const started = await requestJsonForExport("/api/main-admission-leads/export-jobs", {
+    method: "POST",
+    body: JSON.stringify({ filters: filterPayload })
+  });
+  const jobId = String(started?.jobId || "").trim();
+  if (!jobId) {
+    throw new Error("Export did not return a job id.");
+  }
+
+  let status = null;
+  for (let attempt = 0; attempt < 180; attempt += 1) {
+    await waitForExportPoll(attempt < 3 ? 1000 : 2000);
+    status = await requestJsonForExport(`/api/main-admission-leads/export-jobs/${encodeURIComponent(jobId)}`);
+    if (status?.status === "complete") {
+      break;
+    }
+    if (status?.status === "failed") {
+      const detail = status?.details ? ` ${status.details}` : "";
+      throw new Error(`${status?.message || "Export failed."}${detail}`);
+    }
+  }
+
+  if (status?.status !== "complete") {
+    throw new Error("Export is taking too long. Please try again in a few minutes.");
+  }
+
   const link = document.createElement("a");
-  link.href = apiUrl(`/api/main-admission-leads/export.csv?${params.toString()}`);
-  link.download = `main-admission-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.href = apiUrl(status.downloadUrl || `/api/main-admission-leads/export-jobs/${encodeURIComponent(jobId)}/download`);
+  link.download = status.fileName || `main-admission-leads-${new Date().toISOString().slice(0, 10)}.csv`;
   link.rel = "noopener";
   document.body.appendChild(link);
   link.click();
@@ -2888,8 +2937,8 @@ async function exportFilteredLeads() {
   const segmentConfig = getSegmentConfig();
   if (shouldUseScopedServerPage()) {
     try {
-      downloadScopedMainAdmissionExportCsv();
-      showToast(`${segmentConfig.label} export started. Check your browser downloads.`, false);
+      await downloadScopedMainAdmissionExportCsv();
+      showToast(`${segmentConfig.label} export ready. Check your browser downloads.`, false);
     } catch (error) {
       showToast(error?.message || "Could not export filtered leads.", true);
     }
