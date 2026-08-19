@@ -2930,6 +2930,29 @@ function getScopedLeadSourceFilterValue(lead = {}) {
   return "";
 }
 
+function getScopedLeadSourceDisplayValue(lead = {}) {
+  const extraFields = lead?.metaExtraFields && typeof lead.metaExtraFields === "object" ? lead.metaExtraFields : {};
+  const text = [
+    extraFields.source_type,
+    extraFields.platform,
+    extraFields.utm_source,
+    extraFields.referrer,
+    extraFields.lead_source,
+    extraFields.source,
+    lead.metaAdName,
+    lead.metaAdsetName,
+    lead.metaCampaignName,
+    lead.elementorPageUrl,
+    lead.elementorFormName,
+    lead.source
+  ].map((value) => String(value || "").trim().toLowerCase()).filter(Boolean).join(" ");
+  if (/\b(instagram|insta|ig)\b/.test(text)) return "Instagram Lead";
+  if (/\b(facebook|fb)\b/.test(text)) return "Facebook Lead";
+  if (String(lead.elementorPageUrl || "").trim() || /\b(elementor|website|web|landing page|site|public course)\b/.test(text)) return "Website Lead";
+  if (/\b(meta)\b/.test(text)) return "Meta Lead";
+  return String(lead.source || "").trim() || "Unknown";
+}
+
 function getScopedTimelineRange(query = {}) {
   const timeline = String(query.timeline || "").trim().toLowerCase();
   if (!timeline || timeline === "overall") return null;
@@ -15717,6 +15740,94 @@ async function assignFilteredMainAdmissionLeadsHandler(req, res) {
   }
 }
 
+function escapeCsvCell(value) {
+  const text = String(value ?? "");
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function buildMainAdmissionExportCsv(leads = []) {
+  const columns = [
+    ["Lead Import Date", (lead) => lead.createdAt],
+    ["CRM ID", (lead) => lead.id],
+    ["Name", (lead) => lead.name],
+    ["Phone Number", (lead) => lead.phone || "-"],
+    ["Email", (lead) => lead.email],
+    ["Course Name", (lead) => lead.courseName || "-"],
+    ["Location", (lead) => getScopedLeadLocationFacet(lead) || "India"],
+    ["Counselor", (lead) => lead.counselor || "Unassigned"],
+    ["Lead Source", (lead) => getScopedLeadSourceDisplayValue(lead)],
+    ["Repeat Enquiry", (lead) => isScopedRepeatEnquiryLead(lead, "main-admission") ? "Yes" : "No"],
+    ["Dialed", (lead) => lead.mainAdmissionDialed || ""],
+    ["Course Pitched", (lead) => lead.mainAdmissionCoursePitched || ""],
+    ["Course Status", (lead) => lead.mainAdmissionCourseStatus || ""],
+    ["Admission", (lead) => lead.mainAdmissionAdmissionStatus || ""],
+    ["Call Status", (lead) => lead.mainAdmissionCallStatus || ""]
+  ];
+  const lines = [
+    columns.map(([label]) => escapeCsvCell(label)).join(","),
+    ...leads.map((lead) => columns.map(([, getter]) => escapeCsvCell(getter(lead))).join(","))
+  ];
+  return lines.join("\r\n");
+}
+
+async function exportFilteredMainAdmissionLeadsHandler(req, res) {
+  try {
+    const session = await requireRole(req, res, ["admin", "counselor", "manager"]);
+    if (!session) return;
+
+    const permissions = getSessionPagePermissions(session);
+    if (!permissions.mainAdmissionLeads) {
+      return res.status(403).json({ message: "You do not have permission to export main admission leads." });
+    }
+
+    const [stateMeta, counselors] = await Promise.all([
+      withMongoRetry(
+        () => stateCollection.findOne(
+          { _id: STATE_DOC_ID },
+          { projection: { admissionSopEnabled: 1 } }
+        ),
+        { retries: 1, label: "Load filtered export SOP settings" }
+      ),
+      withMongoRetry(
+        () => counselorsCollection.find({}).toArray(),
+        { retries: 1, label: "Load filtered export counselors" }
+      )
+    ]);
+    const requestQuery = { ...(req.query || {}), section: "main-admission" };
+    const admissionSopEnabled = isAdmissionSopEnabledInState(stateMeta || {});
+    const query = buildScopedLeadMongoQuery("main-admission", requestQuery, session, counselors);
+    const rawLeads = await withMongoRetry(
+      () => leadsCollection
+        .find(query, { projection: SCOPED_LEAD_LIST_PROJECTION })
+        .sort({ createdAt: -1, _id: -1 })
+        .toArray(),
+      { retries: 1, label: "Load filtered main admission leads for export" }
+    );
+    const sessionRole = String(session.role || "").trim().toLowerCase();
+    const visibleLeads = decorateLeadListForStorage(rawLeads || []).filter((lead) => {
+      if (!isAdminLikeSession(session) && isLsqArchivedLead(lead)) {
+        return false;
+      }
+      if (["counselor", "manager"].includes(sessionRole)) {
+        return !deriveAdmissionSopState(lead, Date.now(), { enabled: admissionSopEnabled })?.blocked;
+      }
+      return true;
+    });
+    const sortedLeads = (hasScopedRuntimeFilters(requestQuery)
+      ? visibleLeads.filter((lead) => leadMatchesScopedRuntimeFilters(lead, "main-admission", requestQuery, session, { admissionSopEnabled }))
+      : visibleLeads)
+      .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+
+    const filename = `main-admission-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Cache-Control", "no-store");
+    return res.send(`\uFEFF${buildMainAdmissionExportCsv(sortedLeads)}`);
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to export main admission leads", details: error.message });
+  }
+}
+
 app.post("/api/leads/universal-import", async (req, res) => {
   try {
     const session = await requireRole(req, res, ["admin", "super_admin"]);
@@ -15898,6 +16009,7 @@ app.post("/api/leads/universal-import", async (req, res) => {
 app.patch("/api/leads/assignment", assignLeadsHandler);
 app.post("/api/leads/assignment", assignLeadsHandler);
 app.post("/api/leads/scoped/main-admission/assignment", assignFilteredMainAdmissionLeadsHandler);
+app.get("/api/leads/scoped/main-admission/export.csv", exportFilteredMainAdmissionLeadsHandler);
 
 app.post("/api/leads/:leadId/take-sop", async (req, res) => {
   try {

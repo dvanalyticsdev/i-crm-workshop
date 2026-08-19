@@ -208,7 +208,6 @@ if (isCounselorSession() && (!persistedFilter.timeline || persistedFilter.timeli
 }
 let currentPage = 1;
 const pageSize = 50;
-const exportPageSize = 500;
 let selectedLeadKeys = new Set();
 let filteredSelectionLimit = 0;
 let bulkAssignCounselor = "";
@@ -351,35 +350,27 @@ async function loadScopedMainAdmissionLeads() {
   }
 }
 
-async function fetchScopedMainAdmissionExportRows() {
-  const leads = [];
-  let page = 1;
-  let totalPages = 1;
-
-  do {
-    const filterPayload = getScopedMainAdmissionFilterPayload({
-      page,
-      limit: exportPageSize
-    });
-    const params = new URLSearchParams(filterPayload);
-    params.set("exportAll", "1");
-
-    const response = await fetch(apiUrl(`/api/leads/scoped?${params.toString()}`), {
-      credentials: "same-origin",
-      headers: { Accept: "application/json" }
-    });
+async function downloadScopedMainAdmissionExportCsv() {
+  const filterPayload = getScopedMainAdmissionFilterPayload({ page: 1, limit: pageSize });
+  const params = new URLSearchParams(filterPayload);
+  const response = await fetch(apiUrl(`/api/leads/scoped/main-admission/export.csv?${params.toString()}`), {
+    credentials: "same-origin",
+    headers: { Accept: "text/csv" }
+  });
+  if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(payload?.message || "Could not load all filtered leads for export.");
-    }
+    throw new Error(payload?.message || "Could not export filtered leads.");
+  }
 
-    leads.push(...(Array.isArray(payload?.leads) ? payload.leads : []));
-    totalPages = Math.max(1, Number(payload?.pagination?.totalPages) || 1);
-    page += 1;
-  } while (page <= totalPages);
-
-  normalizeLeadFields(leads);
-  return applyLeadSorting(leads);
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `main-admission-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function startMainAdmissionPolling(onRefresh, intervalMs = 15000) {
@@ -2906,11 +2897,19 @@ function getLocationSortLabel() {
 
 async function exportFilteredLeads() {
   const segmentConfig = getSegmentConfig();
+  if (shouldUseScopedServerPage()) {
+    try {
+      await downloadScopedMainAdmissionExportCsv();
+      showToast(`${segmentConfig.label} export downloaded.`, false);
+    } catch (error) {
+      showToast(error?.message || "Could not export filtered leads.", true);
+    }
+    return;
+  }
+
   let filteredLeads;
   try {
-    filteredLeads = shouldUseScopedServerPage()
-      ? await fetchScopedMainAdmissionExportRows()
-      : getMainAdmissionExportRows();
+    filteredLeads = getMainAdmissionExportRows();
   } catch (error) {
     showToast(error?.message || "Could not export filtered leads.", true);
     return;
