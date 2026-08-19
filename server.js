@@ -4,6 +4,7 @@ const path       = require("path");
 const fs         = require("fs");
 const crypto     = require("crypto");
 const compress   = require("compression");
+const { once } = require("events");
 const { MongoClient } = require("mongodb");
 
 const app = express();
@@ -15745,29 +15746,36 @@ function escapeCsvCell(value) {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-function buildMainAdmissionExportCsv(leads = []) {
-  const columns = [
-    ["Lead Import Date", (lead) => lead.createdAt],
-    ["CRM ID", (lead) => lead.id],
-    ["Name", (lead) => lead.name],
-    ["Phone Number", (lead) => lead.phone || "-"],
-    ["Email", (lead) => lead.email],
-    ["Course Name", (lead) => lead.courseName || "-"],
-    ["Location", (lead) => getScopedLeadLocationFacet(lead) || "India"],
-    ["Counselor", (lead) => lead.counselor || "Unassigned"],
-    ["Lead Source", (lead) => getScopedLeadSourceDisplayValue(lead)],
-    ["Repeat Enquiry", (lead) => isScopedRepeatEnquiryLead(lead, "main-admission") ? "Yes" : "No"],
-    ["Dialed", (lead) => lead.mainAdmissionDialed || ""],
-    ["Course Pitched", (lead) => lead.mainAdmissionCoursePitched || ""],
-    ["Course Status", (lead) => lead.mainAdmissionCourseStatus || ""],
-    ["Admission", (lead) => lead.mainAdmissionAdmissionStatus || ""],
-    ["Call Status", (lead) => lead.mainAdmissionCallStatus || ""]
-  ];
-  const lines = [
-    columns.map(([label]) => escapeCsvCell(label)).join(","),
-    ...leads.map((lead) => columns.map(([, getter]) => escapeCsvCell(getter(lead))).join(","))
-  ];
-  return lines.join("\r\n");
+const MAIN_ADMISSION_EXPORT_COLUMNS = [
+  ["Lead Import Date", (lead) => lead.createdAt],
+  ["CRM ID", (lead) => lead.id],
+  ["Name", (lead) => lead.name],
+  ["Phone Number", (lead) => lead.phone || "-"],
+  ["Email", (lead) => lead.email],
+  ["Course Name", (lead) => lead.courseName || "-"],
+  ["Location", (lead) => getScopedLeadLocationFacet(lead) || "India"],
+  ["Counselor", (lead) => lead.counselor || "Unassigned"],
+  ["Lead Source", (lead) => getScopedLeadSourceDisplayValue(lead)],
+  ["Repeat Enquiry", (lead) => isScopedRepeatEnquiryLead(lead, "main-admission") ? "Yes" : "No"],
+  ["Dialed", (lead) => lead.mainAdmissionDialed || ""],
+  ["Course Pitched", (lead) => lead.mainAdmissionCoursePitched || ""],
+  ["Course Status", (lead) => lead.mainAdmissionCourseStatus || ""],
+  ["Admission", (lead) => lead.mainAdmissionAdmissionStatus || ""],
+  ["Call Status", (lead) => lead.mainAdmissionCallStatus || ""]
+];
+
+function buildMainAdmissionExportCsvHeader() {
+  return MAIN_ADMISSION_EXPORT_COLUMNS.map(([label]) => escapeCsvCell(label)).join(",");
+}
+
+function buildMainAdmissionExportCsvRow(lead = {}) {
+  return MAIN_ADMISSION_EXPORT_COLUMNS.map(([, getter]) => escapeCsvCell(getter(lead))).join(",");
+}
+
+async function writeCsvLine(res, line) {
+  if (!res.write(`${line}\r\n`)) {
+    await once(res, "drain");
+  }
 }
 
 async function exportFilteredMainAdmissionLeadsHandler(req, res) {
@@ -15796,34 +15804,44 @@ async function exportFilteredMainAdmissionLeadsHandler(req, res) {
     const requestQuery = { ...(req.query || {}), section: "main-admission" };
     const admissionSopEnabled = isAdmissionSopEnabledInState(stateMeta || {});
     const query = buildScopedLeadMongoQuery("main-admission", requestQuery, session, counselors);
-    const rawLeads = await withMongoRetry(
-      () => leadsCollection
-        .find(query, { projection: SCOPED_LEAD_LIST_PROJECTION })
-        .sort({ createdAt: -1, _id: -1 })
-        .toArray(),
-      { retries: 1, label: "Load filtered main admission leads for export" }
-    );
     const sessionRole = String(session.role || "").trim().toLowerCase();
-    const visibleLeads = decorateLeadListForStorage(rawLeads || []).filter((lead) => {
-      if (!isAdminLikeSession(session) && isLsqArchivedLead(lead)) {
-        return false;
-      }
-      if (["counselor", "manager"].includes(sessionRole)) {
-        return !deriveAdmissionSopState(lead, Date.now(), { enabled: admissionSopEnabled })?.blocked;
-      }
-      return true;
-    });
-    const sortedLeads = (hasScopedRuntimeFilters(requestQuery)
-      ? visibleLeads.filter((lead) => leadMatchesScopedRuntimeFilters(lead, "main-admission", requestQuery, session, { admissionSopEnabled }))
-      : visibleLeads)
-      .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+    const needsRuntimeFiltering = hasScopedRuntimeFilters(requestQuery);
 
     const filename = `main-admission-leads-${new Date().toISOString().slice(0, 10)}.csv`;
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.setHeader("Cache-Control", "no-store");
-    return res.send(`\uFEFF${buildMainAdmissionExportCsv(sortedLeads)}`);
+    res.write("\uFEFF");
+    await writeCsvLine(res, buildMainAdmissionExportCsvHeader());
+
+    const cursor = leadsCollection
+      .find(query, { projection: SCOPED_LEAD_LIST_PROJECTION })
+      .sort({ createdAt: -1, _id: -1 })
+      .batchSize(500);
+    try {
+      for await (const rawLead of cursor) {
+        const [lead] = decorateLeadListForStorage([rawLead]);
+        if (!lead) continue;
+        if (!isAdminLikeSession(session) && isLsqArchivedLead(lead)) continue;
+        if (["counselor", "manager"].includes(sessionRole)
+          && deriveAdmissionSopState(lead, Date.now(), { enabled: admissionSopEnabled })?.blocked) {
+          continue;
+        }
+        if (needsRuntimeFiltering
+          && !leadMatchesScopedRuntimeFilters(lead, "main-admission", requestQuery, session, { admissionSopEnabled })) {
+          continue;
+        }
+        await writeCsvLine(res, buildMainAdmissionExportCsvRow(lead));
+      }
+    } finally {
+      await cursor.close().catch(() => undefined);
+    }
+    return res.end();
   } catch (error) {
+    if (res.headersSent) {
+      console.error("Failed while streaming main admission export:", error);
+      return res.end();
+    }
     return res.status(500).json({ message: "Failed to export main admission leads", details: error.message });
   }
 }

@@ -358,8 +358,9 @@ async function downloadScopedMainAdmissionExportCsv() {
     headers: { Accept: "text/csv" }
   });
   if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    throw new Error(payload?.message || "Could not export filtered leads.");
+    const payload = await response.json().catch(() => null);
+    const detail = payload?.details ? ` ${payload.details}` : "";
+    throw new Error(`${payload?.message || "Could not export filtered leads."}${detail}`);
   }
 
   const blob = await response.blob();
