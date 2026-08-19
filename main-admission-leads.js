@@ -208,7 +208,7 @@ if (isCounselorSession() && (!persistedFilter.timeline || persistedFilter.timeli
 }
 let currentPage = 1;
 const pageSize = 50;
-const exportPageSize = 200000;
+const exportPageSize = 500;
 let selectedLeadKeys = new Set();
 let filteredSelectionLimit = 0;
 let bulkAssignCounselor = "";
@@ -352,23 +352,32 @@ async function loadScopedMainAdmissionLeads() {
 }
 
 async function fetchScopedMainAdmissionExportRows() {
-  const filterPayload = getScopedMainAdmissionFilterPayload({
-    page: 1,
-    limit: exportPageSize
-  });
-  const params = new URLSearchParams(filterPayload);
-  params.set("exportAll", "1");
+  const leads = [];
+  let page = 1;
+  let totalPages = 1;
 
-  const response = await fetch(apiUrl(`/api/leads/scoped?${params.toString()}`), {
-    credentials: "same-origin",
-    headers: { Accept: "application/json" }
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload?.message || "Could not load all filtered leads for export.");
-  }
+  do {
+    const filterPayload = getScopedMainAdmissionFilterPayload({
+      page,
+      limit: exportPageSize
+    });
+    const params = new URLSearchParams(filterPayload);
+    params.set("exportAll", "1");
 
-  const leads = Array.isArray(payload?.leads) ? payload.leads : [];
+    const response = await fetch(apiUrl(`/api/leads/scoped?${params.toString()}`), {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.message || "Could not load all filtered leads for export.");
+    }
+
+    leads.push(...(Array.isArray(payload?.leads) ? payload.leads : []));
+    totalPages = Math.max(1, Number(payload?.pagination?.totalPages) || 1);
+    page += 1;
+  } while (page <= totalPages);
+
   normalizeLeadFields(leads);
   return applyLeadSorting(leads);
 }
