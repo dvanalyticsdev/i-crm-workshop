@@ -208,6 +208,7 @@ if (isCounselorSession() && (!persistedFilter.timeline || persistedFilter.timeli
 }
 let currentPage = 1;
 const pageSize = 50;
+const exportPageSize = 200000;
 let selectedLeadKeys = new Set();
 let filteredSelectionLimit = 0;
 let bulkAssignCounselor = "";
@@ -348,6 +349,28 @@ async function loadScopedMainAdmissionLeads() {
     });
     return false;
   }
+}
+
+async function fetchScopedMainAdmissionExportRows() {
+  const filterPayload = getScopedMainAdmissionFilterPayload({
+    page: 1,
+    limit: exportPageSize
+  });
+  const params = new URLSearchParams(filterPayload);
+  params.set("exportAll", "1");
+
+  const response = await fetch(apiUrl(`/api/leads/scoped?${params.toString()}`), {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.message || "Could not load all filtered leads for export.");
+  }
+
+  const leads = Array.isArray(payload?.leads) ? payload.leads : [];
+  normalizeLeadFields(leads);
+  return applyLeadSorting(leads);
 }
 
 function startMainAdmissionPolling(onRefresh, intervalMs = 15000) {
@@ -2742,7 +2765,11 @@ function renderFilters(leads) {
   };
 
   document.getElementById("mainAdmissionExportBtn").onclick = () => {
-    exportFilteredLeads();
+    void withButtonBusy(
+      document.getElementById("mainAdmissionExportBtn"),
+      "Exporting...",
+      exportFilteredLeads
+    );
   };
 }
 
@@ -2868,9 +2895,18 @@ function getLocationSortLabel() {
   return "Location Sort";
 }
 
-function exportFilteredLeads() {
+async function exportFilteredLeads() {
   const segmentConfig = getSegmentConfig();
-  const filteredLeads = getMainAdmissionExportRows();
+  let filteredLeads;
+  try {
+    filteredLeads = shouldUseScopedServerPage()
+      ? await fetchScopedMainAdmissionExportRows()
+      : getMainAdmissionExportRows();
+  } catch (error) {
+    showToast(error?.message || "Could not export filtered leads.", true);
+    return;
+  }
+
   const result = exportLeadRowsToExcel({
     rows: filteredLeads,
     columns: [

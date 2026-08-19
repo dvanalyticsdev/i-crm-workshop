@@ -17065,8 +17065,9 @@ app.get("/api/leads/scoped", async (req, res) => {
       return res.status(403).json({ message: "You do not have permission to view this lead section." });
     }
 
+    const exportAll = String(req.query?.exportAll || "").trim() === "1";
     const requestedPage = parseBoundedPositiveInt(req.query?.page, 1, 1, 100000);
-    const limit = parseBoundedPositiveInt(req.query?.limit, 50, 1, 500);
+    const limit = parseBoundedPositiveInt(req.query?.limit, 50, 1, exportAll ? 200000 : 500);
 
     const [stateMeta, counselors] = await Promise.all([
       withMongoRetry(
