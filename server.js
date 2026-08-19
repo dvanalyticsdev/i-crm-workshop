@@ -15977,7 +15977,7 @@ async function exportFilteredMainAdmissionLeadsHandler(req, res) {
   }
 }
 
-app.post("/api/main-admission-leads/export-jobs", async (req, res) => {
+async function startMainAdmissionExportJobHandler(req, res) {
   try {
     const session = await requireRole(req, res, ["admin", "counselor", "manager"]);
     if (!session) return;
@@ -15990,7 +15990,7 @@ app.post("/api/main-admission-leads/export-jobs", async (req, res) => {
     await fs.promises.mkdir(EXPORT_JOB_DIR, { recursive: true });
     const jobId = crypto.randomBytes(16).toString("hex");
     const requestQuery = {
-      ...(req.body?.filters && typeof req.body.filters === "object" ? req.body.filters : {}),
+      ...(req.body?.filters && typeof req.body.filters === "object" ? req.body.filters : req.query || {}),
       section: "main-admission"
     };
     await writeExportJobStatus(jobId, {
@@ -16020,7 +16020,12 @@ app.post("/api/main-admission-leads/export-jobs", async (req, res) => {
   } catch (error) {
     return res.status(500).json({ message: "Failed to start main admission export", details: error.message });
   }
-});
+}
+
+app.post("/api/main-admission-leads/export-jobs", startMainAdmissionExportJobHandler);
+app.get("/api/main-admission-leads/export-jobs/start", startMainAdmissionExportJobHandler);
+app.post("/api/leads/scoped/main-admission/export-jobs", startMainAdmissionExportJobHandler);
+app.get("/api/leads/scoped/main-admission/export-jobs/start", startMainAdmissionExportJobHandler);
 
 app.get("/api/main-admission-leads/export-jobs/:jobId", async (req, res) => {
   try {

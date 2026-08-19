@@ -369,17 +369,26 @@ async function requestJsonForExport(path, options = {}) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const detail = payload?.details ? ` ${payload.details}` : "";
-    throw new Error(`${payload?.message || "Export request failed."}${detail}`);
+    throw new Error(`${payload?.message || "Export request failed."}${detail} HTTP ${response.status}`);
   }
   return payload;
 }
 
 async function downloadScopedMainAdmissionExportCsv() {
   const filterPayload = getScopedMainAdmissionFilterPayload({ page: 1, limit: pageSize });
-  const started = await requestJsonForExport("/api/main-admission-leads/export-jobs", {
-    method: "POST",
-    body: JSON.stringify({ filters: filterPayload })
-  });
+  let started;
+  try {
+    started = await requestJsonForExport("/api/main-admission-leads/export-jobs", {
+      method: "POST",
+      body: JSON.stringify({ filters: filterPayload })
+    });
+  } catch (error) {
+    if (!String(error?.message || "").includes("404")) {
+      throw error;
+    }
+    const params = new URLSearchParams(filterPayload);
+    started = await requestJsonForExport(`/api/main-admission-leads/export-jobs/start?${params.toString()}`);
+  }
   const jobId = String(started?.jobId || "").trim();
   if (!jobId) {
     throw new Error("Export did not return a job id.");
