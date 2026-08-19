@@ -16027,6 +16027,7 @@ app.post("/api/leads/universal-import", async (req, res) => {
 app.patch("/api/leads/assignment", assignLeadsHandler);
 app.post("/api/leads/assignment", assignLeadsHandler);
 app.post("/api/leads/scoped/main-admission/assignment", assignFilteredMainAdmissionLeadsHandler);
+app.get("/api/main-admission-leads/export.csv", exportFilteredMainAdmissionLeadsHandler);
 app.get("/api/leads/scoped/main-admission/export.csv", exportFilteredMainAdmissionLeadsHandler);
 
 app.post("/api/leads/:leadId/take-sop", async (req, res) => {

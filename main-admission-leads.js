@@ -350,28 +350,16 @@ async function loadScopedMainAdmissionLeads() {
   }
 }
 
-async function downloadScopedMainAdmissionExportCsv() {
+function downloadScopedMainAdmissionExportCsv() {
   const filterPayload = getScopedMainAdmissionFilterPayload({ page: 1, limit: pageSize });
   const params = new URLSearchParams(filterPayload);
-  const response = await fetch(apiUrl(`/api/leads/scoped/main-admission/export.csv?${params.toString()}`), {
-    credentials: "same-origin",
-    headers: { Accept: "text/csv" }
-  });
-  if (!response.ok) {
-    const payload = await response.json().catch(() => null);
-    const detail = payload?.details ? ` ${payload.details}` : "";
-    throw new Error(`${payload?.message || "Could not export filtered leads."}${detail}`);
-  }
-
-  const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
-  link.href = url;
+  link.href = apiUrl(`/api/main-admission-leads/export.csv?${params.toString()}`);
   link.download = `main-admission-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.rel = "noopener";
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
 }
 
 function startMainAdmissionPolling(onRefresh, intervalMs = 15000) {
@@ -2900,8 +2888,8 @@ async function exportFilteredLeads() {
   const segmentConfig = getSegmentConfig();
   if (shouldUseScopedServerPage()) {
     try {
-      await downloadScopedMainAdmissionExportCsv();
-      showToast(`${segmentConfig.label} export downloaded.`, false);
+      downloadScopedMainAdmissionExportCsv();
+      showToast(`${segmentConfig.label} export started. Check your browser downloads.`, false);
     } catch (error) {
       showToast(error?.message || "Could not export filtered leads.", true);
     }
