@@ -3469,6 +3469,14 @@ function buildMonitoringLeadMongoQuery(subsection = "") {
   if (key === "mcube-main") {
     return {};
   }
+  if (key === "workshop-calling" || key === "pre-workshop" || key === "workshop") {
+    return {
+      $or: [
+        legacyPipelineQuery,
+        { leadPipeline: "workshop" }
+      ]
+    };
+  }
   return legacyPipelineQuery;
 }
 
