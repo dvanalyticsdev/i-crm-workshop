@@ -1141,6 +1141,11 @@ function isFixedCrmCourseIdentity(identity = {}) {
   return Boolean(identity.id && identity.label && FIXED_COURSE_LABEL_SET.has(identity.label));
 }
 
+function isCampaignOnlyCourseName(value = "") {
+  const normalized = String(value || "").trim().toLowerCase();
+  return Boolean(normalized) && /\b(adset|asset|ad set|campaign|instant\s*form)\b/i.test(normalized);
+}
+
 function getFixedCrmCourseLabel(lead = {}) {
   const identity = getCanonicalCourseIdentity(lead);
   return isFixedCrmCourseIdentity(identity) ? identity.label : "";
@@ -1232,6 +1237,9 @@ function normalizeLeadFields(leads) {
     if (isFixedCrmCourseIdentity(canonicalCourse)) {
       lead.courseName = canonicalCourse.label;
       lead.courseKey = canonicalCourse.key || String(lead.courseKey || "").trim();
+    } else if (isCampaignOnlyCourseName(lead.courseName)) {
+      lead.courseName = "";
+      lead.courseKey = String(lead.courseKey || "").trim();
     } else {
       lead.courseName = String(lead.courseName || "").trim();
       lead.courseKey = String(lead.courseKey || "").trim();

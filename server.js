@@ -6969,6 +6969,20 @@ function getAdmissionRoutingCourseName(rawCourseName = "", courseIdentity = {}) 
   return rawCourseName;
 }
 
+function getKnownCourseLabelFromMetaParts(...parts) {
+  const courseIdentity = buildCourseIdentity("", {
+    metaAdName: parts[0],
+    metaAdsetName: parts[1],
+    metaCampaignName: parts[2]
+  });
+  return isKnownPublicCourseIdentity(courseIdentity) ? courseIdentity.label : "";
+}
+
+function isMetaCampaignOnlyCourseName(value = "") {
+  const normalized = normalizeMetaLabel(value).toLowerCase();
+  return Boolean(normalized) && /\b(adset|asset|ad set|campaign|instant\s*form)\b/i.test(normalized);
+}
+
 function getMetaLeadFieldMap(fieldData = []) {
   const fields = {};
   (fieldData || []).forEach(({ name, values }) => {
@@ -7464,7 +7478,7 @@ function buildMetaLead(fieldData, meta, counselorName, nextId, options = {}) {
   const name = fullName || (firstName ? `${firstName} ${lastName}`.trim() : "Unknown");
   const email = String(fields.email || fields.email_address || "").trim().toLowerCase();
   const phone = String(fields.phone_number || fields.phone || fields.mobile_phone || fields.mobile || "").trim();
-  const inferredProgram = String(
+  const explicitProgram = String(
     fields.workshop ||
     fields.workshop_name ||
     fields.workshop_title ||
@@ -7472,8 +7486,9 @@ function buildMetaLead(fieldData, meta, counselorName, nextId, options = {}) {
     fields.course ||
     fields.course_name ||
     fields.program ||
-    normalizeMetaLabel(meta.adsetName || meta.adName || meta.campaignName || "")
+    ""
   ).trim();
+  const inferredProgram = explicitProgram || getKnownCourseLabelFromMetaParts(meta.adName, meta.adsetName, meta.campaignName);
   const leadType = String(options.leadType || "").trim().toLowerCase() === "admission" ? "admission" : "workshop";
   const isAdmissionLead = leadType === "admission";
   const workshop = isAdmissionLead ? "" : inferredProgram;
@@ -10771,10 +10786,18 @@ function decorateLeadCourseFields(lead = {}) {
   const courseIdentity = buildCourseIdentity(lead?.courseName, lead);
   const rawCourseName = normalizeMetaLabel(lead?.courseRawName || lead?.courseName);
 
-  if (courseIdentity.label) {
+  if (isKnownPublicCourseIdentity(courseIdentity)) {
     nextLead.courseName = courseIdentity.label;
     nextLead.courseKey = courseIdentity.key;
     nextLead.courseRawName = rawCourseName || courseIdentity.rawLabel || courseIdentity.label;
+  } else if (isMetaCampaignOnlyCourseName(lead?.courseName)) {
+    nextLead.courseName = "";
+    delete nextLead.courseKey;
+    if (rawCourseName) {
+      nextLead.courseRawName = rawCourseName;
+    } else {
+      delete nextLead.courseRawName;
+    }
   } else {
     nextLead.courseName = String(lead?.courseName || "").trim();
     delete nextLead.courseKey;
