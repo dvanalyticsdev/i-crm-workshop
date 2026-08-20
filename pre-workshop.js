@@ -24,6 +24,13 @@ import {
   leadMatchesCounselorActivityDate,
   renderCounselorActivityDateFilter
 } from "./counselor-activity-filter.js";
+import {
+  bindLeadAssignedDateFilter,
+  getLeadAssignedDateLabel,
+  LEAD_ASSIGNED_DATE_DEFAULTS,
+  leadMatchesAssignedDate,
+  renderLeadAssignedDateFilter
+} from "./lead-assigned-date-filter.js";
 import { createRenderScheduler, withButtonBusy } from "./ui-feedback.js";
 import {
   addLeadNote,
@@ -869,6 +876,7 @@ const DEFAULT_FILTER = {
   timeline: isCounselorSession() ? "overall" : "week",
   startDate: "",
   endDate: "",
+  ...LEAD_ASSIGNED_DATE_DEFAULTS,
   ...COUNSELOR_ACTIVITY_DATE_DEFAULTS,
   search: "",
   leadOwner: isCounselorSession() ? "direct" : "all",
@@ -943,6 +951,10 @@ function getLeadOwnerTimelineValue(lead) {
   }
 
   return String(lead?.createdAtExact || lead?.createdAt || "").trim();
+}
+
+function getLeadImportTimelineValue(lead) {
+  return String(lead?.createdAtExact || lead?.createdAt || lead?.importedAt || "").trim();
 }
 
 function getLeadImportTimestamp(lead) {
@@ -1449,7 +1461,7 @@ function filterByTimeline(leads) {
   if (filter.timeline === "today") {
     const { start: todayStart, end: todayEnd } = getKolkataDayRange(0);
     return scopedLeads.filter((lead) => {
-      const created = parseLocalDate(getLeadOwnerTimelineValue(lead));
+      const created = parseLocalDate(getLeadImportTimelineValue(lead));
       if (!created) {
         return false;
       }
@@ -1460,7 +1472,7 @@ function filterByTimeline(leads) {
   if (filter.timeline === "yesterday") {
     const { start: yesterdayStart, end: yesterdayEnd } = getKolkataDayRange(-1);
     return scopedLeads.filter((lead) => {
-      const created = parseLocalDate(getLeadOwnerTimelineValue(lead));
+      const created = parseLocalDate(getLeadImportTimelineValue(lead));
       if (!created) {
         return false;
       }
@@ -1473,7 +1485,7 @@ function filterByTimeline(leads) {
     const { start } = getKolkataDayRange(-6);
 
     return scopedLeads.filter((lead) => {
-      const created = parseLocalDate(getLeadOwnerTimelineValue(lead));
+      const created = parseLocalDate(getLeadImportTimelineValue(lead));
       if (!created) {
         return false;
       }
@@ -1497,7 +1509,7 @@ function filterByTimeline(leads) {
     const customEnd = new Date(`${toKolkataDateKey(end)}T23:59:59.999+05:30`);
 
     return scopedLeads.filter((lead) => {
-      const created = parseLocalDate(getLeadOwnerTimelineValue(lead));
+      const created = parseLocalDate(getLeadImportTimelineValue(lead));
       if (!created) {
         return false;
       }
@@ -1510,6 +1522,8 @@ function filterByTimeline(leads) {
 
 function filterLeads(leads) {
   let filtered = filterByTimeline(leads);
+
+  filtered = filtered.filter((lead) => leadMatchesAssignedDate(lead, filter));
 
   filtered = filtered.filter((lead) => leadMatchesCounselorActivityDate(lead, filter, {
     historyFields: ["workshopActivityHistory"],
@@ -1696,6 +1710,7 @@ function renderFilters(leads) {
           <label for="endDateInput">End Date</label>
           <input id="endDateInput" type="date" />
         </div>
+        ${renderLeadAssignedDateFilter({ prefix: "pre", filter, escapeHtml })}
         ${renderCounselorActivityDateFilter({ prefix: "pre", filter, escapeHtml })}
       </div>
     </div>
@@ -1825,6 +1840,15 @@ function renderFilters(leads) {
       currentPage = 1;
     }
   });
+  bindLeadAssignedDateFilter({
+    prefix: "pre",
+    filter,
+    persist: persistFilterState,
+    render: renderAll,
+    resetPage: () => {
+      currentPage = 1;
+    }
+  });
 
   document.getElementById("startDateWrap").classList.toggle("hidden", filter.timeline !== "custom");
   document.getElementById("endDateWrap").classList.toggle("hidden", filter.timeline !== "custom");
@@ -1934,6 +1958,7 @@ function exportFilteredLeads() {
       ["Section", "Workshop"],
       ["Subsection", "Workshop Calling"],
       ["Timeline", getPreWorkshopTimelineLabel()],
+      ["Lead Assigned Date", getLeadAssignedDateLabel(filter, formatKolkataDateTime)],
       ["Filtered Leads", filteredLeads.length]
     ]
   });

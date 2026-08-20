@@ -112,6 +112,40 @@
             </div>
             <p id="importMessage" class="message" aria-live="polite"></p>
           </div>
+
+          <div class="import-block" style="grid-column: span 2;">
+            <h4>Lead Search Panel</h4>
+            <p class="block-help">Upload any .xlsx or .csv file. The system scans all cells for phone numbers and emails, then reports which contacts are already in CRM.</p>
+            <div style="display: grid; grid-template-columns: minmax(220px, 1fr) minmax(180px, 260px); gap: 12px; align-items: end;">
+              <div>
+                <input id="leadSearchFile" type="file" accept=".xlsx,.csv" />
+              </div>
+              <div>
+                <label for="leadSearchCreateCourseSelect" style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 4px; color: var(--text-muted);">Create missing for course:</label>
+                <select id="leadSearchCreateCourseSelect" style="width: 100%; padding: 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--text); font-weight: 500;">
+                  <option value="days7_genai">7DAYS_GENAI</option>
+                  <option value="advanced-aiml-genai-agentic">AIML + GenAI</option>
+                  <option value="apcs">APCS</option>
+                  <option value="apida">APIDA</option>
+                  <option value="apids">APIDS</option>
+                  <option value="forward-deployed-engineer">FDE</option>
+                  <option value="master-genai-agentic">GenAI Master</option>
+                  <option value="data-analytics-specialist">Others</option>
+                </select>
+              </div>
+            </div>
+            <div class="allocation-actions" style="margin-top: 12px;">
+              <button id="runLeadSearchBtn" type="button" class="btn-ghost">Search File</button>
+              <button id="createMissingSearchLeadsBtn" type="button" class="btn-primary" disabled>Create Missing Leads</button>
+            </div>
+            <div class="import-summary" id="leadSearchSummary" style="margin-top: 12px;">
+              <p>Contacts found: 0</p>
+              <p>Existing in CRM: 0</p>
+              <p>Missing from CRM: 0</p>
+            </div>
+            <div id="leadSearchResults" class="block-help"></div>
+            <p id="leadSearchMessage" class="message" aria-live="polite"></p>
+          </div>
         </div>
 
         <div class="allocation-block">

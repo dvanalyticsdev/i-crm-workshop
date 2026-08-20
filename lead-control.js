@@ -38,11 +38,19 @@ const admissionSopToggle = document.getElementById("admissionSopToggle");
 const saveSopSettingsBtn = document.getElementById("saveSopSettingsBtn");
 const sopToggleStatus = document.getElementById("sopToggleStatus");
 const sopSettingsMessage = document.getElementById("sopSettingsMessage");
+const leadSearchFile = document.getElementById("leadSearchFile");
+const leadSearchCreateCourseSelect = document.getElementById("leadSearchCreateCourseSelect");
+const runLeadSearchBtn = document.getElementById("runLeadSearchBtn");
+const createMissingSearchLeadsBtn = document.getElementById("createMissingSearchLeadsBtn");
+const leadSearchSummary = document.getElementById("leadSearchSummary");
+const leadSearchResults = document.getElementById("leadSearchResults");
+const leadSearchMessage = document.getElementById("leadSearchMessage");
 const session = getSession();
 const isAdmin = session?.role === "admin" || session?.role === "super_admin";
 const isSuperAdmin = session?.role === "super_admin";
 let allocationPanelDirty = false;
 let importedFileRows = [];
+let latestLeadSearchReport = null;
 
 const DEFAULT_ALLOCATION = [];
 const ROUTING_META_TYPE = "routing-meta";
@@ -1143,6 +1151,177 @@ async function parseImportFile(file) {
   });
 }
 
+function extractLeadSearchContactsFromText(value, context = {}) {
+  const text = String(value || "").trim();
+  if (!text) return [];
+  const emails = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
+  const phoneCandidates = text.match(/(?:\+?\d[\d\s().-]{7,}\d)/g) || [];
+  return [
+    ...emails.map((email) => ({
+      email: String(email || "").trim().toLowerCase(),
+      phone: "",
+      label: context.label || "",
+      source: context.source || ""
+    })),
+    ...phoneCandidates
+      .map((phone) => normalizeImportedPhone(phone))
+      .filter(Boolean)
+      .map((phone) => ({
+        email: "",
+        phone,
+        label: context.label || "",
+        source: context.source || ""
+      }))
+  ];
+}
+
+async function parseLeadSearchFile(file) {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: false });
+  const contactsByKey = new Map();
+
+  (workbook.SheetNames || []).forEach((sheetName) => {
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet || !sheet["!ref"]) return;
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" });
+    rows.forEach((row, rowIndex) => {
+      const rowText = (Array.isArray(row) ? row : []).map((cell) => String(cell || "").trim()).filter(Boolean).join(" ");
+      (Array.isArray(row) ? row : []).forEach((cell) => {
+        extractLeadSearchContactsFromText(cell, {
+          label: rowText.slice(0, 120),
+          source: `${sheetName} row ${rowIndex + 1}`
+        }).forEach((contact) => {
+          const key = contact.email ? `email:${contact.email}` : `phone:${normalizeDuplicatePhone(contact.phone)}`;
+          if (key && !contactsByKey.has(key)) {
+            contactsByKey.set(key, contact);
+          }
+        });
+      });
+    });
+  });
+
+  return [...contactsByKey.values()];
+}
+
+function renderLeadSearchReport(report = null) {
+  const summary = report?.summary || {};
+  const missing = Array.isArray(report?.missing) ? report.missing : [];
+  const existing = Array.isArray(report?.existing) ? report.existing : [];
+  if (leadSearchSummary) {
+    leadSearchSummary.innerHTML = `
+      <p>Contacts found: ${Number(summary.total) || 0}</p>
+      <p>Existing in CRM: ${Number(summary.existing) || 0}</p>
+      <p>Missing from CRM: ${Number(summary.missing) || 0}</p>
+    `;
+  }
+  if (createMissingSearchLeadsBtn) {
+    createMissingSearchLeadsBtn.disabled = !missing.length;
+  }
+  if (!leadSearchResults) return;
+  if (!report) {
+    leadSearchResults.textContent = "";
+    return;
+  }
+  const missingPreview = missing.slice(0, 12).map((item) => (
+    `<li>${escapeHtml(item.email || item.phone || "Unknown contact")} <span class="text-muted">${escapeHtml(item.source || "")}</span></li>`
+  )).join("");
+  const existingPreview = existing.slice(0, 8).map((item) => (
+    `<li>${escapeHtml(item.email || item.phone || "Unknown contact")} - ${escapeHtml(item.leadName || "Existing lead")} ${item.counselor ? `(${escapeHtml(item.counselor)})` : ""}</li>`
+  )).join("");
+  leadSearchResults.innerHTML = `
+    ${missing.length ? `<strong>Missing preview</strong><ul>${missingPreview}</ul>` : "<p>No missing contacts found.</p>"}
+    ${existing.length ? `<strong>Existing preview</strong><ul>${existingPreview}</ul>` : ""}
+  `;
+}
+
+async function handleLeadSearchReport() {
+  if (!isAdmin) {
+    setMessage(leadSearchMessage, "Only admin can search lead files.", true);
+    return;
+  }
+  const file = leadSearchFile?.files?.[0];
+  if (!file) {
+    setMessage(leadSearchMessage, "Please select a .xlsx or .csv file.", true);
+    return;
+  }
+  if (!/\.(xlsx|csv)$/i.test(file.name)) {
+    setMessage(leadSearchMessage, "Unsupported format. Please upload .xlsx or .csv.", true);
+    return;
+  }
+
+  let contacts = [];
+  try {
+    contacts = await parseLeadSearchFile(file);
+  } catch {
+    setMessage(leadSearchMessage, "Could not read file. Check format and try again.", true);
+    return;
+  }
+  if (!contacts.length) {
+    latestLeadSearchReport = null;
+    renderLeadSearchReport({ summary: { total: 0, existing: 0, missing: 0 }, existing: [], missing: [] });
+    setMessage(leadSearchMessage, "No phone numbers or emails were found in this file.", true);
+    return;
+  }
+
+  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/leads/search-file/report"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    },
+    body: JSON.stringify({ contacts, fileName: file.name })
+  }, 30000);
+
+  if (!response.ok || json?.ok === false) {
+    setMessage(leadSearchMessage, json?.message || "Failed to search file contacts.", true);
+    return;
+  }
+  latestLeadSearchReport = json;
+  renderLeadSearchReport(json);
+  setMessage(leadSearchMessage, `Search complete. ${json.summary?.missing || 0} missing contact${Number(json.summary?.missing) === 1 ? "" : "s"} found.`, false);
+}
+
+async function handleCreateMissingSearchLeads() {
+  const missing = Array.isArray(latestLeadSearchReport?.missing) ? latestLeadSearchReport.missing : [];
+  if (!missing.length) {
+    setMessage(leadSearchMessage, "Run a file search with missing contacts first.", true);
+    return;
+  }
+  const courseId = leadSearchCreateCourseSelect?.value || "";
+  const course = CRM_FIXED_COURSE_OPTIONS.find((item) => item.id === courseId);
+  if (!course) {
+    setMessage(leadSearchMessage, "Select a valid course for missing leads.", true);
+    return;
+  }
+  const confirmed = window.confirm(`Create ${missing.length} missing lead${missing.length === 1 ? "" : "s"} for ${course.label}?`);
+  if (!confirmed) return;
+
+  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/leads/search-file/create-missing"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    },
+    body: JSON.stringify({
+      contacts: missing,
+      courseId,
+      fileName: leadSearchFile?.files?.[0]?.name || latestLeadSearchReport?.fileName || ""
+    })
+  }, 60000);
+
+  if (!response.ok || json?.ok === false) {
+    setMessage(leadSearchMessage, json?.message || "Failed to create missing leads.", true);
+    return;
+  }
+  acceptServerState(json.state, response.headers.get("etag"));
+  latestLeadSearchReport = null;
+  renderLeadSearchReport({ summary: { total: 0, existing: 0, missing: 0 }, existing: [], missing: [] });
+  if (leadSearchFile) leadSearchFile.value = "";
+  setMessage(leadSearchMessage, `Created ${json.createdCount || 0} missing lead${Number(json.createdCount) === 1 ? "" : "s"} for ${course.label}.`, false);
+  showToast("Missing leads created.", false);
+  renderAll();
+}
+
 function incrementSummaryBucket(summary, key, amount = 1) {
   summary[key] = (Number(summary[key]) || 0) + amount;
 }
@@ -1845,6 +2024,18 @@ function setupAdminPanel() {
   if (importCustomLeadsBtn) {
     importCustomLeadsBtn.onclick = (event) => {
       void withButtonBusy(event.currentTarget, "Importing custom leads...", () => handleCustomLeadImport());
+    };
+  }
+
+  if (runLeadSearchBtn) {
+    runLeadSearchBtn.onclick = (event) => {
+      void withButtonBusy(event.currentTarget, "Searching file...", () => handleLeadSearchReport());
+    };
+  }
+
+  if (createMissingSearchLeadsBtn) {
+    createMissingSearchLeadsBtn.onclick = (event) => {
+      void withButtonBusy(event.currentTarget, "Creating leads...", () => handleCreateMissingSearchLeads());
     };
   }
 

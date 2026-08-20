@@ -2851,6 +2851,35 @@ function isScopedLatestInboundNotPicked(history) {
   return Boolean(latest && getScopedActivityLabel(latest) === "Call Made" && isScopedInboundCallActivity(latest) && isScopedNotPickedCallActivity(latest));
 }
 
+function isScopedIgnoredAfterRepeatActivity(entry = {}) {
+  const activityType = getScopedActivityLabel(entry);
+  const description = String(entry?.actionDescription || entry?.description || entry?.value || "").trim();
+  const by = String(entry?.by || entry?.performedBy || "").trim().toLowerCase();
+  const source = String(entry?.source || "").trim().toLowerCase();
+  const text = `${activityType} ${description}`.toLowerCase();
+  return ["Lead Created", "Lead Assigned", "Lead Reassigned", "Counselor Changed", "Lead Viewed"].includes(activityType)
+    || by === "system"
+    || by.startsWith("system:")
+    || source === "system"
+    || source === "reachout webhook"
+    || /\bwhatsapp\b|\breachout\b|message\s+(read|opened|open|clicked|delivered|sent|failed)/i.test(text);
+}
+
+function getScopedLatestMeaningfulHistoryEntry(history) {
+  if (!Array.isArray(history) || !history.length) return null;
+  return history
+    .filter((entry) => !isScopedIgnoredAfterRepeatActivity(entry))
+    .reduce((latest, entry) => (
+      !latest || getScopedEntryTimestamp(entry) >= getScopedEntryTimestamp(latest) ? entry : latest
+    ), null);
+}
+
+function isScopedRepeatEnquiryActivity(entry = {}) {
+  const activityType = getScopedActivityLabel(entry);
+  const description = String(entry?.actionDescription || entry?.description || entry?.value || "").trim();
+  return /repeat\s+enquir|re-?inquir|enquiry received again|inquiry received again/i.test(`${activityType} ${description}`);
+}
+
 function scopedHasAssigneeActivityHistory(history) {
   if (!Array.isArray(history)) return false;
   return history.some((entry) => {
@@ -2892,12 +2921,14 @@ function getScopedLatestRepeatEnquiryTimestamp(lead = {}) {
 
 function isScopedRepeatEnquiryLead(lead = {}, section = "") {
   const explicitCount = Number(lead.repeatEnquiryCount || 0);
-  if (Number.isFinite(explicitCount) && explicitCount > 0) return true;
   const repeatAt = getScopedLatestRepeatEnquiryTimestamp(lead);
-  if (!Number.isFinite(repeatAt)) return false;
   const historyField = section === "registered-candidates" ? "registeredCourseActivityHistory" : "mainAdmissionActivityHistory";
-  const latestActivityAt = getScopedEntryTimestamp(getScopedLatestHistoryEntry(lead[historyField]));
-  return !Number.isFinite(latestActivityAt) || repeatAt >= latestActivityAt;
+  const latestMeaningful = getScopedLatestMeaningfulHistoryEntry(lead[historyField]);
+  if (latestMeaningful) {
+    return isScopedRepeatEnquiryActivity(latestMeaningful);
+  }
+  if (Number.isFinite(repeatAt)) return true;
+  return Number.isFinite(explicitCount) && explicitCount > 0;
 }
 
 function scopedLeadMatchesWhatsappActivity(lead = {}, section = "", value = "") {
@@ -2988,10 +3019,26 @@ function getScopedCounselorActivityRange(query = {}) {
   });
 }
 
+function getScopedAssignedDateRange(query = {}) {
+  return getScopedTimelineRange({
+    timeline: query.assignedTimeline,
+    startDate: query.assignedStartDate,
+    endDate: query.assignedEndDate
+  });
+}
+
 function scopedDateInRange(value, range) {
   if (!range?.start || !range?.end) return true;
   const timestamp = getScopedEntryTimestamp(value);
   return Number.isFinite(timestamp) && timestamp >= range.start.getTime() && timestamp <= range.end.getTime();
+}
+
+function getScopedAssignedDateValue(lead = {}) {
+  const explicit = String(lead.leadOwnerTimelineAt || lead.counselorAssignedAt || "").trim();
+  if (explicit) return explicit;
+  const counselor = String(lead.counselor || "").trim().toLowerCase();
+  if (!counselor || counselor === "unassigned") return "";
+  return String(lead.createdAtExact || lead.createdAt || "").trim();
 }
 
 function isScopedCounselorActivityEntry(entry = {}, allowedFields = []) {
@@ -3028,6 +3075,7 @@ function leadMatchesScopedCounselorActivityDate(lead = {}, section = "", query =
 function hasScopedRuntimeFilters(query = {}) {
   return [
     "counselorActivityTimeline",
+    "assignedTimeline",
     "leadOwner",
     "courseName",
     "location",
@@ -3042,7 +3090,9 @@ function hasScopedRuntimeFilters(query = {}) {
 
 function leadMatchesScopedRuntimeFilters(lead = {}, section = "", query = {}, session = {}, options = {}) {
   const timelineRange = getScopedTimelineRange(query);
-  if (timelineRange && !scopedDateInRange(lead.leadOwnerTimelineAt || lead.counselorAssignedAt || lead.createdAtExact || lead.createdAt, timelineRange)) return false;
+  if (timelineRange && !scopedDateInRange(lead.createdAtExact || lead.createdAt || lead.importedAt, timelineRange)) return false;
+  const assignedRange = getScopedAssignedDateRange(query);
+  if (assignedRange && !scopedDateInRange(getScopedAssignedDateValue(lead), assignedRange)) return false;
   if (!leadMatchesScopedCounselorActivityDate(lead, section, query)) return false;
 
   const owner = String(query.leadOwner || "").trim().toLowerCase();
@@ -3106,6 +3156,23 @@ function addOptionalExactQuery(query, field, value) {
 
 function appendScopedTimelineMongoQuery(query = {}, requestQuery = {}) {
   const range = getScopedTimelineRange(requestQuery);
+  if (!range?.start || !range?.end) {
+    return query;
+  }
+  const startIso = range.start.toISOString();
+  const endIso = range.end.toISOString();
+  const startKey = toKolkataDateKey(range.start);
+  const endKey = toKolkataDateKey(range.end);
+  return appendMongoAnd(query, {
+    $or: [
+      { createdAtExact: { $gte: startIso, $lte: endIso } },
+      { createdAt: { $gte: startKey, $lte: endKey } }
+    ]
+  });
+}
+
+function appendScopedAssignedDateMongoQuery(query = {}, requestQuery = {}) {
+  const range = getScopedAssignedDateRange(requestQuery);
   if (!range?.start || !range?.end) {
     return query;
   }
@@ -3184,6 +3251,7 @@ function applyScopedRegisteredSegmentQuery(query = {}, segmentValue = "") {
 function buildScopedLeadMongoQuery(section, requestQuery = {}, session = {}, counselors = []) {
   let query = buildScopedLeadBaseMongoQuery(section, session, counselors);
   query = appendScopedTimelineMongoQuery(query, requestQuery);
+  query = appendScopedAssignedDateMongoQuery(query, requestQuery);
 
   const sessionRole = String(session.role || "").trim().toLowerCase();
   const counselorFilter = String(requestQuery.counselor || "").trim();
@@ -10969,6 +11037,52 @@ function buildProtectedIntegrationLeadUpdate(existingLead, incomingLead) {
   return decorateLeadForStorage(nextLead);
 }
 
+function shouldMoveRepeatInquiryToMainAdmission(existingLead = {}, incomingLead = {}) {
+  const pipeline = String(existingLead?.leadPipeline || "").trim().toLowerCase();
+  const incomingCourse = String(incomingLead?.courseName || incomingLead?.courseRawName || incomingLead?.workshop || "").trim();
+  return pipeline !== MAIN_ADMISSION_PIPELINE
+    && pipeline !== "course-registration"
+    && !isArchivedOrLostLead(existingLead)
+    && Boolean(incomingCourse);
+}
+
+function applyRepeatInquiryReset(nextLead = {}, existingLead = {}, incomingLead = {}) {
+  const now = new Date().toISOString();
+  if (shouldMoveRepeatInquiryToMainAdmission(existingLead, incomingLead)) {
+    nextLead.leadPipeline = MAIN_ADMISSION_PIPELINE;
+    nextLead.mainAdmissionCoursePitched = String(incomingLead?.courseName || incomingLead?.courseRawName || incomingLead?.workshop || nextLead.courseName || "").trim();
+    nextLead.mainAdmissionCourseStatus = "";
+    nextLead.mainAdmissionAdmissionStatus = "";
+    nextLead.mainAdmissionCallStatus = "";
+    nextLead.mainAdmissionActivityUpdates = 0;
+    nextLead.mainAdmissionActivityTouchedByAssignee = false;
+  }
+  if (String(nextLead.leadPipeline || "").trim().toLowerCase() === MAIN_ADMISSION_PIPELINE) {
+    nextLead.mainAdmissionActivityUpdated = false;
+    nextLead.mainAdmissionActivityTouchedByAssignee = false;
+  }
+  nextLead.updatedAt = now;
+  return nextLead;
+}
+
+function appendRepeatInquiryHistory(nextLead = {}, sourceLabel = "Integration", now = new Date().toISOString()) {
+  if (String(nextLead.leadPipeline || "").trim().toLowerCase() !== MAIN_ADMISSION_PIPELINE) {
+    return nextLead;
+  }
+  const repeatHistoryEntry = {
+    id: Date.now() + Math.random(),
+    at: now,
+    by: "System",
+    type: "Repeat Enquiry",
+    activityType: "Repeat Enquiry",
+    actionDescription: `${sourceLabel} enquiry received again for existing lead`
+  };
+  nextLead.mainAdmissionActivityHistory = Array.isArray(nextLead.mainAdmissionActivityHistory)
+    ? [...nextLead.mainAdmissionActivityHistory, repeatHistoryEntry]
+    : [repeatHistoryEntry];
+  return nextLead;
+}
+
 function buildDuplicateLeadGroups(leads = []) {
   const list = Array.isArray(leads) ? leads.filter(Boolean) : [];
   const idToLead = new Map();
@@ -11423,7 +11537,11 @@ async function performDuplicateLeadMerge(keeperLead, duplicateLeads = [], sessio
 }
 
 async function updateExistingIntegrationLead(existingLead, incomingLead, options = {}) {
-  const nextLead = buildProtectedIntegrationLeadUpdate(existingLead, incomingLead);
+  const nextLead = applyRepeatInquiryReset(
+    buildProtectedIntegrationLeadUpdate(existingLead, incomingLead),
+    existingLead,
+    incomingLead
+  );
   const previousRepeatCount = Number.isFinite(Number(existingLead?.repeatEnquiryCount))
     ? Number(existingLead.repeatEnquiryCount)
     : 0;
@@ -11436,6 +11554,7 @@ async function updateExistingIntegrationLead(existingLead, incomingLead, options
   nextLead.lastRepeatEnquiryAt = now;
   nextLead.lastRepeatEnquirySource = sourceLabel;
   nextLead.repeatEnquirySources = [...new Set([...existingRepeatSources, sourceLabel])];
+  appendRepeatInquiryHistory(nextLead, sourceLabel, now);
   await replaceLeadDocument(nextLead);
 
   const previousCourse = String(existingLead?.courseName || existingLead?.workshop || existingLead?.admissionWorkshop || "").trim();
@@ -11462,7 +11581,11 @@ async function updateExistingIntegrationLead(existingLead, incomingLead, options
 }
 
 async function updateExistingPublicCourseRegistrationLead(existingLead, incomingLead, options = {}) {
-  const nextLead = buildProtectedIntegrationLeadUpdate(existingLead, incomingLead);
+  const nextLead = applyRepeatInquiryReset(
+    buildProtectedIntegrationLeadUpdate(existingLead, incomingLead),
+    existingLead,
+    incomingLead
+  );
   const previousRepeatCount = Number.isFinite(Number(existingLead?.repeatEnquiryCount))
     ? Number(existingLead.repeatEnquiryCount)
     : 0;
@@ -11475,6 +11598,7 @@ async function updateExistingPublicCourseRegistrationLead(existingLead, incoming
   nextLead.lastRepeatEnquiryAt = now;
   nextLead.lastRepeatEnquirySource = sourceLabel;
   nextLead.repeatEnquirySources = [...new Set([...existingRepeatSources, sourceLabel])];
+  appendRepeatInquiryHistory(nextLead, sourceLabel, now);
   await replaceLeadDocument(nextLead);
   cachedStateDoc = null;
   cachedStateDocAt = 0;
@@ -16071,6 +16195,167 @@ app.get("/api/main-admission-leads/export-jobs/:jobId/download", async (req, res
   }
 });
 
+function normalizeSearchFileContacts(rawContacts = []) {
+  const seen = new Set();
+  return (Array.isArray(rawContacts) ? rawContacts : []).map((item) => {
+    const email = normalizeLeadEmail(item?.email);
+    const phone = normalizeLeadPhone(item?.phone);
+    const key = email ? `email:${email}` : phone ? `phone:${phone}` : "";
+    if (!key || seen.has(key)) return null;
+    seen.add(key);
+    return {
+      email,
+      phone,
+      label: String(item?.label || "").trim(),
+      source: String(item?.source || "").trim()
+    };
+  }).filter(Boolean).slice(0, 10000);
+}
+
+async function buildSearchFileLeadReport(rawContacts = []) {
+  const contacts = normalizeSearchFileContacts(rawContacts);
+  const emails = contacts.map((item) => item.email).filter(Boolean);
+  const phones = contacts.map((item) => item.phone).filter(Boolean);
+  const conditions = [];
+  if (emails.length) conditions.push({ normalizedEmail: { $in: emails } }, { email: { $in: emails } });
+  if (phones.length) conditions.push({ normalizedPhone: { $in: phones } }, { phone: { $in: phones } });
+
+  const existingLeads = conditions.length
+    ? await withMongoRetry(
+      () => leadsCollection.find({ $or: conditions }, { projection: {
+        id: 1, name: 1, email: 1, phone: 1, normalizedEmail: 1, normalizedPhone: 1,
+        counselor: 1, courseName: 1, leadPipeline: 1
+      } }).toArray(),
+      { retries: 1, label: "Search uploaded file contacts" }
+    )
+    : [];
+  const existingByEmail = new Map(existingLeads.map((lead) => [normalizeLeadEmail(lead.normalizedEmail || lead.email), lead]).filter(([key]) => key));
+  const existingByPhone = new Map(existingLeads.map((lead) => [normalizeLeadPhone(lead.normalizedPhone || lead.phone), lead]).filter(([key]) => key));
+  const existing = [];
+  const missing = [];
+
+  contacts.forEach((contact) => {
+    const lead = (contact.email && existingByEmail.get(contact.email)) || (contact.phone && existingByPhone.get(contact.phone));
+    if (lead) {
+      existing.push({
+        ...contact,
+        leadId: lead.id,
+        leadName: lead.name || "",
+        counselor: lead.counselor || "",
+        courseName: lead.courseName || "",
+        leadPipeline: lead.leadPipeline || ""
+      });
+    } else {
+      missing.push(contact);
+    }
+  });
+
+  return {
+    contacts,
+    existing,
+    missing,
+    summary: {
+      total: contacts.length,
+      existing: existing.length,
+      missing: missing.length
+    }
+  };
+}
+
+app.post("/api/leads/search-file/report", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "super_admin"]);
+    if (!session) return;
+    const report = await buildSearchFileLeadReport(req.body?.contacts);
+    return res.json({ ok: true, fileName: String(req.body?.fileName || "").trim(), ...report });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to search uploaded file contacts", details: error.message });
+  }
+});
+
+app.post("/api/leads/search-file/create-missing", async (req, res) => {
+  try {
+    const session = await requireRole(req, res, ["admin", "super_admin"]);
+    if (!session) return;
+
+    const courseId = String(req.body?.courseId || "").trim();
+    const course = PUBLIC_COURSE_CATALOG.find((item) => item.id === courseId);
+    if (!course) {
+      return res.status(400).json({ message: "A valid target course is required." });
+    }
+
+    const report = await buildSearchFileLeadReport(req.body?.contacts);
+    const missing = report.missing;
+    if (!missing.length) {
+      return res.status(400).json({ message: "No missing contacts were found to create." });
+    }
+
+    const now = new Date().toISOString();
+    const fileName = String(req.body?.fileName || "").trim();
+    const reservedIds = await reserveMetaLeadIds(missing.length);
+    const createdLeads = missing.map((contact, index) => decorateLeadForStorage({
+      id: reservedIds[index] || Date.now() + index,
+      name: contact.label || contact.email || contact.phone || "Imported Search Lead",
+      email: contact.email || "",
+      phone: contact.phone || "",
+      normalizedEmail: contact.email || "",
+      normalizedPhone: normalizeLeadPhone(contact.phone),
+      courseName: course.code,
+      courseId: course.id,
+      courseCode: course.code,
+      leadPipeline: MAIN_ADMISSION_PIPELINE,
+      publicCourseSegment: course.id === "days7_genai" ? PUBLIC_COURSE_CRASH_SEGMENT : PUBLIC_COURSE_DEFAULT_SEGMENT,
+      createdAt: toKolkataDateKey(new Date()),
+      createdAtExact: now,
+      updatedAt: now,
+      counselor: "Unassigned",
+      mainAdmissionDialed: "",
+      mainAdmissionCoursePitched: course.code,
+      mainAdmissionCourseStatus: "",
+      mainAdmissionAdmissionStatus: "",
+      mainAdmissionCallStatus: "",
+      mainAdmissionActivityUpdated: false,
+      mainAdmissionActivityUpdates: 0,
+      mainAdmissionActivityTouchedByAssignee: false,
+      mainAdmissionActivityHistory: [],
+      leadNotes: [],
+      importSourceFiles: [fileName].filter(Boolean),
+      importSourceSheet: contact.source || "",
+      source: "Search Panel",
+      leadSource: "Search Panel",
+      importedBy: session.name || session.email || session.role || "Admin",
+      importedAt: now
+    }));
+
+    await withMongoRetry(
+      () => leadsCollection.insertMany(createdLeads, { ordered: false }),
+      { retries: 1, label: "Create missing search panel leads" }
+    );
+
+    await recordActivities(createdLeads.map((lead) => ({
+      leadId: lead.id,
+      leadName: lead.name,
+      counselorName: lead.counselor || "",
+      activityType: "Lead Created",
+      actionDescription: `Lead created from Data Control search panel for ${course.code}`,
+      newValue: `Phone: ${lead.phone || "-"}, Email: ${lead.email || "-"}, Course: ${course.code}`,
+      session
+    }))).catch(() => undefined);
+
+    const nextState = await refreshStateAfterAtomicUpdate();
+    res.setHeader("ETag", buildStateEtag(nextState));
+    const responseState = buildStateResponse(nextState);
+    return res.json({
+      ok: true,
+      createdCount: createdLeads.length,
+      leads: createdLeads,
+      state: responseState
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to create missing leads", details: error.message });
+  }
+});
+
 app.post("/api/leads/universal-import", async (req, res) => {
   try {
     const session = await requireRole(req, res, ["admin", "super_admin"]);
@@ -18270,7 +18555,6 @@ app.get("/api/activity-logs", async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
 
-    const state = await getStateDoc();
     const query = {};
 
     const targetLeadId = String(req.query.leadId || "").trim();
@@ -18290,18 +18574,20 @@ app.get("/api/activity-logs", async (req, res) => {
 
     // 1. Enforce counselor scoping permissions
     if (session.role === "counselor") {
-      const counselorName = getSessionCounselorName(state, session);
+      let state = null;
       const isLeadBrowseActivityRead = String(req.query.scope || "").trim().toLowerCase() === "lead-browse"
         && getSessionPagePermissions(session).leadBrowse;
       if (targetLeadId) {
-        const accessState = targetLeadActionState || state;
+        const accessState = targetLeadActionState || await getStateDoc();
         if (!targetLead || (!isLeadBrowseActivityRead && !canViewLeadActivity(session, accessState, targetLead))) {
           return res.status(403).json({ message: "Access denied. You can only view activity logs of leads assigned to you." });
         }
         query.leadId = { $in: leadIdsToQuery };
       } else {
+        state = await getStateDoc();
+        const scopedCounselorName = getSessionCounselorName(state, session);
         query.$or = [
-          { counselorName: { $regex: new RegExp("^" + escapeRegExp(counselorName) + "$", "i") } },
+          { counselorName: { $regex: new RegExp("^" + escapeRegExp(scopedCounselorName) + "$", "i") } },
           { performedBy: { $regex: new RegExp("^" + escapeRegExp(session.name || session.email || "") + "$", "i") } }
         ];
       }
@@ -19195,6 +19481,25 @@ async function processElementorLeadRecord(payload, config, options = {}) {
     : await assignElementorCounselorRoundRobin(snapshot.counselors);
   const nextId = await getNextMetaLeadId();
   const newLead = buildElementorLead(fields, metaInfo, counselorName, nextId, { leadType: effectiveLeadType });
+  const duplicateSubmissionLead = findDuplicateElementorLeadBySubmission(snapshot.leads, newLead);
+  if (duplicateSubmissionLead) {
+    if (retryJobId) {
+      await withMongoRetry(
+        () => elementorRetryCollection.deleteOne({ _id: retryJobId }),
+        { retries: 1, label: "Delete already processed Elementor retry job" }
+      );
+    }
+    await saveElementorLog({
+      type: "ignored",
+      message: "Elementor submission already processed",
+      formId,
+      formName,
+      pageUrl,
+      leadId: duplicateSubmissionLead.id,
+      leadPipeline: duplicateSubmissionLead.leadPipeline || "workshop"
+    });
+    return;
+  }
   const duplicateLead = findDuplicateLeadByEmailOrPhone(snapshot.leads, newLead);
 
   if (duplicateLead) {

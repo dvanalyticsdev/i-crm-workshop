@@ -22,6 +22,13 @@ import {
   leadMatchesCounselorActivityDate,
   renderCounselorActivityDateFilter
 } from "./counselor-activity-filter.js";
+import {
+  bindLeadAssignedDateFilter,
+  getLeadAssignedDateLabel,
+  LEAD_ASSIGNED_DATE_DEFAULTS,
+  leadMatchesAssignedDate,
+  renderLeadAssignedDateFilter
+} from "./lead-assigned-date-filter.js";
 import { createRenderScheduler, withButtonBusy } from "./ui-feedback.js";
 import {
   addLeadNote,
@@ -473,6 +480,7 @@ const DEFAULT_FILTER = {
   timeline: isCounselorSession() ? "overall" : "week",
   startDate: "",
   endDate: "",
+  ...LEAD_ASSIGNED_DATE_DEFAULTS,
   ...COUNSELOR_ACTIVITY_DATE_DEFAULTS,
   search: "",
   leadOwner: isCounselorSession() ? "direct" : "all",
@@ -582,6 +590,10 @@ function getLeadOwnerTimelineValue(lead) {
   }
 
   return String(lead?.createdAtExact || lead?.createdAt || "").trim();
+}
+
+function getLeadImportTimelineValue(lead) {
+  return String(lead?.createdAtExact || lead?.createdAt || lead?.importedAt || "").trim();
 }
 
 function getLeadImportTimestamp(lead) {
@@ -729,7 +741,7 @@ function filterLeadsByTimeline(leads, range) {
   const endTime = range.end.getTime();
 
   return scopedLeads.filter((lead) => {
-    const leadDate = parseLeadOwnerDate(getLeadOwnerTimelineValue(lead));
+    const leadDate = parseLeadOwnerDate(getLeadImportTimelineValue(lead));
     if (!leadDate || Number.isNaN(leadDate.getTime())) {
       return false;
     }
@@ -1083,6 +1095,7 @@ function renderFilters(leads) {
           <label for="postEndDateInput">End Date</label>
           <input id="postEndDateInput" type="date" />
         </div>
+        ${renderLeadAssignedDateFilter({ prefix: "post", filter, escapeHtml })}
         ${renderCounselorActivityDateFilter({ prefix: "post", filter, escapeHtml })}
       </div>
     </div>
@@ -1277,6 +1290,15 @@ function renderFilters(leads) {
       currentPage = 1;
     }
   });
+  bindLeadAssignedDateFilter({
+    prefix: "post",
+    filter,
+    persist: persistFilterState,
+    render: renderAll,
+    resetPage: () => {
+      currentPage = 1;
+    }
+  });
 
   document.getElementById("postTimelineSelect").onchange = (event) => {
     filter.timeline = event.target.value;
@@ -1392,6 +1414,7 @@ function exportFilteredLeads() {
       ["Section", "Workshop"],
       ["Subsection", "Admission Calling"],
       ["Timeline", getPostWorkshopTimelineLabel()],
+      ["Lead Assigned Date", getLeadAssignedDateLabel(filter, formatReadableDate)],
       ["Filtered Leads", filteredLeads.length]
     ]
   });
@@ -1406,6 +1429,8 @@ function exportFilteredLeads() {
 
 function filterLeads(leads) {
   let filtered = filterLeadsByTimeline(leads, getTimelineRange(leads));
+
+  filtered = filtered.filter((lead) => leadMatchesAssignedDate(lead, filter));
 
   filtered = filtered.filter((lead) => leadMatchesCounselorActivityDate(lead, filter, {
     historyFields: ["admissionActivityHistory"],

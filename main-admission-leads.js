@@ -39,6 +39,13 @@ import {
   leadMatchesCounselorActivityDate,
   renderCounselorActivityDateFilter
 } from "./counselor-activity-filter.js";
+import {
+  bindLeadAssignedDateFilter,
+  getLeadAssignedDateLabel,
+  LEAD_ASSIGNED_DATE_DEFAULTS,
+  leadMatchesAssignedDate,
+  renderLeadAssignedDateFilter
+} from "./lead-assigned-date-filter.js";
 import { createRenderScheduler, withButtonBusy } from "./ui-feedback.js";
 import { getPerformanceDuration, recordClientPerformance, waitForPaint } from "./performance-client.js";
 
@@ -106,6 +113,7 @@ const DEFAULT_FILTER = {
   timeline: "overall",
   startDate: "",
   endDate: "",
+  ...LEAD_ASSIGNED_DATE_DEFAULTS,
   ...COUNSELOR_ACTIVITY_DATE_DEFAULTS,
   search: "",
   leadOwner: session?.role === "manager" ? "all" : isCounselorSession() ? "direct" : "all",
@@ -1074,6 +1082,10 @@ function getLeadOwnerTimelineValue(lead) {
   ).trim();
 }
 
+function getLeadImportTimelineValue(lead) {
+  return String(lead?.createdAtExact || lead?.createdAt || lead?.importedAt || "").trim();
+}
+
 function getLeadImportTimestamp(lead) {
   const candidates = [
     lead?.createdAtExact,
@@ -1927,6 +1939,9 @@ function getScopedMainAdmissionFilterPayload({ page = currentPage, limit = pageS
     "timeline",
     "startDate",
     "endDate",
+    "assignedTimeline",
+    "assignedStartDate",
+    "assignedEndDate",
     "counselorActivityTimeline",
     "counselorActivityStartDate",
     "counselorActivityEndDate",
@@ -2074,7 +2089,7 @@ function filterLeadsByTimeline(leads) {
   const startTime = range.start.getTime();
   const endTime = range.end.getTime();
   return scopedLeads.filter((lead) => {
-    const created = parseTimelineDate(getLeadOwnerTimelineValue(lead));
+    const created = parseTimelineDate(getLeadImportTimelineValue(lead));
     if (!created) {
       return false;
     }
@@ -2356,6 +2371,7 @@ function renderFilters(leads) {
           <label for="mainAdmissionEndDate">End Date</label>
           <input id="mainAdmissionEndDate" type="date" value="${escapeHtml(filter.endDate)}" />
         </div>
+        ${renderLeadAssignedDateFilter({ prefix: "mainAdmission", filter, escapeHtml })}
         ${renderCounselorActivityDateFilter({ prefix: "mainAdmission", filter, escapeHtml })}
         ${isAdmin ? `
         <div class="filter-item">
@@ -2597,6 +2613,15 @@ function renderFilters(leads) {
     renderAll();
   };
   bindCounselorActivityDateFilter({
+    prefix: "mainAdmission",
+    filter,
+    persist: persistFilters,
+    render: renderAll,
+    resetPage: () => {
+      currentPage = 1;
+    }
+  });
+  bindLeadAssignedDateFilter({
     prefix: "mainAdmission",
     filter,
     persist: persistFilters,
@@ -2987,6 +3012,7 @@ async function exportFilteredLeads() {
       ["Section", "Admission"],
       ["Subsection", segmentConfig.label],
       ["Timeline", getTimelineLabel()],
+      ["Lead Assigned Date", getLeadAssignedDateLabel(filter, formatReadableDate)],
       ["Filtered Leads", filteredLeads.length]
     ]
   });
@@ -3002,6 +3028,7 @@ async function exportFilteredLeads() {
 function filterLeads(leads) {
   const selectedCourses = normalizeMultiValueFilter(filter.courseName);
   const filtered = filterLeadsByTimeline(leads).filter((lead) => {
+    if (!leadMatchesAssignedDate(lead, filter)) return false;
     const isBlockedSopLead = isSopBlockedLead(lead);
     if (filter.sopFilter === SOP_FILTER_BLOCKED) {
       if (!isAdmin || !isBlockedSopLead) return false;
