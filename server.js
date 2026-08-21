@@ -3162,7 +3162,7 @@ function leadMatchesScopedRuntimeFilters(lead = {}, section = "", query = {}, se
 
   const sopState = deriveAdmissionSopState(lead, Date.now(), { enabled: options?.admissionSopEnabled !== false });
   if (String(query.sopFilter || "").trim() === "blocked" && (!isAdminLikeSession(session) || !sopState?.blocked)) return false;
-  if (section === "main-admission" && String(query.sopFilter || "").trim() !== "blocked" && sopState?.blocked) return false;
+  if (section === "main-admission" && String(query.sopFilter || "").trim() !== "blocked" && sopState?.blocked && !isAdminLikeSession(session)) return false;
 
   return true;
 }

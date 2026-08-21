@@ -2025,6 +2025,7 @@ test("manager and superadmin assignment permission bypass", () => {
 test("scoped assigned date filter uses assignment log metadata fallback", () => {
   const server = read("server.js");
   const appendAssignedDateQuery = getNamedFunctionSource(server, "appendScopedAssignedDateMongoQuery");
+  const runtimeFilterSource = getNamedFunctionSource(server, "leadMatchesScopedRuntimeFilters");
   const scopedLeadsHandlerStart = server.indexOf('app.get("/api/leads/scoped"');
   assert.notEqual(scopedLeadsHandlerStart, -1, "scoped leads endpoint should exist");
   const scopedLeadsHandler = server.slice(scopedLeadsHandlerStart, server.indexOf('app.delete("/api/leads/scoped"', scopedLeadsHandlerStart));
@@ -2033,6 +2034,7 @@ test("scoped assigned date filter uses assignment log metadata fallback", () => 
   assert.match(scopedLeadsHandler, /const decoratedLeads = await enrichLeadsWithAssignmentMetadata\(rawLeads \|\| \[\]\);/);
   assert.match(scopedLeadsHandler, /leadMatchesScopedRuntimeFilters\(lead, section, req\.query \|\| \{\}, session/);
   assert.doesNotMatch(appendAssignedDateQuery, /leadOwnerTimelineAt|counselorAssignedAt|createdAtExact|createdAt:/);
+  assert.match(runtimeFilterSource, /sopState\?\.blocked && !isAdminLikeSession\(session\)/);
 });
 
 test("counselor multi-select filter and click outside closure validation", () => {
