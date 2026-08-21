@@ -3272,15 +3272,6 @@ function buildScopedLeadMongoQuery(section, requestQuery = {}, session = {}, cou
   query = appendScopedTimelineMongoQuery(query, requestQuery);
   query = appendScopedAssignedDateMongoQuery(query, requestQuery);
 
-  const sessionRole = String(session.role || "").trim().toLowerCase();
-  const counselorFilter = String(requestQuery.counselor || "").trim();
-  const counselorValues = counselorFilter.split(",").map((val) => val.trim()).filter(Boolean);
-  const hasLostLeadsSelected = counselorValues.includes(LOST_LEADS_COUNSELOR_FILTER);
-
-  if (section === "main-admission" && counselorFilter && !hasLostLeadsSelected) {
-    query = appendMongoAnd(query, { $nor: [buildLostLeadMongoQuery()] });
-  }
-
   const lsqFilter = String(requestQuery.lsqLeads || "").trim().toLowerCase();
   if (lsqFilter === "only") {
     query.lsqImported = true;
