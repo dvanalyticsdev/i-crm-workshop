@@ -3176,18 +3176,7 @@ function appendScopedAssignedDateMongoQuery(query = {}, requestQuery = {}) {
   if (!range?.start || !range?.end) {
     return query;
   }
-  const startIso = range.start.toISOString();
-  const endIso = range.end.toISOString();
-  const startKey = toKolkataDateKey(range.start);
-  const endKey = toKolkataDateKey(range.end);
-  return appendMongoAnd(query, {
-    $or: [
-      { leadOwnerTimelineAt: { $gte: startIso, $lte: endIso } },
-      { counselorAssignedAt: { $gte: startIso, $lte: endIso } },
-      { createdAtExact: { $gte: startIso, $lte: endIso } },
-      { createdAt: { $gte: startKey, $lte: endKey } }
-    ]
-  });
+  return query;
 }
 
 function appendMongoAnd(query = {}, condition = {}) {
@@ -11313,6 +11302,28 @@ async function getLeadAssignmentMetadataMap(leads = []) {
   return metadataMap;
 }
 
+async function enrichLeadsWithAssignmentMetadata(leads = []) {
+  const decoratedLeads = decorateLeadListForStorage(leads || []);
+  const assignmentMetadataMap = await getLeadAssignmentMetadataMap(decoratedLeads);
+  return decoratedLeads.map((lead) => {
+    const leadId = String(lead?.id || "").trim();
+    const assignmentMetadata = assignmentMetadataMap.get(leadId) || null;
+    const explicitOwnerType = String(lead?.leadOwnerType || "").trim().toLowerCase();
+    const explicitSourceCounselor = String(lead?.assignedFromCounselor || "").trim();
+    const explicitTimelineAt = String(lead?.leadOwnerTimelineAt || lead?.counselorAssignedAt || "").trim();
+    const ownerType = explicitOwnerType || assignmentMetadata?.ownerType || "direct";
+    const sourceCounselor = explicitSourceCounselor || assignmentMetadata?.sourceCounselor || "";
+    const timelineAt = explicitTimelineAt || assignmentMetadata?.assignedAt || "";
+
+    return {
+      ...lead,
+      leadOwnerType: ownerType === "reassigned" ? "reassigned" : "direct",
+      assignedFromCounselor: sourceCounselor,
+      leadOwnerTimelineAt: timelineAt
+    };
+  });
+}
+
 function resolveLeadCreatedMetadata(lead = {}, createdMetadataMap = new Map()) {
   const leadId = String(lead?.id || "").trim();
   const activityCreated = createdMetadataMap.get(leadId) || null;
@@ -11949,25 +11960,7 @@ async function getStateDoc() {
     withMongoRetry(() => tasksCollection.find({}).toArray(), { retries: 1, label: "Load tasks" }),
     withMongoRetry(() => allocationCollection.find({}).toArray(), { retries: 1, label: "Load allocation" })
   ]);
-  const decoratedLeads = decorateLeadListForStorage(leads || []);
-  const assignmentMetadataMap = await getLeadAssignmentMetadataMap(decoratedLeads);
-  const enrichedLeads = decoratedLeads.map((lead) => {
-    const leadId = String(lead?.id || "").trim();
-    const assignmentMetadata = assignmentMetadataMap.get(leadId) || null;
-    const explicitOwnerType = String(lead?.leadOwnerType || "").trim().toLowerCase();
-    const explicitSourceCounselor = String(lead?.assignedFromCounselor || "").trim();
-    const explicitTimelineAt = String(lead?.leadOwnerTimelineAt || lead?.counselorAssignedAt || "").trim();
-    const ownerType = explicitOwnerType || assignmentMetadata?.ownerType || "direct";
-    const sourceCounselor = explicitSourceCounselor || assignmentMetadata?.sourceCounselor || "";
-    const timelineAt = explicitTimelineAt || assignmentMetadata?.assignedAt || "";
-
-    return {
-      ...lead,
-      leadOwnerType: ownerType === "reassigned" ? "reassigned" : "direct",
-      assignedFromCounselor: sourceCounselor,
-      leadOwnerTimelineAt: timelineAt
-    };
-  });
+  const enrichedLeads = await enrichLeadsWithAssignmentMetadata(leads || []);
 
   if (globalMeta) {
     return cacheStateDoc({
@@ -15687,8 +15680,9 @@ async function assignFilteredMainAdmissionLeadsHandler(req, res) {
         .toArray(),
       { retries: 1, label: "Load filtered main admission leads for assignment" }
     );
+    const enrichedLeads = await enrichLeadsWithAssignmentMetadata(rawLeads || []);
     const sessionRole = String(session.role || "").trim().toLowerCase();
-    const visibleLeads = decorateLeadListForStorage(rawLeads || []).filter((lead) => {
+    const visibleLeads = enrichedLeads.filter((lead) => {
       if (!isAdminLikeSession(session) && isLsqArchivedLead(lead)) {
         return false;
       }
@@ -17797,7 +17791,7 @@ app.get("/api/leads/scoped", async (req, res) => {
       ),
       shouldIncludeFacets ? buildScopedLeadFacets(section, session, counselors, req.query || {}) : Promise.resolve(null)
     ]);
-    const decoratedLeads = decorateLeadListForStorage(rawLeads || []);
+    const decoratedLeads = await enrichLeadsWithAssignmentMetadata(rawLeads || []);
     const sessionRole = String(session.role || "").trim().toLowerCase();
     const visibleLeads = decoratedLeads.filter((lead) => {
       if (!isAdminLikeSession(session) && isLsqArchivedLead(lead)) {

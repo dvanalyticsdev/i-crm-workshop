@@ -2022,6 +2022,19 @@ test("manager and superadmin assignment permission bypass", () => {
   assert.match(mainAdmissionLeads, /const isOwnLead = String\(lead\?\.counselor \|\| ""\)\.trim\(\)\.toLowerCase\(\) === getCounselorIdentity\(\);/);
 });
 
+test("scoped assigned date filter uses assignment log metadata fallback", () => {
+  const server = read("server.js");
+  const appendAssignedDateQuery = getNamedFunctionSource(server, "appendScopedAssignedDateMongoQuery");
+  const scopedLeadsHandlerStart = server.indexOf('app.get("/api/leads/scoped"');
+  assert.notEqual(scopedLeadsHandlerStart, -1, "scoped leads endpoint should exist");
+  const scopedLeadsHandler = server.slice(scopedLeadsHandlerStart, server.indexOf('app.delete("/api/leads/scoped"', scopedLeadsHandlerStart));
+
+  assert.match(server, /async function enrichLeadsWithAssignmentMetadata/);
+  assert.match(scopedLeadsHandler, /const decoratedLeads = await enrichLeadsWithAssignmentMetadata\(rawLeads \|\| \[\]\);/);
+  assert.match(scopedLeadsHandler, /leadMatchesScopedRuntimeFilters\(lead, section, req\.query \|\| \{\}, session/);
+  assert.doesNotMatch(appendAssignedDateQuery, /leadOwnerTimelineAt|counselorAssignedAt|createdAtExact|createdAt:/);
+});
+
 test("counselor multi-select filter and click outside closure validation", () => {
   const server = read("server.js");
   const mainAdmissionLeads = read("main-admission-leads.js");
