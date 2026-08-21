@@ -2040,12 +2040,16 @@ test("counselor multi-select filter and click outside closure validation", () =>
   const mainAdmissionLeads = read("main-admission-leads.js");
 
   const queryBuilderSource = getNamedFunctionSource(server, "buildScopedLeadMongoQuery");
+  const runtimeFilterSource = getNamedFunctionSource(server, "leadMatchesScopedRuntimeFilters");
+  const runtimeFilterGateSource = getNamedFunctionSource(server, "hasScopedRuntimeFilters");
 
-  // Verify backend parses counselor comma separated values
+  // Verify backend parses counselor comma-separated values after lead enrichment.
   assert.match(queryBuilderSource, /counselorFilter\.split\((["'])\,\1\)/);
-  assert.match(queryBuilderSource, /counselorValues\.map/);
-  assert.match(queryBuilderSource, /conditions/);
-  assert.match(queryBuilderSource, /\{\s*\$or\s*:\s*conditions\s*\}/);
+  assert.match(runtimeFilterGateSource, /"counselor"/);
+  assert.match(runtimeFilterSource, /const counselorValues = String\(query\.counselor \|\| ""\)/);
+  assert.match(runtimeFilterSource, /otherCounselors\.some/);
+  assert.match(runtimeFilterSource, /return leadCounselor === value && !isServerLostLead\(lead\);/);
+  assert.doesNotMatch(queryBuilderSource, /counselorValues\.map/);
 
   // Verify frontend defines default counselor as array
   assert.match(mainAdmissionLeads, /counselor\s*:\s*\[\s*\]/);

@@ -3077,6 +3077,7 @@ function hasScopedRuntimeFilters(query = {}) {
     "counselorActivityTimeline",
     "assignedTimeline",
     "leadOwner",
+    "counselor",
     "courseName",
     "location",
     "leadSource",
@@ -3098,6 +3099,35 @@ function leadMatchesScopedRuntimeFilters(lead = {}, section = "", query = {}, se
   const owner = String(query.leadOwner || "").trim().toLowerCase();
   if (owner === "direct" && String(lead.leadOwnerType || "direct").trim().toLowerCase() === "reassigned") return false;
   if (owner === "reassigned" && String(lead.leadOwnerType || "").trim().toLowerCase() !== "reassigned") return false;
+
+  const counselorValues = String(query.counselor || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (counselorValues.length) {
+    let matchesCounselor = false;
+    const hasLostLeadsSelected = counselorValues.includes(LOST_LEADS_COUNSELOR_FILTER);
+    const otherCounselors = counselorValues.filter((value) => value !== LOST_LEADS_COUNSELOR_FILTER);
+    const leadCounselor = String(lead.counselor || "Unassigned").trim() || "Unassigned";
+
+    if (hasLostLeadsSelected && canUseLostLeadCounselorFilter(session) && isServerLostLead(lead)) {
+      matchesCounselor = true;
+    }
+
+    if (!matchesCounselor && otherCounselors.length) {
+      matchesCounselor = otherCounselors.some((value) => {
+        if (value === LSQ_ARCHIVED_COUNSELOR) {
+          return isAdminLikeSession(session) && leadCounselor === LSQ_ARCHIVED_COUNSELOR;
+        }
+        if (value.toLowerCase() === "unassigned") {
+          return !shouldTreatLeadAsAssigned(leadCounselor);
+        }
+        return leadCounselor === value && !isServerLostLead(lead);
+      });
+    }
+
+    if (!matchesCounselor) return false;
+  }
 
   const courseValues = String(query.courseName || "")
     .split(",")
@@ -3246,33 +3276,6 @@ function buildScopedLeadMongoQuery(section, requestQuery = {}, session = {}, cou
   const counselorFilter = String(requestQuery.counselor || "").trim();
   const counselorValues = counselorFilter.split(",").map((val) => val.trim()).filter(Boolean);
   const hasLostLeadsSelected = counselorValues.includes(LOST_LEADS_COUNSELOR_FILTER);
-
-  if (sessionRole !== "counselor" && counselorValues.length > 0) {
-    const conditions = counselorValues.map((value) => {
-      if (value === LOST_LEADS_COUNSELOR_FILTER) {
-        return canUseLostLeadCounselorFilter(session)
-          ? buildLostLeadMongoQuery()
-          : { _id: "__lost_leads_filter_forbidden__" };
-      } else if (value === LSQ_ARCHIVED_COUNSELOR) {
-        return isAdminLikeSession(session)
-          ? { counselor: LSQ_ARCHIVED_COUNSELOR }
-          : { _id: "__archived_leads_filter_forbidden__" };
-      } else if (value.toLowerCase() === "unassigned") {
-        return {
-          $or: [
-            { counselor: { $exists: false } },
-            { counselor: "" },
-            { counselor: "Unassigned" },
-            { counselor: "unassigned" },
-            { counselor: null }
-          ]
-        };
-      } else {
-        return { counselor: value };
-      }
-    });
-    query = appendMongoAnd(query, { $or: conditions });
-  }
 
   if (section === "main-admission" && counselorFilter && !hasLostLeadsSelected) {
     query = appendMongoAnd(query, { $nor: [buildLostLeadMongoQuery()] });
