@@ -2032,7 +2032,6 @@ function shouldBypassScopedMainAdmissionLoad() {
   const leadOwner = String(filter.leadOwner || "all").trim().toLowerCase();
   return Boolean(
     (assignedTimeline && assignedTimeline !== "overall")
-    || normalizeMultiValueFilter(filter.counselor).length
     || (leadOwner && leadOwner !== "all")
   );
 }

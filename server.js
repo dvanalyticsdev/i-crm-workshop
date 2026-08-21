@@ -3109,6 +3109,7 @@ function leadMatchesScopedRuntimeFilters(lead = {}, section = "", query = {}, se
     const hasLostLeadsSelected = counselorValues.includes(LOST_LEADS_COUNSELOR_FILTER);
     const otherCounselors = counselorValues.filter((value) => value !== LOST_LEADS_COUNSELOR_FILTER);
     const leadCounselor = String(lead.counselor || "Unassigned").trim() || "Unassigned";
+    const normalizedLeadCounselor = leadCounselor.toLowerCase();
 
     if (hasLostLeadsSelected && canUseLostLeadCounselorFilter(session) && isServerLostLead(lead)) {
       matchesCounselor = true;
@@ -3116,13 +3117,14 @@ function leadMatchesScopedRuntimeFilters(lead = {}, section = "", query = {}, se
 
     if (!matchesCounselor && otherCounselors.length) {
       matchesCounselor = otherCounselors.some((value) => {
-        if (value === LSQ_ARCHIVED_COUNSELOR) {
-          return isAdminLikeSession(session) && leadCounselor === LSQ_ARCHIVED_COUNSELOR;
+        const normalizedValue = value.toLowerCase();
+        if (normalizedValue === LSQ_ARCHIVED_COUNSELOR.toLowerCase()) {
+          return isAdminLikeSession(session) && normalizedLeadCounselor === LSQ_ARCHIVED_COUNSELOR.toLowerCase();
         }
-        if (value.toLowerCase() === "unassigned") {
+        if (normalizedValue === "unassigned") {
           return !shouldTreatLeadAsAssigned(leadCounselor);
         }
-        return leadCounselor === value && !isServerLostLead(lead);
+        return normalizedLeadCounselor === normalizedValue && !isServerLostLead(lead);
       });
     }
 

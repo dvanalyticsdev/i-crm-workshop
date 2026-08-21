@@ -1797,7 +1797,7 @@ test("main admission page uses scoped loading with full-state fallback", () => {
   assert.match(mainAdmission, /async function loadScopedMainAdmissionLeads/);
   assert.match(mainAdmission, /function shouldBypassScopedMainAdmissionLoad/);
   assert.match(getNamedFunctionSource(mainAdmission, "shouldBypassScopedMainAdmissionLoad"), /assignedTimeline[\s\S]*overall/);
-  assert.match(getNamedFunctionSource(mainAdmission, "shouldBypassScopedMainAdmissionLoad"), /normalizeMultiValueFilter\(filter\.counselor\)\.length/);
+  assert.doesNotMatch(getNamedFunctionSource(mainAdmission, "shouldBypassScopedMainAdmissionLoad"), /filter\.counselor/);
   assert.match(getNamedFunctionSource(mainAdmission, "shouldBypassScopedMainAdmissionLoad"), /leadOwner[\s\S]*all/);
   assert.match(getNamedFunctionSource(mainAdmission, "loadScopedMainAdmissionLeads"), /shouldBypassScopedMainAdmissionLoad\(\)[\s\S]*resetScopedMainAdmissionState\(\)[\s\S]*await ensureFullStateForScopedBypass\(\)/);
   assert.match(getNamedFunctionSource(mainAdmission, "ensureFullStateForScopedBypass"), /refreshState\(\)/);
@@ -2055,8 +2055,9 @@ test("counselor multi-select filter and click outside closure validation", () =>
   // Verify backend parses counselor comma-separated values after lead enrichment.
   assert.match(runtimeFilterGateSource, /"counselor"/);
   assert.match(runtimeFilterSource, /const counselorValues = String\(query\.counselor \|\| ""\)/);
+  assert.match(runtimeFilterSource, /normalizedLeadCounselor/);
   assert.match(runtimeFilterSource, /otherCounselors\.some/);
-  assert.match(runtimeFilterSource, /return leadCounselor === value && !isServerLostLead\(lead\);/);
+  assert.match(runtimeFilterSource, /return normalizedLeadCounselor === normalizedValue && !isServerLostLead\(lead\);/);
   assert.doesNotMatch(queryBuilderSource, /counselorFilter|counselorValues|buildLostLeadMongoQuery\(\)/);
 
   // Verify frontend defines default counselor as array
