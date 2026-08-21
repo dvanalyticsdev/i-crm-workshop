@@ -2039,6 +2039,7 @@ test("scoped assigned date filter uses assignment log metadata fallback", () => 
   assert.match(scopedLeadsHandler, /const decoratedLeads = await enrichLeadsWithAssignmentMetadata\(rawLeads \|\| \[\]\);/);
   assert.match(scopedLeadsHandler, /leadMatchesScopedRuntimeFilters\(lead, section, req\.query \|\| \{\}, session/);
   assert.doesNotMatch(appendAssignedDateQuery, /leadOwnerTimelineAt|counselorAssignedAt|createdAtExact|createdAt:/);
+  assert.match(getNamedFunctionSource(server, "getScopedEntryTimestamp"), /value && typeof value === "object"/);
   assert.match(runtimeFilterSource, /sopState\?\.blocked && !isAdminLikeSession\(session\)/);
 });
 

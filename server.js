@@ -2790,15 +2790,10 @@ const LEAD_BROWSE_LIST_PROJECTION = {
 };
 
 function getScopedEntryTimestamp(value) {
-  const candidate = String(
-    value?.at
-    || value?.timestamp
-    || value?.createdAt
-    || value?.updatedAt
-    || value?.migratedAt
-    || value
-    || ""
-  ).trim();
+  const rawValue = value && typeof value === "object"
+    ? value.at || value.timestamp || value.createdAt || value.updatedAt || value.migratedAt || ""
+    : value;
+  const candidate = String(rawValue || "").trim();
   if (!candidate) return Number.NaN;
   return new Date(candidate).getTime();
 }
