@@ -1795,6 +1795,12 @@ test("main admission page uses scoped loading with full-state fallback", () => {
   assert.match(stateSync, /skipStateRefresh/);
   assert.match(mainAdmission, /bootstrapLocalState\(\{ skipStateRefresh: true \}\)/);
   assert.match(mainAdmission, /async function loadScopedMainAdmissionLeads/);
+  assert.match(mainAdmission, /function shouldBypassScopedMainAdmissionLoad/);
+  assert.match(getNamedFunctionSource(mainAdmission, "shouldBypassScopedMainAdmissionLoad"), /assignedTimeline[\s\S]*overall/);
+  assert.match(getNamedFunctionSource(mainAdmission, "shouldBypassScopedMainAdmissionLoad"), /normalizeMultiValueFilter\(filter\.counselor\)\.length/);
+  assert.match(getNamedFunctionSource(mainAdmission, "shouldBypassScopedMainAdmissionLoad"), /leadOwner[\s\S]*all/);
+  assert.match(getNamedFunctionSource(mainAdmission, "loadScopedMainAdmissionLeads"), /shouldBypassScopedMainAdmissionLoad\(\)[\s\S]*resetScopedMainAdmissionState\(\)/);
+  assert.match(getNamedFunctionSource(mainAdmission, "shouldUseScopedServerPage"), /!shouldBypassScopedMainAdmissionLoad\(\)/);
   assert.match(mainAdmission, /\/api\/leads\/scoped\?section=main-admission/);
   assert.match(mainAdmission, /falling back to full state/);
   assert.match(mainAdmission, /await refreshState\(\)/);

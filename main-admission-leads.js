@@ -246,6 +246,19 @@ let scopedDataSignature = "";
 let scopedReloadInFlight = null;
 populateCrmCourseSelect("modalMainAdmissionCoursePitched", { includeNo: true });
 
+function resetScopedMainAdmissionState({ keepFacets = true } = {}) {
+  scopedLoadActive = false;
+  scopedMainAdmissionLeads = null;
+  scopedCounselors = null;
+  scopedPagination = null;
+  scopedCounts = null;
+  if (!keepFacets) {
+    scopedFacets = null;
+  }
+  scopedAdmissionSopEnabled = true;
+  scopedDataSignature = "";
+}
+
 function getScopedCounselors() {
   return Array.isArray(scopedCounselors) ? scopedCounselors : getStoredCounselors();
 }
@@ -298,6 +311,10 @@ function recordMainAdmissionPerformance({ phase, subsection = "", durationMs = n
 
 async function loadScopedMainAdmissionLeads() {
   const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+  if (shouldBypassScopedMainAdmissionLoad()) {
+    resetScopedMainAdmissionState();
+    return false;
+  }
   try {
     const filterPayload = getScopedMainAdmissionFilterPayload({
       page: currentPage,
@@ -338,14 +355,7 @@ async function loadScopedMainAdmissionLeads() {
     return true;
   } catch (error) {
     console.warn("[main-admission] Scoped loading failed, falling back to full state:", error?.message || error);
-    scopedLoadActive = false;
-    scopedMainAdmissionLeads = null;
-    scopedCounselors = null;
-    scopedPagination = null;
-    scopedCounts = null;
-    scopedFacets = null;
-    scopedAdmissionSopEnabled = true;
-    scopedDataSignature = "";
+    resetScopedMainAdmissionState({ keepFacets: false });
     recordMainAdmissionPerformance({
       phase: "data-fetch",
       subsection: "scoped-leads",
@@ -598,7 +608,13 @@ function hasActiveAdvancedFilter() {
 }
 
 function shouldUseScopedServerPage() {
-  return Boolean(scopedLoadActive && scopedPagination && isScopedServerPageFresh() && !hasActiveAdvancedFilter());
+  return Boolean(
+    !shouldBypassScopedMainAdmissionLoad()
+    && scopedLoadActive
+    && scopedPagination
+    && isScopedServerPageFresh()
+    && !hasActiveAdvancedFilter()
+  );
 }
 
 function getAdvancedFilterSummary() {
@@ -1981,6 +1997,16 @@ function getScopedMainAdmissionFilterPayload({ page = currentPage, limit = pageS
   return payload;
 }
 
+function shouldBypassScopedMainAdmissionLoad() {
+  const assignedTimeline = String(filter.assignedTimeline || "overall").trim().toLowerCase();
+  const leadOwner = String(filter.leadOwner || "all").trim().toLowerCase();
+  return Boolean(
+    (assignedTimeline && assignedTimeline !== "overall")
+    || normalizeMultiValueFilter(filter.counselor).length
+    || (leadOwner && leadOwner !== "all")
+  );
+}
+
 function buildScopedDataSignature(payload = getScopedMainAdmissionFilterPayload()) {
   return new URLSearchParams(payload).toString();
 }
@@ -1990,6 +2016,10 @@ function isScopedServerPageFresh() {
 }
 
 function ensureFreshScopedServerPage() {
+  if (shouldBypassScopedMainAdmissionLoad()) {
+    resetScopedMainAdmissionState();
+    return;
+  }
   if (!scopedLoadActive || scopedReloadInFlight || isScopedServerPageFresh()) {
     return;
   }
