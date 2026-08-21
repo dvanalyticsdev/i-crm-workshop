@@ -15,6 +15,7 @@ import {
   getTasks as getStoredTasks,
   getSession,
   loadLocalPreference,
+  refreshState,
   saveLocalPreference
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
@@ -244,6 +245,8 @@ let initialMainAdmissionLoadFailed = false;
 let scopedReloadTimer = null;
 let scopedDataSignature = "";
 let scopedReloadInFlight = null;
+let bypassFullStateRefreshInFlight = null;
+let lastBypassFullStateRefreshAt = 0;
 populateCrmCourseSelect("modalMainAdmissionCoursePitched", { includeNo: true });
 
 function resetScopedMainAdmissionState({ keepFacets = true } = {}) {
@@ -257,6 +260,25 @@ function resetScopedMainAdmissionState({ keepFacets = true } = {}) {
   }
   scopedAdmissionSopEnabled = true;
   scopedDataSignature = "";
+}
+
+async function ensureFullStateForScopedBypass() {
+  const now = Date.now();
+  if (bypassFullStateRefreshInFlight) {
+    return bypassFullStateRefreshInFlight;
+  }
+  if (now - lastBypassFullStateRefreshAt < 10000) {
+    return getStoredLeads();
+  }
+  bypassFullStateRefreshInFlight = refreshState()
+    .then((snapshot) => {
+      lastBypassFullStateRefreshAt = Date.now();
+      return snapshot;
+    })
+    .finally(() => {
+      bypassFullStateRefreshInFlight = null;
+    });
+  return bypassFullStateRefreshInFlight;
 }
 
 function getScopedCounselors() {
@@ -311,11 +333,19 @@ function recordMainAdmissionPerformance({ phase, subsection = "", durationMs = n
 
 async function loadScopedMainAdmissionLeads() {
   const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
-  if (shouldBypassScopedMainAdmissionLoad()) {
-    resetScopedMainAdmissionState();
-    return false;
-  }
   try {
+    if (shouldBypassScopedMainAdmissionLoad()) {
+      resetScopedMainAdmissionState();
+      await ensureFullStateForScopedBypass();
+      recordMainAdmissionPerformance({
+        phase: "data-fetch",
+        subsection: "full-state-bypass",
+        durationMs: Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt),
+        count: getAllLeads().length,
+        message: "full-state-bypass"
+      });
+      return false;
+    }
     const filterPayload = getScopedMainAdmissionFilterPayload({
       page: currentPage,
       limit: pageSize
