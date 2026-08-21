@@ -15,7 +15,6 @@ import {
   getTasks as getStoredTasks,
   getSession,
   loadLocalPreference,
-  refreshState,
   saveLocalPreference
 } from "./state-sync.js";
 import { createTask, TASK_CATEGORY, toTaskDueDateIso } from "./task-service.js";
@@ -245,8 +244,6 @@ let initialMainAdmissionLoadFailed = false;
 let scopedReloadTimer = null;
 let scopedDataSignature = "";
 let scopedReloadInFlight = null;
-let bypassFullStateRefreshInFlight = null;
-let lastBypassFullStateRefreshAt = 0;
 populateCrmCourseSelect("modalMainAdmissionCoursePitched", { includeNo: true });
 
 function resetScopedMainAdmissionState({ keepFacets = true } = {}) {
@@ -260,25 +257,6 @@ function resetScopedMainAdmissionState({ keepFacets = true } = {}) {
   }
   scopedAdmissionSopEnabled = true;
   scopedDataSignature = "";
-}
-
-async function ensureFullStateForScopedBypass() {
-  const now = Date.now();
-  if (bypassFullStateRefreshInFlight) {
-    return bypassFullStateRefreshInFlight;
-  }
-  if (now - lastBypassFullStateRefreshAt < 10000) {
-    return getStoredLeads();
-  }
-  bypassFullStateRefreshInFlight = refreshState()
-    .then((snapshot) => {
-      lastBypassFullStateRefreshAt = Date.now();
-      return snapshot;
-    })
-    .finally(() => {
-      bypassFullStateRefreshInFlight = null;
-    });
-  return bypassFullStateRefreshInFlight;
 }
 
 function getScopedCounselors() {
@@ -334,18 +312,6 @@ function recordMainAdmissionPerformance({ phase, subsection = "", durationMs = n
 async function loadScopedMainAdmissionLeads() {
   const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
   try {
-    if (shouldBypassScopedMainAdmissionLoad()) {
-      resetScopedMainAdmissionState();
-      await ensureFullStateForScopedBypass();
-      recordMainAdmissionPerformance({
-        phase: "data-fetch",
-        subsection: "full-state-bypass",
-        durationMs: Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt),
-        count: getAllLeads().length,
-        message: "full-state-bypass"
-      });
-      return false;
-    }
     const filterPayload = getScopedMainAdmissionFilterPayload({
       page: currentPage,
       limit: pageSize
@@ -639,8 +605,7 @@ function hasActiveAdvancedFilter() {
 
 function shouldUseScopedServerPage() {
   return Boolean(
-    !shouldBypassScopedMainAdmissionLoad()
-    && scopedLoadActive
+    scopedLoadActive
     && scopedPagination
     && isScopedServerPageFresh()
     && !hasActiveAdvancedFilter()
@@ -2027,15 +1992,6 @@ function getScopedMainAdmissionFilterPayload({ page = currentPage, limit = pageS
   return payload;
 }
 
-function shouldBypassScopedMainAdmissionLoad() {
-  const assignedTimeline = String(filter.assignedTimeline || "overall").trim().toLowerCase();
-  const leadOwner = String(filter.leadOwner || "all").trim().toLowerCase();
-  return Boolean(
-    (assignedTimeline && assignedTimeline !== "overall")
-    || (leadOwner && leadOwner !== "all")
-  );
-}
-
 function buildScopedDataSignature(payload = getScopedMainAdmissionFilterPayload()) {
   return new URLSearchParams(payload).toString();
 }
@@ -2045,10 +2001,6 @@ function isScopedServerPageFresh() {
 }
 
 function ensureFreshScopedServerPage() {
-  if (shouldBypassScopedMainAdmissionLoad()) {
-    resetScopedMainAdmissionState();
-    return;
-  }
   if (!scopedLoadActive || scopedReloadInFlight || isScopedServerPageFresh()) {
     return;
   }
