@@ -16214,13 +16214,11 @@ app.get("/api/main-admission-leads/export-jobs/:jobId/download", async (req, res
 function normalizeSearchFileContacts(rawContacts = []) {
   const seen = new Set();
   return (Array.isArray(rawContacts) ? rawContacts : []).map((item) => {
-    const email = normalizeLeadEmail(item?.email);
     const phone = normalizeLeadPhone(item?.phone);
-    const key = email ? `email:${email}` : phone ? `phone:${phone}` : "";
+    const key = phone ? `phone:${phone}` : "";
     if (!key || seen.has(key)) return null;
     seen.add(key);
     return {
-      email,
       phone,
       label: String(item?.label || "").trim(),
       source: String(item?.source || "").trim()
@@ -16228,38 +16226,58 @@ function normalizeSearchFileContacts(rawContacts = []) {
   }).filter(Boolean).slice(0, 10000);
 }
 
+function getSearchFileLeadSection(lead = {}) {
+  const pipeline = String(lead?.leadPipeline || "").trim().toLowerCase();
+  if (pipeline === MAIN_ADMISSION_PIPELINE || pipeline === "admission" || pipeline === "main-admission-calling") {
+    return "Main Admission Section";
+  }
+  if (pipeline === "course-registration") {
+    return "Registered Candidates Section";
+  }
+  return "Workshop Section";
+}
+
 async function buildSearchFileLeadReport(rawContacts = []) {
   const contacts = normalizeSearchFileContacts(rawContacts);
-  const emails = contacts.map((item) => item.email).filter(Boolean);
   const phones = contacts.map((item) => item.phone).filter(Boolean);
   const conditions = [];
-  if (emails.length) conditions.push({ normalizedEmail: { $in: emails } }, { email: { $in: emails } });
   if (phones.length) conditions.push({ normalizedPhone: { $in: phones } }, { phone: { $in: phones } });
 
   const existingLeads = conditions.length
     ? await withMongoRetry(
       () => leadsCollection.find({ $or: conditions }, { projection: {
         id: 1, name: 1, email: 1, phone: 1, normalizedEmail: 1, normalizedPhone: 1,
-        counselor: 1, courseName: 1, leadPipeline: 1
+        counselor: 1, courseName: 1, workshop: 1, leadPipeline: 1
       } }).toArray(),
       { retries: 1, label: "Search uploaded file contacts" }
     )
     : [];
-  const existingByEmail = new Map(existingLeads.map((lead) => [normalizeLeadEmail(lead.normalizedEmail || lead.email), lead]).filter(([key]) => key));
-  const existingByPhone = new Map(existingLeads.map((lead) => [normalizeLeadPhone(lead.normalizedPhone || lead.phone), lead]).filter(([key]) => key));
+  const existingByPhone = new Map();
+  existingLeads.forEach((lead) => {
+    const key = normalizeLeadPhone(lead.normalizedPhone || lead.phone);
+    if (!key) return;
+    const matches = existingByPhone.get(key) || [];
+    matches.push(lead);
+    existingByPhone.set(key, matches);
+  });
   const existing = [];
   const missing = [];
 
   contacts.forEach((contact) => {
-    const lead = (contact.email && existingByEmail.get(contact.email)) || (contact.phone && existingByPhone.get(contact.phone));
-    if (lead) {
-      existing.push({
-        ...contact,
-        leadId: lead.id,
-        leadName: lead.name || "",
-        counselor: lead.counselor || "",
-        courseName: lead.courseName || "",
-        leadPipeline: lead.leadPipeline || ""
+    const matchedLeads = contact.phone ? existingByPhone.get(contact.phone) || [] : [];
+    if (matchedLeads.length) {
+      matchedLeads.forEach((lead) => {
+        existing.push({
+          ...contact,
+          leadId: lead.id,
+          leadName: lead.name || "",
+          crmPhone: lead.phone || "",
+          counselor: lead.counselor || "Unassigned",
+          courseName: lead.courseName || "",
+          workshop: lead.workshop || "",
+          leadPipeline: lead.leadPipeline || "",
+          section: getSearchFileLeadSection(lead)
+        });
       });
     } else {
       missing.push(contact);
@@ -16286,89 +16304,6 @@ app.post("/api/leads/search-file/report", async (req, res) => {
     return res.json({ ok: true, fileName: String(req.body?.fileName || "").trim(), ...report });
   } catch (error) {
     return res.status(500).json({ message: "Failed to search uploaded file contacts", details: error.message });
-  }
-});
-
-app.post("/api/leads/search-file/create-missing", async (req, res) => {
-  try {
-    const session = await requireRole(req, res, ["admin", "super_admin"]);
-    if (!session) return;
-
-    const courseId = String(req.body?.courseId || "").trim();
-    const course = PUBLIC_COURSE_CATALOG.find((item) => item.id === courseId);
-    if (!course) {
-      return res.status(400).json({ message: "A valid target course is required." });
-    }
-
-    const report = await buildSearchFileLeadReport(req.body?.contacts);
-    const missing = report.missing;
-    if (!missing.length) {
-      return res.status(400).json({ message: "No missing contacts were found to create." });
-    }
-
-    const now = new Date().toISOString();
-    const fileName = String(req.body?.fileName || "").trim();
-    const reservedIds = await reserveMetaLeadIds(missing.length);
-    const createdLeads = missing.map((contact, index) => decorateLeadForStorage({
-      id: reservedIds[index] || Date.now() + index,
-      name: contact.label || contact.email || contact.phone || "Imported Search Lead",
-      email: contact.email || "",
-      phone: contact.phone || "",
-      normalizedEmail: contact.email || "",
-      normalizedPhone: normalizeLeadPhone(contact.phone),
-      courseName: course.code,
-      courseId: course.id,
-      courseCode: course.code,
-      leadPipeline: MAIN_ADMISSION_PIPELINE,
-      publicCourseSegment: course.id === "days7_genai" ? PUBLIC_COURSE_CRASH_SEGMENT : PUBLIC_COURSE_DEFAULT_SEGMENT,
-      createdAt: toKolkataDateKey(new Date()),
-      createdAtExact: now,
-      updatedAt: now,
-      counselor: "Unassigned",
-      mainAdmissionDialed: "",
-      mainAdmissionCoursePitched: course.code,
-      mainAdmissionCourseStatus: "",
-      mainAdmissionAdmissionStatus: "",
-      mainAdmissionCallStatus: "",
-      mainAdmissionActivityUpdated: false,
-      mainAdmissionActivityUpdates: 0,
-      mainAdmissionActivityTouchedByAssignee: false,
-      mainAdmissionActivityHistory: [],
-      leadNotes: [],
-      importSourceFiles: [fileName].filter(Boolean),
-      importSourceSheet: contact.source || "",
-      source: "Search Panel",
-      leadSource: "Search Panel",
-      importedBy: session.name || session.email || session.role || "Admin",
-      importedAt: now
-    }));
-
-    await withMongoRetry(
-      () => leadsCollection.insertMany(createdLeads, { ordered: false }),
-      { retries: 1, label: "Create missing search panel leads" }
-    );
-
-    await recordActivities(createdLeads.map((lead) => ({
-      leadId: lead.id,
-      leadName: lead.name,
-      counselorName: lead.counselor || "",
-      activityType: "Lead Created",
-      actionDescription: `Lead created from Data Control search panel for ${course.code}`,
-      newValue: `Phone: ${lead.phone || "-"}, Email: ${lead.email || "-"}, Course: ${course.code}`,
-      session
-    }))).catch(() => undefined);
-
-    const nextState = await refreshStateAfterAtomicUpdate();
-    res.setHeader("ETag", buildStateEtag(nextState));
-    const responseState = buildStateResponse(nextState);
-    return res.json({
-      ok: true,
-      createdCount: createdLeads.length,
-      leads: createdLeads,
-      state: responseState
-    });
-  } catch (error) {
-    return res.status(500).json({ message: "Failed to create missing leads", details: error.message });
   }
 });
 

@@ -39,9 +39,8 @@ const saveSopSettingsBtn = document.getElementById("saveSopSettingsBtn");
 const sopToggleStatus = document.getElementById("sopToggleStatus");
 const sopSettingsMessage = document.getElementById("sopSettingsMessage");
 const leadSearchFile = document.getElementById("leadSearchFile");
-const leadSearchCreateCourseSelect = document.getElementById("leadSearchCreateCourseSelect");
 const runLeadSearchBtn = document.getElementById("runLeadSearchBtn");
-const createMissingSearchLeadsBtn = document.getElementById("createMissingSearchLeadsBtn");
+const exportLeadSearchReportBtn = document.getElementById("exportLeadSearchReportBtn");
 const leadSearchSummary = document.getElementById("leadSearchSummary");
 const leadSearchResults = document.getElementById("leadSearchResults");
 const leadSearchMessage = document.getElementById("leadSearchMessage");
@@ -1154,25 +1153,15 @@ async function parseImportFile(file) {
 function extractLeadSearchContactsFromText(value, context = {}) {
   const text = String(value || "").trim();
   if (!text) return [];
-  const emails = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
   const phoneCandidates = text.match(/(?:\+?\d[\d\s().-]{7,}\d)/g) || [];
-  return [
-    ...emails.map((email) => ({
-      email: String(email || "").trim().toLowerCase(),
-      phone: "",
+  return phoneCandidates
+    .map((phone) => normalizeImportedPhone(phone))
+    .filter(Boolean)
+    .map((phone) => ({
+      phone,
       label: context.label || "",
       source: context.source || ""
-    })),
-    ...phoneCandidates
-      .map((phone) => normalizeImportedPhone(phone))
-      .filter(Boolean)
-      .map((phone) => ({
-        email: "",
-        phone,
-        label: context.label || "",
-        source: context.source || ""
-      }))
-  ];
+    }));
 }
 
 async function parseLeadSearchFile(file) {
@@ -1191,7 +1180,7 @@ async function parseLeadSearchFile(file) {
           label: rowText.slice(0, 120),
           source: `${sheetName} row ${rowIndex + 1}`
         }).forEach((contact) => {
-          const key = contact.email ? `email:${contact.email}` : `phone:${normalizeDuplicatePhone(contact.phone)}`;
+          const key = `phone:${normalizeDuplicatePhone(contact.phone)}`;
           if (key && !contactsByKey.has(key)) {
             contactsByKey.set(key, contact);
           }
@@ -1209,13 +1198,13 @@ function renderLeadSearchReport(report = null) {
   const existing = Array.isArray(report?.existing) ? report.existing : [];
   if (leadSearchSummary) {
     leadSearchSummary.innerHTML = `
-      <p>Contacts found: ${Number(summary.total) || 0}</p>
-      <p>Existing in CRM: ${Number(summary.existing) || 0}</p>
-      <p>Missing from CRM: ${Number(summary.missing) || 0}</p>
+      <p>Phone numbers found: ${Number(summary.total) || 0}</p>
+      <p>Matched CRM leads: ${Number(summary.existing) || 0}</p>
+      <p>Not in CRM: ${Number(summary.missing) || 0}</p>
     `;
   }
-  if (createMissingSearchLeadsBtn) {
-    createMissingSearchLeadsBtn.disabled = !missing.length;
+  if (exportLeadSearchReportBtn) {
+    exportLeadSearchReportBtn.disabled = !report || (!existing.length && !missing.length);
   }
   if (!leadSearchResults) return;
   if (!report) {
@@ -1223,15 +1212,57 @@ function renderLeadSearchReport(report = null) {
     return;
   }
   const missingPreview = missing.slice(0, 12).map((item) => (
-    `<li>${escapeHtml(item.email || item.phone || "Unknown contact")} <span class="text-muted">${escapeHtml(item.source || "")}</span></li>`
+    `<li>${escapeHtml(item.phone || "Unknown phone")} <span class="text-muted">${escapeHtml(item.source || "")}</span></li>`
   )).join("");
   const existingPreview = existing.slice(0, 8).map((item) => (
-    `<li>${escapeHtml(item.email || item.phone || "Unknown contact")} - ${escapeHtml(item.leadName || "Existing lead")} ${item.counselor ? `(${escapeHtml(item.counselor)})` : ""}</li>`
+    `<li>${escapeHtml(item.phone || "Unknown phone")} - ${escapeHtml(item.leadName || "Existing lead")} ${item.counselor ? `(${escapeHtml(item.counselor)})` : ""} ${item.section ? `- ${escapeHtml(item.section)}` : ""}</li>`
   )).join("");
   leadSearchResults.innerHTML = `
-    ${missing.length ? `<strong>Missing preview</strong><ul>${missingPreview}</ul>` : "<p>No missing contacts found.</p>"}
+    ${missing.length ? `<strong>Not in CRM preview</strong><ul>${missingPreview}</ul>` : "<p>All uploaded phone numbers were found in CRM.</p>"}
     ${existing.length ? `<strong>Existing preview</strong><ul>${existingPreview}</ul>` : ""}
   `;
+}
+
+function downloadLeadSearchReport() {
+  const report = latestLeadSearchReport;
+  const existing = Array.isArray(report?.existing) ? report.existing : [];
+  const missing = Array.isArray(report?.missing) ? report.missing : [];
+  if (!existing.length && !missing.length) {
+    setMessage(leadSearchMessage, "Run a file search before exporting.", true);
+    return;
+  }
+
+  const rows = [
+    ...existing.map((item) => ({
+      "Uploaded Phone": item.phone || "",
+      "CRM Status": "Matched",
+      "Lead ID": item.leadId || "",
+      "Lead Name": item.leadName || "",
+      "CRM Phone": item.crmPhone || item.phone || "",
+      "Tagged Counselor": item.counselor || "Unassigned",
+      "Section": item.section || "",
+      "Course / Workshop": item.courseName || item.workshop || "",
+      "Source Row": item.source || ""
+    })),
+    ...missing.map((item) => ({
+      "Uploaded Phone": item.phone || "",
+      "CRM Status": "Not in CRM",
+      "Lead ID": "",
+      "Lead Name": "",
+      "CRM Phone": "",
+      "Tagged Counselor": "",
+      "Section": "",
+      "Course / Workshop": "",
+      "Source Row": item.source || ""
+    }))
+  ];
+
+  const worksheet = XLSX.utils.json_to_sheet(rows);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Lead Search Report");
+  const dateKey = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(workbook, `lead-search-report-${dateKey}.xlsx`);
+  setMessage(leadSearchMessage, `Exported ${rows.length} report row${rows.length === 1 ? "" : "s"}.`, false);
 }
 
 async function handleLeadSearchReport() {
@@ -1259,7 +1290,7 @@ async function handleLeadSearchReport() {
   if (!contacts.length) {
     latestLeadSearchReport = null;
     renderLeadSearchReport({ summary: { total: 0, existing: 0, missing: 0 }, existing: [], missing: [] });
-    setMessage(leadSearchMessage, "No phone numbers or emails were found in this file.", true);
+    setMessage(leadSearchMessage, "No valid phone numbers were found in this file.", true);
     return;
   }
 
@@ -1278,48 +1309,7 @@ async function handleLeadSearchReport() {
   }
   latestLeadSearchReport = json;
   renderLeadSearchReport(json);
-  setMessage(leadSearchMessage, `Search complete. ${json.summary?.missing || 0} missing contact${Number(json.summary?.missing) === 1 ? "" : "s"} found.`, false);
-}
-
-async function handleCreateMissingSearchLeads() {
-  const missing = Array.isArray(latestLeadSearchReport?.missing) ? latestLeadSearchReport.missing : [];
-  if (!missing.length) {
-    setMessage(leadSearchMessage, "Run a file search with missing contacts first.", true);
-    return;
-  }
-  const courseId = leadSearchCreateCourseSelect?.value || "";
-  const course = CRM_FIXED_COURSE_OPTIONS.find((item) => item.id === courseId);
-  if (!course) {
-    setMessage(leadSearchMessage, "Select a valid course for missing leads.", true);
-    return;
-  }
-  const confirmed = window.confirm(`Create ${missing.length} missing lead${missing.length === 1 ? "" : "s"} for ${course.label}?`);
-  if (!confirmed) return;
-
-  const { response, json } = await fetchJsonWithTimeout(apiUrl("/api/leads/search-file/create-missing"), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json"
-    },
-    body: JSON.stringify({
-      contacts: missing,
-      courseId,
-      fileName: leadSearchFile?.files?.[0]?.name || latestLeadSearchReport?.fileName || ""
-    })
-  }, 60000);
-
-  if (!response.ok || json?.ok === false) {
-    setMessage(leadSearchMessage, json?.message || "Failed to create missing leads.", true);
-    return;
-  }
-  acceptServerState(json.state, response.headers.get("etag"));
-  latestLeadSearchReport = null;
-  renderLeadSearchReport({ summary: { total: 0, existing: 0, missing: 0 }, existing: [], missing: [] });
-  if (leadSearchFile) leadSearchFile.value = "";
-  setMessage(leadSearchMessage, `Created ${json.createdCount || 0} missing lead${Number(json.createdCount) === 1 ? "" : "s"} for ${course.label}.`, false);
-  showToast("Missing leads created.", false);
-  renderAll();
+  setMessage(leadSearchMessage, `Search complete. ${json.summary?.missing || 0} phone number${Number(json.summary?.missing) === 1 ? "" : "s"} not found in CRM. Use Export Report to download the matched and not-in-CRM file.`, false);
 }
 
 function incrementSummaryBucket(summary, key, amount = 1) {
@@ -2033,9 +2023,9 @@ function setupAdminPanel() {
     };
   }
 
-  if (createMissingSearchLeadsBtn) {
-    createMissingSearchLeadsBtn.onclick = (event) => {
-      void withButtonBusy(event.currentTarget, "Creating leads...", () => handleCreateMissingSearchLeads());
+  if (exportLeadSearchReportBtn) {
+    exportLeadSearchReportBtn.onclick = (event) => {
+      void withButtonBusy(event.currentTarget, "Exporting...", () => downloadLeadSearchReport());
     };
   }
 
