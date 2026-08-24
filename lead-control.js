@@ -1241,6 +1241,7 @@ function downloadLeadSearchReport() {
       "CRM Phone": item.crmPhone || item.phone || "",
       "Tagged Counselor": item.counselor || "Unassigned",
       "Section": item.section || "",
+      "Admission Status": String(item.admissionStatus || "").trim() || "not filled",
       "Course / Workshop": item.courseName || item.workshop || "",
       "Source Row": item.source || ""
     })),
@@ -1252,6 +1253,7 @@ function downloadLeadSearchReport() {
       "CRM Phone": "",
       "Tagged Counselor": "",
       "Section": "",
+      "Admission Status": "not filled",
       "Course / Workshop": "",
       "Source Row": item.source || ""
     }))

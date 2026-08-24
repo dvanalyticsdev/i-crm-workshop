@@ -16237,6 +16237,15 @@ function getSearchFileLeadSection(lead = {}) {
   return "Workshop Section";
 }
 
+function getSearchFileAdmissionStatus(lead = {}) {
+  return String(
+    lead?.mainAdmissionAdmissionStatus ||
+    lead?.registeredAdmissionStatus ||
+    lead?.admissionStatus ||
+    ""
+  ).trim() || "not filled";
+}
+
 async function buildSearchFileLeadReport(rawContacts = []) {
   const contacts = normalizeSearchFileContacts(rawContacts);
   const phones = contacts.map((item) => item.phone).filter(Boolean);
@@ -16247,7 +16256,8 @@ async function buildSearchFileLeadReport(rawContacts = []) {
     ? await withMongoRetry(
       () => leadsCollection.find({ $or: conditions }, { projection: {
         id: 1, name: 1, email: 1, phone: 1, normalizedEmail: 1, normalizedPhone: 1,
-        counselor: 1, courseName: 1, workshop: 1, leadPipeline: 1
+        counselor: 1, courseName: 1, workshop: 1, leadPipeline: 1,
+        admissionStatus: 1, registeredAdmissionStatus: 1, mainAdmissionAdmissionStatus: 1
       } }).toArray(),
       { retries: 1, label: "Search uploaded file contacts" }
     )
@@ -16276,6 +16286,7 @@ async function buildSearchFileLeadReport(rawContacts = []) {
           courseName: lead.courseName || "",
           workshop: lead.workshop || "",
           leadPipeline: lead.leadPipeline || "",
+          admissionStatus: getSearchFileAdmissionStatus(lead),
           section: getSearchFileLeadSection(lead)
         });
       });
