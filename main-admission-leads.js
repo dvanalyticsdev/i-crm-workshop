@@ -237,6 +237,7 @@ let scopedCounts = null;
 let scopedFacets = null;
 let scopedAdmissionSopEnabled = true;
 let scopedLoadActive = false;
+let scopedReloadPending = false;
 let mainAdmissionAssignmentBusy = false;
 let initialMainAdmissionLoadPending = true;
 let draftMainAdmissionSearch = filter.search;
@@ -244,6 +245,7 @@ let initialMainAdmissionLoadFailed = false;
 let scopedReloadTimer = null;
 let scopedDataSignature = "";
 let scopedReloadInFlight = null;
+let scopedRequestSeq = 0;
 populateCrmCourseSelect("modalMainAdmissionCoursePitched", { includeNo: true });
 
 function resetScopedMainAdmissionState({ keepFacets = true } = {}) {
@@ -311,6 +313,7 @@ function recordMainAdmissionPerformance({ phase, subsection = "", durationMs = n
 
 async function loadScopedMainAdmissionLeads() {
   const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+  const requestSeq = ++scopedRequestSeq;
   try {
     const filterPayload = getScopedMainAdmissionFilterPayload({
       page: currentPage,
@@ -328,6 +331,9 @@ async function loadScopedMainAdmissionLeads() {
     if (!response.ok) {
       throw new Error(payload?.message || "Scoped loading failed.");
     }
+    if (requestSeq !== scopedRequestSeq) {
+      return false;
+    }
 
     scopedMainAdmissionLeads = Array.isArray(payload?.leads) ? payload.leads : [];
     scopedCounselors = Array.isArray(payload?.counselors) ? payload.counselors : [];
@@ -340,6 +346,7 @@ async function loadScopedMainAdmissionLeads() {
     scopedAdmissionSopEnabled = payload?.admissionSopEnabled !== false;
     scopedLoadActive = true;
     scopedDataSignature = buildScopedDataSignature();
+    scopedReloadPending = false;
     normalizeLeadFields(scopedMainAdmissionLeads);
     recordMainAdmissionPerformance({
       phase: "data-fetch",
@@ -350,7 +357,11 @@ async function loadScopedMainAdmissionLeads() {
     });
     return true;
   } catch (error) {
+    if (requestSeq !== scopedRequestSeq) {
+      return false;
+    }
     console.warn("[main-admission] Scoped loading failed, falling back to full state:", error?.message || error);
+    scopedReloadPending = false;
     resetScopedMainAdmissionState({ keepFacets: false });
     recordMainAdmissionPerformance({
       phase: "data-fetch",
@@ -475,6 +486,7 @@ function persistFilters() {
   clearBulkLeadSelection();
   void saveLocalPreference(FILTER_STORAGE_KEY, filter);
   if (scopedLoadActive || Array.isArray(scopedMainAdmissionLeads)) {
+    scopedReloadPending = true;
     window.clearTimeout(scopedReloadTimer);
     scopedReloadTimer = window.setTimeout(() => {
       void loadScopedMainAdmissionLeads().then(() => renderAll());
@@ -2302,6 +2314,28 @@ async function clearRegisteredCandidateData() {
 }
 
 function renderKpis(leads) {
+  if (scopedReloadPending) {
+    mainAdmissionKpiSection.innerHTML = `
+      <article class="card kpi-card">
+        <p>Overall Leads</p>
+        <h2>Loading...</h2>
+      </article>
+      <article class="card kpi-card">
+        <p>Interested Leads</p>
+        <h2>Loading...</h2>
+      </article>
+      <article class="card kpi-card">
+        <p>Enrolled</p>
+        <h2>Loading...</h2>
+      </article>
+      <article class="card kpi-card">
+        <p>Won</p>
+        <h2>Loading...</h2>
+      </article>
+    `;
+    return;
+  }
+
   const counts = shouldUseScopedServerPage() && scopedCounts ? scopedCounts : null;
   const total = counts ? Number(counts.total || 0) : leads.length;
   const interested = counts ? Number(counts.interested || 0) : leads.filter((lead) => lead.mainAdmissionCourseStatus === "Interested").length;
@@ -3475,13 +3509,14 @@ function renderActivityPanel(lead) {
 
 function renderLeadTable(leads) {
   const isCrashSegment = false;
+  const isFilteredReloading = scopedReloadPending;
   const serverTotal = scopedPagination?.total;
   const serverTotalPages = scopedPagination?.totalPages;
   const useServerPage = shouldUseScopedServerPage();
-  const totalLeadCount = useServerPage && Number.isFinite(serverTotal) ? serverTotal : leads.length;
-  const totalPages = useServerPage && Number.isFinite(serverTotalPages) ? serverTotalPages : (Math.ceil(leads.length / pageSize) || 1);
+  const totalLeadCount = isFilteredReloading ? 0 : (useServerPage && Number.isFinite(serverTotal) ? serverTotal : leads.length);
+  const totalPages = isFilteredReloading ? 1 : (useServerPage && Number.isFinite(serverTotalPages) ? serverTotalPages : (Math.ceil(leads.length / pageSize) || 1));
   if (currentPage > totalPages) currentPage = totalPages;
-  const pageLeads = useServerPage ? leads : leads.slice((currentPage - 1) * pageSize, currentPage * pageSize);  syncSelectedLeadIds(leads);
+  const pageLeads = isFilteredReloading ? [] : (useServerPage ? leads : leads.slice((currentPage - 1) * pageSize, currentPage * pageSize));  syncSelectedLeadIds(leads);
   const hasBulkPanel = isAdmin || isManager;
   const filteredSelectedCount = hasBulkPanel && filteredSelectionLimit ? Math.min(filteredSelectionLimit, totalLeadCount) : 0;
   const rowSelectedCount = hasBulkPanel ? getSelectedLeadCount(leads) : 0;
@@ -3493,7 +3528,7 @@ function renderLeadTable(leads) {
   const allSelected = hasBulkPanel && pageLeads.length > 0 && pageLeads.every(isLeadSelected);
   const assignCounselorOptions = getActiveCounselorNames();
   const selectedCountLabel = filteredSelectedCount ? `${filteredSelectedCount} filtered` : selectedCount;
-  const filteredLeadCountLabel = `${totalLeadCount} ${totalLeadCount === 1 ? "lead" : "leads"}`;
+  const filteredLeadCountLabel = isFilteredReloading ? "Loading..." : `${totalLeadCount} ${totalLeadCount === 1 ? "lead" : "leads"}`;
   const bulkToolbar = hasBulkPanel ? `
     <div class="bulk-toolbar">
       <label class="bulk-select-control">
@@ -3506,9 +3541,9 @@ function renderLeadTable(leads) {
       </div>
       <div class="bulk-admin-tools">
         <div class="bulk-inline-group">
-          <input id="mainAdmissionBulkCountInput" class="bulk-count-input" type="number" min="1" max="${totalLeadCount || 1}" placeholder="Count" />
-          <button id="mainAdmissionBulkCountApply" type="button" class="btn-ghost bulk-action-btn" ${totalLeadCount ? "" : "disabled"}>Select Count</button>
-          <button id="mainAdmissionSelectAllFiltered" type="button" class="btn-ghost bulk-action-btn" ${(totalLeadCount && useServerPage) ? "" : "disabled"}>Select All Filtered</button>
+          <input id="mainAdmissionBulkCountInput" class="bulk-count-input" type="number" min="1" max="${totalLeadCount || 1}" placeholder="Count" ${isFilteredReloading ? "disabled" : ""} />
+          <button id="mainAdmissionBulkCountApply" type="button" class="btn-ghost bulk-action-btn" ${totalLeadCount && !isFilteredReloading ? "" : "disabled"}>Select Count</button>
+          <button id="mainAdmissionSelectAllFiltered" type="button" class="btn-ghost bulk-action-btn" ${(totalLeadCount && useServerPage && !isFilteredReloading) ? "" : "disabled"}>Select All Filtered</button>
         </div>
         <div class="bulk-inline-group">
           <select id="mainAdmissionBulkAssignCounselor" class="bulk-assign-select">
@@ -3563,6 +3598,8 @@ function renderLeadTable(leads) {
             escapeHtml(
               initialMainAdmissionLoadPending
                 ? "Loading main admission leads..."
+                : isFilteredReloading
+                  ? "Loading filtered main admission leads..."
                 : initialMainAdmissionLoadFailed
                   ? "Could not load the latest main admission leads. Showing fallback state."
                   : "No main admission leads available for current filters."

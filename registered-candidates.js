@@ -141,13 +141,16 @@ let scopedRegisteredPagination = null;
 let scopedRegisteredCounts = null;
 let scopedRegisteredFacets = null;
 let scopedRegisteredCandidateActive = false;
+let scopedRegisteredReloadPending = false;
 let draftRegisteredSearch = filter.search;
 let scopedRegisteredReloadTimer = null;
+let scopedRegisteredRequestSeq = 0;
 populateCrmCourseSelect("modalRegisteredCoursePitched", { includeNo: true });
 
 function persistFilters() {
   void saveLocalPreference(FILTER_STORAGE_KEY, filter);
   if (scopedRegisteredCandidateActive || Array.isArray(scopedRegisteredCandidateLeads)) {
+    scopedRegisteredReloadPending = true;
     window.clearTimeout(scopedRegisteredReloadTimer);
     scopedRegisteredReloadTimer = window.setTimeout(() => {
       void loadScopedRegisteredCandidates().then(() => renderAll());
@@ -200,6 +203,7 @@ function removeScopedRegisteredLeads(leads) {
 }
 
 async function loadScopedRegisteredCandidates() {
+  const requestSeq = ++scopedRegisteredRequestSeq;
   try {
     const params = new URLSearchParams({
       section: "registered-candidates",
@@ -244,16 +248,24 @@ async function loadScopedRegisteredCandidates() {
     if (!response.ok) {
       throw new Error(payload?.message || "Registered Candidates scoped loading failed.");
     }
+    if (requestSeq !== scopedRegisteredRequestSeq) {
+      return false;
+    }
     scopedRegisteredCandidateLeads = Array.isArray(payload?.leads) ? payload.leads : [];
     scopedRegisteredCandidateCounselors = Array.isArray(payload?.counselors) ? payload.counselors : [];
     scopedRegisteredPagination = payload?.pagination || null;
     scopedRegisteredCounts = payload?.counts || null;
     scopedRegisteredFacets = payload?.facets || scopedRegisteredFacets || null;
     scopedRegisteredCandidateActive = true;
+    scopedRegisteredReloadPending = false;
     normalizeLeadFields(scopedRegisteredCandidateLeads);
     return true;
   } catch (error) {
+    if (requestSeq !== scopedRegisteredRequestSeq) {
+      return false;
+    }
     console.warn("[registered-candidates] Scoped loading failed, falling back to full state:", error?.message || error);
+    scopedRegisteredReloadPending = false;
     scopedRegisteredCandidateLeads = null;
     scopedRegisteredCandidateCounselors = null;
     scopedRegisteredPagination = null;
@@ -1161,6 +1173,28 @@ async function clearRegisteredCandidateData() {
 }
 
 function renderKpis(leads) {
+  if (scopedRegisteredReloadPending) {
+    registeredKpiSection.innerHTML = `
+      <article class="card kpi-card">
+        <p>Overall Leads</p>
+        <h2>Loading...</h2>
+      </article>
+      <article class="card kpi-card">
+        <p>Interested Leads</p>
+        <h2>Loading...</h2>
+      </article>
+      <article class="card kpi-card">
+        <p>Enrolled</p>
+        <h2>Loading...</h2>
+      </article>
+      <article class="card kpi-card">
+        <p>Won</p>
+        <h2>Loading...</h2>
+      </article>
+    `;
+    return;
+  }
+
   const counts = scopedRegisteredCandidateActive && scopedRegisteredCounts ? scopedRegisteredCounts : null;
   const total = counts ? Number(counts.total || 0) : leads.length;
   const interested = counts ? Number(counts.interested || 0) : leads.filter((lead) => lead.registeredCourseStatus === "Interested").length;
@@ -1588,12 +1622,13 @@ function renderActivityPanel(lead) {
 
 function renderLeadTable(leads) {
   const isCrashSegment = activeSegment === CRASH_SEGMENT;
+  const isFilteredReloading = scopedRegisteredReloadPending;
   const serverTotal = scopedRegisteredPagination?.total;
   const serverTotalPages = scopedRegisteredPagination?.totalPages;
-  const totalLeadCount = Number.isFinite(serverTotal) ? serverTotal : leads.length;
-  const totalPages = Number.isFinite(serverTotalPages) ? serverTotalPages : (Math.ceil(leads.length / pageSize) || 1);
+  const totalLeadCount = isFilteredReloading ? 0 : (Number.isFinite(serverTotal) ? serverTotal : leads.length);
+  const totalPages = isFilteredReloading ? 1 : (Number.isFinite(serverTotalPages) ? serverTotalPages : (Math.ceil(leads.length / pageSize) || 1));
   if (currentPage > totalPages) currentPage = totalPages;
-  const pageLeads = scopedRegisteredCandidateActive && scopedRegisteredPagination ? leads : leads.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const pageLeads = isFilteredReloading ? [] : (scopedRegisteredCandidateActive && scopedRegisteredPagination ? leads : leads.slice((currentPage - 1) * pageSize, currentPage * pageSize));
   syncSelectedLeadIds(leads);
   const selectedCount = canUseBulkAssignment ? getSelectedLeadCount(leads) : 0;
   const allSelected = canUseBulkAssignment && pageLeads.length > 0 && pageLeads.every(isLeadSelected);
@@ -1614,8 +1649,8 @@ function renderLeadTable(leads) {
       </div>
       <div class="bulk-admin-tools">
         <div class="bulk-inline-group">
-          <input id="registeredBulkCountInput" class="bulk-count-input" type="number" min="1" max="${totalLeadCount || 1}" placeholder="Count" />
-          <button id="registeredBulkCountApply" type="button" class="btn-ghost bulk-action-btn" ${leads.length ? "" : "disabled"}>Select Count</button>
+          <input id="registeredBulkCountInput" class="bulk-count-input" type="number" min="1" max="${totalLeadCount || 1}" placeholder="Count" ${isFilteredReloading ? "disabled" : ""} />
+          <button id="registeredBulkCountApply" type="button" class="btn-ghost bulk-action-btn" ${leads.length && !isFilteredReloading ? "" : "disabled"}>Select Count</button>
         </div>
         <div class="bulk-inline-group">
           <select id="registeredBulkAssignCounselor" class="bulk-assign-select">
@@ -1658,7 +1693,7 @@ function renderLeadTable(leads) {
               <td>${escapeHtml(lead.counselor || "Unassigned")}</td>
               <td>${renderActivityPanel(lead)}</td>
             </tr>
-          `).join("") : `<tr><td colspan="${canUseBulkAssignment ? 9 : 8}">No registered candidates available for current filters.</td></tr>`}
+          `).join("") : `<tr><td colspan="${canUseBulkAssignment ? 9 : 8}">${isFilteredReloading ? "Loading filtered registered candidates..." : "No registered candidates available for current filters."}</td></tr>`}
         </tbody>
       </table>
     </div>
