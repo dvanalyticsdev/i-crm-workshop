@@ -1786,6 +1786,111 @@ textarea:focus {
   z-index: 1;
 }
 
+.monitoring-panel {
+  padding: 18px 22px 20px;
+}
+
+.monitoring-panel .card-head {
+  margin-bottom: 14px;
+}
+
+.monitoring-panel .card-head h3 {
+  font-size: 1.08rem;
+}
+
+.monitoring-panel .card-head p {
+  max-width: 720px;
+  line-height: 1.45;
+}
+
+.monitoring-panel .kpi-grid {
+  grid-template-columns: repeat(auto-fit, minmax(176px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.monitoring-panel .kpi-card {
+  padding: 14px 16px;
+  min-height: 104px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.monitoring-panel .kpi-card p {
+  font-size: 0.8rem;
+  line-height: 1.25;
+}
+
+.monitoring-panel .kpi-card h2 {
+  margin-top: 8px;
+  font-size: 1.78rem;
+  line-height: 1.1;
+}
+
+.monitoring-report-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.monitoring-report-tabs button {
+  min-width: 92px;
+}
+
+.monitoring-panel .table-scroll {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.monitoring-panel table {
+  table-layout: auto;
+  min-width: 980px;
+}
+
+.monitoring-panel .admission-report-table--lce {
+  min-width: 1480px;
+}
+
+.monitoring-panel th,
+.monitoring-panel td {
+  padding: 13px 14px;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
+.monitoring-panel th {
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.monitoring-panel td {
+  white-space: nowrap;
+  line-height: 1.35;
+}
+
+.monitoring-panel th:first-child,
+.monitoring-panel td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 150px;
+  max-width: 240px;
+  text-align: left;
+  background: var(--surface);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.monitoring-panel th:first-child {
+  z-index: 2;
+}
+
+.monitoring-panel th:last-child,
+.monitoring-panel td:last-child {
+  min-width: 96px;
+}
+
 .monitoring-breakdown {
   display: grid;
   gap: 8px;

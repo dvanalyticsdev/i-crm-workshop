@@ -2763,23 +2763,21 @@ function buildServerAdmissionReport({ leads, counselors, range, session, directo
     metrics: [
       { label: "Total Leads Received", value: totals.totalReceived },
       { label: "Actioned Leads", value: totals.actioned },
-      { label: "Inactioned / Untouched", value: totals.inactioned },
+      { label: "Untouched", value: totals.inactioned },
       { label: "Actioned %", value: formatServerMonitoringPercent(totals.actioned, totals.totalReceived) },
       { label: "PDE", value: totals.pde },
       { label: "PDE %", value: formatServerMonitoringPercent(totals.pde, totals.totalReceived) },
       { label: "Interested", value: totals.interested },
       { label: "NI", value: totals.ni },
       { label: "Opportunity", value: totals.opportunity },
-      { label: "Offered", value: totals.offered },
-      { label: "Enrolled", value: totals.enrolled },
-      { label: "Won", value: totals.won }
+      { label: "Enrolled", value: totals.enrolled }
     ],
     sections: [
       { key: "summary", label: "Summary", columns: ["Metric", "Value", "% of Total"], rows: summaryRows },
-      { key: "lce", label: "LCE", columns: ["LCE", "Received", "Actioned", "Inactioned", "Action %", "PDE", "PDE %", "Interested", "Int %", "NI", "NI %", "CNC", "CBL", "Opportunity", "Opp %", "Offered", "Offered %", "Enrolled", "Won", "Outbound", "Inbound", "Talk Time"], rows: lceRows },
-      { key: "daily", label: "Daily", columns: ["Date", "Received", "Actioned", "Inactioned", "PDE", "CNC", "CBL", "NI", "Interested", "Opportunity", "Offered", "Enrolled", "Won"], rows: dailyRows },
-      { key: "course", label: "Course", columns: ["Course", "Received", "PDE", "PDE %", "Interested", "NI", "CNC", "CBL", "Opportunity", "Offered", "Enrolled", "Won"], rows: buildBreakdownRows(getServerAdmissionCourseLabel) },
-      { key: "source", label: "Source", columns: ["Source", "Received", "PDE", "PDE %", "Interested", "NI", "CNC", "CBL", "Opportunity", "Offered", "Enrolled", "Won"], rows: buildBreakdownRows(getServerAdmissionSourceLabel) }
+      { key: "lce", label: "LCE", columns: ["LCE", "Received", "Actioned", "Untouched", "Action %", "PDE", "PDE %", "Interested", "NI", "CNC", "CBL", "Opp", "Offered", "Enrolled", "Won", "Outbound", "Inbound", "Talk Time"], rows: lceRows },
+      { key: "daily", label: "Daily", columns: ["Date", "Received", "Actioned", "Untouched", "PDE", "CNC", "CBL", "NI", "Interested", "Opp", "Offered", "Enrolled", "Won"], rows: dailyRows },
+      { key: "course", label: "Course", columns: ["Course", "Received", "PDE", "PDE %", "Interested", "NI", "CNC", "CBL", "Opp", "Offered", "Enrolled", "Won"], rows: buildBreakdownRows(getServerAdmissionCourseLabel) },
+      { key: "source", label: "Source", columns: ["Source", "Received", "PDE", "PDE %", "Interested", "NI", "CNC", "CBL", "Opp", "Offered", "Enrolled", "Won"], rows: buildBreakdownRows(getServerAdmissionSourceLabel) }
     ]
   };
 }

@@ -811,7 +811,7 @@ test("monitoring merges MCube call metrics into the unified admission report", (
   assert.match(server, /NODE_ENV === "production"/);
 });
 
-test("monitoring keeps Workshop Pre and Post plus one unified Admission panel", () => {
+test("monitoring keeps one focused Main Admission reporting panel", () => {
   const monitoringHtml = read("monitoring.html");
   const monitoring = read("monitoring.js");
   const server = read("server.js");
@@ -819,9 +819,9 @@ test("monitoring keeps Workshop Pre and Post plus one unified Admission panel", 
   assert.match(monitoringHtml, /<option value="yesterday">Yesterday<\/option>/);
   assert.match(server, /if \(type === "yesterday"\) return getMonitoringDayRange\(-1\)/);
   assert.match(monitoring, /if \(timelineFilter\.type === "yesterday"\)/);
-  assert.match(getNamedObjectSource(monitoring, "VIEW_CONFIG"), /label: "Workshop"/);
-  assert.match(getNamedObjectSource(monitoring, "VIEW_CONFIG"), /label: "Pre"/);
-  assert.match(getNamedObjectSource(monitoring, "VIEW_CONFIG"), /label: "Post"/);
+  assert.doesNotMatch(getNamedObjectSource(monitoring, "VIEW_CONFIG"), /label: "Workshop"/);
+  assert.doesNotMatch(getNamedObjectSource(monitoring, "VIEW_CONFIG"), /label: "Pre"/);
+  assert.doesNotMatch(getNamedObjectSource(monitoring, "VIEW_CONFIG"), /label: "Post"/);
   assert.match(getNamedObjectSource(monitoring, "VIEW_CONFIG"), /label: "Admission"/);
   assert.match(getNamedObjectSource(monitoring, "VIEW_CONFIG"), /"admission-unified"/);
   assert.doesNotMatch(getNamedObjectSource(monitoring, "VIEW_CONFIG"), /label: "Management Reports"/);
@@ -840,7 +840,7 @@ test("monitoring keeps Workshop Pre and Post plus one unified Admission panel", 
   assert.match(getNamedFunctionSource(monitoring, "hasUnifiedCoursePitched"), /context\.coursePitchedField/);
   assert.match(getNamedFunctionSource(monitoring, "getUnifiedAdmissionContexts"), /mainAdmissionCoursePitched/);
   assert.match(getNamedFunctionSource(monitoring, "getUnifiedAdmissionContexts"), /registeredCoursePitched/);
-  assert.match(monitoring, /const canUseServerReport = activeView\.group === "workshop"/);
+  assert.match(monitoring, /const canUseServerReport = activeView\.group === "workshop" \|\| activeView\.subsection === "admission-unified"/);
   assert.match(monitoring, /activeView\.subsection === "admission-unified"/);
 });
 

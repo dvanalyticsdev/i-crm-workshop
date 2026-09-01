@@ -117,30 +117,14 @@ const MONITORING_ACTIVITY_OPTIONS = {
 };
 
 const VIEW_CONFIG = {
-  workshop: {
-    label: "Workshop",
-    description: "Monitor the workshop-stage pipelines and post-workshop follow-up activity.",
-    subsections: {
-      "workshop-calling": {
-        label: "Pre",
-        title: "Pre Workshop Monitoring",
-        description: "Track pre-workshop calling performance, interest response, and WhatsApp group movement."
-      },
-      "admission-calling": {
-        label: "Post",
-        title: "Post Workshop Monitoring",
-        description: "Track post-workshop counselor follow-up, conversion progress, and workshop-to-admission movement."
-      }
-    }
-  },
   admission: {
     label: "Admission",
-    description: "Monitor all admission-side leads, outcomes, and MCube activity in one report.",
+    description: "Monitor main admission lead volume, activity, outcomes, courses, and sources.",
     subsections: {
       "admission-unified": {
         label: "Admission",
-        title: "Admission Monitoring",
-        description: "Review Main Admission, Registered Candidates, 7 Days Crash Course, admission outcomes, and MCube call activity together."
+        title: "Main Admission Reporting",
+        description: "Track main admission lead volume, activity, outcomes, courses, and sources."
       }
     }
   }
@@ -153,8 +137,8 @@ let timelineFilter = {
 };
 
 let activeView = {
-  group: "workshop",
-  subsection: "workshop-calling"
+  group: "admission",
+  subsection: "admission-unified"
 };
 
 let activeAdmissionReportSection = "summary";
@@ -1966,11 +1950,13 @@ function getServerReportCell(row, label) {
     "Received": "totalReceived",
     "Actioned": "actioned",
     "Inactioned": "inactioned",
+    "Untouched": "inactioned",
     "Action %": "actionedPercent",
     "PDE %": "pdePercent",
     "Int %": "interestedPercent",
     "NI %": "niPercent",
     "Opportunity": "opportunity",
+    "Opp": "opportunity",
     "Opp %": "opportunityPercent",
     "Offered": "offered",
     "Offered %": "offeredPercent",
@@ -2036,11 +2022,7 @@ function renderAdmissionReportSectionNav(sections = []) {
   if (!monitoringSubsectionNav) return;
   monitoringSubsectionNav.style.display = "";
   monitoringSubsectionNav.innerHTML = `
-    <div class="card-head">
-      <h3>Main Admission Reporting</h3>
-      <p>Fast server-side reporting from main admission CRM data.</p>
-    </div>
-    <div class="filter-actions" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+    <div class="monitoring-report-tabs">
       ${sections.map((section) => `
         <button
           type="button"
@@ -2132,16 +2114,22 @@ function exportMonitoringExcel() {
 }
 
 function getActiveGroupConfig() {
-  return VIEW_CONFIG[activeView.group] || VIEW_CONFIG.workshop;
+  return VIEW_CONFIG[activeView.group] || VIEW_CONFIG.admission;
 }
 
 function getActiveSubsectionConfig() {
   return getActiveGroupConfig().subsections[activeView.subsection]
-    || VIEW_CONFIG.workshop.subsections["workshop-calling"];
+    || VIEW_CONFIG.admission.subsections["admission-unified"];
 }
 
 function renderSectionNav() {
   if (!monitoringSectionNav) {
+    return;
+  }
+
+  if (activeView.group === "admission" && activeView.subsection === "admission-unified") {
+    monitoringSectionNav.innerHTML = "";
+    monitoringSectionNav.style.display = "none";
     return;
   }
 
@@ -3091,12 +3079,12 @@ function renderActiveMonitoringView() {
 
 function ensureValidActiveView() {
   if (VIEW_CONFIG[activeView.group]?.adminOnly && !isAdminSession()) {
-    activeView.group = "workshop";
-    activeView.subsection = "workshop-calling";
+    activeView.group = "admission";
+    activeView.subsection = "admission-unified";
   }
 
   if (!VIEW_CONFIG[activeView.group]) {
-    activeView.group = "workshop";
+    activeView.group = "admission";
   }
 
   if (!VIEW_CONFIG[activeView.group].subsections[activeView.subsection]) {
