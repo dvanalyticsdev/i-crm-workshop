@@ -2524,9 +2524,272 @@ function buildServerManagementMonitoringReport(subsection, rawLeads, counselors,
   };
 }
 
+function formatServerMonitoringPercent(count, total) {
+  const base = Number(total) || 0;
+  if (!base) return "0%";
+  const value = ((Number(count) || 0) / base) * 100;
+  return `${value.toFixed(value % 1 === 0 ? 0 : 1)}%`;
+}
+
+function getServerAdmissionReceivedDate(lead = {}) {
+  return parseMonitoringDate(lead?.createdAtExact || lead?.createdAt);
+}
+
+function isServerAdmissionLeadReceivedInRange(lead = {}, range = null) {
+  if (!range) return true;
+  const date = getServerAdmissionReceivedDate(lead);
+  return Boolean(date && date >= range.start && date <= range.end);
+}
+
+function getServerAdmissionLeadDateKey(lead = {}) {
+  const date = getServerAdmissionReceivedDate(lead);
+  return date ? toKolkataDateKey(date) : "";
+}
+
+function getServerAdmissionSourceLabel(lead = {}) {
+  return String(lead?.source || lead?.leadSource || "Unspecified").trim() || "Unspecified";
+}
+
+function getServerAdmissionCourseLabel(lead = {}) {
+  return String(lead?.mainAdmissionCoursePitched || lead?.courseName || lead?.courseCode || "Unspecified").trim() || "Unspecified";
+}
+
+function isServerAdmissionPde(lead = {}) {
+  const value = getServerAdmissionCourseLabel(lead);
+  return Boolean(value) && !/^(unspecified|select|no|na|n\/a|none|null|undefined)$/i.test(value);
+}
+
+function getServerAdmissionStatusCounts(leads = []) {
+  return leads.reduce((summary, lead) => {
+    const courseStatus = normalizeMonitoringText(lead?.mainAdmissionCourseStatus);
+    const admissionStatus = normalizeMonitoringText(lead?.mainAdmissionAdmissionStatus);
+    const callStatus = normalizeMonitoringText(lead?.mainAdmissionCallStatus);
+    if (isServerAdmissionPde(lead)) summary.pde += 1;
+    if (courseStatus === "interested") summary.interested += 1;
+    if (courseStatus === "not interested" || courseStatus === "ni") summary.ni += 1;
+    if (admissionStatus === "opportunity") summary.opportunity += 1;
+    if (admissionStatus === "offered") summary.offered += 1;
+    if (admissionStatus === "enrolled") summary.enrolled += 1;
+    if (admissionStatus === "won") summary.won += 1;
+    if (callStatus === "cnc") summary.cnc += 1;
+    if (callStatus === "cbl") summary.cbl += 1;
+    return summary;
+  }, {
+    pde: 0,
+    interested: 0,
+    ni: 0,
+    opportunity: 0,
+    offered: 0,
+    enrolled: 0,
+    won: 0,
+    cnc: 0,
+    cbl: 0
+  });
+}
+
+function getServerAdmissionCallsForLead(lead = {}, range = null, directory) {
+  return getMonitoringHistoryInRange(lead?.mcubeCallHistory, range).map((entry) => ({
+    counselor: resolveMonitoringCounselorName(entry?.agentName || entry?.counselor || lead?.counselor, directory, true) || "Unassigned",
+    direction: normalizeMonitoringText(entry?.direction),
+    duration: getMonitoringMcubeEntryTalkTimeSeconds(entry)
+  }));
+}
+
+function hasServerAdmissionActionInRange(lead = {}, counselor = "", range = null, directory) {
+  const target = normalizeMonitoringText(counselor);
+  const hasActivity = getMonitoringHistoryInRange(lead?.mainAdmissionActivityHistory, range).some((entry) =>
+    normalizeMonitoringText(resolveMonitoringCounselorName(entry?.by || entry?.counselor, directory, true)) === target
+    && isMonitoringCounselorActivityEntry(entry, MONITORING_ACTIVITY_OPTIONS.mainAdmissionActivityHistory)
+  );
+  if (hasActivity) return true;
+  return getServerAdmissionCallsForLead(lead, range, directory).some((entry) =>
+    normalizeMonitoringText(entry.counselor) === target
+  );
+}
+
+function createServerAdmissionSummaryRow(label, value, total = null) {
+  return {
+    metric: label,
+    value,
+    percent: total === null ? "" : formatServerMonitoringPercent(value, total)
+  };
+}
+
+function buildServerAdmissionReport({ leads, counselors, range, session, directory }) {
+  const rawAdmissionLeads = normalizeMonitoringLeadFields(leads).filter(isServerAdmissionReportingLead);
+  const sessionIdentity = getMonitoringSessionIdentity(session, directory);
+  const scopedAdmissionLeads = session.role === "counselor"
+    ? rawAdmissionLeads.filter((lead) =>
+      normalizeMonitoringText(resolveMonitoringCounselorName(lead?.counselor, directory, true)) === sessionIdentity
+    )
+    : rawAdmissionLeads;
+  const receivedLeads = scopedAdmissionLeads.filter((lead) => isServerAdmissionLeadReceivedInRange(lead, range));
+  const counselorNames = getMonitoringCounselorNamesFromData(scopedAdmissionLeads, counselors, session, directory);
+  const calls = scopedAdmissionLeads.flatMap((lead) => getServerAdmissionCallsForLead(lead, range, directory));
+
+  const lceRows = counselorNames.map((counselor) => {
+    const target = normalizeMonitoringText(counselor);
+    const counselorLeads = receivedLeads.filter((lead) =>
+      normalizeMonitoringText(resolveMonitoringCounselorName(lead?.counselor, directory, true)) === target
+    );
+    const counselorCalls = calls.filter((call) => normalizeMonitoringText(call.counselor) === target);
+    const status = getServerAdmissionStatusCounts(counselorLeads);
+    const totalReceived = counselorLeads.length;
+    const totalActioned = counselorLeads.filter((lead) => hasServerAdmissionActionInRange(lead, counselor, range, directory)).length;
+    const outboundCalls = counselorCalls.filter((call) => call.direction === "outbound").length;
+    const inboundCalls = counselorCalls.filter((call) => call.direction === "inbound").length;
+    const talkTimeSeconds = counselorCalls.reduce((sum, call) => sum + call.duration, 0);
+    return {
+      lce: counselor,
+      totalReceived,
+      actioned: totalActioned,
+      inactioned: Math.max(0, totalReceived - totalActioned),
+      actionedPercent: formatServerMonitoringPercent(totalActioned, totalReceived),
+      pde: status.pde,
+      pdePercent: formatServerMonitoringPercent(status.pde, totalReceived),
+      interested: status.interested,
+      interestedPercent: formatServerMonitoringPercent(status.interested, totalReceived),
+      ni: status.ni,
+      niPercent: formatServerMonitoringPercent(status.ni, totalReceived),
+      cnc: status.cnc,
+      cbl: status.cbl,
+      opportunity: status.opportunity,
+      opportunityPercent: formatServerMonitoringPercent(status.opportunity, totalReceived),
+      offered: status.offered,
+      offeredPercent: formatServerMonitoringPercent(status.offered, totalReceived),
+      enrolled: status.enrolled,
+      enrolledPercent: formatServerMonitoringPercent(status.enrolled, totalReceived),
+      won: status.won,
+      wonPercent: formatServerMonitoringPercent(status.won, totalReceived),
+      outboundCalls,
+      inboundCalls,
+      talkTimeLabel: formatMonitoringTalkTime(talkTimeSeconds)
+    };
+  }).filter((row) => row.totalReceived || row.actioned || row.outboundCalls || row.inboundCalls)
+    .sort((left, right) => right.totalReceived - left.totalReceived || right.actioned - left.actioned || left.lce.localeCompare(right.lce));
+
+  const totals = lceRows.reduce((summary, row) => {
+    ["totalReceived", "actioned", "inactioned", "pde", "interested", "ni", "cnc", "cbl", "opportunity", "offered", "enrolled", "won"].forEach((key) => {
+      summary[key] += Number(row[key]) || 0;
+    });
+    return summary;
+  }, {
+    totalReceived: 0,
+    actioned: 0,
+    inactioned: 0,
+    pde: 0,
+    interested: 0,
+    ni: 0,
+    cnc: 0,
+    cbl: 0,
+    opportunity: 0,
+    offered: 0,
+    enrolled: 0,
+    won: 0
+  });
+
+  const buildBreakdownRows = (getLabel) => {
+    const grouped = new Map();
+    receivedLeads.forEach((lead) => {
+      const label = getLabel(lead);
+      if (!grouped.has(label)) grouped.set(label, []);
+      grouped.get(label).push(lead);
+    });
+    return [...grouped.entries()].map(([name, items]) => {
+      const status = getServerAdmissionStatusCounts(items);
+      const total = items.length;
+      return {
+        name,
+        totalReceived: total,
+        pde: status.pde,
+        pdePercent: formatServerMonitoringPercent(status.pde, total),
+        interested: status.interested,
+        ni: status.ni,
+        cnc: status.cnc,
+        cbl: status.cbl,
+        opportunity: status.opportunity,
+        offered: status.offered,
+        enrolled: status.enrolled,
+        won: status.won
+      };
+    }).sort((left, right) => right.totalReceived - left.totalReceived || left.name.localeCompare(right.name));
+  };
+
+  const dailyMap = new Map();
+  receivedLeads.forEach((lead) => {
+    const day = getServerAdmissionLeadDateKey(lead);
+    if (!day) return;
+    if (!dailyMap.has(day)) dailyMap.set(day, []);
+    dailyMap.get(day).push(lead);
+  });
+  const dailyRows = [...dailyMap.entries()].map(([date, items]) => {
+    const status = getServerAdmissionStatusCounts(items);
+    const actioned = items.filter((lead) =>
+      hasServerAdmissionActionInRange(lead, resolveMonitoringCounselorName(lead?.counselor, directory, true), range, directory)
+    ).length;
+    return {
+      date,
+      totalReceived: items.length,
+      actioned,
+      inactioned: Math.max(0, items.length - actioned),
+      pde: status.pde,
+      cnc: status.cnc,
+      cbl: status.cbl,
+      ni: status.ni,
+      interested: status.interested,
+      opportunity: status.opportunity,
+      offered: status.offered,
+      enrolled: status.enrolled,
+      won: status.won
+    };
+  }).sort((left, right) => String(right.date).localeCompare(String(left.date)));
+
+  const summaryRows = [
+    createServerAdmissionSummaryRow("Total Leads Received", totals.totalReceived),
+    createServerAdmissionSummaryRow("Actioned Leads", totals.actioned, totals.totalReceived),
+    createServerAdmissionSummaryRow("Inactioned / Untouched Leads", totals.inactioned, totals.totalReceived),
+    createServerAdmissionSummaryRow("PDE", totals.pde, totals.totalReceived),
+    createServerAdmissionSummaryRow("Interested", totals.interested, totals.totalReceived),
+    createServerAdmissionSummaryRow("NI / Not Interested", totals.ni, totals.totalReceived),
+    createServerAdmissionSummaryRow("CNC", totals.cnc, totals.totalReceived),
+    createServerAdmissionSummaryRow("CBL", totals.cbl, totals.totalReceived),
+    createServerAdmissionSummaryRow("Opportunity", totals.opportunity, totals.totalReceived),
+    createServerAdmissionSummaryRow("Offered", totals.offered, totals.totalReceived),
+    createServerAdmissionSummaryRow("Enrolled", totals.enrolled, totals.totalReceived),
+    createServerAdmissionSummaryRow("Won", totals.won, totals.totalReceived)
+  ];
+
+  return {
+    metrics: [
+      { label: "Total Leads Received", value: totals.totalReceived },
+      { label: "Actioned Leads", value: totals.actioned },
+      { label: "Inactioned / Untouched", value: totals.inactioned },
+      { label: "Actioned %", value: formatServerMonitoringPercent(totals.actioned, totals.totalReceived) },
+      { label: "PDE", value: totals.pde },
+      { label: "PDE %", value: formatServerMonitoringPercent(totals.pde, totals.totalReceived) },
+      { label: "Interested", value: totals.interested },
+      { label: "NI", value: totals.ni },
+      { label: "Opportunity", value: totals.opportunity },
+      { label: "Offered", value: totals.offered },
+      { label: "Enrolled", value: totals.enrolled },
+      { label: "Won", value: totals.won }
+    ],
+    sections: [
+      { key: "summary", label: "Summary", columns: ["Metric", "Value", "% of Total"], rows: summaryRows },
+      { key: "lce", label: "LCE", columns: ["LCE", "Received", "Actioned", "Inactioned", "Action %", "PDE", "PDE %", "Interested", "Int %", "NI", "NI %", "CNC", "CBL", "Opportunity", "Opp %", "Offered", "Offered %", "Enrolled", "Won", "Outbound", "Inbound", "Talk Time"], rows: lceRows },
+      { key: "daily", label: "Daily", columns: ["Date", "Received", "Actioned", "Inactioned", "PDE", "CNC", "CBL", "NI", "Interested", "Opportunity", "Offered", "Enrolled", "Won"], rows: dailyRows },
+      { key: "course", label: "Course", columns: ["Course", "Received", "PDE", "PDE %", "Interested", "NI", "CNC", "CBL", "Opportunity", "Offered", "Enrolled", "Won"], rows: buildBreakdownRows(getServerAdmissionCourseLabel) },
+      { key: "source", label: "Source", columns: ["Source", "Received", "PDE", "PDE %", "Interested", "NI", "CNC", "CBL", "Opportunity", "Offered", "Enrolled", "Won"], rows: buildBreakdownRows(getServerAdmissionSourceLabel) }
+    ]
+  };
+}
+
 function buildMonitoringReport({ subsection, leads, counselors, range, session }) {
   const directory = buildMonitoringCounselorDirectory(counselors);
   const rawLeads = normalizeMonitoringLeadFields(leads);
+  if (subsection === "admission-unified") {
+    return buildServerAdmissionReport({ leads: rawLeads, counselors, range, session, directory });
+  }
   if (subsection === "reporting" || subsection === "lead-assignment") {
     return buildServerManagementMonitoringReport(subsection, rawLeads, counselors, range, session, directory);
   }
@@ -2952,6 +3215,7 @@ function getScopedLeadSourceFilterValue(lead = {}) {
     lead.name,
     lead.email
   ].map((value) => String(value || "").trim().toLowerCase()).filter(Boolean).join(" ");
+  if (/\b(organic)\b/.test(text)) return "organic";
   if (/\b(mcube)\b/.test(text) || /^mcube\s+(caller|lead)(\s+\S+)?$/i.test(String(lead.name || "").trim()) || /^mcube-[^@\s]+@noemail\.lead$/i.test(String(lead.email || "").trim().toLowerCase())) return "mcube";
   if (String(lead.elementorPageUrl || "").trim() || /\b(elementor|website|web|landing page|site|public course)\b/.test(text)) return "elementor";
   if (/\b(meta)\b/.test(text)) return "meta";
@@ -3423,7 +3687,7 @@ function buildMonitoringLeadMongoQuery(subsection = "") {
       { leadPipeline: null }
     ]
   };
-  if (key === "main-admission") return getMainAdmissionLeadMongoQuery();
+  if (key === "main-admission" || key === "admission-unified") return getMainAdmissionLeadMongoQuery();
   if (key === "reporting" || key === "lead-assignment") return getMainAdmissionLeadMongoQuery();
   if (key === "admission-calling") {
     return {
@@ -3653,8 +3917,18 @@ function buildMonitoringLeadProjection(subsection = "") {
   if (key === "admission-calling") {
     return { ...projection, admissionActivityHistory: 1, admissionStatus: 1 };
   }
-  if (key === "main-admission" || key === "reporting" || key === "lead-assignment") {
-    return { ...projection, mainAdmissionActivityHistory: 1, mainAdmissionCoursePitched: 1 };
+  if (key === "main-admission" || key === "admission-unified" || key === "reporting" || key === "lead-assignment") {
+    return {
+      ...projection,
+      source: 1,
+      leadSource: 1,
+      mainAdmissionActivityHistory: 1,
+      mainAdmissionCoursePitched: 1,
+      mainAdmissionCourseStatus: 1,
+      mainAdmissionAdmissionStatus: 1,
+      mainAdmissionCallStatus: 1,
+      mcubeCallHistory: 1
+    };
   }
   if (key === "registered-candidates" || key === "crash-course") {
     return { ...projection, registeredCourseActivityHistory: 1 };
@@ -3707,6 +3981,13 @@ function appendMonitoringRangeMongoQuery(query = {}, subsection = "", range = nu
     "workshop-calling": [{ "workshopActivityHistory.at": { $gte: startIso, $lte: endIso } }],
     "admission-calling": [{ "admissionActivityHistory.at": { $gte: startIso, $lte: endIso } }],
     "main-admission": [{ "mainAdmissionActivityHistory.at": { $gte: startIso, $lte: endIso } }],
+    "admission-unified": [
+      { "mainAdmissionActivityHistory.at": { $gte: startIso, $lte: endIso } },
+      { "mcubeCallHistory.at": { $gte: startIso, $lte: endIso } },
+      { "mcubeCallHistory.receivedAt": { $gte: startIso, $lte: endIso } },
+      { "mcubeCallHistory.startTime": { $gte: startIso, $lte: endIso } },
+      { "mcubeCallHistory.callStartTime": { $gte: startIso, $lte: endIso } }
+    ],
     "registered-candidates": [{ "registeredCourseActivityHistory.at": { $gte: startIso, $lte: endIso } }],
     "crash-course": [{ "registeredCourseActivityHistory.at": { $gte: startIso, $lte: endIso } }],
     "mcube-main": [

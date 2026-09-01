@@ -157,6 +157,8 @@ let activeView = {
   subsection: "workshop-calling"
 };
 
+let activeAdmissionReportSection = "summary";
+
 let admissionReportFilters = {
   course: "all",
   manager: "all",
@@ -547,7 +549,7 @@ async function loadMonitoringData() {
   monitoringLoadController = controller;
   const timeoutId = window.setTimeout(() => controller.abort(), 18000);
   try {
-  const canUseServerReport = activeView.group === "workshop";
+  const canUseServerReport = activeView.group === "workshop" || activeView.subsection === "admission-unified";
   if (canUseServerReport) {
     const reportUrl = new URL(apiUrl("/api/monitoring-report"), window.location.origin);
     reportUrl.searchParams.set("subsection", activeView.subsection);
@@ -1957,6 +1959,28 @@ function renderServerBreakdownCell(entries = [], emptyLabel = "No activity") {
 
 function getServerReportCell(row, label) {
   const keyByLabel = {
+    "Metric": "metric",
+    "Value": "value",
+    "% of Total": "percent",
+    "LCE": "lce",
+    "Received": "totalReceived",
+    "Actioned": "actioned",
+    "Inactioned": "inactioned",
+    "Action %": "actionedPercent",
+    "PDE %": "pdePercent",
+    "Int %": "interestedPercent",
+    "NI %": "niPercent",
+    "Opportunity": "opportunity",
+    "Opp %": "opportunityPercent",
+    "Offered": "offered",
+    "Offered %": "offeredPercent",
+    "Enrolled %": "enrolledPercent",
+    "Won %": "wonPercent",
+    "Outbound": "outboundCalls",
+    "Inbound": "inboundCalls",
+    "Date": "date",
+    "Course": "name",
+    "Source": "name",
     "Counselor Name": "counselor",
     "Total Activities Completed": "activities",
     "Overall Activity": "activities",
@@ -2004,8 +2028,69 @@ function getServerReportCell(row, label) {
   return escapeHtml(row?.[key] ?? "");
 }
 
+function getAdmissionReportSections() {
+  return Array.isArray(monitoringReport?.sections) ? monitoringReport.sections : [];
+}
+
+function renderAdmissionReportSectionNav(sections = []) {
+  if (!monitoringSubsectionNav) return;
+  monitoringSubsectionNav.style.display = "";
+  monitoringSubsectionNav.innerHTML = `
+    <div class="card-head">
+      <h3>Main Admission Reporting</h3>
+      <p>Fast server-side reporting from main admission CRM data.</p>
+    </div>
+    <div class="filter-actions" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+      ${sections.map((section) => `
+        <button
+          type="button"
+          class="${activeAdmissionReportSection === section.key ? "btn-primary" : "btn-ghost"}"
+          data-admission-report-section="${escapeHtml(section.key)}"
+        >
+          ${escapeHtml(section.label)}
+        </button>
+      `).join("")}
+    </div>
+  `;
+  monitoringSubsectionNav.querySelectorAll("[data-admission-report-section]").forEach((button) => {
+    button.onclick = () => {
+      const nextSection = button.getAttribute("data-admission-report-section");
+      if (!nextSection || nextSection === activeAdmissionReportSection) return;
+      activeAdmissionReportSection = nextSection;
+      renderAll();
+    };
+  });
+}
+
+function renderServerAdmissionReport() {
+  const sections = getAdmissionReportSections();
+  if (!sections.length) return false;
+  if (!sections.some((section) => section.key === activeAdmissionReportSection)) {
+    activeAdmissionReportSection = sections[0]?.key || "summary";
+  }
+  const subsectionConfig = getActiveSubsectionConfig();
+  const activeSection = sections.find((section) => section.key === activeAdmissionReportSection) || sections[0];
+  monitoringActiveTitle.textContent = subsectionConfig.title;
+  monitoringActiveDescription.textContent = subsectionConfig.description;
+  renderAdmissionReportSectionNav(sections);
+  buildMetricCards((Array.isArray(monitoringReport.metrics) ? monitoringReport.metrics : []).map((metric) => ({
+    label: metric.label,
+    value: metric.value
+  })));
+  const columns = Array.isArray(activeSection.columns) ? activeSection.columns : [];
+  const rows = Array.isArray(activeSection.rows) ? activeSection.rows : [];
+  renderTable(columns.map((label) => ({
+    label,
+    render: (row) => getServerReportCell(row, label)
+  })), rows, Math.max(columns.length, 1), `admission-report-table admission-report-table--${escapeHtml(activeSection.key)}`);
+  return true;
+}
+
 function renderServerMonitoringReport() {
   if (!monitoringReport) return false;
+  if (activeView.subsection === "admission-unified" && Array.isArray(monitoringReport.sections)) {
+    return renderServerAdmissionReport();
+  }
   const subsectionConfig = getActiveSubsectionConfig();
   monitoringActiveTitle.textContent = subsectionConfig.title;
   monitoringActiveDescription.textContent = subsectionConfig.description;

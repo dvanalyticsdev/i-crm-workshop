@@ -2551,6 +2551,7 @@ function renderFilters(leads) {
           <label for="mainAdmissionLeadSourceSelect">Lead Source</label>
           <select id="mainAdmissionLeadSourceSelect">
             <option value="">All</option>
+            <option value="organic" ${filter.leadSource === "organic" ? "selected" : ""}>Organic</option>
             <option value="meta" ${filter.leadSource === "meta" ? "selected" : ""}>Meta</option>
             <option value="elementor" ${filter.leadSource === "elementor" ? "selected" : ""}>Elementor</option>
             <option value="mcube" ${filter.leadSource === "mcube" ? "selected" : ""}>Mcube</option>
@@ -3342,6 +3343,10 @@ function getLeadSourceFilterValue(lead) {
     .map((value) => normalizeText(value))
     .filter(Boolean)
     .join(" ");
+
+  if (/\b(organic)\b/.test(sourceSignals)) {
+    return "organic";
+  }
 
   if (
     /\b(mcube)\b/.test(sourceSignals)
