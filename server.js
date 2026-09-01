@@ -2554,17 +2554,34 @@ function getServerAdmissionCourseLabel(lead = {}) {
   return String(lead?.mainAdmissionCoursePitched || lead?.courseName || lead?.courseCode || "Unspecified").trim() || "Unspecified";
 }
 
-function isServerAdmissionPde(lead = {}) {
-  const value = getServerAdmissionCourseLabel(lead);
-  return Boolean(value) && !/^(unspecified|select|no|na|n\/a|none|null|undefined)$/i.test(value);
+function isServerAdmissionValidCourseValue(value) {
+  return Boolean(String(value || "").trim())
+    && !/^(unspecified|select|no|na|n\/a|none|null|undefined)$/i.test(String(value || "").trim());
 }
 
-function getServerAdmissionStatusCounts(leads = []) {
+function hasServerAdmissionPde(lead = {}, range = null, counselor = "", directory) {
+  const target = normalizeMonitoringText(counselor);
+  return getMonitoringHistoryInRange(lead?.mainAdmissionActivityHistory, range).some((entry) => {
+    const updates = entry?.updates && typeof entry.updates === "object" ? entry.updates : {};
+    if (!Object.prototype.hasOwnProperty.call(updates, "mainAdmissionCoursePitched")) {
+      return false;
+    }
+    if (!isServerAdmissionValidCourseValue(updates.mainAdmissionCoursePitched)) {
+      return false;
+    }
+    if (target && normalizeMonitoringText(resolveMonitoringCounselorName(entry?.by || entry?.counselor, directory, true)) !== target) {
+      return false;
+    }
+    return isMonitoringCounselorActivityEntry(entry, MONITORING_ACTIVITY_OPTIONS.mainAdmissionActivityHistory);
+  });
+}
+
+function getServerAdmissionStatusCounts(leads = [], range = null, counselor = "", directory) {
   return leads.reduce((summary, lead) => {
     const courseStatus = normalizeMonitoringText(lead?.mainAdmissionCourseStatus);
     const admissionStatus = normalizeMonitoringText(lead?.mainAdmissionAdmissionStatus);
     const callStatus = normalizeMonitoringText(lead?.mainAdmissionCallStatus);
-    if (isServerAdmissionPde(lead)) summary.pde += 1;
+    if (hasServerAdmissionPde(lead, range, counselor, directory)) summary.pde += 1;
     if (courseStatus === "interested") summary.interested += 1;
     if (courseStatus === "not interested" || courseStatus === "ni") summary.ni += 1;
     if (admissionStatus === "opportunity") summary.opportunity += 1;
@@ -2607,6 +2624,14 @@ function hasServerAdmissionActionInRange(lead = {}, counselor = "", range = null
   );
 }
 
+function hasServerAdmissionLeadActionInRange(lead = {}, range = null, directory) {
+  const hasActivity = getMonitoringHistoryInRange(lead?.mainAdmissionActivityHistory, range).some((entry) =>
+    isMonitoringCounselorActivityEntry(entry, MONITORING_ACTIVITY_OPTIONS.mainAdmissionActivityHistory)
+  );
+  if (hasActivity) return true;
+  return getServerAdmissionCallsForLead(lead, range, directory).length > 0;
+}
+
 function createServerAdmissionSummaryRow(label, value, total = null) {
   return {
     metric: label,
@@ -2624,7 +2649,10 @@ function buildServerAdmissionReport({ leads, counselors, range, session, directo
     )
     : rawAdmissionLeads;
   const receivedLeads = scopedAdmissionLeads.filter((lead) => isServerAdmissionLeadReceivedInRange(lead, range));
-  const counselorNames = getMonitoringCounselorNamesFromData(scopedAdmissionLeads, counselors, session, directory);
+  const counselorNames = [...new Set([
+    ...getMonitoringCounselorNamesFromData(scopedAdmissionLeads, counselors, session, directory),
+    ...receivedLeads.map((lead) => resolveMonitoringCounselorName(lead?.counselor, directory, true)).filter(Boolean)
+  ])].sort((left, right) => left.localeCompare(right));
   const calls = scopedAdmissionLeads.flatMap((lead) => getServerAdmissionCallsForLead(lead, range, directory));
 
   const lceRows = counselorNames.map((counselor) => {
@@ -2633,7 +2661,7 @@ function buildServerAdmissionReport({ leads, counselors, range, session, directo
       normalizeMonitoringText(resolveMonitoringCounselorName(lead?.counselor, directory, true)) === target
     );
     const counselorCalls = calls.filter((call) => normalizeMonitoringText(call.counselor) === target);
-    const status = getServerAdmissionStatusCounts(counselorLeads);
+    const status = getServerAdmissionStatusCounts(counselorLeads, range, counselor, directory);
     const totalReceived = counselorLeads.length;
     const totalActioned = counselorLeads.filter((lead) => hasServerAdmissionActionInRange(lead, counselor, range, directory)).length;
     const outboundCalls = counselorCalls.filter((call) => call.direction === "outbound").length;
@@ -2668,25 +2696,22 @@ function buildServerAdmissionReport({ leads, counselors, range, session, directo
   }).filter((row) => row.totalReceived || row.actioned || row.outboundCalls || row.inboundCalls)
     .sort((left, right) => right.totalReceived - left.totalReceived || right.actioned - left.actioned || left.lce.localeCompare(right.lce));
 
-  const totals = lceRows.reduce((summary, row) => {
-    ["totalReceived", "actioned", "inactioned", "pde", "interested", "ni", "cnc", "cbl", "opportunity", "offered", "enrolled", "won"].forEach((key) => {
-      summary[key] += Number(row[key]) || 0;
-    });
-    return summary;
-  }, {
-    totalReceived: 0,
-    actioned: 0,
-    inactioned: 0,
-    pde: 0,
-    interested: 0,
-    ni: 0,
-    cnc: 0,
-    cbl: 0,
-    opportunity: 0,
-    offered: 0,
-    enrolled: 0,
-    won: 0
-  });
+  const totalStatus = getServerAdmissionStatusCounts(receivedLeads, range, "", directory);
+  const totalActioned = receivedLeads.filter((lead) => hasServerAdmissionLeadActionInRange(lead, range, directory)).length;
+  const totals = {
+    totalReceived: receivedLeads.length,
+    actioned: totalActioned,
+    inactioned: Math.max(0, receivedLeads.length - totalActioned),
+    pde: totalStatus.pde,
+    interested: totalStatus.interested,
+    ni: totalStatus.ni,
+    cnc: totalStatus.cnc,
+    cbl: totalStatus.cbl,
+    opportunity: totalStatus.opportunity,
+    offered: totalStatus.offered,
+    enrolled: totalStatus.enrolled,
+    won: totalStatus.won
+  };
 
   const buildBreakdownRows = (getLabel) => {
     const grouped = new Map();
@@ -2696,7 +2721,7 @@ function buildServerAdmissionReport({ leads, counselors, range, session, directo
       grouped.get(label).push(lead);
     });
     return [...grouped.entries()].map(([name, items]) => {
-      const status = getServerAdmissionStatusCounts(items);
+      const status = getServerAdmissionStatusCounts(items, range, "", directory);
       const total = items.length;
       return {
         name,
@@ -2723,7 +2748,7 @@ function buildServerAdmissionReport({ leads, counselors, range, session, directo
     dailyMap.get(day).push(lead);
   });
   const dailyRows = [...dailyMap.entries()].map(([date, items]) => {
-    const status = getServerAdmissionStatusCounts(items);
+    const status = getServerAdmissionStatusCounts(items, range, "", directory);
     const actioned = items.filter((lead) =>
       hasServerAdmissionActionInRange(lead, resolveMonitoringCounselorName(lead?.counselor, directory, true), range, directory)
     ).length;
